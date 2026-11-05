@@ -526,7 +526,10 @@ impl Model {
         if !self.filters.other.content.is_empty() {
             for (id, node) in self.tree.nodes() {
                 for side in 0..2 {
-                    if node.sides[side].as_ref().is_some_and(|e|e.kind==EntryKind::File) {
+                    if node.sides[side]
+                        .as_ref()
+                        .is_some_and(|e| e.kind == EntryKind::File)
+                    {
                         self.check()?;
                         let path = ops::location(&self.tree, id, side)
                             .map_err(|e| e.to_string())?
@@ -583,7 +586,19 @@ impl Model {
                 }) {
                     continue;
                 }
-                if self.tree.node(left).unwrap().sides[0].as_ref().unwrap().kind!=EntryKind::File||self.tree.node(right).unwrap().sides[1].as_ref().unwrap().kind!=EntryKind::File{continue;}
+                if self.tree.node(left).unwrap().sides[0]
+                    .as_ref()
+                    .unwrap()
+                    .kind
+                    != EntryKind::File
+                    || self.tree.node(right).unwrap().sides[1]
+                        .as_ref()
+                        .unwrap()
+                        .kind
+                        != EntryKind::File
+                {
+                    continue;
+                }
                 let revisions = [
                     self.tree.node(left).unwrap().revision,
                     self.tree.node(right).unwrap().revision,
@@ -638,9 +653,14 @@ impl Model {
             .nodes()
             .filter(|(id, n)| {
                 !n.is_dir
-                    && n.sides[0].as_ref().is_some_and(|e|e.kind==EntryKind::File)
-                    && n.sides[1].as_ref().is_some_and(|e|e.kind==EntryKind::File)
-                    && ((!n.excluded&&(!n.filtered[0]||!n.filtered[1]))||(force&&self.view.suppress_filters))
+                    && n.sides[0]
+                        .as_ref()
+                        .is_some_and(|e| e.kind == EntryKind::File)
+                    && n.sides[1]
+                        .as_ref()
+                        .is_some_and(|e| e.kind == EntryKind::File)
+                    && ((!n.excluded && (!n.filtered[0] || !n.filtered[1]))
+                        || (force && self.view.suppress_filters))
                     && selection.map_or(true, |s| s.items.iter().any(|(n, _)| n == id))
             })
             .map(|(id, _)| id)
@@ -1370,7 +1390,11 @@ impl Model {
                     .nodes()
                     .flat_map(|(id, n)| {
                         (0..2)
-                            .filter(|&s| n.sides[s].as_ref().is_some_and(|e|e.kind==EntryKind::File))
+                            .filter(|&s| {
+                                n.sides[s]
+                                    .as_ref()
+                                    .is_some_and(|e| e.kind == EntryKind::File)
+                            })
                             .map(move |s| (id, s, n.revision))
                     })
                     .filter(|(id, s, _)| {
@@ -1641,6 +1665,7 @@ pub struct DirCompareView {
     align_to: bool,
     anchor: Option<(usize, usize)>,
     focus: Option<usize>,
+    focus_side: Option<usize>,
     scroll_y: f32,
     pending_scroll: Option<usize>,
     pending_focus: Option<NodeId>,
@@ -1724,6 +1749,7 @@ impl DirCompareView {
             align_to: false,
             anchor: None,
             focus: None,
+            focus_side: None,
             scroll_y: 0.0,
             pending_scroll: None,
             pending_focus: None,
@@ -2021,7 +2047,17 @@ impl DirCompareView {
             }
         }
         self.focus = Some(index);
+        self.focus_side = side;
         self.scroll_to_row(index);
+    }
+    fn restrict_side(&mut self, side: usize) {
+        self.selection
+            .items
+            .retain(|(_, selected)| *selected == side);
+        self.focus_side = Some(side);
+        if let Some(row) = self.focus {
+            self.anchor = Some((row, side));
+        }
     }
     fn find_next(&mut self, backwards: bool) {
         let pattern = match self.find.pattern() {
@@ -2576,7 +2612,10 @@ impl DirCompareView {
                 self.open_pair();
             }
             if ctx.input(|i| i.key_pressed(egui::Key::Delete)) && !busy {
-                self.operation = Some(OperationDialog::new(Kind::Delete));
+                let mut dialog = OperationDialog::new(Kind::Delete);
+                dialog.include_hidden =
+                    self.handling.include_hidden || self.filters.options.suppress_filters;
+                self.operation = Some(dialog);
             }
             for (key, backwards) in [(egui::Key::ArrowUp, true), (egui::Key::ArrowDown, false)] {
                 if ctx.input(|i| i.key_pressed(key)) && self.row_count() > 0 {
@@ -2586,25 +2625,27 @@ impl DirCompareView {
                     } else {
                         (current + 1).min(self.row_count() - 1)
                     };
-                    let side = if ctx.input(|i| i.modifiers.shift) {
-                        self.anchor.map(|(_, s)| s)
+                    if ctx.input(|i| i.modifiers.shift) {
+                        self.clicked(
+                            next,
+                            self.focus_side,
+                            false,
+                            egui::Modifiers {
+                                shift: true,
+                                ..Default::default()
+                            },
+                        );
+                        self.scroll_to_row(next);
                     } else {
-                        None
-                    };
-                    self.focus_row(next, side);
+                        self.focus_row(next, self.focus_side);
+                    }
                 }
             }
             if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::ArrowLeft)) {
-                if let Some(row) = self.focus {
-                    self.focus_row(row, Some(0));
-                    self.anchor = Some((row, 0));
-                }
+                self.restrict_side(0);
             }
             if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::ArrowRight)) {
-                if let Some(row) = self.focus {
-                    self.focus_row(row, Some(1));
-                    self.anchor = Some((row, 1));
-                }
+                self.restrict_side(1);
             }
         }
         switch
@@ -2653,13 +2694,13 @@ impl DirCompareView {
         }
         let snapshot = self.snapshot.clone();
         let mut drawn = 0;
-        let mut first_drawn=None;
+        let mut first_drawn = None;
         let mut click = None;
         let mut context_command = None;
         let palette = self.palette;
         let selection = &self.selection;
         let automatic = self.scan.automatic;
-        ui.spacing_mut().item_spacing.y=0.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
         let result = egui::ScrollArea::both()
             .id_salt("folder_rows")
             .auto_shrink([false, false])
@@ -2904,7 +2945,7 @@ impl DirCompareView {
             self.align_to = false;
             return;
         }
-        if !modifiers.ctrl && !modifiers.command && !modifiers.shift {
+        if !modifiers.ctrl && !modifiers.command {
             self.selection.items.clear();
         }
         let indices = if modifiers.shift {
@@ -2919,7 +2960,8 @@ impl DirCompareView {
                 if side.is_none() || side == Some(s) {
                     if let Some(item) = &self.snapshot.rows[at].sides[s] {
                         let key = (item.node, s);
-                        if modifiers.ctrl && self.selection.items.contains(&key) {
+                        if modifiers.ctrl && !modifiers.shift && self.selection.items.contains(&key)
+                        {
                             self.selection.items.remove(&key);
                         } else {
                             self.selection.items.insert(key);
@@ -2929,6 +2971,7 @@ impl DirCompareView {
             }
         }
         self.focus = Some(index);
+        self.focus_side = side;
         if !modifiers.shift {
             self.anchor = Some((index, side.unwrap_or(0)));
         }
@@ -3077,6 +3120,11 @@ mod tests {
         let mut view = temp.view(&ctx, false);
         wait(&mut view, &ctx);
         frame(&mut view, &ctx);
+        view.select_visible("all", false);
+        let left_count = view.selection.items.iter().filter(|(_, s)| *s == 0).count();
+        view.restrict_side(0);
+        assert_eq!(view.selection.items.len(), left_count);
+        assert!(left_count > 1);
         let a = row(&view, "a.txt");
         let b = row(&view, "b.txt");
         view.clicked(b, Some(0), false, egui::Modifiers::default());
@@ -3178,6 +3226,8 @@ mod tests {
             std::fs::read(temp.0.join("right/a.txt")).unwrap(),
             b"123456789"
         );
+        view.log_panel.open = true;
+        frame(&mut view, &ctx);
         view.operate(
             DirOp::Delete {
                 target: Target::Left,
