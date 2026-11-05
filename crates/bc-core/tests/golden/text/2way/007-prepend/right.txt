@@ -1,0 +1,3 @@
+header
+tail A
+tail B

@@ -24,4 +24,11 @@ Conventions
 - No fixture may contain licensed/proprietary text; use synthetic or permissively
   licensed sources.
 
-The directories are intentionally empty at scaffold time (`.gitkeep` only).
+Wave 3 now includes 30 synthetic UTF-8 input-template pairs and case.properties.
+The generator stages real encoded/line-ended working files; source templates remain
+UTF-8. Expected reports are named expected.myers.xml / expected.standard.xml and must
+be checked in verbatim. The complete oracle set is currently pending the decisions
+recorded in tools/golden/README.md; absent oracle tests announce a skip, but partial
+oracle sets fail. Do not mistake the diagnostic reports outside this tree for the
+formal corpus. Engine regression checks all cases; core additionally checks the
+format-independent normalized alignment subset.

@@ -1,0 +1,5 @@
+int a;
+/* first
+old inside text
+last */
+int b;

@@ -50,7 +50,7 @@
 ## 7. 黄金语料
 
 - [ ] 7.1 编写语料生成脚本 `tools/golden/gen_expected.ps1`：用本机已安装的参考工具以脚本模式对 `tests/golden/text/2way/*` 生成 `text-report layout:xml`（Quick 与 Smart 各一份）；验证脚本在本机跑通并产出期望文件（期望文件入库，脚本不依赖参考工具存在才能跑测试）
-- [ ] 7.2 编写期望文件解析器与回归测试 `bc-core/tests/golden_align.rs`、`bc-engine-text/tests/golden_importance.rs`；验证测试在语料目录为空时跳过、有语料时逐行比对
+- [x] 7.2 编写期望文件解析器与回归测试 `bc-core/tests/golden_align.rs`、`bc-engine-text/tests/golden_importance.rs`；验证测试在语料目录为空时跳过、有语料时逐行比对
 - [ ] 7.3 建立首批 30 个合成用例（插入/删除/移动块/相似改动/纯注释改动/缩进改动/行尾差异/空文件/超长行/混合编码）并生成期望；验证 Quick 一致率 100%、Smart 一致率 ≥ 95%，不一致用例归档到 `tests/golden/KNOWN_DIFFS.md`
 
 ## 8. bc-gui 文本比较视图
