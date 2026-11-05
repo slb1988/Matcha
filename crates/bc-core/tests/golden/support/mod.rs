@@ -206,7 +206,7 @@ pub fn parse_report(xml: &str) -> Result<Vec<ExpectedRow>, String> {
                 let status = active.take().ok_or("unexpected linecomp end")?;
                 let importance = match status.as_str() {
                     "same" => 0,
-                    "similar" | "unimportant" => 1,
+                    "similar" | "unimportant" | "leftsimilar" | "rightsimilar" => 1,
                     "different" | "left orphan" | "right orphan" | "leftorphan" | "rightorphan" => {
                         2
                     }
@@ -260,6 +260,22 @@ pub fn parse_report(xml: &str) -> Result<Vec<ExpectedRow>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn parses_captured_unimportant_pair_and_orphan_statuses() {
+        let orphan = parse_report(include_str!(
+            "../../../../../tools/golden/evidence/014-standard-default.xml"
+        ))
+        .unwrap();
+        assert_eq!(orphan[1].kind, DiffKind::LeftOnly);
+        assert_eq!(orphan[1].importance, 1);
+        let paired = parse_report(include_str!(
+            "../../../../../tools/golden/evidence/016-standard-default.xml"
+        ))
+        .unwrap();
+        assert_eq!(paired[1].kind, DiffKind::Changed);
+        assert_eq!(paired[1].importance, 1);
+    }
+
     #[test]
     fn parses_observed_reference_schema_and_empty_corpus() {
         let xml = r#"<bcreport><filecomparison><linecomp status="same"><text ltid="1" rtid="1">anchor</text></linecomp><linecomp status="different"><text ltid="2">value old</text><text rtid="2">value new</text></linecomp></filecomparison></bcreport>"#;

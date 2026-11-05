@@ -36,9 +36,11 @@ function Properties([string]$path) {
     $result=@{}
     foreach($line in [IO.File]::ReadAllLines($path,$utf8)) {
         $line=$line.Trim();if(!$line -or $line.StartsWith('#')){continue}
-        $pair=$line.Split(@('='),2)
-        if($pair.Count -ne 2 -or $result.ContainsKey($pair[0])){throw "Invalid property: $line"}
-        $result[$pair[0]]=$pair[1]
+        $separator=$line.IndexOf('=')
+        if($separator -le 0){throw "Invalid property: $line"}
+        $key=$line.Substring(0,$separator)
+        if($result.ContainsKey($key)){throw "Duplicate property: $key"}
+        $result[$key]=$line.Substring($separator+1)
     }
     return $result
 }
