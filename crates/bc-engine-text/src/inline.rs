@@ -177,7 +177,13 @@ pub fn inline_diff_classified(
         }
         let ls = lb[island.left.start]..lb[island.left.end];
         let rs = rb[island.right.start]..rb[island.right.end];
+        let case_importance =
+            comparison.fragment_case_importance(left, ls.clone(), right, rs.clone());
+        if case_importance == Some(Importance::Same) {
+            continue;
+        }
         let importance = if overall == Importance::Unimportant
+            || case_importance == Some(Importance::Unimportant)
             || (comparison.span_ignored(left, Side::Left, ls.clone())
                 && comparison.span_ignored(right, Side::Right, rs.clone()))
         {

@@ -185,16 +185,58 @@ impl CompiledComparison {
                 } else {
                     ignored.push(i..i + c.len_utf8());
                 }
-            } else if element_insensitive || flags.case_unimportant {
+            } else if element_insensitive {
                 significant.extend(c.to_lowercase());
             } else {
                 significant.push(c);
             }
         }
+        let significant = self.replace(significant, side);
         PreparedLine {
             exact,
-            significant: self.replace(significant, side),
+            significant: if flags.case_unimportant {
+                significant.to_lowercase()
+            } else {
+                significant
+            },
             ignored,
+        }
+    }
+    pub fn fragment_case_importance(
+        &self,
+        left: LineView<'_>,
+        ls: Range<usize>,
+        right: LineView<'_>,
+        rs: Range<usize>,
+    ) -> Option<Importance> {
+        let canonical = |view: LineView<'_>, span: Range<usize>| {
+            let mut text = String::new();
+            for (offset, c) in view.text[span.clone()].char_indices() {
+                let index = span.start + offset;
+                let insensitive = view
+                    .tokens
+                    .iter()
+                    .find(|t| t.span.contains(&index))
+                    .is_some_and(|t| {
+                        view.format
+                            .is_some_and(|f| !f.is_case_significant(t.element))
+                    });
+                if insensitive {
+                    text.extend(c.to_lowercase());
+                } else {
+                    text.push(c);
+                }
+            }
+            text
+        };
+        let l = canonical(left, ls);
+        let r = canonical(right, rs);
+        if l == r {
+            Some(Importance::Same)
+        } else if self.rules.importance.case_unimportant && l.to_lowercase() == r.to_lowercase() {
+            Some(Importance::Unimportant)
+        } else {
+            None
         }
     }
     pub fn needs_semantic_hash(&self, format: Option<&FileFormat>) -> bool {

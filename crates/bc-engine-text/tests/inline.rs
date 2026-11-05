@@ -72,6 +72,23 @@ fn unicode_spans_and_comment_importance() {
         .all(|s| s.importance == Importance::Unimportant));
 }
 #[test]
+fn mixed_line_keeps_case_only_island_unimportant() {
+    let l = "LOWER unchanged context old";
+    let r = "lower unchanged context new";
+    let mut rules = ComparisonRules::default();
+    rules.importance.case_unimportant = true;
+    let comparison = CompiledComparison::new(&rules).unwrap();
+    let diff = inline_diff_classified(
+        LineView::plain(l),
+        LineView::plain(r),
+        &comparison,
+        &Default::default(),
+    );
+    assert_eq!(diff.left[0].importance, Importance::Unimportant);
+    assert_eq!(diff.left.last().unwrap().importance, Importance::Important);
+}
+
+#[test]
 fn half_megabyte_lines_fall_back_without_character_diff() {
     let left = "a".repeat(500_000);
     let right = "b".repeat(500_000);

@@ -58,6 +58,26 @@ fn token_case_and_element_importance_follow_specs() {
     );
 }
 #[test]
+fn replacement_matching_precedes_global_case_folding() {
+    let mut rules = rules();
+    rules.importance.case_unimportant = true;
+    rules.replacements.push(Replacement {
+        from: "FOO".into(),
+        to: "BaR".into(),
+        is_regexp: false,
+        case_sensitive: true,
+        whole_words: true,
+        bidirectional: false,
+    });
+    assert_eq!(
+        CompiledComparison::new(&rules)
+            .unwrap()
+            .classify(LineView::plain("FOO"), LineView::plain("bar")),
+        I::Unimportant
+    );
+}
+
+#[test]
 fn whitespace_ending_and_case_flags_are_independent() {
     use bc_core::line::LineEnding as L;
     let mut r = rules();
