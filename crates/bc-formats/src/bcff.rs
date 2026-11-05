@@ -265,6 +265,10 @@ pub fn write_bcfileformats(formats: &[FileFormat]) -> Result<String, FormatError
             })?;
             let previous = canonical_node(&format_from_node(kind, &raw)?)?;
             patch_node(&mut raw, Some(&previous), &current);
+            // Resource names carry STX lookup markers, newly authored user names do not.
+            if previous.value != current.value {
+                raw.stx = false;
+            }
             raw
         } else {
             current
@@ -292,7 +296,7 @@ fn flag(node: &mut Node, name: &str, enabled: bool) {
 /// Canonical values for newly authored properties. Existing source-tree markers,
 /// explicit defaults, child order and unknown properties are preserved by patch_node.
 fn canonical_node(format: &FileFormat) -> Result<Node, FormatError> {
-    let mut root = value(format.kind.bc_class(), &format.name, true);
+    let mut root = value(format.kind.bc_class(), &format.name, false);
     if !format.description.is_empty() {
         let mut description = Node::new("Description");
         for (i, text) in format.description.iter().enumerate() {

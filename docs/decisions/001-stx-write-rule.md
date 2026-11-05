@@ -1,6 +1,6 @@
 # ADR 001：STX 写出规则与最小 XML 补丁
 
-- 状态：Wave 2 已实现，任务 5.3 验证通过；新建节点规则是基于内置数据的兼容推断，不宣称涵盖所有外部资源。
+- 状态：Wave 4 已修正新建用户名称规则；内置资源原树往返规则不变。
 
 ## 原始节点
 
@@ -12,14 +12,14 @@
 
 | 节点/属性 | 新建时 STX |
 |---|---|
-| 顶层格式名称 Value | true |
+| 新建/重命名的用户格式名称 Value | **false**（字面用户文字，不是资源查找键） |
 | Description 的 `_N` 字符串 | true |
 | Grammar 项的 ElementStr | true |
 | Grammar 项类型 Value、Text、StopText、Items 词项 | false |
 | Mask、FindText、Priority、ConvertKind | false |
 | 布尔、列号、Tab、Escape、表格字符码 | false |
 
-已读取节点以原标志为准，即使与上表不同。新建属性使用规范，既有属性修改值仍保留原标志。
+已读取且未重命名的格式名称保留原标志，内置资源读→写→读仍严格等价。新建属性使用规范；既有属性修改值保留原标志，但**顶层格式重命名**表示新用户名称，清除 STX（复制内置格式后改名同样适用）。
 
 ## 5.3 实测差异
 
@@ -33,8 +33,8 @@
 
 内置 JSON 因来源元数据增加体积，准确字节增量记录在 Wave 2 报告；这是有意的写兼容成本。
 
-## Wave 3b 追加观察（待后续专项修正）
+## Wave 3b 观察与 Wave 4 修正
 
-为长行黄金临时创建用户格式时，名称带 `&#2;` 的新格式未被参考工具采用，改用纯字面名称后同一 Mask/CharPerLine 生效。此观察说明上表“新建格式名称 STX=true”对任意用户名称的推断不能直接作为原生用户格式写兼容保证；Wave 3b 生成器使用字面名称。bc-formats 的既有源码不在本轮修改权限中，尚未改变其规范化新建名称策略；需要独立检查资源标记与用户文字的区别。已读取节点按原标志往返的结论不受影响。
+为长行黄金临时创建用户格式时，名称带 `&#2;` 的新格式未被参考工具采用，改用纯字面名称后同一 Mask/CharPerLine 生效。此观察说明上表“新建格式名称 STX=true”对任意用户名称的推断不能直接作为原生用户格式写兼容保证；Wave 3b 生成器使用字面名称。Wave 4 追踪 `canonical_node` 证实新建名称确实错误地使用 true；`FormatRegistry::export_xml` 复用该写出器，也受影响。现改为 false，并在带 source_xml 的内置副本改名时清除顶层标记，未变的内置资源与其他属性仍保留原标记。`xml_roundtrip` 同时验证新建名称、复制改名后的用户导出、语义重导入，以及全部 25 内置资源的 Node/文本等价。本轮复用 Wave 3b 的受控实测证据，不重复访问参考工具用户配置或安装目录。
 
 关联：[设计](../../openspec/changes/text-compare-core/design.md)、[bc-core](../../crates/bc-core/README.md)、[bc-formats](../../crates/bc-formats/README.md)。

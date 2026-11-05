@@ -36,7 +36,7 @@ fn new_formats_use_canonical_stx_and_semantic_round_trip() {
     assert_eq!(parse_bcfileformats(&out).unwrap(), formats);
     let tree = parse_xml(&out).unwrap();
     let first = &tree.children[0];
-    assert!(first.stx);
+    assert!(!first.stx, "new user names are literal, not resource lookup keys");
     assert!(first.child("Description").unwrap().children[0].stx);
     let rule = &first.child("Grammar").unwrap().children[0];
     assert!(!rule.stx);
@@ -65,6 +65,25 @@ fn changed_fields_patch_source_without_losing_unknown_nodes_or_markers() {
     assert_eq!(rule.child_value("Text"), Some("new"));
     assert_eq!(rule.child_value("FutureRule"), Some("keep"));
 }
+#[test]
+fn user_export_and_renamed_resource_names_are_literal() {
+    let mut registry = bc_formats::registry::FormatRegistry::with_builtins();
+    let mut copied = builtin_formats()[0].clone();
+    copied.name = "My user format".into();
+    registry.upsert(copied.clone()).unwrap();
+    let xml = registry.export_xml().unwrap();
+    let root = parse_xml(&xml).unwrap();
+    assert_eq!(root.children.len(), 1);
+    assert_eq!(root.children[0].value_str(), Some("My user format"));
+    assert!(!root.children[0].stx);
+    assert_eq!(parse_bcfileformats(&xml).unwrap(), vec![copied.clone()]);
+    copied.name = "New without source".into();
+    copied.source_xml = None;
+    registry.upsert(copied).unwrap();
+    let root = parse_xml(&registry.export_xml().unwrap()).unwrap();
+    assert!(root.children.iter().all(|n| !n.stx));
+}
+
 #[test]
 fn source_metadata_defaults_and_is_not_semantic_equality() {
     let original = &builtin_formats()[0];
