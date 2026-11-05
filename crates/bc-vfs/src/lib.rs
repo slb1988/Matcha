@@ -19,6 +19,7 @@
 #[allow(unsafe_code)]
 mod windows;
 
+mod exchange;
 pub mod entry;
 pub mod local;
 pub mod manager;
@@ -122,6 +123,25 @@ pub trait Vfs: Send + Sync {
     /// Set DOS attributes / unix mode – `TVfsSetDOSAttrJob` / `TVfsSetUnixOwnerAndModeJob`
     /// (script `attrib`).
     fn set_attrs(&self, path: &VfsPath, attrs: FileAttrs) -> VfsResult<()>;
+
+    /// Atomic, cancellable single-file transfer. Progress reports byte deltas.
+    /// Providers must not recurse here: operation planning owns filtered traversal.
+    fn copy_file(&self, _from: &VfsPath, _to: &VfsPath, _options: CopyOptions,
+        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+        Err(VfsError::Unsupported("cancellable file copy"))
+    }
+    fn move_file(&self, _from: &VfsPath, _to: &VfsPath, _options: CopyOptions,
+        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+        Err(VfsError::Unsupported("cancellable file move"))
+    }
+    fn exchange_files(&self, _left: &VfsPath, _right: &VfsPath,
+        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+        Err(VfsError::Unsupported("file exchange"))
+    }
+    /// Never recursively delete newly appeared or filtered children.
+    fn remove_empty_dir(&self, _path: &VfsPath) -> VfsResult<()> {
+        Err(VfsError::Unsupported("remove empty directory"))
+    }
 
     /// Watch a directory for changes – `TVfsChangeNotifier`.
     fn watch(&self, dir: &VfsPath) -> VfsResult<Box<dyn Watcher>>;

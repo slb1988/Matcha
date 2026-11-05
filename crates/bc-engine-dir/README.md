@@ -2,7 +2,8 @@
 
 Folder Compare / Merge / Sync engine (FR-D1…FR-D5): dual tree, criteria pipeline,
 filters, sync planning, file operations and their background jobs. Wave A implements
-local tree/criteria/content comparison; operations and sync remain scaffolded.
+local tree/criteria/content comparison. Wave B adds operation planning, execution and refresh;
+sync is described below.
 
 ## Responsibilities
 
@@ -23,7 +24,7 @@ local tree/criteria/content comparison; operations and sync remain scaffolded.
   evaluation are implemented; exclusions always win.
 - `rules::DirRules` / `DirMergeRules` / `DirSyncRules`, `HandlingOptions`, `DirHandling`.
 - `sync::SyncPlan` – `update|mirror` × direction → `SyncAction`s.
-- `ops::DirOp` – copy/copyto/move/moveto/delete/rename/touch/attrib/exclude with the
+- `ops::DirOp` / `OpPlan` – copy/copyto/move/moveto/delete/rename/touch/attrib/exclude with the
   script option types (`PathMode`, `Target`, `RenameSpec`, `TouchSpec`).
 - `jobs` – `LoadDirJob`, `ContentCompareJob` (also `/qc` and `compare`),
   `ContentSearchJob`, `FileOpJob`.
@@ -68,6 +69,32 @@ tests/content.rs (Windows fsutil sets the sparse flag on disposable files only).
   provides validated XML model serialization through bc-core, no new dependencies.
 - Decisions and remaining reference-parity questions:
   [pairing/filter ADR](../../docs/decisions/101-folder-pairing-and-filters.md).
+
+## File operations and refresh
+
+OpPlan::build is pure and requires fully scanned selected folders (ScanRequired otherwise).
+Selection is side-aware. Plans expand folders into filtered per-file items, validate collisions
+and preserve unknown/new/hidden children on directory cleanup. PlanOptions::from_handling
+combines session defaults with an explicit include-hidden confirmation override.
+Creation time is optional; NTFS permission copying returns Unsupported before any I/O.
+
+FileOpJob consumes a plan, ConfirmPolicy and a shared OpLog. Confirmations are class-scoped;
+the permanent-delete fallback always requires its own Interaction answer, even under a
+general YesToAll policy. Sources/known targets are revalidated before execution.
+Its typed OpOutcome preserves completed/skipped/failed counts, cancellation, bytes,
+affected paths, clipboard text and session-only effects, including on cancellation.
+Exchange stages both file copies; rollback failure retains recovery backups and reports paths.
+
+refresh_locations/refresh_selection read only affected entries and missing ancestors;
+existing ancestor summaries update in memory. refresh_loaded enumerates loaded folders,
+full_refresh recursively enumerates all folders, and AutoRefresh turns watch events into
+local refreshes (overflow requests a full scan). UI code must reapply current filters after
+refresh and apply OpOutcome's session effects explicitly.
+Script operation/selection parsing lives in op_script, not bc-script; no runner/GUI wiring
+is included here. Script selection ignores expansion but honors file/display filtering.
+
+Tests: `cargo test -p bc-engine-dir --test operations --test op_script`.
+[Confirmation and baseline ADR](../../docs/decisions/103-op-confirmation-and-sync-baseline.md).
 
 ## Reference class map (from `vmt_report.txt`)
 

@@ -2,7 +2,7 @@
 //! `TDirTreeContentCompareJob` (content criteria, FR-D5), `TDirTreeContentSearchJob`
 //! (find in folders), `TOpMoveBothJob` (file operations).
 
-use crate::ops::DirOp;
+use crate::{ops::OpPlan, op_exec::{ConfirmPolicy, OpLog}};
 use bc_jobs::{Job, JobContext, JobResult, Priority};
 use bc_vfs::VfsPath;
 use std::sync::Arc;
@@ -130,17 +130,17 @@ impl Job for ContentSearchJob {
 /// Execute a file operation over a selection – `TOpMoveBothJob` and friends.
 pub struct FileOpJob {
     pub vfs: Arc<bc_vfs::VfsManager>,
-    pub op: DirOp,
-    /// Relative paths selected, with their per-side absolute locations.
-    pub items: Vec<(String, [Option<VfsPath>; 3])>,
+    pub plan: OpPlan,
+    pub confirmation: ConfirmPolicy,
+    pub log: OpLog,
 }
 
 impl Job for FileOpJob {
     fn name(&self) -> String {
-        format!("{:?}", self.op)
+        format!("File operations ({})", self.plan.items.len())
     }
 
-    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: perform op with confirmations via ctx.interaction")
+    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+        Ok(Box::new(crate::op_exec::execute(&self.plan, &self.vfs, ctx, self.confirmation, &self.log)))
     }
 }

@@ -29,10 +29,10 @@
 
 ## 4. 文件操作
 
-- [ ] 4.1 实现 `OpPlan` 规划（复制/移动/交换/到文件夹/删除/重命名含掩码与正则/属性/Touch/新建文件夹/排除/忽略/复制文件名），遵守过滤与"包含隐藏项"覆盖；验证单测：规划结果（源/目标/确认类型）对 folder-operations spec 各场景
-- [ ] 4.2 实现 `FileOpJob` 执行：`Interaction` 确认（Yes/No/All）、覆盖较新提示、回收站退回永久删除、进度、取消保留已完成部分、`OpLog` 事件流；验证单测用假 `Interaction` 回放 Yes-to-All / No-to-All，取消后计数正确
-- [ ] 4.3 实现操作后的局部刷新（受影响节点与祖先）、Refresh/Full Refresh/Refresh Selection、自动刷新（监视事件驱动）；验证单测：复制 1 个文件只重新读取 1 行及祖先
-- [ ] 4.4 实现脚本等价 API：`copy/copyto/move/moveto/delete/rename/touch/attrib/select` 的参数到 `OpPlan` 的映射；验证单测：帮助中每条命令的示例可解析并生成预期计划
+- [x] 4.1 实现 `OpPlan` 规划（复制/移动/交换/到文件夹/删除/重命名含掩码与正则/属性/Touch/新建文件夹/排除/忽略/复制文件名），遵守过滤与"包含隐藏项"覆盖；验证单测：规划结果（源/目标/确认类型）对 folder-operations spec 各场景
+- [x] 4.2 实现 `FileOpJob` 执行：`Interaction` 确认（Yes/No/All）、覆盖较新提示、回收站退回永久删除、进度、取消保留已完成部分、`OpLog` 事件流；验证单测用假 `Interaction` 回放 Yes-to-All / No-to-All，取消后计数正确
+- [x] 4.3 实现操作后的局部刷新（受影响节点与祖先）、Refresh/Full Refresh/Refresh Selection、自动刷新（监视事件驱动）；验证单测：复制 1 个文件只重新读取 1 行及祖先
+- [x] 4.4 实现脚本等价 API：`copy/copyto/move/moveto/delete/rename/touch/attrib/select` 的参数到 `OpPlan` 的映射；验证单测：帮助中每条命令的示例可解析并生成预期计划
 
 ## 5. 同步
 

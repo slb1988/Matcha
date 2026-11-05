@@ -44,6 +44,15 @@ Tests: `cargo test -p bc-vfs`; the ignored `recycle_bin_manual` test additionall
 checks Shell.Application's recycle namespace (run explicitly with --ignored).
 All fixtures live in the system temporary directory.
 
+## Planned-operation primitives
+
+Vfs exposes single-file copy_file/move_file/exchange_files with CancelCheck and byte-delta
+progress callbacks. Default provider implementations return Unsupported; LocalFs implements
+them without recursive traversal. Filtering remains the planner's responsibility.
+remove_empty_dir never recursively deletes hidden or newly appeared children.
+Exchange writes both temporary copies before publication, restores backups on failure and
+retains recovery files if restoration itself fails. No whole-directory transaction is claimed.
+
 ## Reference class map (from `vmt_report.txt`)
 
 | this crate | reference classes |

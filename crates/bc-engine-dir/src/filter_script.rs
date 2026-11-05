@@ -10,7 +10,7 @@ pub struct FilterSettings {
     pub other: OtherFilters,
 }
 
-fn words(input: &str) -> Result<Vec<String>, String> {
+pub(crate) fn words(input: &str) -> Result<Vec<String>, String> {
     let mut quoted = false;
     let mut word = String::new();
     let mut result = Vec::new();

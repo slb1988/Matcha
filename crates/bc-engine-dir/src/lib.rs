@@ -18,8 +18,10 @@ pub mod criteria;
 pub mod filter;
 pub mod filter_script;
 pub mod jobs;
-#[allow(unused_variables)] // file-operation planning belongs to Wave B
 pub mod ops;
+pub mod op_exec;
+pub mod op_script;
+pub mod refresh;
 pub mod rules;
 #[allow(unused_variables)] // synchronization belongs to Wave B
 pub mod sync;

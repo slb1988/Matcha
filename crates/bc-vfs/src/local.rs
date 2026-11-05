@@ -168,7 +168,7 @@ impl LocalFs {
         if source == destination || (source.is_dir() && destination.starts_with(&source)) {
             return Err(VfsError::Other("copy destination is inside source".into()));
         }
-        self.copy_tree(&src, dest, options, cancel, &mut Vec::new())
+        self.copy_tree(&src, dest, options, cancel, &mut Vec::new(), &mut |_| {})
     }
 
     pub fn put_cancellable(
@@ -188,6 +188,7 @@ impl LocalFs {
         options: CopyOptions,
         cancel: &dyn CancelCheck,
         ancestors: &mut Vec<PathBuf>,
+        progress: &mut dyn FnMut(u64),
     ) -> VfsResult<()> {
         check(cancel)?;
         let raw = fs::symlink_metadata(src)?;
@@ -213,6 +214,7 @@ impl LocalFs {
                         options,
                         cancel,
                         ancestors,
+                        progress,
                     )?;
                 }
                 self.preserve(dest, &meta, options)
@@ -239,6 +241,7 @@ impl LocalFs {
                     break;
                 }
                 output.write_all(&buf[..n])?;
+                progress(n as u64);
             }
             output.sync_all()?;
             drop(output);
@@ -501,6 +504,89 @@ impl Vfs for LocalFs {
             Ok(())
         }
     }
+    fn copy_file(
+        &self,
+        from: &VfsPath,
+        to: &VfsPath,
+        options: CopyOptions,
+        cancel: &dyn CancelCheck,
+        progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
+        check(cancel)?;
+        let src = local(from)?;
+        let dest = local(to)?;
+        if !fs::metadata(&src)?.is_file() {
+            return Err(VfsError::Unsupported("single-file copy requires a file"));
+        }
+        if fs::canonicalize(&src)? == absolute_destination(&dest)? {
+            return Err(VfsError::Other(
+                "source and destination are the same file".into(),
+            ));
+        }
+        self.copy_tree(&src, &dest, options, cancel, &mut Vec::new(), progress)
+    }
+    fn move_file(
+        &self,
+        from: &VfsPath,
+        to: &VfsPath,
+        options: CopyOptions,
+        cancel: &dyn CancelCheck,
+        progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
+        check(cancel)?;
+        let src = local(from)?;
+        let dest = local(to)?;
+        if !fs::symlink_metadata(&src)?.is_file() {
+            return Err(VfsError::Unsupported(
+                "single-file move requires a regular file",
+            ));
+        }
+        if fs::canonicalize(&src)? == absolute_destination(&dest)? {
+            return Err(VfsError::Other("source equals destination".into()));
+        }
+        if !options.overwrite && dest.try_exists()? {
+            return Err(VfsError::AlreadyExists(to.clone()));
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let renamed = if options.overwrite {
+            fs::rename(&src, &dest).map_err(VfsError::Io)
+        } else {
+            #[cfg(windows)]
+            {
+                crate::windows::publish_no_replace(&src, &dest)
+            }
+            #[cfg(not(windows))]
+            {
+                fs::hard_link(&src, &dest)
+                    .and_then(|_| fs::remove_file(&src))
+                    .map_err(VfsError::Io)
+            }
+        };
+        match renamed {
+            Ok(()) => Ok(()),
+            Err(VfsError::Io(e)) if cross_device(&e) => {
+                self.copy_file(from, to, options, cancel, progress)?;
+                check(cancel)?;
+                self.delete(from, false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn exchange_files(
+        &self,
+        left: &VfsPath,
+        right: &VfsPath,
+        cancel: &dyn CancelCheck,
+        progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
+        self.exchange_impl(left, right, cancel, progress)
+    }
+    fn remove_empty_dir(&self, path: &VfsPath) -> VfsResult<()> {
+        Ok(fs::remove_dir(local(path)?)?)
+    }
+
     fn watch(&self, dir: &VfsPath) -> VfsResult<Box<dyn Watcher>> {
         #[cfg(windows)]
         {

@@ -59,6 +59,7 @@ pub struct DirNode {
     pub children: Vec<NodeId>,
     pub expanded: bool,
     pub excluded: bool,
+    pub ignored: bool,
     pub filtered: [bool; 2],
     pub is_dir: bool,
     pub summary: FolderSummary,
@@ -494,6 +495,10 @@ impl DirTree {
                 }
             }
             let node = &mut self.nodes[id];
+            if node.ignored {
+                node.status = Same;
+                summary = FolderSummary::status(Same);
+            }
             node.summary = summary;
             if node.is_dir && !node.is_orphan() {
                 node.status = if summary.error {
@@ -663,6 +668,122 @@ impl DirTree {
         self.generation += 1;
     }
 
+    /// Update exactly one side entry and dirty ancestors, never invalidate siblings.
+    pub fn update_entry(
+        &mut self,
+        side: usize,
+        relative: &str,
+        entry: Option<VfsEntry>,
+    ) -> VfsResult<Option<NodeId>> {
+        if side > 1 {
+            return Err(bc_vfs::VfsError::Other("invalid side".into()));
+        }
+        let relative = normalize_path(relative);
+        let (parent_path, name) = relative.rsplit_once('/').unwrap_or(("", &relative));
+        let parent = self
+            .find(parent_path)
+            .ok_or_else(|| bc_vfs::VfsError::Other(format!("parent missing: {parent_path}")))?;
+        let old = self.nodes[parent].children.iter().copied().find(|&id| {
+            self.nodes[id].alive
+                && self.nodes[id].sides[side].as_ref().is_some_and(|e| {
+                    e.name == name
+                        || (!self.pairing.case_sensitive
+                            && e.name.to_lowercase() == name.to_lowercase())
+                })
+        });
+        let Some(entry) = entry else {
+            if let Some(id) = old {
+                self.remove_side(id, side);
+                let live: Vec<_> = self.nodes[parent]
+                    .children
+                    .iter()
+                    .copied()
+                    .filter(|&id| self.nodes[id].alive)
+                    .collect();
+                self.nodes[parent].children = live;
+                self.mark_dirty(parent);
+                self.summarize();
+            }
+            return Ok(old);
+        };
+        let key = self.name_key(side, parent_path, &entry)?;
+        let paired = self.nodes[parent].children.iter().copied().find(|&id| {
+            self.nodes[id].alive
+                && self.nodes[id].sides[side].is_none()
+                && self.nodes[id]
+                    .sides
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(s, e)| e.as_ref().map(|e| (s, e)))
+                    .any(|(s, e)| self.name_key(s, parent_path, e).is_ok_and(|k| k == key))
+        });
+        let id = old.or(paired).unwrap_or_else(|| {
+            let id = self.nodes.len();
+            self.nodes.push(DirNode {
+                name: entry.name.clone(),
+                relative: relative.clone(),
+                parent: Some(parent),
+                alive: true,
+                ..DirNode::default()
+            });
+            self.nodes[parent].children.push(id);
+            id
+        });
+        if self.nodes[id].sides[side]
+            .as_ref()
+            .is_some_and(|old| old.kind != entry.kind)
+        {
+            for child in self.nodes[id].children.clone() {
+                self.remove_side(child, side);
+            }
+            self.nodes[id].loaded[side] = false;
+        }
+        let node = &mut self.nodes[id];
+        node.sides[side] = Some(entry);
+        node.alive = true;
+        node.revision += 1;
+        node.content_status = None;
+        node.is_dir = node
+            .sides
+            .iter()
+            .flatten()
+            .any(|e| e.kind == EntryKind::Dir);
+        node.quick_status = self
+            .criteria
+            .quick(node.sides[0].as_ref(), node.sides[1].as_ref());
+        node.status = if node.ignored {
+            Same
+        } else {
+            node.quick_status
+        };
+        let ids = self.nodes[parent].child_table.entry(key).or_default();
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+        self.mark_dirty(id);
+        self.summarize();
+        Ok(Some(id))
+    }
+
+    pub fn set_ignored(&mut self, id: NodeId, ignored: bool) {
+        if let Some(node) = self.nodes.get_mut(id).filter(|n| n.alive) {
+            node.ignored = ignored;
+            node.status = if ignored {
+                Same
+            } else {
+                self.criteria
+                    .combine(node.quick_status, node.content_status, None)
+            };
+            self.mark_dirty(id);
+            self.summarize();
+        }
+    }
+    pub fn set_excluded(&mut self, id: NodeId, excluded: bool) {
+        if let Some(node) = self.nodes.get_mut(id).filter(|n| n.alive) {
+            node.excluded = excluded;
+            self.generation += 1;
+        }
+    }
     pub fn count_status(&self, status: CompareStatus) -> usize {
         self.nodes()
             .filter(|(_, n)| !n.is_dir && n.status == status)
