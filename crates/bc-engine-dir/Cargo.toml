@@ -1,0 +1,14 @@
+[package]
+name = "bc-engine-dir"
+description = "Folder compare/merge/sync engine: dual tree, criteria pipeline, name/other/display filters, sync plans, file operations (BC TDirTree, TDirSyncTree, TDirRules, TDirFilters)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-formats = { workspace = true }
+bc-jobs = { workspace = true }
+bc-vfs = { workspace = true }
+bc-engine-text = { workspace = true }

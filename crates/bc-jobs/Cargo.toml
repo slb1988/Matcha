@@ -1,0 +1,10 @@
+[package]
+name = "bc-jobs"
+description = "Background job framework: cancellation, progress, dependencies, priority queue, worker threads and resource pools (BC TJob*). std::thread + crossbeam, no async runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+crossbeam-channel = { workspace = true }

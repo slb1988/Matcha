@@ -1,0 +1,21 @@
+[package]
+name = "bcomp"
+description = "Dual launcher: `matcha-comp` returns immediately (VCS integration), `matcha-compc` waits and propagates the exit code (CI/scripts). Internal crate name follows the spec."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "matcha-comp"
+path = "src/bin/matcha-comp.rs"
+
+[[bin]]
+name = "matcha-compc"
+path = "src/bin/matcha-compc.rs"
+
+[dependencies]
+bc-script = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "bc-engine-table"
+description = "Table compare engine (CSV first, xlsx later): table model, column handling, key alignment, sorting (BC TTableMap*, TTableRules, TTableContent)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-formats = { workspace = true }
+bc-jobs = { workspace = true }

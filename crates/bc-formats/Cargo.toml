@@ -1,0 +1,18 @@
+[package]
+name = "bc-formats"
+description = "File format registry: built-in formats converted from the BCFILEFORMATS resource at build time, grammar items, element kinds, unimportant-text and replacement rules."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[dependencies]
+bc-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+bc-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

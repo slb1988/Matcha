@@ -1,0 +1,9 @@
+[package]
+name = "bc-vfs"
+description = "Virtual file system abstraction (BC Vfs* layer). M1 implements only the local file system; remote protocols are trait-only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

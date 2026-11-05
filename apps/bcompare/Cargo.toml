@@ -1,0 +1,16 @@
+[package]
+name = "bcompare"
+description = "Main GUI program (single instance, argument hand-off). Internal crate name follows the spec; the produced executable is `matcha`."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "matcha"
+path = "src/main.rs"
+
+[dependencies]
+bc-gui = { workspace = true }
+bc-script = { workspace = true }
+bc-session = { workspace = true }

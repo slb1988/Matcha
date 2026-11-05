@@ -1,0 +1,10 @@
+[package]
+name = "bc-core"
+description = "Line model, diff/align traits, hashing, encoding, undo stack and Delphi-style XML persistence primitives (BC `Ss*` layer)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+quick-xml = { workspace = true }

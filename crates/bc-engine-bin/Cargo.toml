@@ -1,0 +1,13 @@
+[package]
+name = "bc-engine-bin"
+description = "Hex / Picture / Version / Registry / Media comparison engines (P2+ placeholders; BC THexMap, TPix*, TVer*, TReg*, TMedia*)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-formats = { workspace = true }
+bc-jobs = { workspace = true }
+bc-vfs = { workspace = true }

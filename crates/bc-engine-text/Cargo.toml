@@ -1,0 +1,13 @@
+[package]
+name = "bc-engine-text"
+description = "Text compare/merge engine: aligned text map, importance classification, inline diff, replacements, 2-way/3-way alignment jobs (BC TTextMap*, TTextRules, TTextMergeRules)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-formats = { workspace = true }
+bc-jobs = { workspace = true }
+bc-vfs = { workspace = true }

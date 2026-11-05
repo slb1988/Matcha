@@ -1,0 +1,16 @@
+[package]
+name = "bc-session"
+description = "Session / workspace model and BCSessions.xml / BCPreferences.xml compatible persistence (BC TSession hierarchy, TSessionManager, TWorkspaceList, TBcPrefs)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-formats = { workspace = true }
+bc-vfs = { workspace = true }
+bc-engine-text = { workspace = true }
+bc-engine-dir = { workspace = true }
+bc-engine-table = { workspace = true }
+bc-engine-bin = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "bc-report"
+description = "Report generation (text/HTML/XML/patch) for every session kind, driven by the *-report script commands (BC TBcReport, TReportState, T*ReportDialog, TReportJob)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-core = { workspace = true }
+bc-session = { workspace = true }
+bc-engine-text = { workspace = true }
+bc-engine-dir = { workspace = true }
+bc-engine-table = { workspace = true }
+bc-engine-bin = { workspace = true }
+bc-jobs = { workspace = true }
