@@ -98,6 +98,7 @@ impl AlignMap {
             }
             in_difference = different;
         }
+        cancel.check()?;
         result.rows = rows;
         Ok(result)
     }

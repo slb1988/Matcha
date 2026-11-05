@@ -17,11 +17,36 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+fn private_bytes() -> std::io::Result<u64> {
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "(Get-Process -Id {}).PrivateMemorySize64",
+                std::process::id()
+            ),
+        ])
+        .output()?;
+    if !output.status.success() {
+        return Err(std::io::Error::other("Get-Process failed"));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .map_err(std::io::Error::other)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let paths: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     if paths.len() != 2 {
         return Err("expected left and right input paths".into());
     }
+    #[cfg(windows)]
+    let baseline_private = private_bytes()?;
+    #[cfg(windows)]
+    let input_bytes = std::fs::metadata(&paths[0])?.len() + std::fs::metadata(&paths[1])?.len();
     let start = Instant::now();
     let left = LineList::open_mapped(&paths[0])?;
     let right = LineList::open_mapped(&paths[1])?;
@@ -72,6 +97,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("bench.{name}.seconds={:.6}", elapsed.as_secs_f64());
         println!("bench.{name}.rows={}", map.len());
         assert!(elapsed.as_secs_f64() < if smart { 15.0 } else { 5.0 });
+        #[cfg(windows)]
+        {
+            let growth = private_bytes()?.saturating_sub(baseline_private);
+            println!("bench.{name}.private_growth_bytes={growth}");
+            println!(
+                "bench.{name}.private_input_ratio={:.4}",
+                growth as f64 / input_bytes as f64
+            );
+            assert!(
+                growth <= input_bytes * 2,
+                "private memory exceeds twice combined input size"
+            );
+        }
         drop(map);
         let (tx, rx) = mpsc::sync_channel(1);
         let announced = AtomicBool::new(false);
