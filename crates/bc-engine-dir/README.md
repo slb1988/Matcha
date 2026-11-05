@@ -1,14 +1,21 @@
 # bc-engine-dir
 
 Folder Compare / Merge / Sync engine (FR-D1…FR-D5): dual tree, criteria pipeline,
-filters, sync planning, file operations and their background jobs. All bodies `todo!()`.
+filters, sync planning, file operations and their background jobs. Wave A implements
+local tree/criteria/content comparison; operations and sync remain scaffolded.
 
 ## Responsibilities
 
 - `tree::DirTree` / `DirNode` / `CompareStatus` – paired tree with per-side `VfsEntry`s,
-  expansion, exclusion, manual align overrides.
+  expansion, exclusion, manual align overrides. Stable arena NodeIds and per-folder
+  child tables replace recursive owned nodes; readers use node/find/root/nodes.
+  Visible rows are generation-cached; dirty ancestor summaries keep red and purple
+  independently and expose pending (hollow) / unscanned (yellow) states.
 - `criteria::Criteria` – `attrib`, `version`, `timestamp[:n sec;IgnoreDST]`,
   `size|CRC|binary|rules-based`, `timezone`, `follow-symlinks`, `ignore-unimportant`.
+  Independent quick size/name-case flags and content skip/override flags round-trip
+  through explicit additional switches (no-size, filename-case, skip-quick-same,
+  no-content-override). Script omission disables timestamp tests.
 - `filter` – `NameFilter`/`Mask` (`-` exclude, trailing `\` folder), `OtherFilters`
   (cutoff, attrib, size, protected), `DisplayFilter` (12 values = report `display-*`).
 - `rules::DirRules` / `DirMergeRules` / `DirSyncRules`, `HandlingOptions`, `DirHandling`.
@@ -21,7 +28,27 @@ filters, sync planning, file operations and their background jobs. All bodies `t
 ## Dependency boundary
 
 `bc-core`, `bc-formats`, `bc-jobs`, `bc-vfs`, `bc-engine-text` (rules-based content
-compare). No GUI.
+compare), bc-engine-bin (safe PE resource reader). No GUI or async runtime.
+No bc-core or bc-jobs changes were needed. Content jobs use CancelCheck and Crc32.
+RulesBased deliberately returns Unsupported until the text branch is merged.
+
+ContentResult carries NodeId + revision, content status, bytes_read and version result;
+apply rejects stale work after listing changes, criteria changes or realignment.
+Version jobs read PE resources, never execute a DLL. Binary comparison reads 64 KiB
+blocks, handles short reads, and stops at the first differing block. Job::run returns
+typed DirectoryListing / ContentResult payloads without mutating a tree on a worker.
+
+PairingOptions controls case sensitivity, extension stripping and NFC.
+AlignmentRule uses corresponding wildcard captures (or regex captures), optionally
+scoped to a relative directory; Align With inserts an exact rule. Rule changes replay
+stored listings and retire old NodeIds, retaining overrides across rescans.
+NFC uses bc-vfs's Windows NormalizeString boundary; non-Windows returns Unsupported.
+
+Validation: `cargo test -p bc-engine-dir`, `cargo test -p bc-engine-bin ver::`.
+Benchmark: `cargo run --release -p bc-engine-dir --example list_bench`.
+It generates two 100,000-file trees in the system temporary directory, checks top-level
+visibility <1 s and cleans them up. Sparse 1 GiB early-exit/cancellation tests are in
+tests/content.rs (Windows fsutil sets the sparse flag on disposable files only).
 
 ## Reference class map (from `vmt_report.txt`)
 

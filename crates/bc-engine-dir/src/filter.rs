@@ -100,6 +100,20 @@ impl DisplayFilter {
 
     /// Whether a node with `status` is shown.
     pub fn shows(self, status: crate::CompareStatus) -> bool {
-        todo!("bc-engine-dir::filter: display filter evaluation")
+        use crate::CompareStatus::*;
+        match self {
+            Self::All => true,
+            Self::Mismatches => !matches!(status, Same | Unknown),
+            Self::Matches => status == Same,
+            Self::NoOrphans => !matches!(status, LeftOrphan | RightOrphan),
+            Self::MismatchesNoOrphans => matches!(status, Different | LeftNewer | RightNewer | SimilarUnimportant | Error),
+            Self::Orphans => matches!(status, LeftOrphan | RightOrphan),
+            Self::LeftNewer => status == LeftNewer,
+            Self::RightNewer => status == RightNewer,
+            Self::LeftNewerOrphans => matches!(status, LeftNewer | LeftOrphan),
+            Self::RightNewerOrphans => matches!(status, RightNewer | RightOrphan),
+            Self::LeftOrphans => status == LeftOrphan,
+            Self::RightOrphans => status == RightOrphan,
+        }
     }
 }

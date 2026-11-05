@@ -2,11 +2,25 @@
 //! `TDirTreeContentCompareJob` (content criteria, FR-D5), `TDirTreeContentSearchJob`
 //! (find in folders), `TOpMoveBothJob` (file operations).
 
-use crate::criteria::ContentCompare;
 use crate::ops::DirOp;
 use bc_jobs::{Job, JobContext, JobResult, Priority};
 use bc_vfs::VfsPath;
 use std::sync::Arc;
+
+pub use crate::content::ContentResult;
+
+#[derive(Debug)]
+pub struct DirectoryListing {
+    pub side: usize,
+    pub relative: String,
+    pub entries: Vec<bc_vfs::VfsEntry>,
+}
+fn job_error(error: bc_vfs::VfsError) -> bc_jobs::JobError {
+    match error {
+        bc_vfs::VfsError::Cancelled => bc_jobs::JobError::Cancelled,
+        other => bc_jobs::JobError::Failed(other.to_string()),
+    }
+}
 
 /// List one directory on one side.
 pub struct LoadDirJob {
@@ -27,7 +41,44 @@ impl Job for LoadDirJob {
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: list directory (recursive when requested)")
+        let mut result = Vec::new();
+        let mut pending = vec![(self.dir.clone(), self.relative.clone())];
+        let mut visited = std::collections::HashSet::new();
+        while let Some((path, relative)) = pending.pop() {
+            ctx.cancel.check()?;
+            if let Some(local) = path.to_local_path() {
+                let canonical = std::fs::canonicalize(local)?;
+                if !visited.insert(canonical) {
+                    continue;
+                }
+            }
+            let entries = self.vfs.list(&path).map_err(job_error)?;
+            if self.recursive {
+                for entry in &entries {
+                    if entry.kind == bc_vfs::EntryKind::Dir && entry.error.is_none() {
+                        pending.push((
+                            path.join(&entry.name),
+                            if relative.is_empty() {
+                                entry.name.clone()
+                            } else {
+                                format!("{relative}/{}", entry.name)
+                            },
+                        ));
+                    }
+                }
+            }
+            result.push(DirectoryListing {
+                side: self.side,
+                relative,
+                entries,
+            });
+            ctx.report(bc_jobs::Progress {
+                current: result.len() as u64,
+                total: None,
+                message: path.to_string(),
+            });
+        }
+        Ok(Box::new(result))
     }
 }
 
@@ -37,11 +88,10 @@ pub struct ContentCompareJob {
     pub vfs: Arc<bc_vfs::VfsManager>,
     pub left: VfsPath,
     pub right: VfsPath,
-    pub mode: ContentCompare,
-    /// For rules-based compare: text rules + format registry.
-    pub text_rules: Option<bc_engine_text::TextRules>,
-    pub formats: Option<Arc<bc_formats::registry::FormatRegistry>>,
-    pub ignore_unimportant: bool,
+    pub criteria: crate::Criteria,
+    pub quick_status: crate::CompareStatus,
+    pub node: crate::tree::NodeId,
+    pub revision: u64,
 }
 
 impl Job for ContentCompareJob {
@@ -50,7 +100,13 @@ impl Job for ContentCompareJob {
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: size/CRC/binary (chunked, early exit) or rules-based via bc-engine-text")
+        let result = self.compare(&ctx.cancel).map_err(job_error)?;
+        ctx.report(bc_jobs::Progress {
+            current: result.bytes_read.iter().sum(),
+            total: None,
+            message: "Content comparison complete".into(),
+        });
+        Ok(Box::new(result))
     }
 }
 

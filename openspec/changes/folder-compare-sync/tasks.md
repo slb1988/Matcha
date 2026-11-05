@@ -12,13 +12,13 @@
 
 ## 2. 比较树与准则
 
-- [ ] 2.1 实现 `DirTree` 分层子项表、名称键（大小写折叠/NFC/去扩展名可选）、`apply_listing`、脏标记状态汇总、展开/折叠、可见行派生缓存；验证单测：同名配对、孤儿、大小写、扩展名对齐、汇总颜色场景（folder-compare-tree spec）
-- [ ] 2.2 实现对齐覆盖（掩码/正则对、限定文件夹）与 Align With；验证单测：`x*.jpg`↔`y*.jpg` 配对、覆盖后重新扫描仍生效
-- [ ] 2.3 实现快速测试：大小、时间戳（容差/DST/时区）、文件名大小写、属性四项与状态推导（含较新侧标记）；验证单测覆盖 folder-criteria spec 的全部快速测试场景
-- [ ] 2.4 实现 `ContentCompareJob`：CRC / 二进制（分块、首个不同块提前退出）、"快速相同则跳过"、"内容覆盖快速"、修订号校验写回；验证单测：1 GB 稀疏文件前 4 KB 不同时读取量 < 1 MB；取消在 1 s 内返回
-- [ ] 2.5 接通规则比较：调用 `bc-engine-text` 公开 API 得到重要/不重要统计（若分支上尚无该 API，实现为 `Unsupported` 并在报告标注，合并后补）；验证单测或占位测试按实际情况二选一并写明
-- [ ] 2.6 实现版本比较（PE 版本资源读取，`bc_engine_bin::ver::read_version_info`）；验证单测对本机任一 `.dll` 读取到版本字符串
-- [ ] 2.7 实现 `Criteria::parse_script` 与反向序列化；验证单测：`criteria attrib:sh timestamp:2sec;IgnoreDST rules-based timezone:left+6` 往返
+- [x] 2.1 实现 `DirTree` 分层子项表、名称键（大小写折叠/NFC/去扩展名可选）、`apply_listing`、脏标记状态汇总、展开/折叠、可见行派生缓存；验证单测：同名配对、孤儿、大小写、扩展名对齐、汇总颜色场景（folder-compare-tree spec）
+- [x] 2.2 实现对齐覆盖（掩码/正则对、限定文件夹）与 Align With；验证单测：`x*.jpg`↔`y*.jpg` 配对、覆盖后重新扫描仍生效
+- [x] 2.3 实现快速测试：大小、时间戳（容差/DST/时区）、文件名大小写、属性四项与状态推导（含较新侧标记）；验证单测覆盖 folder-criteria spec 的全部快速测试场景
+- [x] 2.4 实现 `ContentCompareJob`：CRC / 二进制（分块、首个不同块提前退出）、"快速相同则跳过"、"内容覆盖快速"、修订号校验写回；验证单测：1 GB 稀疏文件前 4 KB 不同时读取量 < 1 MB；取消在 1 s 内返回
+- [x] 2.5 接通规则比较：调用 `bc-engine-text` 公开 API 得到重要/不重要统计（若分支上尚无该 API，实现为 `Unsupported` 并在报告标注，合并后补）；验证单测或占位测试按实际情况二选一并写明
+- [x] 2.6 实现版本比较（PE 版本资源读取，`bc_engine_bin::ver::read_version_info`）；验证单测对本机任一 `.dll` 读取到版本字符串
+- [x] 2.7 实现 `Criteria::parse_script` 与反向序列化；验证单测：`criteria attrib:sh timestamp:2sec;IgnoreDST rules-based timezone:left+6` 往返
 
 ## 3. 过滤
 

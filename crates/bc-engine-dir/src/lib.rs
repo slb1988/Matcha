@@ -14,6 +14,7 @@
 #![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 #![forbid(unsafe_code)]
 
+pub mod content;
 pub mod criteria;
 pub mod filter;
 pub mod jobs;

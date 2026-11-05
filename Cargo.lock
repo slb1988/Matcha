@@ -135,6 +135,7 @@ name = "bc-engine-dir"
 version = "0.1.0"
 dependencies = [
  "bc-core",
+ "bc-engine-bin",
  "bc-engine-text",
  "bc-formats",
  "bc-jobs",
