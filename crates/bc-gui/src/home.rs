@@ -115,7 +115,9 @@ fn load_recent() -> Vec<(PathBuf, PathBuf)> {
     };
     let lines: Vec<_> = text.lines().collect();
     lines
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .take(12)
         .map(|p| (PathBuf::from(p[0]), PathBuf::from(p[1])))
         .collect()

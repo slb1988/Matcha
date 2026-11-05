@@ -192,7 +192,7 @@ impl<'f> Tokenizer<'f> {
             let mut selected = None;
             for index in 0..self.compiled.len() {
                 if let Some(end) = self.start_at(index, line, pos) {
-                    if end > pos && selected.map_or(true, |(_, previous)| end > previous) {
+                    if end > pos && selected.is_none_or(|(_, previous)| end > previous) {
                         selected = Some((index, end));
                     }
                 }

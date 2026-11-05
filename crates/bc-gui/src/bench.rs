@@ -93,7 +93,7 @@ impl BenchState {
     /// Next scroll step. Mix: 3 smooth frames then one jump, over `total_rows`.
     pub fn next_step(&mut self, total_rows: usize) -> Step {
         self.frame += 1;
-        if self.frame % 4 == 0 {
+        if self.frame.is_multiple_of(4) {
             // xorshift64*
             self.rng ^= self.rng >> 12;
             self.rng ^= self.rng << 25;

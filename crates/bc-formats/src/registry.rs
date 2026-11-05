@@ -98,7 +98,7 @@ impl FormatRegistry {
             .iter()
             .zip(&self.masks)
             .find_map(|(format, masks)| {
-                (kind.map_or(true, |k| k == format.kind)
+                (kind.is_none_or(|k| k == format.kind)
                     && masks.iter().any(|p| p.match_at(name, 0).is_some()))
                 .then_some(format)
             })
