@@ -20,6 +20,8 @@ Test: `cargo test -p bc-formats` – parses the XML, compares with the embedded 
 checks 25 formats (19 text, 2 table, 1 picture, 1 media, 1 version, 1 XML), all 4
 grammar classes, all 10 element kinds and several spot values.
 
+Lightweight baseline: `cargo run --release -p bc-formats --example formats_baseline`.
+
 ## Dependency boundary
 
 `bc-core` (persist), `serde`, `serde_json`. Build dependencies: the same three.
@@ -52,9 +54,8 @@ No engine, VFS or GUI dependency. Engines depend on this crate for grammar and r
 
 ## Open questions
 
-- `TLinesTextGrammarItem` exists in the binary but not in the built-in data; its
-  semantics (multi-line basic item?) are unknown — the reader rejects it so a user file
-  containing one fails loudly instead of silently dropping it.
+- [Unknown multi-line grammar decision placeholder](../../docs/decisions/002-lines-grammar.md).
+- [STX write rule decision placeholder](../../docs/decisions/001-stx-write-rule.md).
 - Notes said 22 built-in formats; the resource has 25 (MEDIA/EXE/XML-format extra). All 25
   are embedded; sessions decide which kinds they can use.
 - Spec names the fourth match type "RegEx"; data has `Basic` with an `IsRegExp` flag.

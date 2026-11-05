@@ -17,6 +17,9 @@ are `todo!()`.
 - `jobs` – `Align2Job`, `Realign2Job`, `Align3Job`, `Realign3Job` (`bc_jobs::Job` impls).
 - `search` – find / replace-all (FR-T6).
 
+Test scaffold: `cargo test -p bc-engine-text`; lightweight baseline:
+`cargo run --release -p bc-engine-text --example text_baseline`.
+
 ## Dependency boundary
 
 `bc-core`, `bc-formats`, `bc-jobs`, `bc-vfs`. No GUI. Consumers: `bc-engine-dir`
@@ -37,7 +40,8 @@ are `todo!()`.
 
 ## Open questions
 
-- Smart alignment scoring and inline "isolated difference" merging rules (spec §8).
+- [Smart scoring decision placeholder](../../docs/decisions/003-smart-scoring.md).
+- Inline "isolated difference" merging rules (spec §8).
 - Exact conflict definition when only the center changes (`conflict_on_center_change`).
 - Whether `TextMap` rows should be stored or derived on the fly from `AlignMap` for
   100 MB inputs (memory budget: one `TextMapRow` is 56 bytes; 2 M rows ≈ 112 MB, so a

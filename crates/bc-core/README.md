@@ -19,11 +19,13 @@ tool's `Ss*` infrastructure units.
 
 ## Dependency boundary
 
-Depends only on `quick-xml` (for `persist`). No GUI, no threads, no file system beyond
-`std::io` types. Everything above (`bc-formats`, engines, session) builds on it;
+Depends on `quick-xml` (persist), `regex`, `xxhash-rust` (xxh64), and `encoding_rs`.
+No GUI or async runtime. Everything above (`bc-formats`, engines, session) builds on it;
 `bc-formats`' build script uses `persist::parse_xml` at build time.
 
 Golden-fixture layout for later algorithm work: `tests/golden/README.md`.
+Lightweight baseline: `cargo run --release -p bc-core --example core_baseline`.
+Integration tests: `cargo test -p bc-core`.
 
 ## Reference class map (from `vmt_report.txt`)
 
@@ -42,10 +44,5 @@ Golden-fixture layout for later algorithm work: `tests/golden/README.md`.
 
 ## Open questions
 
-- `&#2;` (STX) write rule: in the extracted resource `ElementStr`, format names and
-  descriptions carry the marker while `Text`, `Mask`, `FindText`, `StopText` do not.
-  `Node::stx` preserves what was read; the writer must learn the rule (likely
-  "string properties declared as `string` vs. `WideString`/identifier" in Delphi) before
-  write-compatibility can be claimed.
-- Smart alignment scoring (`TBcSmartAlign`) is still being recovered (spec §8);
-  `SmartAlignOptions` field names are provisional.
+- [STX write rule decision placeholder](../../docs/decisions/001-stx-write-rule.md).
+- [Smart scoring decision placeholder](../../docs/decisions/003-smart-scoring.md).

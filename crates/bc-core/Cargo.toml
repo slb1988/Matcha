@@ -8,3 +8,6 @@ publish.workspace = true
 
 [dependencies]
 quick-xml = { workspace = true }
+regex = { workspace = true }
+xxhash-rust = { workspace = true }
+encoding_rs = { workspace = true }

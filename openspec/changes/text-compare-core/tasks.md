@@ -4,9 +4,9 @@
 
 ## 1. 依赖与基线
 
-- [ ] 1.1 在 workspace 加入 `regex`、`xxhash-rust`（xxh64）、`encoding_rs`，分别接入 `bc-core`；验证 `cargo tree -p bc-core -e normal` 不含 GUI/异步 crate 且 `cargo check --workspace` 通过
-- [ ] 1.2 为 `bc-core`、`bc-formats`、`bc-engine-text` 建立 `tests/` 单测骨架与 criterion 之外的轻量基准入口（`cargo test`/`cargo run --example`），验证空测试集可运行
-- [ ] 1.3 把骨架阶段 README 中"遗留问题"里与本 change 相关的条目（STX 写规则、`TLinesTextGrammarItem`、Smart 评分）转为 `docs/decisions/` 下的决策记录占位；验证文档链接可达
+- [x] 1.1 在 workspace 加入 `regex`、`xxhash-rust`（xxh64）、`encoding_rs`，分别接入 `bc-core`；验证 `cargo tree -p bc-core -e normal` 不含 GUI/异步 crate 且 `cargo check --workspace` 通过
+- [x] 1.2 为 `bc-core`、`bc-formats`、`bc-engine-text` 建立 `tests/` 单测骨架与 criterion 之外的轻量基准入口（`cargo test`/`cargo run --example`），验证空测试集可运行
+- [x] 1.3 把骨架阶段 README 中"遗留问题"里与本 change 相关的条目（STX 写规则、`TLinesTextGrammarItem`、Smart 评分）转为 `docs/decisions/` 下的决策记录占位；验证文档链接可达
 
 ## 2. bc-core 行模型、编码与哈希
 
