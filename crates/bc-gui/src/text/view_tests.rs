@@ -426,6 +426,26 @@ fn two_inline_spans_and_unimportant_colors_reach_the_painter() {
             .count(),
         2
     );
+    let mut prefs = Prefs::default();
+    prefs.colors.important = [255, 128, 0];
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            v.ui(ui, &mut prefs);
+        },
+    );
+    out.textures_delta.clear();
+    let orange = super::super::nav_bar::color(&prefs.colors, Importance::Important, false, 38);
+    assert!(out
+        .shapes
+        .iter()
+        .any(|s| matches!(&s.shape,egui::Shape::Rect(r) if r.fill==orange)));
     let mut v = view("name = value\n", "name = VALUE\n");
     v.map.rules.comparison.importance.case_unimportant = true;
     v.recompare();
