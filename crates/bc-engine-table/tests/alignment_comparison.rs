@@ -151,7 +151,7 @@ fn key_handling_normalization_and_tolerance_cross_bucket_boundary() {
         ..Default::default()
     };
     let map = TableMap::new(l, r, settings, &NeverCancel).unwrap();
-    assert_eq!(map.statistics().same, 2);
+    assert_eq!(map.statistics().unimportant, 2);
     assert_eq!(map.row_count(), 4);
     let l = table(&[&["2026-01-01", "a"]]);
     let r = table(&[&["2026-01-02", "a"]]);
@@ -165,7 +165,7 @@ fn key_handling_normalization_and_tolerance_cross_bucket_boundary() {
         TableMap::new(l, r, settings, &NeverCancel)
             .unwrap()
             .statistics()
-            .same,
+            .unimportant,
         1
     );
 }
@@ -188,7 +188,7 @@ fn cell_types_tolerances_text_case_whitespace_and_column_importance() {
             }
             .compare(&l, &r, (Some(0), Some(0)), (Some(col), Some(col)))
             .value,
-            Importance::Same
+            Importance::Unimportant
         );
     }
     h.unimportant = true;

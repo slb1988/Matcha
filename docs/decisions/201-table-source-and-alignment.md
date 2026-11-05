@@ -15,4 +15,10 @@
 - Realign 暂时选择安全全量回退，复用快照/修订号协议但不声称局部增量。对于键变动引起的远端配对变化，这是正确性的保守选择。
 - 协调者确认本波原生格式验收是 xlsx/xlsm；D2 提及的 xls/ods 仅是 calamine 能力，不在本波适配/验证，后续按其不同的惰性/合并范围接口处理。
 
-验证与最终限制见本波 worker report。
+## Wave 2 黄金校准（协调者批准）
+
+同设置原生报告证实：大小写忽略、空白忽略、数值/日期容差内的**原始值差异**是 Unimportant（蓝），不是 Same。协调者修订 table-cell-comparison / table-columns-and-sheets；引擎与 Wave 1 对应断言同步纠正。完全相同值仍 Same，Key 的规范化等值/容差配对不变，Ignore Unimportant 只在视图投影时把 U 当 S；不在黄金解析器归一化掩盖 S↔U。
+
+普通数字的不同拼写（如 1.0/1.00）在 General 下是同一个值，并非容差差异；Text 模式仍比较保留的原拼写。
+
+验证与最终限制见各波 worker report。
