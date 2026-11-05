@@ -188,6 +188,7 @@ dependencies = [
 name = "bc-jobs"
 version = "0.1.0"
 dependencies = [
+ "bc-core",
  "crossbeam-channel",
 ]
 

@@ -25,10 +25,10 @@
 
 ## 4. bc-core 对齐
 
-- [ ] 4.1 实现 `AlignMap::from_rows`、反向索引、`next/prev_difference`、`force_pair`；验证单测：顺序保持不变量（规格"顺序保持"）、导航首尾提示
-- [ ] 4.2 实现 `QuickAlign::align2`（LCS 骨架 → 行）；验证单测：规格场景"中间插入 3 行"、"完全相同"
-- [ ] 4.3 实现 `SmartAlign::align2`：区块内相似度配对（字符 LCS 比率 + 词 Jaccard）、权重锚点、偏移容忍、不相似不强配；验证单测：规格场景"单字符改动配对"、"不相似替换不强配"、DFM `object` 锚点
-- [ ] 4.4 实现对齐的后台分块与取消检查（配合 `bc-jobs::CancelToken`），验证基准：两份 100 MB 合成文本 Quick 对齐 < 5 s、Smart < 15 s（release），期间可取消
+- [x] 4.1 实现 `AlignMap::from_rows`、反向索引、`next/prev_difference`、`force_pair`；验证单测：顺序保持不变量（规格"顺序保持"）、导航首尾提示
+- [x] 4.2 实现 `QuickAlign::align2`（LCS 骨架 → 行）；验证单测：规格场景"中间插入 3 行"、"完全相同"
+- [x] 4.3 实现 `SmartAlign::align2`：区块内相似度配对（字符 LCS 比率 + 词 Jaccard）、权重锚点、偏移容忍、不相似不强配；验证单测：规格场景"单字符改动配对"、"不相似替换不强配"、DFM `object` 锚点
+- [x] 4.4 实现对齐的后台分块与取消检查（配合 `bc-jobs::CancelToken`），验证基准：两份 100 MB 合成文本 Quick 对齐 < 5 s、Smart < 15 s（release），期间可取消
 
 ## 5. bc-formats 分词与格式解析
 

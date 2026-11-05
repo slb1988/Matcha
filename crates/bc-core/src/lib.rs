@@ -21,6 +21,7 @@
 #![deny(unsafe_code)]
 
 pub mod align;
+pub mod cancel;
 pub mod diff;
 pub mod edit;
 pub mod encoding;
@@ -68,6 +69,8 @@ pub enum DiffKind {
 /// Error type shared by the core primitives.
 #[derive(Debug)]
 pub enum CoreError {
+    /// Cooperative cancellation: no partial result is published.
+    Cancelled,
     /// Input is not valid for the requested operation.
     Invalid(String),
     /// Wraps a persistence (XML) error.
@@ -79,6 +82,7 @@ pub enum CoreError {
 impl std::fmt::Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            CoreError::Cancelled => f.write_str("cancelled"),
             CoreError::Invalid(m) => write!(f, "invalid input: {m}"),
             CoreError::Persist(e) => write!(f, "persistence error: {e}"),
             CoreError::Io(e) => write!(f, "io error: {e}"),

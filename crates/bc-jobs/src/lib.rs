@@ -116,6 +116,10 @@ impl CancelToken {
     }
 }
 
+impl bc_core::cancel::CancelCheck for CancelToken {
+    fn is_cancelled(&self) -> bool { self.is_cancelled() }
+}
+
 /// Progress snapshot published by a job.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Progress {

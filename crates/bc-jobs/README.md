@@ -19,8 +19,14 @@ Everything except `CancelToken`, `ResourcePool::declare` and id allocation is `t
 
 ## Dependency boundary
 
-`crossbeam-channel` only. **No async runtime** (hard constraint). Used by the engines,
-the session layer and the script runner; never by `bc-core`/`bc-formats`/`bc-vfs`.
+`crossbeam-channel` and downward-only `bc-core` (the `CancelCheck` bridge).
+**No async runtime** (hard constraint). Core does not depend on jobs.
+`CancelToken` implements `bc_core::cancel::CancelCheck`; aligners/diff accept this
+interface and return `CoreError::Cancelled` without publishing partial maps.
+
+Cancellation integration: `cargo test -p bc-jobs --test alignment_cancel`.
+Background benchmark: `cargo run --release -p bc-jobs --example align_bench -- <left> <right>`.
+The benchmark uses scoped std threads, not JobManager (which remains a scaffold).
 
 ## Reference class map (from `vmt_report.txt`)
 

@@ -1,7 +1,11 @@
 //! Sequence diff: linear-space Myers O(ND), common-edge trimming, bounded block
 //! fallback for huge inputs, and patience anchors. Operations partition both inputs.
 
-use crate::hash::ContentHash;
+use crate::{
+    cancel::{CancelCheck, NeverCancel},
+    hash::ContentHash,
+    CoreError,
+};
 use std::{
     collections::{HashMap, HashSet},
     ops::Range,
@@ -47,7 +51,19 @@ impl Default for MyersDiff {
 
 impl Differ for MyersDiff {
     fn diff(&self, a: &[ContentHash], b: &[ContentHash]) -> Vec<DiffOp> {
-        diff_ranges(a, b, self.block_fallback_threshold, false)
+        self.diff_cancellable(a, b, &NeverCancel)
+            .expect("never cancelled")
+    }
+}
+
+impl MyersDiff {
+    pub fn diff_cancellable(
+        &self,
+        a: &[ContentHash],
+        b: &[ContentHash],
+        cancel: &dyn CancelCheck,
+    ) -> Result<Vec<DiffOp>, CoreError> {
+        diff_ranges(a, b, self.block_fallback_threshold, false, cancel)
     }
 }
 
@@ -56,7 +72,14 @@ pub struct PatienceDiff;
 
 impl Differ for PatienceDiff {
     fn diff(&self, a: &[ContentHash], b: &[ContentHash]) -> Vec<DiffOp> {
-        diff_ranges(a, b, MyersDiff::default().block_fallback_threshold, true)
+        diff_ranges(
+            a,
+            b,
+            MyersDiff::default().block_fallback_threshold,
+            true,
+            &NeverCancel,
+        )
+        .expect("never cancelled")
     }
 }
 
@@ -71,10 +94,12 @@ fn diff_ranges(
     b: &[ContentHash],
     threshold: usize,
     patience: bool,
-) -> Vec<DiffOp> {
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<DiffOp>, CoreError> {
     let mut out = Vec::new();
     let mut work = vec![Work::Range(0..a.len(), 0..b.len(), patience)];
     while let Some(job) = work.pop() {
+        cancel.check()?;
         let (mut ar, mut br, patience) = match job {
             Work::Equal(a_start, b_start, len) => {
                 emit(
@@ -89,11 +114,7 @@ fn diff_ranges(
             }
             Work::Range(ar, br, patience) => (ar, br, patience),
         };
-        let prefix = a[ar.clone()]
-            .iter()
-            .zip(&b[br.clone()])
-            .take_while(|(x, y)| x == y)
-            .count();
+        let prefix = common_edge(a[ar.clone()].iter().zip(&b[br.clone()]), cancel)?;
         emit(
             &mut out,
             DiffOp::Equal {
@@ -104,19 +125,17 @@ fn diff_ranges(
         );
         ar.start += prefix;
         br.start += prefix;
-        let suffix = a[ar.clone()]
-            .iter()
-            .rev()
-            .zip(b[br.clone()].iter().rev())
-            .take_while(|(x, y)| x == y)
-            .count();
+        let suffix = common_edge(
+            a[ar.clone()].iter().rev().zip(b[br.clone()].iter().rev()),
+            cancel,
+        )?;
         ar.end -= suffix;
         br.end -= suffix;
         if suffix != 0 {
             work.push(Work::Equal(ar.end, br.end, suffix));
         }
         if patience && !ar.is_empty() && !br.is_empty() {
-            let anchors = unique_anchors(&a[ar.clone()], &b[br.clone()]);
+            let anchors = unique_anchors(&a[ar.clone()], &b[br.clone()], cancel)?;
             if !anchors.is_empty() {
                 let mut jobs = Vec::with_capacity(anchors.len() * 2 + 1);
                 let (mut ap, mut bp) = (ar.start, br.start);
@@ -138,12 +157,12 @@ fn diff_ranges(
         } else if ar.len() == 1 || br.len() == 1 {
             single(&mut out, a, b, ar, br);
         } else if threshold != 0 && ar.len().max(br.len()) > threshold {
-            let jobs = block_jobs(a, b, ar, br, threshold);
+            let jobs = block_jobs(a, b, ar, br, threshold, cancel)?;
             work.extend(jobs.into_iter().rev());
         } else if ar.len() + br.len() > 512 && disjoint(&a[ar.clone()], &b[br.clone()]) {
             replace(&mut out, ar, br);
         } else {
-            let (x, y) = bisect(&a[ar.clone()], &b[br.clone()]);
+            let (x, y) = bisect(&a[ar.clone()], &b[br.clone()], cancel)?;
             assert!(
                 (x, y) != (0, 0) && (x, y) != (ar.len(), br.len()),
                 "Myers split must make progress"
@@ -154,7 +173,25 @@ fn diff_ranges(
             work.push(Work::Range(ar.start..am, br.start..bm, false));
         }
     }
-    out
+    cancel.check()?;
+    Ok(out)
+}
+
+fn common_edge<'a>(
+    pairs: impl Iterator<Item = (&'a ContentHash, &'a ContentHash)>,
+    cancel: &dyn CancelCheck,
+) -> Result<usize, CoreError> {
+    let mut count = 0;
+    for (a, b) in pairs {
+        if count % 4096 == 0 {
+            cancel.check()?;
+        }
+        if a != b {
+            break;
+        }
+        count += 1;
+    }
+    Ok(count)
 }
 
 fn replace(out: &mut Vec<DiffOp>, a: Range<usize>, b: Range<usize>) {
@@ -246,7 +283,11 @@ fn single(
 
 /// Find the overlap of forward/reverse furthest-reaching paths. Frontier arrays
 /// are released before processing subranges; no O(D²) trace or recursive call stack.
-fn bisect(a: &[ContentHash], b: &[ContentHash]) -> (usize, usize) {
+fn bisect(
+    a: &[ContentHash],
+    b: &[ContentHash],
+    cancel: &dyn CancelCheck,
+) -> Result<(usize, usize), CoreError> {
     let n = a.len() as isize;
     let m = b.len() as isize;
     let max_d = (n + m + 1) / 2;
@@ -259,6 +300,7 @@ fn bisect(a: &[ContentHash], b: &[ContentHash]) -> (usize, usize) {
     let delta = n - m;
     let odd = delta % 2 != 0;
     for d in 0..=max_d {
+        cancel.check()?;
         for k in (-d..=d).step_by(2) {
             let i = (offset + k) as usize;
             let mut x = if k == -d || (k != d && forward[i - 1] < forward[i + 1]) {
@@ -280,7 +322,7 @@ fn bisect(a: &[ContentHash], b: &[ContentHash]) -> (usize, usize) {
                 && y <= m
                 && x >= n - reverse[other as usize]
             {
-                return (x as usize, y as usize);
+                return Ok((x as usize, y as usize));
             }
         }
         for k in (-d..=d).step_by(2) {
@@ -310,7 +352,7 @@ fn bisect(a: &[ContentHash], b: &[ContentHash]) -> (usize, usize) {
                 && forward[other as usize] >= n - x
             {
                 let ax = forward[other as usize];
-                return (ax as usize, (ax - (delta - k)) as usize);
+                return Ok((ax as usize, (ax - (delta - k)) as usize));
             }
         }
     }
@@ -325,31 +367,45 @@ fn disjoint(a: &[ContentHash], b: &[ContentHash]) -> bool {
 
 /// Unique-in-both pairs, followed by an increasing subsequence on right indices.
 /// Iterating the left input (not HashMap order) makes tie-breaking deterministic.
-fn unique_anchors(a: &[ContentHash], b: &[ContentHash]) -> Vec<(usize, usize)> {
-    fn positions(values: &[ContentHash]) -> HashMap<ContentHash, Option<usize>> {
+fn unique_anchors(
+    a: &[ContentHash],
+    b: &[ContentHash],
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<(usize, usize)>, CoreError> {
+    fn positions(
+        values: &[ContentHash],
+        cancel: &dyn CancelCheck,
+    ) -> Result<HashMap<ContentHash, Option<usize>>, CoreError> {
         let mut map = HashMap::with_capacity(values.len());
         for (i, &value) in values.iter().enumerate() {
+            if i % 4096 == 0 {
+                cancel.check()?;
+            }
             map.entry(value)
                 .and_modify(|pos| *pos = None)
                 .or_insert(Some(i));
         }
-        map
+        Ok(map)
     }
-    let left = positions(a);
-    let right = positions(b);
-    let pairs: Vec<_> = a
-        .iter()
-        .enumerate()
-        .filter_map(|(i, value)| {
-            if left[value] != Some(i) {
-                return None;
+    let left = positions(a, cancel)?;
+    let right = positions(b, cancel)?;
+    let mut pairs = Vec::new();
+    for (i, value) in a.iter().enumerate() {
+        if i % 4096 == 0 {
+            cancel.check()?;
+        }
+        if left[value] == Some(i) {
+            if let Some(j) = right.get(value).copied().flatten() {
+                pairs.push((i, j));
             }
-            right.get(value).copied().flatten().map(|j| (i, j))
-        })
-        .collect();
+        }
+    }
     let mut tails: Vec<usize> = Vec::new();
     let mut previous = vec![None; pairs.len()];
     for (i, &(_, j)) in pairs.iter().enumerate() {
+        if i % 4096 == 0 {
+            cancel.check()?;
+        }
         let p = tails.partition_point(|&t| pairs[t].1 < j);
         if p > 0 {
             previous[i] = Some(tails[p - 1]);
@@ -367,7 +423,7 @@ fn unique_anchors(a: &[ContentHash], b: &[ContentHash]) -> Vec<(usize, usize)> {
         cursor = previous[i];
     }
     result.reverse();
-    result
+    Ok(result)
 }
 
 struct Block {
@@ -377,11 +433,18 @@ struct Block {
 
 /// Content-defined boundaries recover alignment after shifted insertions. A hard
 /// maximum also bounds repetitive/adversarial data that has no natural boundaries.
-fn blocks(values: &[ContentHash], range: Range<usize>) -> Vec<Block> {
+fn blocks(
+    values: &[ContentHash],
+    range: Range<usize>,
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<Block>, CoreError> {
     let mut result = Vec::new();
     let mut start = range.start;
     let mut hasher = xxhash_rust::xxh64::Xxh64::new(0);
     for i in range.clone() {
+        if i % 4096 == 0 {
+            cancel.check()?;
+        }
         hasher.update(&values[i].0.to_le_bytes());
         let len = i + 1 - start;
         if (len >= 32 && values[i].0 & 63 == 0) || len == 128 || i + 1 == range.end {
@@ -394,7 +457,7 @@ fn blocks(values: &[ContentHash], range: Range<usize>) -> Vec<Block> {
             start = i + 1;
         }
     }
-    result
+    Ok(result)
 }
 
 fn block_jobs(
@@ -403,15 +466,17 @@ fn block_jobs(
     ar: Range<usize>,
     br: Range<usize>,
     threshold: usize,
-) -> Vec<Work> {
-    let ab = blocks(a, ar.clone());
-    let bb = blocks(b, br.clone());
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<Work>, CoreError> {
+    let ab = blocks(a, ar.clone(), cancel)?;
+    let bb = blocks(b, br.clone(), cancel)?;
     let ah: Vec<_> = ab.iter().map(|block| block.hash).collect();
     let bh: Vec<_> = bb.iter().map(|block| block.hash).collect();
-    let anchors = unique_anchors(&ah, &bh);
+    let anchors = unique_anchors(&ah, &bh, cancel)?;
     let mut result = Vec::new();
     let (mut ap, mut bp) = (ar.start, br.start);
     for (ai, bi) in anchors {
+        cancel.check()?;
         let (left, right) = (&ab[ai].range, &bb[bi].range);
         // Hash collisions must never manufacture equal line ranges.
         if a[left.clone()] != b[right.clone()] {
@@ -428,7 +493,7 @@ fn block_jobs(
         bp = right.end;
     }
     windows(&mut result, ap..ar.end, bp..br.end, threshold.min(1024));
-    result
+    Ok(result)
 }
 
 fn windows(jobs: &mut Vec<Work>, mut a: Range<usize>, mut b: Range<usize>, limit: usize) {

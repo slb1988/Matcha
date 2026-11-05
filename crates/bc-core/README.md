@@ -9,8 +9,9 @@ tool's `Ss*` infrastructure units.
 - `line` – per-line ending parser/writer, shared-piece `LineList`, reversible `LineEdit`,
   Windows locked mmap with owned fallback, copy-on-write edits and cheap snapshots.
 - `diff` – `Differ`, linear-space `MyersDiff`, content-defined block fallback, `PatienceDiff`.
-- `align` – `Aligner` trait, `AlignMap` (row ↔ side-line mapping used by every view),
-  `QuickAlign`, `SmartAlign` (+ options), `ByteAlign`, `LineWeight`.
+- `align` – checked row/reverse mapping, block navigation, session-owned manual anchors,
+  Quick/Smart two-way alignment and `AlignMap::unaligned`; three-way/byte alignment remain stubs.
+- `cancel` – dependency-free cooperative cancellation; jobs implements the bridge.
 - `edit` – `EditItem`/`EditGroup`/`EditStack` with grouping and save-point tracking.
 - `hash` – `ContentHash`, `LineHasher` (normalisation flags), streaming `Crc32`.
 - `encoding` – detection, decode/encode, BOM policy.
@@ -50,6 +51,28 @@ Integration tests: `cargo test -p bc-core`.
   invalid byte input keeps bytes distinct and uses ASCII-only normalisation.
 - Edit history starts clean, never coalesces across a save boundary, and tracks
   unreachable saved states after branching/eviction. Close groups before saving.
+
+## Two-way alignment
+
+`AlignInput::lines: Option<&LineList>` provides borrowed text for Smart scoring; no
+per-file String list is constructed. Without text, Smart keeps the Quick skeleton.
+Manual `AlignmentOverrides` are ordered noncrossing anchors stored outside the map;
+pass the same anchors to `align2_with_overrides` / `align2_cancellable` after recompare,
+or clear them to recover automatic output. `force_pair` rewires an existing two-way
+map while retaining every index and returns errors for invalid indices.
+
+Quick expands Myers runs directly. Smart compacts orphan blocks in place using
+bounded 128-line windows, a skew band (default 8), Unicode character LCS (70%) plus
+word Jaccard (30%), a default 0.5 threshold, and matching positive-weight bonuses.
+Only up to 256 characters per candidate are scored (configurable up to 1024);
+unrelated lines are not forced together. These are tunable heuristics, not claimed
+reference-score parity; see [scoring decision](../../docs/decisions/003-smart-scoring.md).
+
+Cancellable APIs accept `&dyn CancelCheck` (implemented by bc-jobs::CancelToken), poll
+during diff/Smart scoring, and check every 4096 expanded/indexed rows. They do not
+spawn their own threads; callers dispatch immutable snapshots to workers. No partial
+map is returned after cancellation. Navigation returns difference *block* starts,
+with None at the boundary (no wrap).
 
 ## Diff contracts
 
