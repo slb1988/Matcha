@@ -67,18 +67,18 @@ subrange anchoring, falling back to bounded Myers only when anchors are absent.
 ## Pattern/mask boundary
 
 `Pattern` uses linear-time `regex`, including Unicode case handling, captures and
-replacement expansion. The dialect shim translates directional `\\<` / `\\>` into
+replacement expansion. The dialect shim translates directional `\<` / `\>` into
 word-start/word-end assertions; backreferences/look-around fail with diagnostic errors.
 `find_at` offsets must be UTF-8 boundaries and preserve pre-offset anchor context.
 
 `glob_to_pattern` accepts **one positive mask**, anchored to a complete name; `*` / `?`
 do not cross path separators. Directory masks require an explicit trailing separator
-(`obj\\` / `obj/`), matching neither the file `obj` nor descendants. Semicolon lists
+(`obj\` / `obj/`), matching neither the file `obj` nor descendants. Semicolon lists
 and leading exclusions are rejected by this primitive. `split_mask_list` only parses
 `MaskSpec { pattern, exclude, folder }` and strips markers. Combining positive/negative
 masks, negative-only defaults, and recursive path exclusion belong to
 `bc-engine-dir::filter::NameFilter` in the later folder change (coordinator-confirmed
-scope). The `*.c;*.h;-*.bak;obj\\` regression table verifies parsing and each primitive,
+scope). The `*.c;*.h;-*.bak;obj\` regression table verifies parsing and each primitive,
 not production list evaluation.
 
 ## Reference class map (from `vmt_report.txt`)
