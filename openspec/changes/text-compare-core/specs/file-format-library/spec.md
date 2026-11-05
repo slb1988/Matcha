@@ -46,9 +46,13 @@
 - **WHEN** COBOL 格式声明第 73–80 列为 LineNum
 - **THEN** 每行该列区间内的字符归为 LineNum，无论内容
 
-#### Scenario: 先匹配者优先
-- **WHEN** 同一位置同时满足字符串起始与运算符
-- **THEN** 按格式中语法项的先后顺序取靠前者
+#### Scenario: 最长匹配，等长先出现者优先
+- **WHEN** 同一位置有多个语法项命中（例如 HTML 的关键字 `<` 与注释起始 `<!--`，或 PYTHON 的 `'` 与 `'''`）
+- **THEN** 取命中文本最长的语法项；长度相同时按格式中语法项的先后顺序取靠前者
+
+#### Scenario: 关键字包含在更长标识符中
+- **WHEN** 文本为 `while_loop` 且格式同时有关键字 `while` 与标识符正则
+- **THEN** 整个 `while_loop` 归为 Identifier，而不是 Keyword 加 Identifier
 
 ### Requirement: 导入参考工具格式文件
 系统 SHALL 能导入参考工具导出的格式 XML（`BCFileFormats` 根元素），把其中的格式作为用户格式加入；未知的元素被忽略，未知的语法项类型 MUST 报错并指出所在格式而不是静默丢弃。
