@@ -59,7 +59,7 @@
 
 ### D7. LocalFs：std 为主，Windows 特性用 `windows-sys` 收窄
 
-- 选择：枚举/复制/重命名/时间戳用 `std::fs`；DOS 属性、回收站（`SHFileOperationW` 或 `IFileOperation`）、reparse point 判定用 `windows-sys`（仅三个特性），全部 `cfg(windows)`；非 Windows 回收站返回 `Unsupported`。目录监视用 `ReadDirectoryChangesW`（Windows）/轮询对比（其他）。
+- 选择：枚举/复制/重命名/时间戳用 `std::fs`；DOS 属性、回收站（`SHFileOperationW` 或 `IFileOperation`）、reparse point 判定用 `windows-sys`（仅五个特性：Foundation、Storage_FileSystem、UI_Shell、System_IO、Globalization），全部 `cfg(windows)`；非 Windows 回收站返回 `Unsupported`。目录监视用 `ReadDirectoryChangesW`（Windows）/轮询对比（其他）。
 - 理由：避免更重的 `trash`/`notify` 依赖，保持依赖面可审计。
 
 ### D8. GUI：新增模块，不改文本控件

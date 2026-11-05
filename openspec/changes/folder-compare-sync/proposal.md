@@ -34,6 +34,6 @@
 ## Impact
 
 - 代码：`crates/bc-vfs`（`LocalFs`、`VfsPath`、`FileAttrs`）、`crates/bc-engine-dir`（全部模块）、`crates/bc-gui`（新增 `dir_view`、`sync_view`、图例/列/日志组件，`app.rs` 最小接线）、`crates/bc-core/tests/golden/dir/*`。
-- 依赖：允许在 `bc-vfs` 新增 `windows-sys`（仅 `Win32_Storage_FileSystem`、`Win32_UI_Shell`、`Win32_Foundation` 特性，`cfg(windows)`），用于回收站删除、DOS 属性与 reparse point；其他 crate 不得引入新依赖。
+- 依赖：允许在 `bc-vfs` 新增 `windows-sys`（仅 `Win32_Foundation`、`Win32_Storage_FileSystem`、`Win32_UI_Shell`、`Win32_System_IO`、`Win32_Globalization` 五个特性，`cfg(windows)`），用于回收站删除、DOS 属性与 reparse point；其他 crate 不得引入新依赖。
 - 并行约束：在独立 git worktree/分支 `folder-compare-sync` 开发；`bc-engine-text` 的规则比较接口以 `master` 合并后的版本为准，合并前用显式 `Unsupported` 占位。
 - 与 `text-compare-core` 共享：`bc-core` 的取消接口、掩码解析原语 `split_mask_list`、`Crc32`。
