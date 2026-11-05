@@ -104,6 +104,7 @@ pub struct Sheet {
     pub(crate) styles: Arc<Vec<Style>>,
     pub(crate) text_source: Option<TextSource>,
     pub(crate) changed: HashSet<(usize, usize)>,
+    pub(crate) display_overrides: HashMap<(usize, usize), Arc<str>>,
     pub(crate) revision: u64,
 }
 impl Default for Sheet {
@@ -124,6 +125,7 @@ impl Sheet {
             styles: Arc::new(Vec::new()),
             text_source: None,
             changed: HashSet::new(),
+            display_overrides: HashMap::new(),
             revision: revision(),
         }
     }
@@ -183,6 +185,48 @@ impl Sheet {
         }
         Arc::make_mut(&mut self.columns[column])[row] = cell;
         self.changed.insert((row, column));
+        self.display_overrides.remove(&(row, column));
+        self.revision = revision();
+        Ok(())
+    }
+    /// Insert a source row, preserving unrelated lexical records and edit marks.
+    pub fn insert_row(&mut self, at: usize, cells: Vec<Cell>) -> Result<()> {
+        if at > self.row_count {
+            return Err(invalid("row insertion out of range"));
+        }
+        if cells
+            .iter()
+            .any(|c| c.style.is_some() && self.style(c.style).is_none())
+        {
+            return Err(invalid("unknown style id"));
+        }
+        self.ensure_size(self.row_count, cells.len());
+        for (column, values) in self.columns.iter_mut().enumerate() {
+            Arc::make_mut(values).insert(at, cells.get(column).cloned().unwrap_or_default());
+        }
+        self.changed = self
+            .changed
+            .iter()
+            .map(|&(row, col)| (if row >= at { row + 1 } else { row }, col))
+            .collect();
+        self.display_overrides = self
+            .display_overrides
+            .iter()
+            .map(|(&(row, col), text)| ((if row >= at { row + 1 } else { row }, col), text.clone()))
+            .collect();
+        for column in 0..self.columns.len() {
+            self.changed.insert((at, column));
+        }
+        if let Some(source) = &mut self.text_source {
+            if !source.rows.is_empty() {
+                let rows = Arc::make_mut(&mut source.rows);
+                if at == rows.len() && at > 0 && rows[at - 1].ending.is_empty() {
+                    rows[at - 1].ending = source.default_ending.clone();
+                }
+                rows.insert(at, RawRow::default());
+            }
+        }
+        self.row_count += 1;
         self.revision = revision();
         Ok(())
     }
@@ -206,6 +250,9 @@ impl Sheet {
     /// for untouched cells, including numeric trailing zeroes.
     pub fn display_at(&self, row: usize, column: usize) -> Option<String> {
         let cell = self.cell(row, column)?;
+        if let Some(text) = self.display_overrides.get(&(row, column)) {
+            return Some(text.to_string());
+        }
         if !self.changed.contains(&(row, column)) {
             if let Some(source) = &self.text_source {
                 if let Some(raw) = source.rows.get(row) {

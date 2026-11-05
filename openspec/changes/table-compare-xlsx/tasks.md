@@ -19,11 +19,11 @@
 
 ## 3. 行对齐与单元格比较
 
-- [ ] 3.1 实现键哈希与 `bc_core::align` 的接入（Quick/Smart/Patience/None、closeness、`AlignmentOverrides`）、重复键处理、排序后对齐；验证单测：table-row-alignment 全部场景
-- [ ] 3.2 实现 `CellComparator`（类型/容差/大小写/空白规范化）与值/公式/格式三层、紧凑行状态位图、行与 sheet 汇总、Ignore Unimportant 投影；验证单测：table-cell-comparison 全部场景
-- [ ] 3.3 实现 `TableMap`（派生行、导航：差异单元格/行/编辑、统计、`copy_cell/copy_row` 作为 `EditItem`、键改变后重对齐）与 `TableAlignJob`/`TableRealignJob`（快照 + 修订号）；验证单测：导航顺序、复制后相同且可撤销、过期结果拒绝
-- [ ] 3.4 实现差异摘要导出（文本/CSV：按键的行状态与变化列旧值→新值、列结构变化、遵循 Ignore Unimportant）；验证单测：规格示例 `7 | price | 1.0 -> 1.2`
-- [ ] 3.5 基准 `examples/table_bench.rs`：生成两份 100 万行 × 10 列 CSV（临时目录），测读取、键推断、对齐、比较耗时与内存；验证对齐在后台可取消，数字写入报告
+- [x] 3.1 实现键哈希与 `bc_core::align` 的接入（Quick/Smart/Patience/None、closeness、`AlignmentOverrides`）、重复键处理、排序后对齐；验证单测：table-row-alignment 全部场景
+- [x] 3.2 实现 `CellComparator`（类型/容差/大小写/空白规范化）与值/公式/格式三层、紧凑行状态位图、行与 sheet 汇总、Ignore Unimportant 投影；验证单测：table-cell-comparison 全部场景
+- [x] 3.3 实现 `TableMap`（派生行、导航：差异单元格/行/编辑、统计、`copy_cell/copy_row` 作为 `EditItem`、键改变后重对齐）与 `TableAlignJob`/`TableRealignJob`（快照 + 修订号）；验证单测：导航顺序、复制后相同且可撤销、过期结果拒绝
+- [x] 3.4 实现差异摘要导出（文本/CSV：按键的行状态与变化列旧值→新值、列结构变化、遵循 Ignore Unimportant）；验证单测：规格示例 `7 | price | 1.0 -> 1.2`
+- [x] 3.5 基准 `examples/table_bench.rs`：生成两份 100 万行 × 10 列 CSV（临时目录），测读取、键推断、对齐、比较耗时与内存；验证对齐在后台可取消，数字写入报告
 
 ## 4. GUI
 

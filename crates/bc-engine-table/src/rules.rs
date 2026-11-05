@@ -135,7 +135,10 @@ impl Default for TableRules {
             columns: Default::default(),
             default_handling: Default::default(),
             column_mode: Default::default(),
-            keys: Default::default(),
+            keys: KeySelection::Automatic {
+                columns: Vec::new(),
+                score: 0.0,
+            },
             sort_by_key: false,
             strategy: AlignStrategy::Smart,
             use_closeness: true,

@@ -178,6 +178,16 @@ fn encodings_ctrl_z_and_whole_input_detection() {
     )
     .unwrap();
     assert_eq!(r.sheet.row_count(), 1);
+    let tiny = read_text(
+        Cursor::new(b"1\x1a\0\0\xff"),
+        &ReadOptions {
+            ctrl_z_eof: true,
+            ..Default::default()
+        },
+        &NeverCancel,
+    )
+    .unwrap();
+    assert_eq!(tiny.sheet.cell(0, 0).unwrap(), &Cell::number(1.0));
     let mut bytes = vec![b'a'; 9000];
     bytes.extend_from_slice(b",caf\xe9");
     let r = read_text(

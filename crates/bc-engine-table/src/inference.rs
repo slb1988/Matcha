@@ -138,7 +138,7 @@ impl KeySuggestion {
     pub fn apply(&self, rules: &mut TableRules) -> bool {
         if matches!(
             rules.keys,
-            KeySelection::Manual(_) | KeySelection::ByColumnNumber
+            KeySelection::Manual(_) | KeySelection::ByColumnNumber | KeySelection::AllColumns
         ) {
             return false;
         }

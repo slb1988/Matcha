@@ -205,6 +205,8 @@ impl<R: BufRead> Records<R> {
                 for _ in 0..width {
                     if let Some((i, c)) = chars.next() {
                         offset = i + c.len_utf8();
+                    } else {
+                        break;
                     }
                 }
                 spans.push((start as u32, offset as u32));
@@ -266,7 +268,14 @@ fn detect<R: Read + Seek>(
         len += n;
     }
     first.truncate(len);
-    let detected = encoding::detect(&first, options.default_code_page);
+    let sniff =
+        if options.ctrl_z_eof && !first.starts_with(b"\xff\xfe") && !first.starts_with(b"\xfe\xff")
+        {
+            &first[..first.iter().position(|&b| b == 0x1a).unwrap_or(first.len())]
+        } else {
+            &first
+        };
+    let detected = encoding::detect(sniff, options.default_code_page);
     if let Some(enc) = options.encoding {
         reader.seek(SeekFrom::Start(start))?;
         return Ok((
@@ -285,6 +294,13 @@ fn detect<R: Read + Seek>(
     let mut bytes = first;
     loop {
         cancel.check()?;
+        let eof_marker = options
+            .ctrl_z_eof
+            .then(|| bytes.iter().position(|&b| b == 0x1a))
+            .flatten();
+        if let Some(end) = eof_marker {
+            bytes.truncate(end);
+        }
         pending.extend_from_slice(&bytes);
         match std::str::from_utf8(&pending) {
             Ok(_) => pending.clear(),
@@ -295,6 +311,10 @@ fn detect<R: Read + Seek>(
                 valid = false;
                 break;
             }
+        }
+        if eof_marker.is_some() {
+            valid &= pending.is_empty();
+            break;
         }
         bytes.resize(64 * 1024, 0);
         let n = reader.read(&mut bytes)?;
@@ -532,7 +552,16 @@ pub fn read_text<R: Read + Seek>(
         .errors;
     let default_ending = endings
         .into_iter()
-        .max_by_key(|(_, count)| *count)
+        .max_by_key(|(ending, count)| {
+            (
+                *count,
+                match ending.as_str() {
+                    "\r\n" => 3,
+                    "\n" => 2,
+                    _ => 1,
+                },
+            )
+        })
         .map(|(e, _)| e)
         .unwrap_or_else(|| "\r\n".into());
     let header_raw = if header && !raw_rows.is_empty() {
@@ -652,13 +681,16 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
     }
     for row in 0..sheet.row_count() {
         let mut text = String::new();
-        if let Some(raw) = source.and_then(|s| s.rows.get(row)) {
+        if let Some(raw) = source
+            .and_then(|s| s.rows.get(row))
+            .filter(|r| !r.fields.is_empty())
+        {
             let mut offset = 0;
             for (col, &(start, end)) in raw.fields.iter().enumerate() {
                 text.push_str(&raw.text[offset..start as usize]);
                 if sheet.changed.contains(&(row, col)) {
                     text.push_str(&quoted_field(
-                        &sheet.cell(row, col).unwrap().display(),
+                        &sheet.display_at(row, col).unwrap(),
                         options,
                     )?);
                 } else {
@@ -673,7 +705,7 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
                 {
                     text.push_str(&delimiter);
                     text.push_str(&quoted_field(
-                        &sheet.cell(row, col).unwrap().display(),
+                        &sheet.display_at(row, col).unwrap(),
                         options,
                     )?);
                 }
@@ -685,7 +717,7 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
                     text.push_str(&delimiter);
                 }
                 text.push_str(&quoted_field(
-                    &sheet.cell(row, col).unwrap().display(),
+                    &sheet.display_at(row, col).unwrap(),
                     options,
                 )?);
             }
