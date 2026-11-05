@@ -7,7 +7,11 @@ pub fn side_text(content: &TextContent, editor: &Editor) -> String {
     let lines = content.lines.borrow();
     let text =
         std::str::from_utf8(lines.line_bytes(editor.caret.line).unwrap_or_default()).unwrap();
-    let col = text[..editor.caret.byte.min(text.len())].chars().count() + 1;
+    let mut byte = editor.caret.byte.min(text.len());
+    while !text.is_char_boundary(byte) {
+        byte -= 1;
+    }
+    let col = text[..byte].chars().count() + 1;
     let eof = if lines.is_empty() || lines.ending(lines.len() - 1) != Some(LineEnding::None) {
         ""
     } else {

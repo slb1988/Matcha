@@ -274,6 +274,7 @@ impl TextCompareView {
         self.inline.clear();
         self.worker = Some(Worker::spawn(Box::new(Align2Job::from_map(&self.map))));
         self.message = "Comparing…".into();
+        self.rebuild_projection();
     }
     fn cancel_join(&mut self) {
         drop(self.worker.take());
@@ -736,6 +737,9 @@ impl TextCompareView {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         self.keyboard(&ctx, prefs);
+        // Commands (replace-all/reload/undo) may invalidate byte caret offsets.
+        self.editors[0].clamp(&self.map.left);
+        self.editors[1].clamp(&self.map.right);
         let blocked = self.pending.is_some() || self.file_dialog.is_some();
         if blocked {
             ui.disable();

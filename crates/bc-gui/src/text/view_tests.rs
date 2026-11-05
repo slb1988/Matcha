@@ -361,6 +361,8 @@ fn virtual_scroll_stacked_gaps_colors_and_pointer_status() {
         "{:?}",
         v.pane_rects
     );
+    v.editors[0].place(Caret { line: 119, byte: 7 }, false);
+    assert!(status_bar::side_text(&v.map.left, &v.editors[0]).starts_with("120:8"));
     let mut v = view("a\nb\nc\n", "a\ninsert\nb\nc\n");
     let out = frame(&ctx, &mut v, vec![]);
     assert_eq!(v.map.row(1).unwrap().left, None);
@@ -395,6 +397,53 @@ fn virtual_scroll_stacked_gaps_colors_and_pointer_status() {
         .any(|s| matches!(&s.shape,egui::Shape::Rect(r) if r.fill==orange)));
     let meshes = ctx.tessellate(out.shapes, out.pixels_per_point);
     assert!(!meshes.is_empty());
+}
+#[test]
+fn two_inline_spans_and_unimportant_colors_reach_the_painter() {
+    let ctx = egui::Context::default();
+    let mut v = view(
+        "value = 1; many_unchanged_letters; flag = 2\n",
+        "value = 3; many_unchanged_letters; flag = 4\n",
+    );
+    let out = frame(&ctx, &mut v, vec![]);
+    let dark =
+        super::super::nav_bar::color(&Prefs::default().colors, Importance::Important, false, 100);
+    let changed = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text().starts_with("value = 1") => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        changed
+            .galley
+            .job
+            .sections
+            .iter()
+            .filter(|s| s.format.background == dark)
+            .count(),
+        2
+    );
+    let mut v = view("name = value\n", "name = VALUE\n");
+    v.map.rules.comparison.importance.case_unimportant = true;
+    v.recompare();
+    ready(&mut v);
+    let out = frame(&ctx, &mut v, vec![]);
+    let blue =
+        super::super::nav_bar::color(&Prefs::default().colors, Importance::Unimportant, false, 38);
+    assert!(out
+        .shapes
+        .iter()
+        .any(|s| matches!(&s.shape,egui::Shape::Rect(r) if r.fill==blue)));
+    v.map.rules.ignore_unimportant = true;
+    v.after_alignment();
+    let out = frame(&ctx, &mut v, vec![]);
+    assert!(!out
+        .shapes
+        .iter()
+        .any(|s| matches!(&s.shape,egui::Shape::Rect(r) if r.fill==blue)));
 }
 #[derive(Debug)]
 struct Dropped(PathBuf);
@@ -490,6 +539,19 @@ fn raw_clipboard_multiline_cut_paste_and_only_save_right() {
     assert!(String::from_utf8(v.map.right.to_bytes().unwrap())
         .unwrap()
         .contains("粘贴"));
+}
+#[test]
+fn replace_all_unicode_clamps_stale_caret_before_painting() {
+    let mut v = view("ab\n", "ab\n");
+    v.editors[0].caret = Caret { line: 0, byte: 1 };
+    v.find.options.pattern = "a".into();
+    v.find.replacement = "中文".into();
+    v.find_action(FindAction::All).unwrap();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    ready(&mut v);
+    assert_eq!(v.map.left.to_bytes().unwrap(), "中文b\n".as_bytes());
+    assert_eq!(v.editors[0].caret.byte, 0);
 }
 #[test]
 fn manual_anchors_survive_recompare_and_clear() {

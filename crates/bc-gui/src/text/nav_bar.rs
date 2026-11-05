@@ -109,6 +109,43 @@ impl NavBar {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn raw_pointer_click_on_seventy_percent_navigates() {
+        let ctx = eframe::egui::Context::default();
+        let nav = super::NavBar {
+            bins: Vec::new(),
+            total: 1000,
+        };
+        let pos = eframe::egui::pos2(11.0, 630.0);
+        let mut target = None;
+        for pressed in [None, Some(true), Some(false)] {
+            let mut input = eframe::egui::RawInput {
+                screen_rect: Some(eframe::egui::Rect::from_min_size(
+                    eframe::egui::Pos2::ZERO,
+                    eframe::egui::vec2(22.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            if let Some(pressed) = pressed {
+                input.events = vec![
+                    eframe::egui::Event::PointerMoved(pos),
+                    eframe::egui::Event::PointerButton {
+                        pos,
+                        button: eframe::egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ];
+            }
+            let mut out = ctx.run_ui(input, |ui| {
+                if let Some(row) = nav.ui(ui, &Default::default(), 0..40, 0) {
+                    target = Some(row);
+                }
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!(target, Some(700));
+    }
+    #[test]
     fn clicking_seventy_percent_maps_to_seventy_percent() {
         assert_eq!(super::NavBar::target(0.7, 1000), 700);
         assert_eq!(super::NavBar::target(1.0, 1000), 999);
