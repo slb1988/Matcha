@@ -1,0 +1,56 @@
+{
+  "format": "PAS",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "begin",
+          "element": "Keyword",
+          "start": 0,
+          "end": 5
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "{$IFDEF DEBUG}",
+          "element": "Directive",
+          "start": 0,
+          "end": 14
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "// comment",
+          "element": "Comment",
+          "start": 2,
+          "end": 12
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "end",
+          "element": "Keyword",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "text": ";",
+          "element": "Operator",
+          "start": 3,
+          "end": 4
+        }
+      ],
+      "open": false
+    }
+  ]
+}

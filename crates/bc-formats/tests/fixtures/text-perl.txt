@@ -1,0 +1,4 @@
+my $name = "Ada"; # note
+=pod
+docs
+=cut

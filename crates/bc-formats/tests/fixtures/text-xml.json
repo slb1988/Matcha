@@ -1,0 +1,40 @@
+{
+  "format": "XML",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "<",
+          "element": "Operator",
+          "start": 0,
+          "end": 1
+        },
+        {
+          "text": "\"hi\"",
+          "element": "String",
+          "start": 12,
+          "end": 16
+        },
+        {
+          "text": "/>",
+          "element": "Operator",
+          "start": 16,
+          "end": 18
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "<!-- note -->",
+          "element": "Comment",
+          "start": 0,
+          "end": 13
+        }
+      ],
+      "open": false
+    }
+  ]
+}

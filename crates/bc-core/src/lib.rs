@@ -6,7 +6,8 @@
 //! persistence model used by every `*.xml` settings file.
 //!
 //! Line storage, reversible edits, encodings, hashing, patterns and sequence diff
-//! are implemented. Alignment and persistence writing remain scaffold entry points.
+//! are implemented, including two-way alignment and XML writing. Three-way and
+//! byte alignment remain scaffold entry points.
 //!
 //! | module | BC classes |
 //! |---|---|

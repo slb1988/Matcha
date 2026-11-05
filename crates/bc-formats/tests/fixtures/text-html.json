@@ -1,0 +1,69 @@
+{
+  "format": "HTML",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "<div",
+          "element": "Keyword",
+          "start": 0,
+          "end": 4
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 10,
+          "end": 11
+        },
+        {
+          "text": "\"hi\"",
+          "element": "String",
+          "start": 11,
+          "end": 15
+        },
+        {
+          "text": ">",
+          "element": "Keyword",
+          "start": 15,
+          "end": 16
+        },
+        {
+          "text": "&amp;",
+          "element": "Keyword",
+          "start": 16,
+          "end": 21
+        },
+        {
+          "text": "</div>",
+          "element": "Keyword",
+          "start": 21,
+          "end": 27
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "<!-- note",
+          "element": "Comment",
+          "start": 0,
+          "end": 9
+        }
+      ],
+      "open": true
+    },
+    {
+      "tokens": [
+        {
+          "text": "end -->",
+          "element": "Comment",
+          "start": 0,
+          "end": 7
+        }
+      ],
+      "open": false
+    }
+  ]
+}

@@ -170,9 +170,16 @@ impl GrammarMatch {
     pub fn is_regex(&self) -> bool {
         matches!(
             self,
-            GrammarMatch::Basic { is_regexp: true, .. }
-                | GrammarMatch::Delimited { is_regexp: true, .. }
-                | GrammarMatch::List { is_regexp: true, .. }
+            GrammarMatch::Basic {
+                is_regexp: true,
+                ..
+            } | GrammarMatch::Delimited {
+                is_regexp: true,
+                ..
+            } | GrammarMatch::List {
+                is_regexp: true,
+                ..
+            }
         )
     }
 }
@@ -256,7 +263,7 @@ pub struct TableOptions {
 }
 
 /// A file format definition – BC `TFileFormat` and subclasses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileFormat {
     /// Format name (`Value` of the root element). **Not unique on its own**: the built-in
     /// library has both a `TXMLFormat` and a `TTextFormat` named `XML`; key by `(kind, name)`.
@@ -277,7 +284,27 @@ pub struct FileFormat {
     pub weights: Vec<WeightItem>,
     /// Present for [`FormatKind::Table`].
     pub table: Option<TableOptions>,
+    /// Canonical source tree for minimally invasive XML write-back, not semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_xml: Option<String>,
 }
+
+impl PartialEq for FileFormat {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.kind == other.kind
+            && self.description == other.description
+            && self.masks == other.masks
+            && self.grammar == other.grammar
+            && self.tab_size == other.tab_size
+            && self.tab_as_spaces == other.tab_as_spaces
+            && self.convert == other.convert
+            && self.case_significance == other.case_significance
+            && self.weights == other.weights
+            && self.table == other.table
+    }
+}
+impl Eq for FileFormat {}
 
 impl FileFormat {
     /// Case significance for an element kind (default `true`).

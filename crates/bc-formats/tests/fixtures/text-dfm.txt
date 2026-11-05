@@ -1,0 +1,3 @@
+OBJECT Form1: TForm
+Caption = 'Hi'
+END

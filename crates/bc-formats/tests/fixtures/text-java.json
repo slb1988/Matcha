@@ -1,0 +1,47 @@
+{
+  "format": "JAVA",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "String",
+          "element": "Identifier",
+          "start": 0,
+          "end": 6
+        },
+        {
+          "text": "name",
+          "element": "Identifier",
+          "start": 7,
+          "end": 11
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 12,
+          "end": 13
+        },
+        {
+          "text": "\"Ada\"",
+          "element": "String",
+          "start": 14,
+          "end": 19
+        },
+        {
+          "text": ";",
+          "element": "Operator",
+          "start": 19,
+          "end": 20
+        },
+        {
+          "text": "// note",
+          "element": "Comment",
+          "start": 21,
+          "end": 28
+        }
+      ],
+      "open": false
+    }
+  ]
+}

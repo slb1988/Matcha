@@ -1,0 +1,51 @@
+{
+  "format": "PYTHON",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "'''first",
+          "element": "String",
+          "start": 0,
+          "end": 8
+        }
+      ],
+      "open": true
+    },
+    {
+      "tokens": [
+        {
+          "text": "last'''",
+          "element": "String",
+          "start": 0,
+          "end": 7
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "return",
+          "element": "Keyword",
+          "start": 0,
+          "end": 6
+        },
+        {
+          "text": "3.14",
+          "element": "Number",
+          "start": 7,
+          "end": 11
+        },
+        {
+          "text": " # note",
+          "element": "Comment",
+          "start": 11,
+          "end": 18
+        }
+      ],
+      "open": false
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "format": "CPP",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "int",
+          "element": "Keyword",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "text": "count",
+          "element": "Identifier",
+          "start": 4,
+          "end": 9
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 10,
+          "end": 11
+        },
+        {
+          "text": "1",
+          "element": "Number",
+          "start": 12,
+          "end": 13
+        },
+        {
+          "text": ";",
+          "element": "Operator",
+          "start": 13,
+          "end": 14
+        },
+        {
+          "text": "/* note",
+          "element": "Comment",
+          "start": 15,
+          "end": 22
+        }
+      ],
+      "open": true
+    },
+    {
+      "tokens": [
+        {
+          "text": "continued */",
+          "element": "Comment",
+          "start": 0,
+          "end": 12
+        },
+        {
+          "text": "return",
+          "element": "Keyword",
+          "start": 13,
+          "end": 19
+        },
+        {
+          "text": "count",
+          "element": "Identifier",
+          "start": 20,
+          "end": 25
+        },
+        {
+          "text": ";",
+          "element": "Operator",
+          "start": 25,
+          "end": 26
+        }
+      ],
+      "open": false
+    }
+  ]
+}

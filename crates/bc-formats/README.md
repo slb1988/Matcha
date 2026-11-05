@@ -8,12 +8,12 @@ libraries in the same XML dialect.
 
 - `model` – `FileFormat`, `FormatKind` (6), `GrammarItem` + `GrammarMatch` (4 match
   types), `ElementKind` (10), `ConvertKind`, `WeightItem`, `TableOptions`.
-- `bcff` – `parse_bcfileformats` (**implemented**, shared with `build.rs`),
-  `write_bcfileformats` (scaffold).
+- `bcff` – implemented `parse_bcfileformats` / `write_bcfileformats` (shared with build.rs),
+  preserving source XML nodes and patching only changed typed properties.
 - `builtin_formats()` – the embedded library: `build.rs` parses `data/bcfileformats.xml`
   and emits JSON into `OUT_DIR`; the library deserialises it once (`OnceLock`).
 - `registry` – `FormatRegistry` (lookup by `(kind, name)`, mask resolution, import/export).
-- `grammar` – `Tokenizer` skeleton producing `Token`s for highlighting / importance.
+- `grammar` – compiled, stateful `Tokenizer`; `line_weight` feeds `AlignInput::weights`.
 - `text_rules` – `UnimportantText`, `Replacement`, `ElementImportance`.
 
 Test: `cargo test -p bc-formats` – parses the XML, compares with the embedded data,
@@ -23,6 +23,36 @@ grammar classes, all 10 element kinds and several spot values.
 all 25 formats through `bc-core::pattern` (including case flags and delimiters).
 
 Lightweight baseline: `cargo run --release -p bc-formats --example formats_baseline`.
+
+## Tokenization, registry and persistence
+
+`Tokenizer` compiles once per format, scans UTF-8 lines with `LineState`, and emits
+nonoverlapping byte ranges. Longest lexical match wins; equal lengths use grammar
+order. Fixed columns retain their priority even inside lower-priority long tokens.
+The coordinator-confirmed rule and its reference-data evidence are documented in
+[ADR 004](../../docs/decisions/004-tokenizer-precedence.md); reference parity still
+requires the later golden corpus. All 25 formats have hand-authored input/expected
+fixtures in `tests/fixtures` (grammar-free formats intentionally emit no tokens).
+
+`FormatRegistry::upsert` now returns `Result`, validates grammar/weight patterns and
+appends or replaces in place. `move_to` changes explicit priority. Built-in library
+objects stay immutable; same-key user overrides become exportable user definitions.
+Resolution uses positive, case-insensitive full-file-name masks only; NameFilter
+exclusion/recursive semantics are not introduced here. `FileFormat::masks` stores
+individual masks, as returned by XML parsing.
+
+`save_user_dir` / `load_user_dir` persist `user-formats.xml` and `order.json`, including
+user overrides and order among built-ins. Missing storage reads as built-ins only;
+malformed data/I/O errors are returned, not silently discarded. Files use create-new
+staging, sync and atomic rename (the two files are not one atomic transaction).
+`user_formats_dir` chooses APPDATA/LOCALAPPDATA on Windows or XDG_CONFIG_HOME/HOME
+on other platforms, under `Matcha/formats`; tests use isolated temporary directories.
+
+`FileFormat::source_xml` is serde-defaulted metadata and omitted when None; equality
+compares only semantic fields. Existing source markers/defaults/unknown child nodes
+survive XML patches; new formats follow [ADR 001](../../docs/decisions/001-stx-write-rule.md).
+The built-in XML round-trip test checks both typed/tree equality and line-by-line
+content after stripping formatting whitespace, not just successful reparsing.
 
 ## Dependency boundary
 

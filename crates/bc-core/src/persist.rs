@@ -241,7 +241,73 @@ pub struct XmlHeader {
 
 /// Serialise a tree back to BC-compatible XML (tabs, `Value` attributes, `&#2;` string
 /// markers, `Version`/`MinVersion` header).
-#[allow(unused_variables)] // remaining scaffold entry point
 pub fn write_xml(root: &Node, header: Option<&XmlHeader>) -> String {
-    todo!("bc-core::persist: write-compatible serialiser (spec §5 write target)")
+    let mut output = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    if let Some(comment) = header.and_then(|h| h.comment.as_ref()) {
+        let comment = comment.replace("--", "- -");
+        output.push_str("<!-- ");
+        output.push_str(&comment);
+        output.push_str(" -->\n");
+    }
+    write_node(root, 0, header, &mut output);
+    output
+}
+
+fn xml_name_start(c: char) -> bool {
+    matches!(c, ':' | '_' | 'A'..='Z' | 'a'..='z' | '\u{c0}'..='\u{d6}' | '\u{d8}'..='\u{f6}'
+        | '\u{f8}'..='\u{2ff}' | '\u{370}'..='\u{37d}' | '\u{37f}'..='\u{1fff}'
+        | '\u{200c}'..='\u{200d}' | '\u{2070}'..='\u{218f}' | '\u{2c00}'..='\u{2fef}'
+        | '\u{3001}'..='\u{d7ff}' | '\u{f900}'..='\u{fdcf}' | '\u{fdf0}'..='\u{fffd}'
+        | '\u{10000}'..='\u{effff}')
+}
+
+fn write_node(node: &Node, depth: usize, header: Option<&XmlHeader>, output: &mut String) {
+    // Nodes parsed from XML and all format builders supply valid names. Refuse
+    // malformed programmatic names rather than emitting attribute/tag injection.
+    let mut chars = node.name.chars();
+    assert!(
+        chars.next().is_some_and(xml_name_start)
+            && chars.all(|c| xml_name_start(c) || matches!(c, '-' | '.' | '0'..='9' | '\u{b7}' | '\u{300}'..='\u{36f}' | '\u{203f}'..='\u{2040}')),
+        "invalid XML node name"
+    );
+    output.extend(std::iter::repeat('\t').take(depth));
+    output.push('<');
+    output.push_str(&node.name);
+    if let Some(value) = &node.value {
+        output.push_str(" Value=\"");
+        if node.stx {
+            output.push_str("&#2;");
+        }
+        for c in value.chars() {
+            match c {
+                '&' => output.push_str("&amp;"),
+                '<' => output.push_str("&lt;"),
+                '"' => output.push_str("&quot;"),
+                '\u{2}' => output.push_str("&#2;"),
+                _ => output.push(c),
+            }
+        }
+        output.push('"');
+    }
+    if let Some(header) = header {
+        use std::fmt::Write;
+        write!(
+            output,
+            " Version=\"{}\" MinVersion=\"{}\"",
+            header.version, header.min_version
+        )
+        .expect("String write");
+    }
+    if node.children.is_empty() {
+        output.push_str("/>\n");
+    } else {
+        output.push_str(">\n");
+        for child in &node.children {
+            write_node(child, depth + 1, None, output);
+        }
+        output.extend(std::iter::repeat('\t').take(depth));
+        output.push_str("</");
+        output.push_str(&node.name);
+        output.push_str(">\n");
+    }
 }

@@ -1,0 +1,58 @@
+{
+  "format": "VB",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "Dim",
+          "element": "Keyword",
+          "start": 0,
+          "end": 3
+        },
+        {
+          "text": "count",
+          "element": "Identifier",
+          "start": 4,
+          "end": 9
+        },
+        {
+          "text": "As",
+          "element": "Keyword",
+          "start": 10,
+          "end": 12
+        },
+        {
+          "text": "Integer",
+          "element": "Keyword",
+          "start": 13,
+          "end": 20
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 21,
+          "end": 22
+        },
+        {
+          "text": "1",
+          "element": "Number",
+          "start": 23,
+          "end": 24
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "' note",
+          "element": "Comment",
+          "start": 0,
+          "end": 6
+        }
+      ],
+      "open": false
+    }
+  ]
+}

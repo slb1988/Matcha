@@ -1,0 +1,71 @@
+{
+  "format": "SQL",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "SELECT",
+          "element": "Keyword",
+          "start": 0,
+          "end": 6
+        },
+        {
+          "text": "item",
+          "element": "Identifier",
+          "start": 7,
+          "end": 11
+        },
+        {
+          "text": "FROM",
+          "element": "Keyword",
+          "start": 12,
+          "end": 16
+        },
+        {
+          "text": "data",
+          "element": "Keyword",
+          "start": 17,
+          "end": 21
+        },
+        {
+          "text": "WHERE",
+          "element": "Keyword",
+          "start": 22,
+          "end": 27
+        },
+        {
+          "text": "id",
+          "element": "Identifier",
+          "start": 28,
+          "end": 30
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 31,
+          "end": 32
+        },
+        {
+          "text": "1",
+          "element": "Number",
+          "start": 33,
+          "end": 34
+        },
+        {
+          "text": ";",
+          "element": "Operator",
+          "start": 34,
+          "end": 35
+        },
+        {
+          "text": "-- note",
+          "element": "Comment",
+          "start": 36,
+          "end": 43
+        }
+      ],
+      "open": false
+    }
+  ]
+}

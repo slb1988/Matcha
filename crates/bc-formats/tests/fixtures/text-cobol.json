@@ -1,0 +1,47 @@
+{
+  "format": "COBOL",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "000100",
+          "element": "LineNum",
+          "start": 0,
+          "end": 6
+        },
+        {
+          "text": "MOVE",
+          "element": "Keyword",
+          "start": 7,
+          "end": 11
+        },
+        {
+          "text": "MYVALUE",
+          "element": "Identifier",
+          "start": 12,
+          "end": 19
+        },
+        {
+          "text": "TO",
+          "element": "Keyword",
+          "start": 20,
+          "end": 22
+        },
+        {
+          "text": "MYOUT",
+          "element": "Identifier",
+          "start": 23,
+          "end": 28
+        },
+        {
+          "text": "SRC00001",
+          "element": "LineNum",
+          "start": 72,
+          "end": 80
+        }
+      ],
+      "open": false
+    }
+  ]
+}

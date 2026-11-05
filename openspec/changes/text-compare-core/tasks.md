@@ -32,10 +32,10 @@
 
 ## 5. bc-formats 分词与格式解析
 
-- [ ] 5.1 实现 `grammar::Tokenizer`：语法项编译（Basic/Delimited/List/Columns）、逐行扫描、跨行 Delimited 状态、先匹配者优先、大小写；验证单测：CPP 跨行注释、BASH 字符串转义、COBOL 73–80 列、PYTHON 三引号、DFM 关键字大小写
-- [ ] 5.2 实现 `FormatRegistry::resolve/upsert/import_xml/export_xml` 与用户格式持久化目录；验证单测：掩码顺序优先、用户格式覆盖内置、未知语法项类型报错含格式名；导出再导入等价
-- [ ] 5.3 实现 `bcff::write_bcfileformats` 与 `bc_core::persist::write_xml`（STX 规则按读取时记录的 `Node::stx` 回写）；验证单测：内置 XML 读→写→读 的模型相等，且与原文件的差异仅限空白/属性顺序（记录到决策文档）
-- [ ] 5.4 实现 25 种内置格式的分词冒烟语料（每种格式一个样例文件 + 期望元素序列）；验证 `cargo test -p bc-formats` 全绿
+- [x] 5.1 实现 `grammar::Tokenizer`：语法项编译（Basic/Delimited/List/Columns）、逐行扫描、跨行 Delimited 状态、先匹配者优先、大小写；验证单测：CPP 跨行注释、BASH 字符串转义、COBOL 73–80 列、PYTHON 三引号、DFM 关键字大小写
+- [x] 5.2 实现 `FormatRegistry::resolve/upsert/import_xml/export_xml` 与用户格式持久化目录；验证单测：掩码顺序优先、用户格式覆盖内置、未知语法项类型报错含格式名；导出再导入等价
+- [x] 5.3 实现 `bcff::write_bcfileformats` 与 `bc_core::persist::write_xml`（STX 规则按读取时记录的 `Node::stx` 回写）；验证单测：内置 XML 读→写→读 的模型相等，且与原文件的差异仅限空白/属性顺序（记录到决策文档）
+- [x] 5.4 实现 25 种内置格式的分词冒烟语料（每种格式一个样例文件 + 期望元素序列）；验证 `cargo test -p bc-formats` 全绿
 
 ## 6. bc-engine-text 引擎
 

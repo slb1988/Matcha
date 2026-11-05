@@ -8,6 +8,8 @@ pub struct Pattern {
     source: String,
     case_sensitive: bool,
     regex: Regex,
+    /// Fast rejection for anchored tokenization; contextual boundaries bypass it.
+    prefix: Option<Regex>,
 }
 
 /// UTF-8 byte spans. `captures[0]` is the whole match; unmatched groups are None.
@@ -28,11 +30,28 @@ impl Pattern {
                     "pattern {source:?}: {error}; backreferences and look-around are not supported"
                 ))
             })?;
+        let prefix = if [r"\b", r"\B", r"\<", r"\>"]
+            .iter()
+            .any(|token| source.contains(token))
+        {
+            None
+        } else {
+            RegexBuilder::new(&format!(r"\A(?:{})", rewrite_dialect(source)))
+                .case_insensitive(!case_sensitive)
+                .build()
+                .ok()
+        };
         Ok(Self {
             source: source.into(),
             case_sensitive,
             regex,
+            prefix,
         })
+    }
+
+    /// Compile literal text with the same Unicode case semantics as regex patterns.
+    pub fn literal(text: &str, case_sensitive: bool) -> Result<Self, crate::CoreError> {
+        Self::new(&regex::escape(text), case_sensitive)
     }
 
     pub fn source(&self) -> &str {
@@ -57,6 +76,14 @@ impl Pattern {
     }
 
     pub fn match_at(&self, haystack: &str, start: usize) -> Option<Match> {
+        if !haystack.is_char_boundary(start)
+            || self
+                .prefix
+                .as_ref()
+                .is_some_and(|p| !p.is_match(&haystack[start..]))
+        {
+            return None;
+        }
         self.find_at(haystack, start)
             .filter(|m| m.span.start == start)
     }

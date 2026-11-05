@@ -1,0 +1,74 @@
+{
+  "format": "PERL",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "my",
+          "element": "Keyword",
+          "start": 0,
+          "end": 2
+        },
+        {
+          "text": "$name",
+          "element": "Identifier",
+          "start": 3,
+          "end": 8
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 9,
+          "end": 10
+        },
+        {
+          "text": "\"Ada\"",
+          "element": "String",
+          "start": 11,
+          "end": 16
+        },
+        {
+          "text": "# note",
+          "element": "Comment",
+          "start": 18,
+          "end": 24
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "=pod",
+          "element": "Comment",
+          "start": 0,
+          "end": 4
+        }
+      ],
+      "open": true
+    },
+    {
+      "tokens": [
+        {
+          "text": "docs",
+          "element": "Comment",
+          "start": 0,
+          "end": 4
+        }
+      ],
+      "open": true
+    },
+    {
+      "tokens": [
+        {
+          "text": "=cut",
+          "element": "Comment",
+          "start": 0,
+          "end": 4
+        }
+      ],
+      "open": false
+    }
+  ]
+}

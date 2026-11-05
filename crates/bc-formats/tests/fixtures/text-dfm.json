@@ -1,0 +1,63 @@
+{
+  "format": "DFM",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "OBJECT",
+          "element": "Keyword",
+          "start": 0,
+          "end": 6
+        },
+        {
+          "text": "Form1",
+          "element": "Identifier",
+          "start": 7,
+          "end": 12
+        },
+        {
+          "text": "TForm",
+          "element": "Identifier",
+          "start": 14,
+          "end": 19
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "Caption",
+          "element": "Identifier",
+          "start": 0,
+          "end": 7
+        },
+        {
+          "text": "=",
+          "element": "Operator",
+          "start": 8,
+          "end": 9
+        },
+        {
+          "text": "'Hi'",
+          "element": "String",
+          "start": 10,
+          "end": 14
+        }
+      ],
+      "open": false
+    },
+    {
+      "tokens": [
+        {
+          "text": "END",
+          "element": "Keyword",
+          "start": 0,
+          "end": 3
+        }
+      ],
+      "open": false
+    }
+  ]
+}

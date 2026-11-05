@@ -1,0 +1,29 @@
+{
+  "format": "BASH",
+  "kind": "Text",
+  "lines": [
+    {
+      "tokens": [
+        {
+          "text": "echo",
+          "element": "Keyword",
+          "start": 0,
+          "end": 4
+        },
+        {
+          "text": "\"$HOME\"",
+          "element": "String",
+          "start": 5,
+          "end": 12
+        },
+        {
+          "text": "# greeting",
+          "element": "Comment",
+          "start": 13,
+          "end": 23
+        }
+      ],
+      "open": false
+    }
+  ]
+}

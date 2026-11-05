@@ -16,8 +16,8 @@ tool's `Ss*` infrastructure units.
 - `hash` – `ContentHash`, `LineHasher` (normalisation flags), streaming `Crc32`.
 - `encoding` – detection, decode/encode, BOM policy.
 - `pattern` – regex wrapper for the shared BC dialect + glob translation.
-- `persist` – **implemented reader** for the `Value`-attribute / `_N`-list / `&#2;` XML
-  dialect shared by all settings files; writer is `todo!()`.
+- `persist` – reader/writer for the `Value`-attribute / `_N`-list / `&#2;` XML
+  dialect; writing preserves each node's STX flag and supports explicit headers.
 
 ## Dependency boundary
 

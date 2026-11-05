@@ -4,13 +4,12 @@
 //! `TTextInsigList`, `TTextReplacementList`).
 //!
 //! * [`model`] – data model (`FileFormat`, `GrammarItem`, `ElementKind`, …).
-//! * [`bcff`] – `BCFileFormats` XML reader (implemented) / writer (scaffold).
+//! * [`bcff`] – source-preserving `BCFileFormats` XML reader/writer.
 //! * [`builtin_formats`] – the built-in library converted at build time from
 //!   `data/bcfileformats.xml` (`BCFILEFORMATS` resource) and embedded as JSON.
 //! * [`registry`] – lookup by mask / name (`TFileFormatManager`).
-//! * [`grammar`] – tokenizer skeleton (`TTextTokenizer`, `TTextColParser`, `TREParser`).
+//! * [`grammar`] – compiled line-state tokenizer and format weight matching.
 //! * [`text_rules`] – unimportant-text and replacement rules.
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 #![forbid(unsafe_code)]
 
 pub mod bcff;
@@ -52,7 +51,11 @@ mod tests {
         let embedded = builtin_formats();
 
         // Build-time conversion must equal a fresh parse.
-        assert_eq!(parsed.len(), 25, "reference resource holds 25 top-level formats");
+        assert_eq!(
+            parsed.len(),
+            25,
+            "reference resource holds 25 top-level formats"
+        );
         assert_eq!(&parsed[..], embedded);
 
         // Count by kind: 19 text + 2 table + 1 picture (documented 22) + media/version/xml.
@@ -75,8 +78,25 @@ mod tests {
             );
         };
         for name in [
-            "BASH", "COBOL", "CPP", "DFM", "HTML", "JAVA", "JS", "MSWORD", "OPENOFFICE", "PAS",
-            "PDF", "PERL", "PYTHON", "REG", "RTF", "SORT", "SQL", "VB", "XML",
+            "BASH",
+            "COBOL",
+            "CPP",
+            "DFM",
+            "HTML",
+            "JAVA",
+            "JS",
+            "MSWORD",
+            "OPENOFFICE",
+            "PAS",
+            "PDF",
+            "PERL",
+            "PYTHON",
+            "REG",
+            "RTF",
+            "SORT",
+            "SQL",
+            "VB",
+            "XML",
         ] {
             expect(name, FormatKind::Text);
         }
@@ -107,14 +127,18 @@ mod tests {
             GrammarMatch::Delimited { start, stop: Some(stop), escape: Some('\\'), stop_eol: false, .. }
                 if start == "$\"" && stop == "\""
         ));
-        assert!(!bash.grammar[1].case_sensitive, "BASH Identifier is CaseSensitive=False");
+        assert!(
+            !bash.grammar[1].case_sensitive,
+            "BASH Identifier is CaseSensitive=False"
+        );
         assert!(bash.grammar[1].matcher.is_regex());
 
         let cobol = embedded.iter().find(|f| f.name == "COBOL").unwrap();
-        assert!(cobol
-            .grammar
-            .iter()
-            .any(|g| g.matcher == GrammarMatch::Columns { start_col: 73, stop_col: 80 }));
+        assert!(cobol.grammar.iter().any(|g| g.matcher
+            == GrammarMatch::Columns {
+                start_col: 73,
+                stop_col: 80
+            }));
 
         let dfm = embedded.iter().find(|f| f.name == "DFM").unwrap();
         assert_eq!(dfm.convert, Some(ConvertKind::Dfm));

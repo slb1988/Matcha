@@ -8,7 +8,7 @@
 mod model;
 
 #[path = "src/bcff.rs"]
-#[allow(dead_code, unused_variables)]
+#[allow(dead_code)]
 mod bcff;
 
 use std::path::Path;
@@ -16,7 +16,9 @@ use std::path::Path;
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
-    let src = Path::new(&manifest_dir).join("data").join("bcfileformats.xml");
+    let src = Path::new(&manifest_dir)
+        .join("data")
+        .join("bcfileformats.xml");
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed=src/model.rs");
     println!("cargo:rerun-if-changed=src/bcff.rs");
