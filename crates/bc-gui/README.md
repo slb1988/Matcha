@@ -38,6 +38,6 @@ cargo test -p bc-gui --lib
 
 ## 验证边界与后续
 
-14+ 个 GUI 回归使用真实 egui RawInput（鼠标、键盘、拖放、IME）与 tessellation，并覆盖保存/撤销/对齐/过滤；正式原生程序另跑 110 MB 基准与 GPU 截图。原生 Windows 中文输入法候选窗因锁定桌面待负责人手验，不能以提交事件测试冒称已完成原生候选窗验收。
+18 个 GUI 回归使用真实 egui RawInput（鼠标、键盘、拖放、IME）与 tessellation，并覆盖保存/撤销/对齐/过滤；正式原生程序另跑 110 MB 基准与 GPU 截图。原生 Windows 中文输入法候选窗因锁定桌面待负责人手验，不能以提交事件测试冒称已完成原生候选窗验收。
 
 原生文件选择器、持久化会话、打印/报告、词内差异导航、Word Wrap、书签、外部工具及独立详细面板后置。路径文本框和最近列表是本期正式打开/保存入口；Compare Parent Folders 在文件夹视图接入前禁用。逐命令取舍见 [对照清单](../../docs/reference-parity/text-compare.md)。

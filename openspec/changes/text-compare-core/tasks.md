@@ -66,8 +66,8 @@
 
 ## 9. 集成验证
 
-- [ ] 9.1 按设计 D10 的对照清单逐项核对 `commandstext.html`/`sessiontext*.html`/`viewtext.html` 中的命令与选项，在 `docs/reference-parity/text-compare.md` 记录"已实现/有意未采纳(理由)/后置"；验证文档覆盖帮助主题中的每一条命令
-- [ ] 9.2 全量回归：`cargo clippy --workspace --all-targets` 零警告、`cargo test --workspace` 通过、黄金语料一致率达标、`--bench` 指标不低于骨架阶段；验证把结果写入 `docs/ui-framework-decision.md` 的"正式控件复测"小节
+- [x] 9.1 按设计 D10 的对照清单逐项核对 `commandstext.html`/`sessiontext*.html`/`viewtext.html` 中的命令与选项，在 `docs/reference-parity/text-compare.md` 记录"已实现/有意未采纳(理由)/后置"；验证文档覆盖帮助主题中的每一条命令
+- [x] 9.2 全量回归：`cargo clippy --workspace --all-targets` 零警告、`cargo test --workspace` 通过、黄金语料一致率达标、`--bench` 指标不低于骨架阶段；验证把结果写入 `docs/ui-framework-decision.md` 的"正式控件复测"小节
 
 ## Workflow follow-up
 
