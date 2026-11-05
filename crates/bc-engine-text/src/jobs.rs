@@ -403,7 +403,7 @@ impl Realign2Job {
     }
     pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<AlignOutput, CoreError> {
         let old = &self.previous.data;
-        if self.previous.rules != self.base.rules
+        if !self.previous.rules.same_comparison(&self.base.rules)
             || self.previous.overrides != self.base.overrides
             || self.dirty_rows.start >= self.dirty_rows.end
             || self.dirty_rows.end > old.rows.len()

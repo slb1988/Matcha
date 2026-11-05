@@ -51,6 +51,15 @@ pub struct TextRules {
     pub ignore_unimportant: bool,
 }
 
+impl TextRules {
+    /// View-only ignore projection does not invalidate comparison work or caches.
+    pub fn same_comparison(&self, other: &Self) -> bool {
+        self.comparison == other.comparison
+            && self.alignment == other.alignment
+            && self.format_override == other.format_override
+    }
+}
+
 /// Which side wins unimportant conflicts – CLI `/favorleft` `/favorright`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Favor {

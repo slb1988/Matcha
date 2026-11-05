@@ -7,7 +7,9 @@ fn exported_packets_recover_boundaries_lines_states_and_escaped_text() {
         None,
     )
     .unwrap();
-    let map = TextMap::compare(left, right, Default::default()).unwrap();
+    let mut map = TextMap::compare(left, right, Default::default()).unwrap();
+    map.rules.ignore_unimportant = true;
+    assert!(!map.is_stale());
     let sections = map.sections();
     let ids: Vec<_> = (0..sections.len()).collect();
     let exported = map.to_conflict_text(&ids, 1).unwrap();

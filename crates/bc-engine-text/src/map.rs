@@ -179,7 +179,7 @@ impl TextMap {
     }
     pub fn set_alignment(&mut self, output: crate::jobs::AlignOutput) -> Result<(), CoreError> {
         if output.data.revisions != (self.left.revision(), self.right.revision())
-            || output.rules != self.rules
+            || !output.rules.same_comparison(&self.rules)
             || output.overrides != self.overrides
         {
             return Err(CoreError::Invalid("stale alignment result".into()));
@@ -190,7 +190,7 @@ impl TextMap {
     pub fn is_stale(&self) -> bool {
         let data = self.data.borrow();
         data.revisions != (self.left.revision(), self.right.revision())
-            || data.rules != self.rules
+            || !data.rules.same_comparison(&self.rules)
             || data.overrides != self.overrides
     }
     /// Recompute importance without alignment/tokenization when only masks changed.
