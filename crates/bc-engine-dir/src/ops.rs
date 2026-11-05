@@ -181,6 +181,7 @@ pub enum OpAction {
     Exchange,
     Delete { recycle: bool },
     EnsureDir,
+    PreserveDir,
     RemoveEmptyDir { recycle: bool },
     Touch(SystemTime),
     Attrib { set: FileAttrs, clear: FileAttrs },
@@ -567,6 +568,19 @@ impl OpPlan {
                     DirOp::Move { .. } | DirOp::MoveOther | DirOp::MoveTo { .. }
                 ) || (matches!(op, DirOp::Exchange) && node.sides[1 - side].is_none()));
             plan.items.push(item.clone());
+            if is_dir
+                && item.action == OpAction::EnsureDir
+                && !matches!(op, DirOp::Exchange | DirOp::NewFolder { .. })
+                && (plan.options.copy.timestamps
+                    || plan.options.copy.attributes
+                    || plan.options.copy.created)
+            {
+                let mut metadata = item.clone();
+                metadata.action = OpAction::PreserveDir;
+                metadata.target_known = false;
+                metadata.confirmations.clear();
+                plan.items.push(metadata);
+            }
             if cleanup {
                 item.destination = None;
                 item.target_entry = None;
@@ -586,8 +600,16 @@ impl OpPlan {
                     .as_ref()
                     .map_or(0, |p| p.relative.matches('/').count()),
             ),
-            OpAction::RemoveEmptyDir { .. } => (
+            OpAction::PreserveDir => (
                 2,
+                usize::MAX
+                    - item
+                        .destination
+                        .as_ref()
+                        .map_or(0, |p| p.relative.matches('/').count()),
+            ),
+            OpAction::RemoveEmptyDir { .. } => (
+                3,
                 usize::MAX
                     - item
                         .source
@@ -603,7 +625,7 @@ impl OpPlan {
             .filter(|(_, i)| {
                 !matches!(
                     i.action,
-                    OpAction::EnsureDir | OpAction::RemoveEmptyDir { .. }
+                    OpAction::EnsureDir | OpAction::PreserveDir | OpAction::RemoveEmptyDir { .. }
                 )
             })
             .filter_map(|(index, i)| i.source.as_ref().map(|p| (path_key(&p.path), index)))
@@ -611,6 +633,9 @@ impl OpPlan {
         let mut destinations = BTreeMap::new();
         for (index, item) in self.items.iter().enumerate() {
             if let Some(dest) = &item.destination {
+                if item.action == OpAction::PreserveDir {
+                    continue;
+                }
                 let key = path_key(&dest.path);
                 if sources.get(&key).is_some_and(|other| *other != index) {
                     return Err(PlanError::Collision(key));

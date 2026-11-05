@@ -49,7 +49,8 @@ All fixtures live in the system temporary directory.
 Vfs exposes single-file copy_file/move_file/exchange_files with CancelCheck and byte-delta
 progress callbacks. Default provider implementations return Unsupported; LocalFs implements
 them without recursive traversal. Filtering remains the planner's responsibility.
-remove_empty_dir never recursively deletes hidden or newly appeared children.
+copy_metadata supplies the planner's post-order folder metadata step; remove_empty_dir
+never recursively deletes hidden or newly appeared children.
 Exchange writes both temporary copies before publication, restores backups on failure and
 retains recovery files if restoration itself fails. No whole-directory transaction is claimed.
 

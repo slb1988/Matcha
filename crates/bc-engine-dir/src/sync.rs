@@ -359,6 +359,38 @@ impl SyncPlan {
                 allowed,
             });
         }
+        // Nonempty orphan parents are required by selected file copies even when
+        // create-empty is off. Plan them explicitly so their metadata is preserved.
+        let needed: Vec<_> = items
+            .iter()
+            .filter(|i| !i.is_dir)
+            .filter_map(|i| match i.choice {
+                SyncChoice::CopyLeftToRight | SyncChoice::CopyRightToLeft => {
+                    Some((i.ancestors.clone(), i.choice))
+                }
+                _ => None,
+            })
+            .collect();
+        for item in &mut items {
+            if item.is_dir
+                && item.choice == SyncChoice::LeaveAlone
+                && matches!(
+                    item.status,
+                    CompareStatus::LeftOrphan | CompareStatus::RightOrphan
+                )
+            {
+                if let Some((_, choice)) = needed
+                    .iter()
+                    .find(|(ancestors, _)| ancestors.contains(&item.node))
+                {
+                    if let Some(side) = required_side(*choice) {
+                        if item.allowed[side] {
+                            item.choice = *choice;
+                        }
+                    }
+                }
+            }
+        }
         items.sort_by(|a, b| a.relative.cmp(&b.relative));
         let mut plan = Self {
             mode,
@@ -519,7 +551,18 @@ impl SyncPlan {
                 confirmations: Vec::new(),
             };
             item.confirmations = crate::ops::confirmations(&item);
-            plan.items.push(item);
+            plan.items.push(item.clone());
+            if copy
+                && row.is_dir
+                && (plan.options.copy.timestamps
+                    || plan.options.copy.attributes
+                    || plan.options.copy.created)
+            {
+                item.action = OpAction::PreserveDir;
+                item.target_known = false;
+                item.confirmations.clear();
+                plan.items.push(item);
+            }
         }
         plan.finish()?;
         Ok(plan)

@@ -78,6 +78,8 @@ Selection is side-aware. Plans expand folders into filtered per-file items, vali
 and preserve unknown/new/hidden children on directory cleanup. PlanOptions::from_handling
 combines session defaults with an explicit include-hidden confirmation override.
 Creation time is optional; NTFS permission copying returns Unsupported before any I/O.
+Directory metadata is a separate post-order PreserveDir step after child transfers, so
+creating/moving children cannot accidentally replace the intended directory timestamp.
 
 FileOpJob consumes a plan, ConfirmPolicy and a shared OpLog. Confirmations are class-scoped;
 the permanent-delete fallback always requires its own Interaction answer, even under a
@@ -114,7 +116,8 @@ to_op_plan uses the preview's captured sources/targets, never rebuilds decisions
 new statuses. execute_and_refresh reuses confirmations/log/cancellation, reports actual
 copy/delete/create/skip/failure counts and preserves refresh errors alongside outcomes.
 Visible-only means display/file filtering, not current expansion or viewport clipping.
-Empty folders are created only when requested; deletion cleans directories only after
+Empty folders are created only when requested; nonempty parents needed by selected file
+copies are explicit creation/metadata steps even when create-empty is off. Deletion cleans directories only after
 their planned children, preserving filtered/new/unexecuted contents.
 SyncCommand parses the script presets and serializes them; custom rules have no script
 spelling and return an error rather than inventing a command.

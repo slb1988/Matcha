@@ -259,6 +259,42 @@ fn folders_aggregate_copy_delete_create_empty_visible_and_override() {
     assert_eq!(choice(&no_empty, "empty"), SyncChoice::LeaveAlone);
 }
 #[test]
+fn required_nonempty_parent_keeps_metadata_without_create_empty() {
+    let t = Temp::new();
+    t.write("left", "newparent/f", b"copy");
+    let when = UNIX_EPOCH + Duration::from_secs(1234567890);
+    LocalFs::new()
+        .set_modified(&VfsPath::local(&t.path("left", "newparent")), when)
+        .unwrap();
+    std::fs::create_dir(t.path("left", "unused-empty")).unwrap();
+    let vfs = manager(Arc::new(ProbeFs::default()));
+    let mut tree = t.tree(&vfs);
+    let plan = SyncPlan::build(&tree, Default::default(), false, false).unwrap();
+    assert_eq!(choice(&plan, "newparent"), SyncChoice::CopyLeftToRight);
+    assert_eq!(choice(&plan, "unused-empty"), SyncChoice::LeaveAlone);
+    let result = plan
+        .execute_and_refresh(
+            &mut tree,
+            &vfs,
+            &context(None),
+            ConfirmPolicy::YesToAll,
+            &OpLog::default(),
+        )
+        .unwrap();
+    assert_eq!(result.statistics.failed, 0);
+    assert_eq!(result.statistics.copies, 1);
+    assert_eq!(result.statistics.creates, 1);
+    assert_eq!(
+        LocalFs::new()
+            .metadata(&VfsPath::local(&t.path("right", "newparent")))
+            .unwrap()
+            .modified,
+        Some(when)
+    );
+    assert!(!t.path("right", "unused-empty").exists());
+}
+
+#[test]
 fn mirror_orphan_directory_preserves_hidden_or_unplanned_children() {
     let t = Temp::new();
     t.write("right", "extra/remove", b"remove");

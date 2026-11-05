@@ -583,6 +583,9 @@ impl Vfs for LocalFs {
     ) -> VfsResult<()> {
         self.exchange_impl(left, right, cancel, progress)
     }
+    fn copy_metadata(&self, from: &VfsPath, to: &VfsPath, options: CopyOptions) -> VfsResult<()> {
+        self.preserve(&local(to)?, &fs::metadata(local(from)?)?, options)
+    }
     fn remove_empty_dir(&self, path: &VfsPath) -> VfsResult<()> {
         Ok(fs::remove_dir(local(path)?)?)
     }

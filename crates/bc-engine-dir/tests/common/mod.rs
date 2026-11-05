@@ -155,6 +155,9 @@ impl Vfs for ProbeFs {
     ) -> VfsResult<()> {
         LocalFs::new().exchange_files(a, b, c, p)
     }
+    fn copy_metadata(&self, from: &VfsPath, to: &VfsPath, options: CopyOptions) -> VfsResult<()> {
+        LocalFs::new().copy_metadata(from, to, options)
+    }
     fn remove_empty_dir(&self, p: &VfsPath) -> VfsResult<()> {
         LocalFs::new().remove_empty_dir(p)
     }

@@ -49,7 +49,7 @@ fn planning_all_operations_filters_scan_guard_and_paths() {
         SystemTime::now(),
     )
     .unwrap();
-    assert_eq!(plan.items.len(), 2);
+    assert_eq!(plan.items.len(), 3); // directory, file, directory metadata
     assert_eq!(plan.hidden_skipped, 1);
     assert!(plan
         .items
@@ -66,7 +66,7 @@ fn planning_all_operations_filters_scan_guard_and_paths() {
         SystemTime::now(),
     )
     .unwrap();
-    assert_eq!(all.items.len(), 3);
+    assert_eq!(all.items.len(), 4);
     let mut unscanned = bc_engine_dir::DirTree::new();
     unscanned.bases = tree.bases.clone();
     for side in 0..2 {
@@ -540,6 +540,32 @@ fn watcher_driven_refresh_and_full_refresh_detect_external_changes() {
     refresh::refresh_loaded(&mut tree, &vfs, &|| false).unwrap();
     assert!(tree.find("ordinary").is_some());
 }
+#[test]
+fn directory_copy_preserves_metadata_after_copying_children() {
+    let temp = Temp::new();
+    temp.write("left", "d/f", b"payload");
+    let source = VfsPath::local(&temp.path("left", "d"));
+    let timestamp = UNIX_EPOCH + Duration::from_secs(1_600_000_000);
+    LocalFs::new().set_modified(&source, timestamp).unwrap();
+    let attrs = bc_vfs::FileAttrs {
+        hidden: cfg!(windows),
+        ..Default::default()
+    };
+    LocalFs::new().set_attrs(&source, attrs).unwrap();
+    let vfs = manager(Arc::new(ProbeFs::default()));
+    let tree = temp.tree(&vfs);
+    let p = plan(&tree, &["d"], 0, copy());
+    assert!(p.items.iter().any(|i| i.action == OpAction::PreserveDir));
+    let (o, log) = execute(&p, &vfs, &context(None), ConfirmPolicy::YesToAll);
+    assert_eq!(o.failed, 0, "{:?}", log.snapshot());
+    let target = LocalFs::new()
+        .metadata(&VfsPath::local(&temp.path("right", "d")))
+        .unwrap();
+    assert_eq!(target.modified, Some(timestamp));
+    assert_eq!(target.attrs.hidden, attrs.hidden);
+    assert_eq!(fs::read(temp.path("right", "d/f")).unwrap(), b"payload");
+}
+
 #[test]
 fn rename_case_only_and_collision_checks() {
     let temp = Temp::new();

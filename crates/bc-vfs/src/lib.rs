@@ -155,6 +155,15 @@ pub trait Vfs: Send + Sync {
     ) -> VfsResult<()> {
         Err(VfsError::Unsupported("file exchange"))
     }
+    /// Copy timestamps/attributes/optional creation time without copying data.
+    fn copy_metadata(
+        &self,
+        _from: &VfsPath,
+        _to: &VfsPath,
+        _options: CopyOptions,
+    ) -> VfsResult<()> {
+        Err(VfsError::Unsupported("metadata preservation"))
+    }
     /// Never recursively delete newly appeared or filtered children.
     fn remove_empty_dir(&self, _path: &VfsPath) -> VfsResult<()> {
         Err(VfsError::Unsupported("remove empty directory"))

@@ -270,7 +270,9 @@ pub fn execute(
                     // Child operations legitimately change their parent directory mtime.
                     let directory_cleanup = matches!(
                         item.action,
-                        OpAction::RemoveEmptyDir { .. } | OpAction::EnsureDir
+                        OpAction::RemoveEmptyDir { .. }
+                            | OpAction::EnsureDir
+                            | OpAction::PreserveDir
                     ) && item
                         .source_entry
                         .as_ref()
@@ -462,6 +464,20 @@ pub fn execute(
                     OpAction::EnsureDir => {
                         let path = &destination.unwrap().path;
                         vfs.resolve(path)?.make_dir(path)?;
+                    }
+                    OpAction::PreserveDir => {
+                        let from = &source.unwrap().path;
+                        let to = &destination.unwrap().path;
+                        vfs.resolve(from)?
+                            .copy_metadata(from, to, plan.options.copy)?;
+                        // Moving children changes the source directory mtime; use the
+                        // timestamp captured in the reviewed plan, not that new mtime.
+                        if plan.options.copy.timestamps {
+                            if let Some(time) = item.source_entry.as_ref().and_then(|e| e.modified)
+                            {
+                                vfs.resolve(to)?.set_modified(to, time)?;
+                            }
+                        }
                     }
                     OpAction::RemoveEmptyDir { recycle } => {
                         let path = &source.unwrap().path;
