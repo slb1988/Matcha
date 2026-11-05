@@ -122,7 +122,7 @@ impl Job for ContentSearchJob {
         "Searching".into()
     }
 
-    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
         todo!("bc-engine-dir::jobs: content search")
     }
 }
@@ -140,7 +140,7 @@ impl Job for FileOpJob {
         format!("{:?}", self.op)
     }
 
-    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
         todo!("bc-engine-dir::jobs: perform op with confirmations via ctx.interaction")
     }
 }

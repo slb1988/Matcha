@@ -120,7 +120,11 @@ pub fn recycle(path: &Path) -> VfsResult<()> {
     let mut op = SHFILEOPSTRUCTW {
         wFunc: FO_DELETE,
         pFrom: from.as_ptr(),
-        fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as u16,
+        fFlags: (FOF_ALLOWUNDO
+            | FOF_NOCONFIRMATION
+            | FOF_NOERRORUI
+            | FOF_SILENT
+            | FOF_WANTNUKEWARNING) as u16,
         ..Default::default()
     };
     // SAFETY: the owned path list and operation structure outlive the synchronous shell call.
@@ -132,7 +136,9 @@ pub fn recycle(path: &Path) -> VfsResult<()> {
         )));
     }
     if op.fAnyOperationsAborted != 0 {
-        return Err(VfsError::Cancelled);
+        return Err(VfsError::Unsupported(
+            "recycle declined or unavailable; permanent deletion requires separate confirmation",
+        ));
     }
     Ok(())
 }

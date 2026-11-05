@@ -225,6 +225,28 @@ fn extension_nfc_overrides_and_align_with_survive_rescan() {
     }
 }
 #[test]
+fn refreshed_case_only_name_and_removed_subtrees_do_not_leave_stale_nodes() {
+    let mut tree = DirTree::new();
+    tree.set_pairing(PairingOptions {
+        case_sensitive: false,
+        ..Default::default()
+    })
+    .unwrap();
+    tree.apply_listing(0, "", vec![file("Foo")]).unwrap();
+    tree.apply_listing(1, "", vec![file("Foo")]).unwrap();
+    tree.apply_listing(0, "", vec![file("foo")]).unwrap();
+    assert_eq!(tree.root().children.len(), 1);
+    assert_eq!(tree.count_status(Same), 1);
+    for side in 0..2 {
+        tree.apply_listing(side, "", vec![folder("a")]).unwrap();
+    }
+    tree.apply_listing(0, "a", vec![file("deleted")]).unwrap();
+    tree.apply_listing(0, "", vec![]).unwrap();
+    assert!(tree.find("a/deleted").is_none());
+    assert_eq!(tree.count_status(LeftOrphan), 0);
+}
+
+#[test]
 fn revision_check_blocks_late_content_and_summary_can_clear() {
     let mut tree = DirTree::new();
     tree.apply_listing(0, "", vec![file("a")]).unwrap();

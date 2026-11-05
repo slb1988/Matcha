@@ -31,10 +31,14 @@ than handwritten FFI. Unsafe code is confined to the documented Windows boundary
 No jobs dependency or async runtime.
 
 Windows watch uses overlapped ReadDirectoryChangesW with cancellation/drain on drop;
-other platforms use snapshot polling (renames appear as delete/create). NFC is exposed
+Unix uses snapshot polling with device/inode identity for rename events. NFC is exposed
 by LocalFs::normalize_nfc; enabling NFC on non-Windows returns Unsupported.
 Windows recycle uses the shell and rejects UNC/non-fixed drives; non-Windows returns
-Unsupported. It never silently falls back to permanent deletion.
+Unsupported. FOF_WANTNUKEWARNING explicitly requests a shell confirmation if local
+policy/quota prevents recycling; this exceptional path may display system UI.
+Cancellation returns Unsupported, and callers MUST ask a separate confirmation before
+any permanent-delete fallback. It never silently falls back to permanent deletion.
+See [recycle policy decision](../../docs/decisions/006-recycle-policy.md).
 
 Tests: `cargo test -p bc-vfs`; the ignored `recycle_bin_manual` test additionally
 checks Shell.Application's recycle namespace (run explicitly with --ignored).
@@ -63,5 +67,5 @@ All fixtures live in the system temporary directory.
 ## Open questions
 
 - Pairing case/separator semantics remain in bc-engine-dir, not VfsPath.
-- Shell recycle policy can depend on the local volume/user configuration; callers
-  must report a failure and explicitly decide any fallback.
+- Replace the shell warning path with IFileOperation in a future change if a fully
+  headless, strict recycle-only API is required; do not suppress the warning first.

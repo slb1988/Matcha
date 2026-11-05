@@ -39,21 +39,44 @@ pub enum TouchSpec {
     /// Copy timestamps across (`touch left->right`).
     Copy { from: Side, to: Side },
     /// Set to now or an explicit time (`touch left:now`).
-    Set { target: Target, when: Option<SystemTime> },
+    Set {
+        target: Target,
+        when: Option<SystemTime>,
+    },
 }
 
 /// A file operation over the current selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirOp {
-    Copy { from: Side, to: Side },
-    CopyTo { target: Target, path_mode: PathMode, dest: String },
-    Move { from: Side, to: Side },
-    MoveTo { target: Target, path_mode: PathMode, dest: String },
-    Delete { target: Target, recycle_bin: bool },
+    Copy {
+        from: Side,
+        to: Side,
+    },
+    CopyTo {
+        target: Target,
+        path_mode: PathMode,
+        dest: String,
+    },
+    Move {
+        from: Side,
+        to: Side,
+    },
+    MoveTo {
+        target: Target,
+        path_mode: PathMode,
+        dest: String,
+    },
+    Delete {
+        target: Target,
+        recycle_bin: bool,
+    },
     Rename(RenameSpec),
     Touch(TouchSpec),
     /// `attrib +sh -a`: `set` bits to add, `clear` bits to remove.
-    Attrib { set: FileAttrs, clear: FileAttrs },
+    Attrib {
+        set: FileAttrs,
+        clear: FileAttrs,
+    },
     /// Exclude selection from the comparison (adds name filter entries).
     Exclude,
 }

@@ -32,7 +32,7 @@ impl VfsManager {
         self.providers
             .iter()
             .rev()
-            .find(|p| p.scheme() == path.scheme())
+            .find(|p| p.scheme().eq_ignore_ascii_case(path.scheme()))
             .cloned()
             .ok_or_else(|| VfsError::NoProvider(path.scheme().to_string()))
     }

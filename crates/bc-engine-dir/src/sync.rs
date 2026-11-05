@@ -31,11 +31,24 @@ impl Default for SyncMode {
 /// One planned action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
-    Copy { relative: String, from: Side, to: Side },
-    Delete { relative: String, side: Side },
-    CreateFolder { relative: String, side: Side },
+    Copy {
+        relative: String,
+        from: Side,
+        to: Side,
+    },
+    Delete {
+        relative: String,
+        side: Side,
+    },
+    CreateFolder {
+        relative: String,
+        side: Side,
+    },
     /// Shown but not acted on (conflict: both newer).
-    Skip { relative: String, reason: String },
+    Skip {
+        relative: String,
+        reason: String,
+    },
 }
 
 /// Preview of what a sync will do (shown before execution, FR-D4).
@@ -46,7 +59,12 @@ pub struct SyncPlan {
 
 impl SyncPlan {
     /// Build the plan from the current tree statuses.
-    pub fn build(tree: &DirTree, mode: SyncMode, create_empty: bool, visible_only: bool) -> SyncPlan {
+    pub fn build(
+        tree: &DirTree,
+        mode: SyncMode,
+        create_empty: bool,
+        visible_only: bool,
+    ) -> SyncPlan {
         todo!("bc-engine-dir::sync: plan actions from statuses")
     }
 

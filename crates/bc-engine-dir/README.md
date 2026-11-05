@@ -17,7 +17,10 @@ local tree/criteria/content comparison; operations and sync remain scaffolded.
   through explicit additional switches (no-size, filename-case, skip-quick-same,
   no-content-override). Script omission disables timestamp tests.
 - `filter` – `NameFilter`/`Mask` (`-` exclude, trailing `\` folder), `OtherFilters`
-  (cutoff, attrib, size, protected), `DisplayFilter` (12 values = report `display-*`).
+  (cutoff, attrib, size, protected, streamed UTF-8 content), DisplayFilter (13 values).
+  NameFilter::parse returns Result, compiles once and reuses core split_mask_list.
+  Character sets, no-extension masks, rooted/relative/any-depth paths and four-group
+  evaluation are implemented; exclusions always win.
 - `rules::DirRules` / `DirMergeRules` / `DirSyncRules`, `HandlingOptions`, `DirHandling`.
 - `sync::SyncPlan` – `update|mirror` × direction → `SyncAction`s.
 - `ops::DirOp` – copy/copyto/move/moveto/delete/rename/touch/attrib/exclude with the
@@ -49,6 +52,22 @@ Benchmark: `cargo run --release -p bc-engine-dir --example list_bench`.
 It generates two 100,000-file trees in the system temporary directory, checks top-level
 visibility <1 s and cleans them up. Sparse 1 GiB early-exit/cancellation tests are in
 tests/content.rs (Windows fsutil sets the sparse flag on disposable files only).
+
+## Filtering and view contracts
+
+- FilterClock explicitly supplies local today-midnight and UTC offset; no implicit UTC
+  midnight or locale guessing. OtherFilters defaults to excluding hidden+system items.
+- Other content filters exclude files containing/not containing literal UTF-8 text,
+  stream with bounded overlap, poll CancelCheck and error on invalid UTF-8.
+- DirTree::apply_filters accepts completed content decisions; it preserves comparison
+  statuses, records per-side visibility and promotes included files' ancestors.
+- view_rows(ViewOptions) is generation-cached and produces source-aware rows for all
+  four folder modes, 13 display modes, suppression/teal and Ignore Unimportant.
+  Flatten pairs same-name duplicates by sorted relative path, not contents.
+- FilterSettings::apply_script performs transactional partial updates. FilterPresets
+  provides validated XML model serialization through bc-core, no new dependencies.
+- Decisions and remaining reference-parity questions:
+  [pairing/filter ADR](../../docs/decisions/005-folder-pairing-and-filters.md).
 
 ## Reference class map (from `vmt_report.txt`)
 

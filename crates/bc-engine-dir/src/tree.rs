@@ -178,8 +178,10 @@ pub struct DirTree {
     align_overrides: Vec<AlignmentRule>,
     criteria: Criteria,
     dirty: BTreeSet<NodeId>,
-    generation: u64,
+    pub(crate) generation: u64,
     visible: RefCell<VisibleCache>,
+    pub(crate) view_cache:
+        RefCell<Option<(u64, crate::view::ViewOptions, Vec<crate::view::ViewRow>)>>,
 }
 impl Default for DirTree {
     fn default() -> Self {
@@ -197,6 +199,7 @@ impl Default for DirTree {
             dirty: BTreeSet::new(),
             generation: 0,
             visible: RefCell::default(),
+            view_cache: RefCell::default(),
         }
     }
 }
@@ -231,10 +234,11 @@ impl DirTree {
         {
             current = *self.nodes[current].children.iter().find(|&&id| {
                 let n = &self.nodes[id];
-                n.name == part
-                    || n.sides.iter().flatten().any(|e| e.name == part)
-                    || (!self.pairing.case_sensitive
-                        && n.name.to_lowercase() == part.to_lowercase())
+                n.alive
+                    && (n.name == part
+                        || n.sides.iter().flatten().any(|e| e.name == part)
+                        || (!self.pairing.case_sensitive
+                            && n.name.to_lowercase() == part.to_lowercase()))
             })?;
         }
         Some(current)
@@ -361,6 +365,12 @@ impl DirTree {
                 }
             }
         }
+        // Release this side before pairing the replacement listing. Otherwise a
+        // case-only rename can incorrectly leave two opposite-side orphans.
+        let previous: BTreeMap<_, _> = children
+            .iter()
+            .filter_map(|&id| self.nodes[id].sides[side].take().map(|e| (id, e)))
+            .collect();
         let mut used = BTreeSet::new();
         let mut new_children = children.clone();
         for (key, entry) in keyed {
@@ -369,10 +379,7 @@ impl DirTree {
                 .iter()
                 .copied()
                 .find(|id| {
-                    !used.contains(id)
-                        && self.nodes[*id].sides[side]
-                            .as_ref()
-                            .is_some_and(|e| e.name == entry.name)
+                    !used.contains(id) && previous.get(id).is_some_and(|e| e.name == entry.name)
                 })
                 .or_else(|| {
                     candidates
@@ -398,7 +405,17 @@ impl DirTree {
                 id
             });
             used.insert(id);
+            if previous
+                .get(&id)
+                .is_some_and(|old| old.kind != entry.kind || old.name != entry.name)
+            {
+                for child in self.nodes[id].children.clone() {
+                    self.remove_side(child, side);
+                }
+                self.nodes[id].loaded[side] = false;
+            }
             let node = &mut self.nodes[id];
+            node.alive = true;
             node.sides[side] = Some(entry);
             node.revision += 1;
             node.content_status = None;
@@ -414,7 +431,7 @@ impl DirTree {
             self.mark_dirty(id);
         }
         for id in children {
-            if !used.contains(&id) && self.nodes[id].sides[side].is_some() {
+            if !used.contains(&id) && previous.contains_key(&id) {
                 self.remove_side(id, side);
             }
         }
@@ -577,6 +594,75 @@ impl DirTree {
             .map(|r| &self.nodes[r.node])
             .collect()
     }
+    pub(crate) fn criteria_ref(&self) -> &Criteria {
+        &self.criteria
+    }
+
+    pub fn side_relative(&self, id: NodeId, side: usize) -> String {
+        let mut parts = Vec::new();
+        let mut current = Some(id);
+        while let Some(id) = current.filter(|&id| id != 0) {
+            let node = &self.nodes[id];
+            parts.push(
+                node.sides
+                    .get(side)
+                    .and_then(Option::as_ref)
+                    .map_or(node.name.as_str(), |e| e.name.as_str()),
+            );
+            current = node.parent;
+        }
+        parts.reverse();
+        parts.join("/")
+    }
+
+    /// Apply caller-provided content decisions after metadata/name tests. All ancestor
+    /// promotion is structural; excluded folders still block their descendants.
+    pub fn apply_filters(
+        &mut self,
+        names: &crate::NameFilter,
+        other: &crate::OtherFilters,
+        clock: crate::filter::FilterClock,
+        content_included: impl Fn(NodeId, usize) -> bool,
+    ) {
+        let mut blocked = vec![[false; 2]; self.nodes.len()];
+        for id in 1..self.nodes.len() {
+            if !self.nodes[id].alive {
+                continue;
+            }
+            let parent = self.nodes[id].parent.unwrap_or(0);
+            for (side, inherited) in blocked[parent].into_iter().enumerate() {
+                let Some(entry) = self.nodes[id].sides[side].as_ref() else {
+                    continue;
+                };
+                let relative = self.side_relative(id, side);
+                let metadata = other.matches_metadata(entry, clock);
+                blocked[id][side] = inherited || (entry.kind == EntryKind::Dir && !metadata);
+                self.nodes[id].filtered[side] = inherited
+                    || !metadata
+                    || !names.matches(&relative, self.nodes[id].is_dir)
+                    || (!self.nodes[id].is_dir && !content_included(id, side));
+            }
+        }
+        // Actual included descendants promote their ancestors even if no positive
+        // folder mask matched that ancestor. Never promote a protected subtree.
+        for id in (1..self.nodes.len()).rev() {
+            if !self.nodes[id].alive {
+                continue;
+            }
+            if let Some(parent) = self.nodes[id].parent {
+                for side in 0..2 {
+                    if self.nodes[id].sides[side].is_some()
+                        && !self.nodes[id].filtered[side]
+                        && !self.nodes[id].excluded
+                    {
+                        self.nodes[parent].filtered[side] = false;
+                    }
+                }
+            }
+        }
+        self.generation += 1;
+    }
+
     pub fn count_status(&self, status: CompareStatus) -> usize {
         self.nodes()
             .filter(|(_, n)| !n.is_dir && n.status == status)

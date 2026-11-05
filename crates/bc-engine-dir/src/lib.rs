@@ -11,17 +11,20 @@
 //! | [`sync`] | sync plan / preview (`TDirSyncSession` behaviour, `sync` command) |
 //! | [`ops`] | file operations (`TOp*` dialogs backend, `TOpMoveBothJob`) |
 //! | [`jobs`] | `TVfsLoadDirJob` driver, `TDirTreeContentCompareJob`, `TQuickCompareFilesJob`, `TDirTreeContentSearchJob` |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 #![forbid(unsafe_code)]
 
 pub mod content;
 pub mod criteria;
 pub mod filter;
+pub mod filter_script;
 pub mod jobs;
+#[allow(unused_variables)] // file-operation planning belongs to Wave B
 pub mod ops;
 pub mod rules;
+#[allow(unused_variables)] // synchronization belongs to Wave B
 pub mod sync;
 pub mod tree;
+pub mod view;
 
 pub use criteria::{ContentCompare, Criteria};
 pub use filter::{DisplayFilter, NameFilter, OtherFilters};
