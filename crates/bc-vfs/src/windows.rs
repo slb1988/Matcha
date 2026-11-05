@@ -110,9 +110,8 @@ pub fn recycle(path: &Path) -> VfsResult<()> {
     let root = wide(root)?;
     // SAFETY: root is nul-terminated; call does not retain it.
     let drive = unsafe { GetDriveTypeW(root.as_ptr()) };
-    if drive != 3
-    /* DRIVE_FIXED (winbase.h) */
-    {
+    const DRIVE_FIXED: u32 = 3; // winbase.h, not exposed under the selected feature set
+    if drive != DRIVE_FIXED {
         return Err(VfsError::Unsupported("recycle bin on non-fixed drives"));
     }
     let mut from = wide(&full)?;
@@ -129,16 +128,16 @@ pub fn recycle(path: &Path) -> VfsResult<()> {
     };
     // SAFETY: the owned path list and operation structure outlive the synchronous shell call.
     let code = unsafe { SHFileOperationW(&mut op) };
+    if op.fAnyOperationsAborted != 0 {
+        return Err(VfsError::Unsupported(
+            "recycle declined or unavailable; permanent deletion requires separate confirmation",
+        ));
+    }
     if code != 0 {
         return Err(VfsError::Other(format!(
             "recycle failed (shell code {code}): {}",
             std::io::Error::from_raw_os_error(code)
         )));
-    }
-    if op.fAnyOperationsAborted != 0 {
-        return Err(VfsError::Unsupported(
-            "recycle declined or unavailable; permanent deletion requires separate confirmation",
-        ));
     }
     Ok(())
 }

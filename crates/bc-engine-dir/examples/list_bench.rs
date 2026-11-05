@@ -61,5 +61,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t = Instant::now();
     assert_eq!(tree.visible_rows(DisplayFilter::All).len(), 100_100);
     println!("expanded_rows.seconds={:.6}", t.elapsed().as_secs_f64());
+    let t = Instant::now();
+    assert_eq!(tree.view_rows(Default::default()).len(), 100_100);
+    println!("filtered_view.seconds={:.6}", t.elapsed().as_secs_f64());
+    let t = Instant::now();
+    assert_eq!(tree.view_rows(Default::default()).len(), 100_100);
+    println!("cached_view.seconds={:.6}", t.elapsed().as_secs_f64());
     Ok(())
 }
