@@ -25,7 +25,11 @@ pub enum PersistError {
     /// A required element or attribute was missing.
     Missing(String),
     /// A value could not be interpreted (`expected` describes the type).
-    BadValue { element: String, value: String, expected: &'static str },
+    BadValue {
+        element: String,
+        value: String,
+        expected: &'static str,
+    },
 }
 
 impl std::fmt::Display for PersistError {
@@ -33,8 +37,15 @@ impl std::fmt::Display for PersistError {
         match self {
             PersistError::Xml(m) => write!(f, "xml: {m}"),
             PersistError::Missing(m) => write!(f, "missing: {m}"),
-            PersistError::BadValue { element, value, expected } => {
-                write!(f, "bad value for <{element}>: {value:?} (expected {expected})")
+            PersistError::BadValue {
+                element,
+                value,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "bad value for <{element}>: {value:?} (expected {expected})"
+                )
             }
         }
     }
@@ -58,7 +69,10 @@ pub struct Node {
 impl Node {
     /// Create a node with a name only.
     pub fn new(name: impl Into<String>) -> Self {
-        Node { name: name.into(), ..Default::default() }
+        Node {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     /// First child with `name`.
@@ -99,17 +113,23 @@ impl Node {
     pub fn child_int(&self, name: &str) -> Result<Option<i64>, PersistError> {
         match self.child_value(name) {
             None => Ok(None),
-            Some(v) => v.trim().parse::<i64>().map(Some).map_err(|_| PersistError::BadValue {
-                element: name.to_string(),
-                value: v.to_string(),
-                expected: "integer",
-            }),
+            Some(v) => v
+                .trim()
+                .parse::<i64>()
+                .map(Some)
+                .map_err(|_| PersistError::BadValue {
+                    element: name.to_string(),
+                    value: v.to_string(),
+                    expected: "integer",
+                }),
         }
     }
 
     /// `true` for `_0`, `_1`, … list-slot elements.
     pub fn is_item(&self) -> bool {
-        self.name.strip_prefix('_').is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+        self.name
+            .strip_prefix('_')
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
     }
 
     /// List-slot children (`_N`) ordered by their index.
@@ -126,7 +146,10 @@ impl Node {
 
     /// `Value`s of the list-slot children (string lists such as `<Description>` / `<Items>`).
     pub fn item_values(&self) -> Vec<String> {
-        self.items().into_iter().filter_map(|n| n.value.clone()).collect()
+        self.items()
+            .into_iter()
+            .filter_map(|n| n.value.clone())
+            .collect()
     }
 }
 
@@ -145,7 +168,9 @@ pub fn parse_xml(xml: &str) -> Result<Node, PersistError> {
     let mut root: Option<Node> = None;
 
     loop {
-        let event = reader.read_event().map_err(|e| PersistError::Xml(e.to_string()))?;
+        let event = reader
+            .read_event()
+            .map_err(|e| PersistError::Xml(e.to_string()))?;
         match event {
             Event::Start(e) => {
                 let node = node_from_start(&e)?;
@@ -188,8 +213,8 @@ fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, Persis
         if attr.key.as_ref() == b"Value" {
             // Plain entity unescaping, deliberately *without* attribute-value whitespace
             // normalisation: grammar texts may contain literal tabs that must survive.
-            let escaped = std::str::from_utf8(&attr.value)
-                .map_err(|e| PersistError::Xml(e.to_string()))?;
+            let escaped =
+                std::str::from_utf8(&attr.value).map_err(|e| PersistError::Xml(e.to_string()))?;
             let raw = quick_xml::escape::unescape(escaped)
                 .map_err(|e| PersistError::Xml(e.to_string()))?
                 .into_owned();
@@ -216,6 +241,7 @@ pub struct XmlHeader {
 
 /// Serialise a tree back to BC-compatible XML (tabs, `Value` attributes, `&#2;` string
 /// markers, `Version`/`MinVersion` header).
+#[allow(unused_variables)] // remaining scaffold entry point
 pub fn write_xml(root: &Node, header: Option<&XmlHeader>) -> String {
     todo!("bc-core::persist: write-compatible serialiser (spec §5 write target)")
 }

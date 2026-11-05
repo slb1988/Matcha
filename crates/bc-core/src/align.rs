@@ -51,6 +51,7 @@ impl AlignMap {
     }
 
     /// Build from rows, computing the reverse indices.
+    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn from_rows(rows: Vec<AlignRow>) -> Self {
         todo!("bc-core::align: build reverse indices")
     }
@@ -88,16 +89,19 @@ impl AlignMap {
 
     /// Index of the next row after `from` whose kind is not [`DiffKind::Same`]
     /// ("Next Difference" navigation).
+    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn next_difference(&self, from: usize) -> Option<usize> {
         todo!("bc-core::align: difference navigation")
     }
 
     /// Index of the previous difference row before `from`.
+    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn prev_difference(&self, from: usize) -> Option<usize> {
         todo!("bc-core::align: difference navigation")
     }
 
     /// Manual re-alignment: force left `l` ↔ right `r` on the same row (BC "Align With").
+    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn force_pair(&mut self, l: usize, r: usize) {
         todo!("bc-core::align: manual align")
     }
@@ -142,10 +146,12 @@ impl Aligner for QuickAlign {
         AlignStrategy::Quick
     }
 
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn align2(&self, left: AlignInput<'_>, right: AlignInput<'_>) -> AlignMap {
         todo!("bc-core::align: quick (LCS) alignment")
     }
 
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn align3(
         &self,
         left: AlignInput<'_>,
@@ -191,10 +197,12 @@ impl Aligner for SmartAlign {
         AlignStrategy::Smart
     }
 
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn align2(&self, left: AlignInput<'_>, right: AlignInput<'_>) -> AlignMap {
         todo!("bc-core::align: smart alignment (pending disassembly of TBcSmartAlign)")
     }
 
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn align3(
         &self,
         left: AlignInput<'_>,
@@ -210,6 +218,7 @@ impl Aligner for SmartAlign {
 pub struct ByteAlign;
 
 impl ByteAlign {
+    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn align(&self, left: &[u8], right: &[u8]) -> AlignMap {
         todo!("bc-core::align: byte alignment")
     }

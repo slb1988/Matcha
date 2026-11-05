@@ -7,11 +7,23 @@ use crate::hash::ContentHash;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffOp {
     /// `a[a_start..a_start+len]` equals `b[b_start..b_start+len]`.
-    Equal { a_start: usize, b_start: usize, len: usize },
+    Equal {
+        a_start: usize,
+        b_start: usize,
+        len: usize,
+    },
     /// Items only in `a`.
-    Delete { a_start: usize, len: usize, b_pos: usize },
+    Delete {
+        a_start: usize,
+        len: usize,
+        b_pos: usize,
+    },
     /// Items only in `b`.
-    Insert { b_start: usize, len: usize, a_pos: usize },
+    Insert {
+        b_start: usize,
+        len: usize,
+        a_pos: usize,
+    },
 }
 
 /// Diff algorithm abstraction so Quick/Smart alignment can plug different cores.
@@ -28,6 +40,7 @@ pub struct MyersDiff {
 }
 
 impl Differ for MyersDiff {
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn diff(&self, a: &[ContentHash], b: &[ContentHash]) -> Vec<DiffOp> {
         todo!("bc-core::diff: Myers O(ND)")
     }
@@ -38,6 +51,7 @@ impl Differ for MyersDiff {
 pub struct PatienceDiff;
 
 impl Differ for PatienceDiff {
+    #[allow(unused_variables)] // remaining scaffold entry point
     fn diff(&self, a: &[ContentHash], b: &[ContentHash]) -> Vec<DiffOp> {
         todo!("bc-core::diff: patience diff")
     }

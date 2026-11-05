@@ -114,6 +114,7 @@ name = "bc-core"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "memmap2",
  "quick-xml",
  "regex",
  "xxhash-rust",

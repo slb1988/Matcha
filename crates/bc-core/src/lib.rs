@@ -5,8 +5,8 @@
 //! encoding, regular-expression wrapper, undo stack and the Delphi-style XML
 //! persistence model used by every `*.xml` settings file.
 //!
-//! Scaffold stage: every algorithmic entry point is `todo!()`. Only [`persist`] has a
-//! working reader because the `bc-formats` build script needs it at build time.
+//! Line storage, reversible edits, encodings and hashing are implemented. Alignment
+//! and persistence writing remain scaffold entry points.
 //!
 //! | module | BC classes |
 //! |---|---|
@@ -18,8 +18,7 @@
 //! | [`encoding`] | code page detection & BOM handling (`UiCodePageEdit`, `TFILECODEPAGEERRORDIALOG` backend) |
 //! | [`pattern`] | `TSsRegExpr`, `TREParser` state tables |
 //! | [`persist`] | `TSsPersistent`, `TSsPersistentList`, `TSsPersistentObjList`, `TSsPersistentParent(Ex)` |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod align;
 pub mod diff;

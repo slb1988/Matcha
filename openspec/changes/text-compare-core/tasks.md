@@ -10,12 +10,12 @@
 
 ## 2. bc-core 行模型、编码与哈希
 
-- [ ] 2.1 实现 `line::LineParser` / `LineList::from_bytes` / `LineWriter`：逐行行尾、末行无换行、主导风格检测；验证单测覆盖 CRLF/LF/CR/混合/空文件/仅一行无换行的往返逐字节相等
-- [ ] 2.2 实现 `LineList` 的 insert/delete/replace/set_ending 及对应 `EditItem`（`TSsLineList*Item` 等价）；验证单测：任意操作序列 undo 后缓冲区与原始相等
-- [ ] 2.3 实现 `edit::EditStack`（push/coalesce/group/undo/redo/save point/limit）；验证单测覆盖分组嵌套、保存点脏判定、超限截断
-- [ ] 2.4 实现 `encoding::detect/decode/encode`（BOM、UTF-8 有效性、NUL 密度二进制判定、`encoding_rs` 代码页映射表）；验证单测：UTF-8 有/无 BOM、UTF-16LE/BE、GBK、1252、二进制样本按规格判定，保存保持 BOM 策略
-- [ ] 2.5 实现 `hash::LineHasher`（空白/大小写标准化 + xxh64）与 `Crc32`；验证单测：标准化等价行哈希相等、不等价行不等，CRC 与已知向量一致
-- [ ] 2.6 实现 `LineList` 的只读 mmap 后端与首次编辑时的写时拷贝（设计 D6）；验证基准：打开 100 MB 文件 < 200 ms，编辑一行后内存增长 < 文件大小的 10%
+- [x] 2.1 实现 `line::LineParser` / `LineList::from_bytes` / `LineWriter`：逐行行尾、末行无换行、主导风格检测；验证单测覆盖 CRLF/LF/CR/混合/空文件/仅一行无换行的往返逐字节相等
+- [x] 2.2 实现 `LineList` 的 insert/delete/replace/set_ending 及对应 `EditItem`（`TSsLineList*Item` 等价）；验证单测：任意操作序列 undo 后缓冲区与原始相等
+- [x] 2.3 实现 `edit::EditStack`（push/coalesce/group/undo/redo/save point/limit）；验证单测覆盖分组嵌套、保存点脏判定、超限截断
+- [x] 2.4 实现 `encoding::detect/decode/encode`（BOM、UTF-8 有效性、NUL 密度二进制判定、`encoding_rs` 代码页映射表）；验证单测：UTF-8 有/无 BOM、UTF-16LE/BE、GBK、1252、二进制样本按规格判定，保存保持 BOM 策略
+- [x] 2.5 实现 `hash::LineHasher`（空白/大小写标准化 + xxh64）与 `Crc32`；验证单测：标准化等价行哈希相等、不等价行不等，CRC 与已知向量一致
+- [x] 2.6 实现 `LineList` 的只读 mmap 后端与首次编辑时的写时拷贝（设计 D6）；验证基准：打开 100 MB 文件 < 200 ms，编辑一行后内存增长 < 文件大小的 10%
 
 ## 3. bc-core 正则与 diff
 
