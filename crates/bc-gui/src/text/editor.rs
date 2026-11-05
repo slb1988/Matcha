@@ -313,7 +313,13 @@ impl Editor {
                             .unwrap_or(4)
                             .clamp(1, 32) as usize;
                         let insert = if content.format().is_some_and(|f| f.tab_as_spaces) {
-                            " ".repeat(tab - self.caret.byte % tab)
+                            let lines = content.lines.borrow();
+                            let text = std::str::from_utf8(
+                                lines.line_bytes(self.caret.line).unwrap_or_default(),
+                            )
+                            .unwrap();
+                            let column = tab_column(&text[..self.caret.byte], tab);
+                            " ".repeat(tab - column % tab)
                         } else {
                             "\t".into()
                         };
@@ -327,6 +333,15 @@ impl Editor {
         self.clamp(content);
         Ok(content.revision() != revision)
     }
+}
+pub(crate) fn tab_column(text: &str, tab: usize) -> usize {
+    text.chars().fold(0, |col, c| {
+        if c == '\t' {
+            col + tab - col % tab
+        } else {
+            col + 1
+        }
+    })
 }
 fn word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'

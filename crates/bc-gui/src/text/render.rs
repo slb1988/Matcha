@@ -181,6 +181,12 @@ impl TextCompareView {
                         self.font_size,
                         self.map.rules.ignore_unimportant,
                         self.show_whitespace,
+                        snapshot
+                            .format
+                            .as_ref()
+                            .and_then(|f| f.tab_size)
+                            .unwrap_or(4)
+                            .clamp(1, 32) as usize,
                         ui.visuals().text_color(),
                     );
                     let galley = ui.painter().layout_job(job);
@@ -402,6 +408,7 @@ fn layout(
     font: f32,
     ignore: bool,
     whitespace: bool,
+    tab: usize,
     normal: egui::Color32,
 ) -> (LayoutJob, Vec<usize>) {
     let mut job = LayoutJob::default();
@@ -424,7 +431,7 @@ fn layout(
             ..Default::default()
         };
         let value = if c == '\t' {
-            let width = 4 - column % 4;
+            let width = tab - column % tab;
             if whitespace {
                 format!("→{}", " ".repeat(width - 1))
             } else {
