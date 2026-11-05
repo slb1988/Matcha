@@ -4,7 +4,7 @@ use crate::{
     egui,
 };
 use bc_engine_dir::sync::{CustomSyncRules, SyncChoice, SyncDirection, SyncMode};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 pub struct SyncView {
     pub folder: DirCompareView,
     method: usize,
@@ -38,7 +38,7 @@ impl SyncView {
             }),
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<[PathBuf; 2]> {
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<crate::dir_view::FolderNavigation> {
         self.folder.poll(ui.ctx());
         let before = (self.method, self.create_empty, self.visible, self.custom);
         ui.add_enabled_ui(!self.folder.busy(), |ui| {
@@ -112,7 +112,9 @@ impl SyncView {
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(
-                    !self.folder.busy() && self.folder.snapshot.complete && self.folder.snapshot.sync_stats.is_some(),
+                    !self.folder.busy()
+                        && self.folder.snapshot.complete
+                        && self.folder.snapshot.sync_stats.is_some(),
                     egui::Button::new("Sync Now"),
                 )
                 .clicked()

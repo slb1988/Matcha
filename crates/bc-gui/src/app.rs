@@ -126,8 +126,8 @@ impl eframe::App for MatchaApp {
         egui::CentralPanel::default().show(ui, |ui| match &mut self.view {
             View::Home(home) => action = home.ui(ui),
             View::TextCompare(view) => view.ui(ui),
-            View::FolderCompare(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some((true,paths)); } },
-            View::FolderSync(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some((false,paths)); } },
+            View::FolderCompare(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some(paths); } },
+            View::FolderSync(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some(paths); } },
         });
 
         if let Some(HomeAction::OpenTextCompare { left, right }) = &action {

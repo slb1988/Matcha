@@ -44,6 +44,8 @@ use std::{
 };
 
 pub const ROW_HEIGHT: f32 = 22.0;
+static NEXT_VIEW: AtomicU64 = AtomicU64::new(1);
+pub type FolderNavigation = (bool, [PathBuf; 2]);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
     Name,
@@ -165,6 +167,7 @@ impl Default for ScanOptions {
     }
 }
 pub enum Command {
+    Shutdown,
     Load([String; 2]),
     Filters {
         names: String,
@@ -966,6 +969,7 @@ impl Model {
     fn handle(&mut self, command: Command) -> Result<(), String> {
         self.check()?;
         match command {
+            Command::Shutdown => return Ok(()),
             Command::Load(paths) => return self.load(paths),
             Command::Filters {
                 names,
@@ -1456,6 +1460,9 @@ fn run_worker(receiver: Receiver<Work>, shared: Arc<Shared>, sync: bool, bench: 
         }
         match receiver.recv_timeout(Duration::from_millis(750)) {
             Ok(work) => {
+                if matches!(work.command, Command::Shutdown) {
+                    break;
+                }
                 *shared.cancel.lock().unwrap() = work.cancel.clone();
                 shared.busy.store(true, AtomicOrdering::Relaxed);
                 let invalidates = matches!(
@@ -1637,6 +1644,8 @@ fn time_label(time: SystemTime) -> String {
 }
 
 pub struct DirCompareView {
+    window_id: u64,
+    child: Option<Box<DirCompareView>>,
     shared: Arc<Shared>,
     commands: Sender<Work>,
     worker: Option<thread::JoinHandle<()>>,
@@ -1712,6 +1721,8 @@ impl DirCompareView {
             cancel: token,
         });
         Self {
+            window_id: NEXT_VIEW.fetch_add(1, AtomicOrdering::Relaxed),
+            child: None,
             shared,
             commands: tx,
             worker: Some(worker),
@@ -1930,6 +1941,10 @@ impl DirCompareView {
         }
     }
     pub fn operate(&mut self, op: DirOp, include_hidden: bool) {
+        if !self.snapshot.complete {
+            self.message = "Refresh or resolve comparison errors before file operations".into();
+            return;
+        }
         if let DirOp::CopyTo { dest, .. } | DirOp::MoveTo { dest, .. } = &op {
             self.paths.remember(&[dest.clone(), dest.clone()]);
         }
@@ -1942,6 +1957,55 @@ impl DirCompareView {
             op,
             include_hidden,
         });
+    }
+    fn new_folder_view(&mut self, paths: [PathBuf; 2]) {
+        self.rules_open = false;
+        self.legend_open = false;
+        self.find.open = false;
+        self.operation = None;
+        self.scope = None;
+        self.text = None;
+        self.child = Some(Box::new(Self::open(
+            &self.shared.ctx,
+            &paths[0],
+            &paths[1],
+            false,
+            false,
+        )));
+    }
+    fn open_folder_selection(&mut self) {
+        let mut selected = self
+            .selected_sides()
+            .into_iter()
+            .filter(|(_, s)| s.entry.kind == EntryKind::Dir)
+            .collect::<Vec<_>>();
+        if selected.len() == 2 {
+            if selected[0].0 != selected[1].0 {
+                selected.sort_by_key(|(side, _)| *side);
+            }
+            self.new_folder_view([selected[0].1.path.clone(), selected[1].1.path.clone()]);
+            return;
+        }
+        if selected.len() == 1 {
+            let (side, item) = &selected[0];
+            if let Some(other) = self
+                .snapshot
+                .rows
+                .iter()
+                .find(|r| r.sides[*side].as_ref().is_some_and(|s| s.node == item.node))
+                .and_then(|r| r.sides[1 - *side].as_ref())
+                .filter(|s| s.entry.kind == EntryKind::Dir)
+            {
+                let paths = if *side == 0 {
+                    [item.path.clone(), other.path.clone()]
+                } else {
+                    [other.path.clone(), item.path.clone()]
+                };
+                self.new_folder_view(paths);
+                return;
+            }
+        }
+        self.message = "Select two folders, or one paired folder, to open a new folder view".into();
     }
     fn set_base(&mut self, other: bool, both: bool) {
         let selected = self
@@ -2148,6 +2212,10 @@ impl DirCompareView {
         ui.small("Owner/group/VCS require providers not shipped in this wave.");
     }
     fn action_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Open folders in new view").clicked() {
+            self.open_folder_selection();
+            ui.close();
+        }
         if ui.button("Open selected file pair").clicked() {
             self.open_pair();
             ui.close();
@@ -2330,12 +2398,19 @@ impl DirCompareView {
                 for (label, target) in [
                     ("Up left", Target::Left),
                     ("Up right", Target::Right),
-                    ("Up both / compare parents", Target::All),
+                    ("Up both", Target::All),
                 ] {
                     if ui.button(label).clicked() {
                         self.up(target);
                         ui.close();
                     }
+                }
+                if ui.button("Compare parent folders (new view)").clicked() {
+                    let paths = self
+                        .paths()
+                        .map(|p| p.parent().map(Path::to_path_buf).unwrap_or(p));
+                    self.new_folder_view(paths);
+                    ui.close();
                 }
                 if ui.button("Comparison rules / handling...").clicked() {
                     self.rules_open = true;
@@ -2485,13 +2560,13 @@ impl DirCompareView {
             });
         }
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<[PathBuf; 2]> {
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
         let ctx = ui.ctx().clone();
         self.poll(&ctx);
         let mut switch = None;
         let busy = self.busy();
-        ui.add_enabled_ui(!busy, |ui| {
-            switch = self.toolbar(ui);
+        ui.add_enabled_ui(!busy && self.child.is_none(), |ui| {
+            switch = self.toolbar(ui).map(|paths| (!self.sync_mode, paths));
             let change = self.filters.ui(ui, !self.sync_mode);
             if change.save_presets {
                 self.send(Command::SavePresets(self.filters.presets.to_xml()));
@@ -2538,7 +2613,7 @@ impl DirCompareView {
         if let Some(path) = self.log_panel.ui(ui, &self.shared.log) {
             self.send(Command::SaveLog(path.into()));
         }
-        self.draw_table(ui);
+        ui.add_enabled_ui(self.child.is_none(), |ui| self.draw_table(ui));
         if let Some(paths) = self.paths.show(&ctx) {
             self.reload(paths, true);
         }
@@ -2592,7 +2667,7 @@ impl DirCompareView {
         }
         // F12 is a local diagnostic capture, useful even when desktop capture cannot
         // read an OpenGL window. It captures this viewport only, never other windows.
-        if ctx.input(|i| i.key_pressed(egui::Key::F12)) {
+        if self.child.is_none() && ctx.input(|i| i.key_pressed(egui::Key::F12)) {
             ctx.request_screenshot(|image| {
                 thread::spawn(move || {
                     let path = std::env::temp_dir()
@@ -2604,7 +2679,7 @@ impl DirCompareView {
                 });
             });
         }
-        if !ctx.egui_wants_keyboard_input() {
+        if self.child.is_none() && !ctx.egui_wants_keyboard_input() {
             if ctx.input(|i| i.key_pressed(egui::Key::F7)) {
                 self.navigate(ctx.input(|i| i.modifiers.shift), self.sync_mode);
             }
@@ -2646,6 +2721,22 @@ impl DirCompareView {
             }
             if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::ArrowRight)) {
                 self.restrict_side(1);
+            }
+        }
+        if let Some(child) = &mut self.child {
+            let mut open = true;
+            egui::Window::new("Folder Compare — new view")
+                .id(egui::Id::unique(("folder_child", self.window_id)))
+                .open(&mut open)
+                .default_size([1200.0, 720.0])
+                .show(&ctx, |ui| {
+                    if let Some(action) = child.ui(ui) {
+                        switch = Some(action);
+                    }
+                });
+            if !open {
+                self.child = None;
+                self.message = "Child view closed; Refresh if its files changed".into();
             }
         }
         switch
@@ -2994,6 +3085,11 @@ impl Drop for DirCompareView {
     fn drop(&mut self) {
         self.shared.closed.store(true, AtomicOrdering::Relaxed);
         self.cancel();
+        let _ = self.commands.send(Work {
+            id: u64::MAX,
+            command: Command::Shutdown,
+            cancel: self.shared.token(),
+        });
         if let Some(question) = self.question.take() {
             let _ = question.reply.send(Confirmation::No);
         }
@@ -3487,6 +3583,23 @@ mod tests {
         view.send(Command::SyncOverride(node, SyncChoice::LeaveAlone));
         wait(&mut view, &ctx);
         assert_eq!(view.snapshot.rows[row(&view, "a.txt")].center, "Leave");
+    }
+    #[test]
+    fn opening_folders_in_a_new_view_preserves_the_original_bases() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        let original = view.paths();
+        view.focus_row(row(&view, "nested"), None);
+        view.open_folder_selection();
+        let child = view.child.as_mut().unwrap();
+        wait(child, &ctx);
+        assert!(child.paths()[0].ends_with("left/nested"));
+        frame(&mut view, &ctx);
+        assert_eq!(view.paths(), original);
+        view.child = None;
+        assert_eq!(view.paths(), original);
     }
     #[test]
     fn folder_history_up_swap_paths_and_drop_action_are_available() {
