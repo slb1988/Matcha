@@ -67,7 +67,7 @@ tests/content.rs (Windows fsutil sets the sparse flag on disposable files only).
 - FilterSettings::apply_script performs transactional partial updates. FilterPresets
   provides validated XML model serialization through bc-core, no new dependencies.
 - Decisions and remaining reference-parity questions:
-  [pairing/filter ADR](../../docs/decisions/005-folder-pairing-and-filters.md).
+  [pairing/filter ADR](../../docs/decisions/101-folder-pairing-and-filters.md).
 
 ## Reference class map (from `vmt_report.txt`)
 

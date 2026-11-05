@@ -143,10 +143,10 @@ Recycle Bin 命名空间查询到该测试文件，最终得到 `$RM9LKAA.txt` �
 
 ## 已确认的歧义、限制与后续建议
 
-- [ADR 005](../decisions/005-folder-pairing-and-filters.md)：包含文件×包含文件夹取交集、
+- [ADR 101](../decisions/101-folder-pairing-and-filters.md)：包含文件×包含文件夹取交集、
   显式 ...\\ 越过包含限制但不越过排除、本地时间上下文、七个脚本例的来源。
   Flatten 重名按相对路径排序一一配对已批准，**待任务组 7 黄金语料核实**。
-- [ADR 006](../decisions/006-recycle-policy.md)：固定盘添加 FOF_WANTNUKEWARNING，
+- [ADR 102](../decisions/102-recycle-policy.md)：固定盘添加 FOF_WANTNUKEWARNING，
   无法回收时可能弹系统永久删除确认；取消返回 Unsupported。
   **任务 4.2 的永久删除回退必须再次确认**，不得把取消等同许可。
   未修改用户回收站策略进行破坏性测试；未来可改为 IFileOperation 的严格无 UI 后端。

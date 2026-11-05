@@ -38,7 +38,7 @@ Unsupported. FOF_WANTNUKEWARNING explicitly requests a shell confirmation if loc
 policy/quota prevents recycling; this exceptional path may display system UI.
 Cancellation returns Unsupported, and callers MUST ask a separate confirmation before
 any permanent-delete fallback. It never silently falls back to permanent deletion.
-See [recycle policy decision](../../docs/decisions/006-recycle-policy.md).
+See [recycle policy decision](../../docs/decisions/102-recycle-policy.md).
 
 Tests: `cargo test -p bc-vfs`; the ignored `recycle_bin_manual` test additionally
 checks Shell.Application's recycle namespace (run explicitly with --ignored).
