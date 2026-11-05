@@ -253,13 +253,82 @@ impl ConvertKind {
     }
 }
 
-/// Delimited-table settings of a `TTableFormat` (`DlmDelimiters` / `DlmQualifier`).
+/// Text table layout. Missing XML fields retain the legacy delimited defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TableType {
+    #[default]
+    Delimited,
+    Fixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HeaderMode {
+    #[default]
+    Auto,
+    Data,
+    Names,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DateOrder {
+    #[default]
+    Ymd,
+    Mdy,
+    Dmy,
+}
+
+/// Explicit interpretation rules. The host supplies the resolved system locale
+/// to the engine when `use_system` is true; no process-global locale is mutated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RegionalSettings {
+    pub use_system: bool,
+    pub decimal: char,
+    pub thousands: Option<char>,
+    pub date_order: DateOrder,
+    pub date_separator: char,
+}
+impl Default for RegionalSettings {
+    fn default() -> Self {
+        Self {
+            use_system: true,
+            decimal: '.',
+            thousands: Some(','),
+            date_order: DateOrder::Ymd,
+            date_separator: '-',
+        }
+    }
+}
+
+/// Type/Regional options for table formats; newly added defaults are omitted in XML.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TableOptions {
-    /// Field delimiter characters (`,` for CSV, tab for Excel export).
     pub delimiters: Vec<char>,
-    /// Text qualifier (`"`).
     pub qualifier: Option<char>,
+    pub table_type: TableType,
+    pub consecutive_delimiters: bool,
+    pub trim_surrounding_whitespace: bool,
+    pub detect_delimiter: bool,
+    /// Character counts, not byte offsets (UI representation: `5;10;3`).
+    pub column_widths: Vec<usize>,
+    pub header: HeaderMode,
+    pub regional: RegionalSettings,
+}
+impl Default for TableOptions {
+    fn default() -> Self {
+        Self {
+            delimiters: vec![','],
+            qualifier: Some('"'),
+            table_type: TableType::Delimited,
+            consecutive_delimiters: false,
+            trim_surrounding_whitespace: false,
+            detect_delimiter: false,
+            column_widths: Vec::new(),
+            header: HeaderMode::Auto,
+            regional: RegionalSettings::default(),
+        }
+    }
 }
 
 /// A file format definition – BC `TFileFormat` and subclasses.

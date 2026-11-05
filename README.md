@@ -80,7 +80,7 @@ No engine crate depends on `bc-gui`; `bc-gui` is the only crate with a GUI depen
 
 ## Build, test, run
 
-Requirements: stable Rust ≥ 1.80 (developed with 1.99), Windows 10/11 (the engine crates
+Requirements: stable Rust ≥ 1.88 (calamine 0.38 requires 1.88; developed with 1.99), Windows 10/11 (the engine crates
 are platform-neutral; only `bc-gui` needs a display).
 
 ```powershell

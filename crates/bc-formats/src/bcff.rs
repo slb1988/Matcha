@@ -7,8 +7,8 @@
 //! grammar item class is an error because dropping it would silently change highlighting.
 
 use crate::model::{
-    ConvertKind, ElementKind, FileFormat, FormatKind, GrammarItem, GrammarMatch, TableOptions,
-    WeightItem, WeightPriority,
+    ConvertKind, DateOrder, ElementKind, FileFormat, FormatKind, GrammarItem, GrammarMatch,
+    HeaderMode, RegionalSettings, TableOptions, TableType, WeightItem, WeightPriority,
 };
 use bc_core::persist::{self, Node, PersistError};
 
@@ -143,6 +143,56 @@ pub fn format_from_node(kind: FormatKind, node: &Node) -> Result<FileFormat, For
                 .child_value("DlmQualifier")
                 .map(parse_char_code)
                 .transpose()?,
+            table_type: match node.child_value("TableType").unwrap_or("Delimited") {
+                "Delimited" => TableType::Delimited,
+                "Fixed" => TableType::Fixed,
+                v => return Err(FormatError::BadValue(format!("TableType {v:?}"))),
+            },
+            consecutive_delimiters: node.child_bool("DlmConsecutive")?.unwrap_or(false),
+            trim_surrounding_whitespace: node.child_bool("DlmTrimWhitespace")?.unwrap_or(false),
+            detect_delimiter: node.child_bool("DlmDetect")?.unwrap_or(false),
+            column_widths: node
+                .child_value("FixedWidths")
+                .unwrap_or("")
+                .split(';')
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s.parse::<usize>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| FormatError::BadValue(format!("FixedWidths {s:?}")))
+                })
+                .collect::<Result<_, _>>()?,
+            header: match node.child_value("FirstRow").unwrap_or("Auto") {
+                "Auto" => HeaderMode::Auto,
+                "Data" => HeaderMode::Data,
+                "Names" => HeaderMode::Names,
+                v => return Err(FormatError::BadValue(format!("FirstRow {v:?}"))),
+            },
+            regional: RegionalSettings {
+                use_system: node.child_bool("UseSystemRegional")?.unwrap_or(true),
+                decimal: node
+                    .child_value("DecimalSeparator")
+                    .map(parse_char_code)
+                    .transpose()?
+                    .unwrap_or('.'),
+                thousands: match node.child_value("ThousandsSeparator") {
+                    None => Some(','),
+                    Some("") => None,
+                    Some(v) => Some(parse_char_code(v)?),
+                },
+                date_order: match node.child_value("DateOrder").unwrap_or("Ymd") {
+                    "Ymd" => DateOrder::Ymd,
+                    "Mdy" => DateOrder::Mdy,
+                    "Dmy" => DateOrder::Dmy,
+                    v => return Err(FormatError::BadValue(format!("DateOrder {v:?}"))),
+                },
+                date_separator: node
+                    .child_value("DateSeparator")
+                    .map(parse_char_code)
+                    .transpose()?
+                    .unwrap_or('-'),
+            },
         })
     } else {
         None
@@ -419,6 +469,83 @@ fn canonical_node(format: &FileFormat) -> Result<Node, FormatError> {
         if let Some(qualifier) = table.qualifier {
             root.children
                 .push(value("DlmQualifier", (qualifier as u32).to_string(), false));
+        }
+        if table.table_type == TableType::Fixed {
+            root.children.push(value("TableType", "Fixed", false));
+        }
+        flag(&mut root, "DlmConsecutive", table.consecutive_delimiters);
+        flag(
+            &mut root,
+            "DlmTrimWhitespace",
+            table.trim_surrounding_whitespace,
+        );
+        flag(&mut root, "DlmDetect", table.detect_delimiter);
+        if !table.column_widths.is_empty() {
+            if table.column_widths.contains(&0) {
+                return Err(FormatError::BadValue("zero fixed column width".into()));
+            }
+            root.children.push(value(
+                "FixedWidths",
+                table
+                    .column_widths
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(";"),
+                false,
+            ));
+        }
+        if table.header != HeaderMode::Auto {
+            root.children.push(value(
+                "FirstRow",
+                match table.header {
+                    HeaderMode::Data => "Data",
+                    HeaderMode::Names => "Names",
+                    HeaderMode::Auto => unreachable!(),
+                },
+                false,
+            ));
+        }
+        let regional = &table.regional;
+        let defaults = RegionalSettings::default();
+        if !regional.use_system {
+            root.children
+                .push(value("UseSystemRegional", "False", false));
+        }
+        if regional.decimal != defaults.decimal {
+            root.children.push(value(
+                "DecimalSeparator",
+                (regional.decimal as u32).to_string(),
+                false,
+            ));
+        }
+        if regional.thousands != defaults.thousands {
+            root.children.push(value(
+                "ThousandsSeparator",
+                regional
+                    .thousands
+                    .map(|c| (c as u32).to_string())
+                    .unwrap_or_default(),
+                false,
+            ));
+        }
+        if regional.date_order != defaults.date_order {
+            root.children.push(value(
+                "DateOrder",
+                match regional.date_order {
+                    DateOrder::Ymd => "Ymd",
+                    DateOrder::Mdy => "Mdy",
+                    DateOrder::Dmy => "Dmy",
+                },
+                false,
+            ));
+        }
+        if regional.date_separator != defaults.date_separator {
+            root.children.push(value(
+                "DateSeparator",
+                (regional.date_separator as u32).to_string(),
+                false,
+            ));
         }
     } else if format.kind == FormatKind::Table {
         return Err(FormatError::Missing(format!(
