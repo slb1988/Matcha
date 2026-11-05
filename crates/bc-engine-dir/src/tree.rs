@@ -760,9 +760,31 @@ impl DirTree {
         if !ids.contains(&id) {
             ids.push(id);
         }
+        self.repair_relative_names(id);
         self.mark_dirty(id);
         self.summarize();
         Ok(Some(id))
+    }
+
+    fn repair_relative_names(&mut self, id: NodeId) {
+        let mut pending = vec![id];
+        while let Some(id) = pending.pop() {
+            if !self.nodes[id].alive {
+                continue;
+            }
+            let parent = self.nodes[id].parent.unwrap_or(0);
+            let prefix = self.nodes[parent].relative.clone();
+            let node = &mut self.nodes[id];
+            if let Some(entry) = node.sides.iter().flatten().next() {
+                node.name = entry.name.clone();
+            }
+            node.relative = if prefix.is_empty() {
+                node.name.clone()
+            } else {
+                format!("{prefix}/{}", node.name)
+            };
+            pending.extend(node.children.iter().copied());
+        }
     }
 
     pub fn set_ignored(&mut self, id: NodeId, ignored: bool) {

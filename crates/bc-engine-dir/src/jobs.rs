@@ -2,7 +2,10 @@
 //! `TDirTreeContentCompareJob` (content criteria, FR-D5), `TDirTreeContentSearchJob`
 //! (find in folders), `TOpMoveBothJob` (file operations).
 
-use crate::{ops::OpPlan, op_exec::{ConfirmPolicy, OpLog}};
+use crate::{
+    op_exec::{ConfirmPolicy, OpLog},
+    ops::OpPlan,
+};
 use bc_jobs::{Job, JobContext, JobResult, Priority};
 use bc_vfs::VfsPath;
 use std::sync::Arc;
@@ -141,6 +144,12 @@ impl Job for FileOpJob {
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        Ok(Box::new(crate::op_exec::execute(&self.plan, &self.vfs, ctx, self.confirmation, &self.log)))
+        Ok(Box::new(crate::op_exec::execute(
+            &self.plan,
+            &self.vfs,
+            ctx,
+            self.confirmation,
+            &self.log,
+        )))
     }
 }

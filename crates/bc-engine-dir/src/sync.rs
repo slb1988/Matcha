@@ -634,6 +634,9 @@ impl SyncCommand {
         })
     }
     pub fn to_script(self) -> Result<String, PlanError> {
+        if self.mode == SyncMode::Mirror(SyncDirection::Both) {
+            return Err(PlanError::Invalid("mirror:all is invalid".into()));
+        }
         let (kind, direction) = match self.mode {
             SyncMode::Update(d) => ("update", d),
             SyncMode::Mirror(d) => ("mirror", d),

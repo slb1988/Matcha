@@ -551,9 +551,14 @@ impl OpPlan {
                 .is_some_and(|d| path_key(&d.path) == path_key(&source.path))
             {
                 if item.action == OpAction::Rename {
-                    continue;
+                    if item.destination.as_ref().unwrap().path == source.path {
+                        continue;
+                    }
+                    // A case-only rename is valid; execution verifies both spellings
+                    // resolve to the same existing object before allowing it.
+                } else {
+                    return Err(PlanError::Invalid("source and destination coincide".into()));
                 }
-                return Err(PlanError::Invalid("source and destination coincide".into()));
             }
             item.confirmations = confirmations(&item);
             let cleanup = is_dir

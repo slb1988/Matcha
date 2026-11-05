@@ -541,6 +541,58 @@ fn watcher_driven_refresh_and_full_refresh_detect_external_changes() {
     assert!(tree.find("ordinary").is_some());
 }
 #[test]
+fn rename_case_only_and_collision_checks() {
+    let temp = Temp::new();
+    temp.write("left", "lower.txt", b"preserve");
+    let vfs = manager(Arc::new(ProbeFs::default()));
+    let mut tree = temp.tree(&vfs);
+    let p = plan(
+        &tree,
+        &["lower.txt"],
+        0,
+        DirOp::Rename(RenameSpec::Regex {
+            old_mask: "lower".into(),
+            new_mask: "LOWER".into(),
+        }),
+    );
+    assert_eq!(p.items.len(), 1);
+    let (o, log) = execute(&p, &vfs, &context(None), ConfirmPolicy::YesToAll);
+    assert_eq!(o.failed, 0, "{:?}", log.snapshot());
+    assert_eq!(
+        fs::read_dir(temp.path("left", ""))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name(),
+        "LOWER.txt"
+    );
+    refresh::refresh_locations(&mut tree, &vfs, &o.affected, &|| false).unwrap();
+    assert_eq!(
+        tree.node(tree.find("LOWER.txt").unwrap()).unwrap().sides[0]
+            .as_ref()
+            .unwrap()
+            .name,
+        "LOWER.txt"
+    );
+    temp.write("left", "other.txt", b"other");
+    tree = temp.tree(&vfs);
+    let selected = selected(&tree, &["LOWER.txt", "other.txt"], 0);
+    assert!(matches!(
+        OpPlan::build(
+            &tree,
+            &selected,
+            &DirOp::Rename(RenameSpec::Dos {
+                new_mask: "collision.txt".into()
+            }),
+            Default::default(),
+            SystemTime::now()
+        ),
+        Err(PlanError::Collision(_))
+    ));
+}
+
+#[test]
 fn directory_exchange_includes_both_sides_orphans_and_cleans_empty_source() {
     let temp = Temp::new();
     temp.write("left", "d/pair", b"left");

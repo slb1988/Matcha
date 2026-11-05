@@ -322,6 +322,60 @@ fn sync_script_examples_and_rejected_mirror_all() {
     }
 }
 #[test]
+fn sync_failure_and_cancelled_statistics_preserve_the_baseline() {
+    let (t, _vfs, mut tree) = sample();
+    let probe = Arc::new(ProbeFs {
+        deny_delete: Some("C".into()),
+        ..Default::default()
+    });
+    let vfs = manager(probe);
+    let baseline = SyncBaseline::capture(&tree);
+    let original = baseline.entries.clone();
+    let mut plan = SyncPlan::build_with(
+        &tree,
+        SyncMode::Mirror(SyncDirection::LeftToRight),
+        Default::default(),
+        Some(&baseline),
+    )
+    .unwrap();
+    plan.options.recycle_bin = false;
+    let result = plan
+        .execute_and_refresh(
+            &mut tree,
+            &vfs,
+            &context(None),
+            ConfirmPolicy::YesToAll,
+            &OpLog::default(),
+        )
+        .unwrap();
+    assert_eq!(result.statistics.failed, 1);
+    assert_eq!(result.statistics.copies, 2);
+    assert!(t.path("right", "C").exists());
+    assert_eq!(baseline.entries, original);
+    let ctx = context(None);
+    ctx.cancel.cancel();
+    let plan = SyncPlan::build(
+        &tree,
+        SyncMode::Mirror(SyncDirection::LeftToRight),
+        false,
+        false,
+    )
+    .unwrap();
+    let result = plan
+        .execute_and_refresh(
+            &mut tree,
+            &vfs,
+            &ctx,
+            ConfirmPolicy::YesToAll,
+            &OpLog::default(),
+        )
+        .unwrap();
+    assert!(result.operations.cancelled);
+    assert_eq!(result.statistics.deletes, 0);
+    assert_eq!(result.statistics.skipped, 3);
+}
+
+#[test]
 fn silent_refusal_and_confirmation_failures_are_not_reported_as_copies() {
     let (t, vfs, mut tree) = sample();
     let plan = SyncPlan::build(

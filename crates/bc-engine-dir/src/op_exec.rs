@@ -242,11 +242,16 @@ pub fn execute(
             break;
         }
         event(OpState::Started, String::new());
+        let current_file = original
+            .source
+            .as_ref()
+            .or(original.destination.as_ref())
+            .map_or(String::new(), |p| p.path.to_string());
         ctx.report(Progress {
             current: index as u64,
             total: Some(plan.items.len() as u64),
             message: format!(
-                "item {}/{}; bytes={}; {:?}",
+                "item {}/{}; bytes={}; file={current_file}; {:?}",
                 index + 1,
                 plan.items.len(),
                 outcome.bytes_written,
@@ -297,6 +302,26 @@ pub fn execute(
                         ));
                     }
                     item.target_entry = actual;
+                    if item.action == OpAction::Rename {
+                        if let Some(source) = &item.source {
+                            if path_key(&source.path) == path_key(&dest.path) {
+                                let from = source
+                                    .path
+                                    .to_local_path()
+                                    .ok_or(VfsError::Unsupported("non-local case rename"))?;
+                                let to = dest
+                                    .path
+                                    .to_local_path()
+                                    .ok_or(VfsError::Unsupported("non-local case rename"))?;
+                                if std::fs::canonicalize(from)? != std::fs::canonicalize(to)? {
+                                    return Err(VfsError::Other(
+                                        "case rename would replace another file".into(),
+                                    ));
+                                }
+                                item.target_entry = None;
+                            }
+                        }
+                    }
                 }
                 item.confirmations = super::ops::confirmations(&item);
                 for kind in item.confirmations.clone() {
@@ -316,7 +341,7 @@ pub fn execute(
                     current: index as u64,
                     total: Some(plan.items.len() as u64),
                     message: format!(
-                        "item {}/{}; bytes={}; {:?}",
+                        "item {}/{}; bytes={}; file={current_file}; {:?}",
                         index + 1,
                         plan.items.len(),
                         outcome.bytes_written,
@@ -533,10 +558,11 @@ pub fn execute(
             ),
         });
     }
-    let mut seen = std::collections::BTreeSet::new();
-    outcome.affected = changed
-        .into_iter()
-        .filter(|p| seen.insert((p.side, path_key(&p.path))))
-        .collect();
+    // Keep the destination spelling for a case-only rename, not the old source spelling.
+    let mut changed_by_path = BTreeMap::new();
+    for place in changed {
+        changed_by_path.insert((place.side, path_key(&place.path)), place);
+    }
+    outcome.affected = changed_by_path.into_values().collect();
     outcome
 }

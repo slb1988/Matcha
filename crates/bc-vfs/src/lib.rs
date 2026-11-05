@@ -19,8 +19,8 @@
 #[allow(unsafe_code)]
 mod windows;
 
-mod exchange;
 pub mod entry;
+mod exchange;
 pub mod local;
 pub mod manager;
 pub mod path;
@@ -126,16 +126,33 @@ pub trait Vfs: Send + Sync {
 
     /// Atomic, cancellable single-file transfer. Progress reports byte deltas.
     /// Providers must not recurse here: operation planning owns filtered traversal.
-    fn copy_file(&self, _from: &VfsPath, _to: &VfsPath, _options: CopyOptions,
-        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+    fn copy_file(
+        &self,
+        _from: &VfsPath,
+        _to: &VfsPath,
+        _options: CopyOptions,
+        _cancel: &dyn bc_core::cancel::CancelCheck,
+        _progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
         Err(VfsError::Unsupported("cancellable file copy"))
     }
-    fn move_file(&self, _from: &VfsPath, _to: &VfsPath, _options: CopyOptions,
-        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+    fn move_file(
+        &self,
+        _from: &VfsPath,
+        _to: &VfsPath,
+        _options: CopyOptions,
+        _cancel: &dyn bc_core::cancel::CancelCheck,
+        _progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
         Err(VfsError::Unsupported("cancellable file move"))
     }
-    fn exchange_files(&self, _left: &VfsPath, _right: &VfsPath,
-        _cancel: &dyn bc_core::cancel::CancelCheck, _progress: &mut dyn FnMut(u64)) -> VfsResult<()> {
+    fn exchange_files(
+        &self,
+        _left: &VfsPath,
+        _right: &VfsPath,
+        _cancel: &dyn bc_core::cancel::CancelCheck,
+        _progress: &mut dyn FnMut(u64),
+    ) -> VfsResult<()> {
         Err(VfsError::Unsupported("file exchange"))
     }
     /// Never recursively delete newly appeared or filtered children.
