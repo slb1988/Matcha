@@ -19,6 +19,8 @@ libraries in the same XML dialect.
 Test: `cargo test -p bc-formats` – parses the XML, compares with the embedded data,
 checks 25 formats (19 text, 2 table, 1 picture, 1 media, 1 version, 1 XML), all 4
 grammar classes, all 10 element kinds and several spot values.
+`tests/builtin_patterns.rs` compiles all 74 regex-bearing grammar/weight fields across
+all 25 formats through `bc-core::pattern` (including case flags and delimiters).
 
 Lightweight baseline: `cargo run --release -p bc-formats --example formats_baseline`.
 

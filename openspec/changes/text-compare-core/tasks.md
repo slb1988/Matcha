@@ -19,9 +19,9 @@
 
 ## 3. bc-core 正则与 diff
 
-- [ ] 3.1 实现 `pattern::Pattern`（`regex` 后端 + 方言改写 `\<` `\>` 等，大小写开关，find_at/match_at/replace_all）与 `glob_to_pattern`；验证单测：25 种内置格式的全部正则可编译，掩码 `*.c;*.h;-*.bak;obj\` 的匹配表
-- [ ] 3.2 实现 `diff::MyersDiff`（前后缀裁剪、O(ND)、超大输入分块回退阈值）；验证单测：空/相同/全不同/交错插入用例，随机序列与朴素 LCS 结果等价（属性测试 1000 轮）
-- [ ] 3.3 实现 `diff::PatienceDiff`；验证单测：唯一行锚点用例与经典 patience 示例
+- [x] 3.1 实现 `pattern::Pattern`（`regex` 后端 + 方言改写 `\<` `\>` 等，大小写开关，find_at/match_at/replace_all）与 `glob_to_pattern`；验证单测：25 种内置格式的全部正则可编译，掩码 `*.c;*.h;-*.bak;obj\` 的匹配表
+- [x] 3.2 实现 `diff::MyersDiff`（前后缀裁剪、O(ND)、超大输入分块回退阈值）；验证单测：空/相同/全不同/交错插入用例，随机序列与朴素 LCS 结果等价（属性测试 1000 轮）
+- [x] 3.3 实现 `diff::PatienceDiff`；验证单测：唯一行锚点用例与经典 patience 示例
 
 ## 4. bc-core 对齐
 

@@ -8,7 +8,7 @@ tool's `Ss*` infrastructure units.
 
 - `line` – per-line ending parser/writer, shared-piece `LineList`, reversible `LineEdit`,
   Windows locked mmap with owned fallback, copy-on-write edits and cheap snapshots.
-- `diff` – `Differ` trait with `MyersDiff` (spec §6 baseline) and `PatienceDiff` placeholders.
+- `diff` – `Differ`, linear-space `MyersDiff`, content-defined block fallback, `PatienceDiff`.
 - `align` – `Aligner` trait, `AlignMap` (row ↔ side-line mapping used by every view),
   `QuickAlign`, `SmartAlign` (+ options), `ByteAlign`, `LineWeight`.
 - `edit` – `EditItem`/`EditGroup`/`EditStack` with grouping and save-point tracking.
@@ -50,6 +50,36 @@ Integration tests: `cargo test -p bc-core`.
   invalid byte input keeps bytes distinct and uses ASCII-only normalisation.
 - Edit history starts clean, never coalesces across a save boundary, and tracks
   unreachable saved states after branching/eviction. Close groups before saving.
+
+## Diff contracts
+
+Myers trims common edges before allocating frontiers. Below the fallback threshold it
+returns an exact shortest edit script with O(ND) time / O(N+M) working memory and an
+explicit work stack (no recursive stack or quadratic trace). Above the default 16,384
+remaining items it uses 32–128-item content-defined block hashes, verifies anchored
+block equality, and solves unanchored windows of at most 1,024 items. The fallback
+preserves every input index in order but may sacrifice the globally shortest script;
+set `block_fallback_threshold = 0` to require exact LCS regardless of time cost.
+Patience uses unique-in-both anchors, a deterministic right-index LIS and repeated
+subrange anchoring, falling back to bounded Myers only when anchors are absent.
+`DiffOp` ranges always partition both inputs and adjacent compatible runs are merged.
+
+## Pattern/mask boundary
+
+`Pattern` uses linear-time `regex`, including Unicode case handling, captures and
+replacement expansion. The dialect shim translates directional `\\<` / `\\>` into
+word-start/word-end assertions; backreferences/look-around fail with diagnostic errors.
+`find_at` offsets must be UTF-8 boundaries and preserve pre-offset anchor context.
+
+`glob_to_pattern` accepts **one positive mask**, anchored to a complete name; `*` / `?`
+do not cross path separators. Directory masks require an explicit trailing separator
+(`obj\\` / `obj/`), matching neither the file `obj` nor descendants. Semicolon lists
+and leading exclusions are rejected by this primitive. `split_mask_list` only parses
+`MaskSpec { pattern, exclude, folder }` and strips markers. Combining positive/negative
+masks, negative-only defaults, and recursive path exclusion belong to
+`bc-engine-dir::filter::NameFilter` in the later folder change (coordinator-confirmed
+scope). The `*.c;*.h;-*.bak;obj\\` regression table verifies parsing and each primitive,
+not production list evaluation.
 
 ## Reference class map (from `vmt_report.txt`)
 

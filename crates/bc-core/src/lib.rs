@@ -5,8 +5,8 @@
 //! encoding, regular-expression wrapper, undo stack and the Delphi-style XML
 //! persistence model used by every `*.xml` settings file.
 //!
-//! Line storage, reversible edits, encodings and hashing are implemented. Alignment
-//! and persistence writing remain scaffold entry points.
+//! Line storage, reversible edits, encodings, hashing, patterns and sequence diff
+//! are implemented. Alignment and persistence writing remain scaffold entry points.
 //!
 //! | module | BC classes |
 //! |---|---|

@@ -1,18 +1,16 @@
-//! Regular-expression wrapper – BC `TSsRegExpr` / `TREParser`.
-//!
-//! BC grammars, unimportant-text rules, replacements, name filters and `rename regexpr`
-//! all share one regex dialect (Perl-compatible, see help topic `sample_regular_expressions`).
-//! This wrapper isolates the rest of the workspace from the engine choice (likely the
-//! `regex` crate with a compatibility shim for `\<` / `\>` style tokens).
+//! Shared regular-expression dialect and single-name mask primitives.
+//! Backtracking constructs are rejected by the linear-time regex backend.
 
-/// Compiled pattern.
+use regex::{Regex, RegexBuilder};
+
 #[derive(Debug, Clone)]
 pub struct Pattern {
     source: String,
     case_sensitive: bool,
+    regex: Regex,
 }
 
-/// A match: byte span plus capture spans.
+/// UTF-8 byte spans. `captures[0]` is the whole match; unmatched groups are None.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Match {
     pub span: std::ops::Range<usize>,
@@ -20,10 +18,21 @@ pub struct Match {
 }
 
 impl Pattern {
-    /// Compile a BC-dialect regular expression.
-    #[allow(unused_variables)] // remaining scaffold entry point
+    /// Compile a pattern; directional word boundaries `\<` and `\>` are supported.
     pub fn new(source: &str, case_sensitive: bool) -> Result<Self, crate::CoreError> {
-        todo!("bc-core::pattern: compile")
+        let regex = RegexBuilder::new(&rewrite_dialect(source))
+            .case_insensitive(!case_sensitive)
+            .build()
+            .map_err(|error| {
+                crate::CoreError::Invalid(format!(
+                    "pattern {source:?}: {error}; backreferences and look-around are not supported"
+                ))
+            })?;
+        Ok(Self {
+            source: source.into(),
+            case_sensitive,
+            regex,
+        })
     }
 
     pub fn source(&self) -> &str {
@@ -34,28 +43,111 @@ impl Pattern {
         self.case_sensitive
     }
 
-    /// First match at or after `start`.
-    #[allow(unused_variables)] // remaining scaffold entry point
+    /// Search at/after a UTF-8 boundary. Invalid/out-of-range offsets return None.
+    /// Anchors and word boundaries retain the context before `start`.
     pub fn find_at(&self, haystack: &str, start: usize) -> Option<Match> {
-        todo!("bc-core::pattern: find")
+        if !haystack.is_char_boundary(start) {
+            return None;
+        }
+        let captures = self.regex.captures_at(haystack, start)?;
+        Some(Match {
+            span: captures.get(0)?.range(),
+            captures: captures.iter().map(|m| m.map(|m| m.range())).collect(),
+        })
     }
 
-    /// Match anchored at exactly `start` (tokenizer use).
-    #[allow(unused_variables)] // remaining scaffold entry point
     pub fn match_at(&self, haystack: &str, start: usize) -> Option<Match> {
-        todo!("bc-core::pattern: anchored match")
+        self.find_at(haystack, start)
+            .filter(|m| m.span.start == start)
     }
 
-    /// Replace all matches with `replacement` (supports `$1` style groups).
-    #[allow(unused_variables)] // remaining scaffold entry point
+    /// Replace using regex `$1` / `${name}` capture expansion (and `$$` for `$`).
     pub fn replace_all(&self, haystack: &str, replacement: &str) -> String {
-        todo!("bc-core::pattern: replace")
+        self.regex.replace_all(haystack, replacement).into_owned()
     }
 }
 
-/// Convert a DOS-style file mask (`*.pas;-*.bak;My Folder\`) into a pattern.
-/// Mask semantics follow help topic `file_masks` (see bc-engine-dir `NameFilter`).
-#[allow(unused_variables)] // remaining scaffold entry point
+fn rewrite_dialect(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut chars = source.chars();
+    let mut class_depth = 0usize;
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('<') if class_depth == 0 => result.push_str(r"\b{start}"),
+                Some('>') if class_depth == 0 => result.push_str(r"\b{end}"),
+                Some(c @ ('<' | '>')) => result.push(c),
+                Some(next) => {
+                    result.push('\\');
+                    result.push(next);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            if c == '[' {
+                class_depth += 1;
+            }
+            if c == ']' {
+                class_depth = class_depth.saturating_sub(1);
+            }
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// Parsed mask metadata, without deciding include/exclude precedence or recursion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaskSpec {
+    /// No leading exclusion marker or trailing directory separator.
+    pub pattern: String,
+    pub exclude: bool,
+    pub folder: bool,
+}
+
+/// Split semicolon-separated masks, trimming surrounding whitespace/empty entries.
+/// Combination evaluation belongs to bc-engine-dir's NameFilter.
+pub fn split_mask_list(mask: &str) -> Vec<MaskSpec> {
+    mask.split(';')
+        .filter_map(|part| {
+            let part = part.trim();
+            let (exclude, part) = part
+                .strip_prefix('-')
+                .map_or((false, part), |p| (true, p.trim()));
+            let folder = part.ends_with(['\\', '/']);
+            let pattern = part.trim_end_matches(['\\', '/']);
+            if pattern.is_empty() {
+                return None;
+            }
+            Some(MaskSpec {
+                pattern: pattern.into(),
+                exclude,
+                folder,
+            })
+        })
+        .collect()
+}
+
+/// Compile one positive mask, anchored to a complete name. `*`/`?` never cross a
+/// separator; a trailing slash/backslash requires a directory marker in the name.
+/// Lists and exclusion markers must first be handled with [`split_mask_list`].
 pub fn glob_to_pattern(mask: &str, case_sensitive: bool) -> Result<Pattern, crate::CoreError> {
-    todo!("bc-core::pattern: glob translation")
+    let mask = mask.trim();
+    if mask.is_empty() || mask.contains(';') || mask.starts_with('-') {
+        return Err(crate::CoreError::Invalid(
+            "expected one positive mask; use split_mask_list and NameFilter for lists/exclusions"
+                .into(),
+        ));
+    }
+    let mut source = String::from(r"\A(?:");
+    for c in mask.chars() {
+        match c {
+            '*' => source.push_str(r"[^\\/]*"),
+            '?' => source.push_str(r"[^\\/]"),
+            '\\' | '/' => source.push_str(r"[\\/]"),
+            _ => source.push_str(&regex::escape(&c.to_string())),
+        }
+    }
+    source.push_str(r")\z");
+    Pattern::new(&source, case_sensitive)
 }
