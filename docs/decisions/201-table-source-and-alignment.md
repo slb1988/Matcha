@@ -8,4 +8,7 @@
 - 日期容差内部为毫秒，提供天/小时构造。系统区域设置由宿主注入 ReadOptions；未注入时使用明确的 invariant（小数点、逗号千分位、YMD、短横线），不猜测或改动进程区域。
 - 帮助主题只读解包至系统临时目录：Type/Regional/Columns/Alignment/Sheets/Handling 及命令列表；未访问任何授权文件或安装目录写操作。日期容差帮助未指明单位，因此 API 明确提供单位转换。
 
+- MSRV 提升后，原先由 1.80 屏蔽的 Clippy 建议在共享 crate 启用。协调者另行授权仅机械 lint 修复（as_chunks/repeat_n/is_none_or/is_multiple_of），不改行为和测试，独立 chore(lint) 提交；不放宽任何警告。
+- D3 权重：左右唯一性各 0.20、重合度 0.35、相对位置稳定性 0.20、靠左位置 0.05；阈值 0.8，同时要求完整数据两侧均唯一。否则即使重复值的加权分高也不推荐键，符合“无合适键”场景。
+
 验证与最终限制见本波 worker report。

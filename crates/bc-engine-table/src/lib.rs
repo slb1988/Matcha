@@ -7,9 +7,11 @@ pub mod workbook;
 pub use bc_formats::TableOptions;
 pub use model::{Cell, CellValue, MergedRange, Sheet, Style, StyleId, TableModel};
 
-// The comparison modules are added in the subsequent implementation groups.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct TableRules;
+pub mod columns;
+pub mod inference;
+pub mod rules;
+pub mod sheets;
+pub use rules::{ColumnHandling, TableRules};
 
 pub type Result<T> = std::result::Result<T, bc_core::CoreError>;
 pub(crate) fn invalid(message: impl Into<String>) -> bc_core::CoreError {

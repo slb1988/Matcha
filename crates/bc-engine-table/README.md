@@ -12,6 +12,14 @@
 - calamine **0.38** 为唯一新直接第三方依赖，要求 Rust **1.88**。实际读取内置/自定义数字格式属性，而非只保留日期类型；字体/填充仍后置。单元格值为缓存值，不承诺完整 Excel 显示格式渲染。xlsx 可在内存编辑，但原格式保存返回只读错误，`export_csv` 是显式替代。
 - 最小 xlsx 在测试中用 XML + stored ZIP 代码生成，不入库二进制。
 
+## 列、键与 sheet
+
+- `ColumnMapping::by_number` 保留默认 1:1；`align_columns` 按归一化表头优先、1000 行内容/类型采样兜底，返回插入/删除/可能重命名/移动标记。`move_to` 可移动单侧或整条比较列，`tidy` 去掉双侧空映射。
+- `ColumnHandling::resolved` 应用 Use Default，Key 始终是逐列属性。General/Text、数值/日期容差、大小写/空白、不重要均可 serde 往返。
+- `infer_keys` 全行唯一性验证，权重为左右唯一性各 0.20、Jaccard 0.35、位置稳定性 0.20、靠左先验 0.05；阈值 0.8 且两侧必须唯一。单列失败才试相邻双列；失败为全部列。自动建议有显式“自动”标注，用户修改后 Manual 锁定。
+- `KeySelection::ByColumnNumber` 是兼容预设（列按序、全部列作键），不等于行 Unaligned；行策略独立指定。
+- `SheetPairs::by_name/move_to` 支持左/右来源顺序、单侧 sheet、同文件不同 sheet，无文件所有权混用。
+
 ## 验证
 
 `cargo test -p bc-engine-table`；额外压力：
