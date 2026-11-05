@@ -35,13 +35,17 @@ For original-path saves, call `materialize_and_save`: it deduplicates mmap copie
 across current/original/undo/redo/group snapshots, retains history, then releases the
 materialization context before writing. Cancel/join all jobs and drop external mapped
 snapshots first; lingering locks return an actionable error, and retry is safe.
-See [mmap protocol](../../docs/decisions/002-mmap-backend.md).
+If copied sections share source buffers across panes, call `materialize_owned` on
+all panes with one MaterializeContext, drop that context, then save the selected pane.
+This does not mark the other pane saved. See [mmap protocol](../../docs/decisions/002-mmap-backend.md).
 
 `TextMap::rows()` yields derived TextMapRow values; `row()` is random access and
 `text_at()` returns a borrow guard. Storage uses 12-byte two-way rows plus sections
 and reusable hashes, not two full AlignMap/TextMapRow arrays. `align_map()` explicitly
 materializes a legacy map and should not run per frame. `is_stale()` detects changed
 inputs/settings; apply only matching-revision AlignOutput results with `set_alignment`.
+`AlignmentRules::use_closeness` defaults to true; disabling it under Standard uses
+the unpaired skeleton without changing the public strategy selection.
 A copy_section result is already applied and must be pushed to the destination history.
 Undo/redo restores its line and map snapshots; edits made through another path require
 recompare/realign before consuming the cached map. Ignore-unimportant is a view/count

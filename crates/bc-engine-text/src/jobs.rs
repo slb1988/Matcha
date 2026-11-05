@@ -230,14 +230,15 @@ fn align_range(
         weights: Some(&rw),
         ..Default::default()
     };
-    let strategy =
-        if job.rules.alignment.never_align_differences && job.strategy == AlignStrategy::Smart {
-            AlignStrategy::Quick
-        } else {
-            job.strategy
-        };
+    let unpaired = job.rules.alignment.never_align_differences
+        || (job.strategy == AlignStrategy::Smart && !job.rules.alignment.use_closeness);
+    let strategy = if unpaired && job.strategy == AlignStrategy::Smart {
+        AlignStrategy::Quick
+    } else {
+        job.strategy
+    };
     match strategy {
-        AlignStrategy::Quick if job.rules.alignment.never_align_differences => {
+        AlignStrategy::Quick if unpaired => {
             QuickAlign.align2_unpaired_cancellable(l, r, &overrides, cancel)
         }
         AlignStrategy::Quick => QuickAlign.align2_cancellable(l, r, &overrides, cancel),

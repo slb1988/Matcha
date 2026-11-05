@@ -21,6 +21,8 @@ pub struct ComparisonRules {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlignmentRules {
     pub strategy: AlignStrategy,
+    /// Standard's public "Use closeness matching" option.
+    pub use_closeness: bool,
     /// Never align differences (show as pure insert/delete).
     pub never_align_differences: bool,
     /// Skew tolerance in lines for Smart alignment.
@@ -33,6 +35,7 @@ impl Default for AlignmentRules {
     fn default() -> Self {
         Self {
             strategy: AlignStrategy::Smart,
+            use_closeness: true,
             never_align_differences: false,
             skew_tolerance: 2000,
             weights: Vec::new(),

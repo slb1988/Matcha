@@ -396,11 +396,17 @@ impl TextContent {
         self.ensure_writable()?;
         {
             let mut context = MaterializeContext::default();
-            self.lines.borrow_mut().materialize_owned(&mut context);
-            self.original.materialize_owned(&mut context);
-            self.edits.materialize(&mut context);
+            self.materialize_owned(&mut context);
         }
         self.save_as(path)
+    }
+    /// Rebase this pane and its history. A view saving a source shared by copied
+    /// sections must rebase ALL panes with one context, drop it, then save.
+    /// Workers must already have been cancelled and joined.
+    pub fn materialize_owned(&mut self, context: &mut MaterializeContext) {
+        self.lines.borrow_mut().materialize_owned(context);
+        self.original.materialize_owned(context);
+        self.edits.materialize(context);
     }
 }
 
