@@ -23,7 +23,6 @@ pub mod op_exec;
 pub mod op_script;
 pub mod refresh;
 pub mod rules;
-#[allow(unused_variables)] // synchronization belongs to Wave B
 pub mod sync;
 pub mod tree;
 pub mod view;

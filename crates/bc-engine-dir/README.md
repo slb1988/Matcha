@@ -23,7 +23,8 @@ sync is described below.
   Character sets, no-extension masks, rooted/relative/any-depth paths and four-group
   evaluation are implemented; exclusions always win.
 - `rules::DirRules` / `DirMergeRules` / `DirSyncRules`, `HandlingOptions`, `DirHandling`.
-- `sync::SyncPlan` – `update|mirror` × direction → `SyncAction`s.
+- `sync::SyncPlan` – five presets and CustomSyncRules → snapshot SyncItems, overrides,
+  folder action summaries, conflict navigation and OpPlan execution.
 - `ops::DirOp` / `OpPlan` – copy/copyto/move/moveto/delete/rename/touch/attrib/exclude with the
   script option types (`PathMode`, `Target`, `RenameSpec`, `TouchSpec`).
 - `jobs` – `LoadDirJob`, `ContentCompareJob` (also `/qc` and `compare`),
@@ -95,6 +96,30 @@ is included here. Script selection ignores expansion but honors file/display fil
 
 Tests: `cargo test -p bc-engine-dir --test operations --test op_script`.
 [Confirmation and baseline ADR](../../docs/decisions/103-op-confirmation-and-sync-baseline.md).
+
+## Sync previews
+
+SyncPlan::build returns Result (mirror:all is rejected); build_with accepts SyncOptions
+and an optional SyncBaseline. Update Both treats two metadata changes since the baseline
+or an undirected mismatch as conflict/LeaveAlone. Baseline CRC differences count only
+when both snapshots actually contain a CRC; losing a cache is not a file change.
+Baseline capture/persistence is caller-owned and is never advanced after a partial run.
+
+Rows keep default and override choices separately; directory overrides/exclusions apply
+to descendants transactionally. FolderActions summarizes copy/delete/conflict flags.
+next_conflict/previous_conflict do not wrap; an explicit override resolves the navigation
+conflict while retaining the original conflict flag for audit.
+
+to_op_plan uses the preview's captured sources/targets, never rebuilds decisions from
+new statuses. execute_and_refresh reuses confirmations/log/cancellation, reports actual
+copy/delete/create/skip/failure counts and preserves refresh errors alongside outcomes.
+Visible-only means display/file filtering, not current expansion or viewport clipping.
+Empty folders are created only when requested; deletion cleans directories only after
+their planned children, preserving filtered/new/unexecuted contents.
+SyncCommand parses the script presets and serializes them; custom rules have no script
+spelling and return an error rather than inventing a command.
+
+Tests: `cargo test -p bc-engine-dir --test sync`.
 
 ## Reference class map (from `vmt_report.txt`)
 

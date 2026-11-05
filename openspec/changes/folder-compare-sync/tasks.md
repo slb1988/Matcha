@@ -36,9 +36,9 @@
 
 ## 5. 同步
 
-- [ ] 5.1 实现 `SyncPlan::build`：五种预设 + 自定义映射、文件夹汇总动作、冲突判定（Update Both 双侧变化）、`visible`/`create-empty`；验证单测：folder-sync spec 的 Update Right / Mirror to Right / 冲突场景
-- [ ] 5.2 实现逐项覆盖与 Exclude、冲突导航、计划→`OpPlan` 翻译与执行、同步统计；验证单测：覆盖单项后执行结果；`mirror:all` 报错
-- [ ] 5.3 实现 `sync` 脚本参数解析；验证单测：`sync create-empty mirror:left->right`
+- [x] 5.1 实现 `SyncPlan::build`：五种预设 + 自定义映射、文件夹汇总动作、冲突判定（Update Both 双侧变化）、`visible`/`create-empty`；验证单测：folder-sync spec 的 Update Right / Mirror to Right / 冲突场景
+- [x] 5.2 实现逐项覆盖与 Exclude、冲突导航、计划→`OpPlan` 翻译与执行、同步统计；验证单测：覆盖单项后执行结果；`mirror:all` 报错
+- [x] 5.3 实现 `sync` 脚本参数解析；验证单测：`sync create-empty mirror:left->right`
 
 ## 6. GUI
 
