@@ -42,12 +42,12 @@
 
 ## 6. GUI
 
-- [ ] 6.1 实现 `dir_view.rs` 虚拟化树表：左右对称列、中央状态列、颜色/空心/黄色/teal、DOS 属性括号、列显示与排序、Legend 窗口；验证手动：10 万文件树滚动流畅，`--bench-dir` 基准 update p99 < 4 ms
-- [ ] 6.2 实现工具栏与菜单：Filters 编辑框与预设、显示过滤与文件夹显示过滤、Suppress Filters、Ignore Unimportant、Swap/Back/Forward/Browse/Up One Level/Set as Base/Compare Parent、展开折叠、选择命令、Find Filename；验证手动对照 folder-compare-tree 与 folder-filters spec 场景
-- [ ] 6.3 实现操作命令与确认对话框（Yes/No/All）、进度条、Log 面板、Copy to Folder/Move to Folder 目标选择、Rename/Attributes/Touch 对话框；验证手动对照 folder-operations spec
-- [ ] 6.4 实现 Open/Compare To/Quick Compare：同名或任选两文件以文本视图打开（复用 `master` 合并前的原型或合并后的正式控件）；验证手动：跨行比较打开新视图
-- [ ] 6.5 实现 `sync_view.rs`：方法下拉、Rules/Filters 入口、预览列表与动作图标、逐项覆盖菜单、Next/Previous Conflict、Sync Now、统计；验证手动对照 folder-sync spec
-- [ ] 6.6 Home 入口与命令行：Home 页增加"文件夹比较"卡片与拖放两个文件夹即比较；`matcha <dirL> <dirR>` 直接进入文件夹视图；验证 `cargo run --release -p bcompare -- <dirL> <dirR>`
+- [x] 6.1 实现 `dir_view.rs` 虚拟化树表：左右对称列、中央状态列、颜色/空心/黄色/teal、DOS 属性括号、列显示与排序、Legend 窗口；验证手动：10 万文件树滚动流畅，`--bench-dir` 基准 update p99 < 4 ms
+- [x] 6.2 实现工具栏与菜单：Filters 编辑框与预设、显示过滤与文件夹显示过滤、Suppress Filters、Ignore Unimportant、Swap/Back/Forward/Browse/Up One Level/Set as Base/Compare Parent、展开折叠、选择命令、Find Filename；验证手动对照 folder-compare-tree 与 folder-filters spec 场景
+- [x] 6.3 实现操作命令与确认对话框（Yes/No/All）、进度条、Log 面板、Copy to Folder/Move to Folder 目标选择、Rename/Attributes/Touch 对话框；验证手动对照 folder-operations spec
+- [x] 6.4 实现 Open/Compare To/Quick Compare：同名或任选两文件以文本视图打开（复用 `master` 合并前的原型或合并后的正式控件）；验证手动：跨行比较打开新视图
+- [x] 6.5 实现 `sync_view.rs`：方法下拉、Rules/Filters 入口、预览列表与动作图标、逐项覆盖菜单、Next/Previous Conflict、Sync Now、统计；验证手动对照 folder-sync spec
+- [x] 6.6 Home 入口与命令行：Home 页增加"文件夹比较"卡片与拖放两个文件夹即比较；`matcha <dirL> <dirR>` 直接进入文件夹视图；验证 `cargo run --release -p bcompare -- <dirL> <dirR>`
 
 ## 7. 黄金语料与对照
 

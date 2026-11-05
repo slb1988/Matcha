@@ -124,6 +124,21 @@ spelling and return an error rather than inventing a command.
 
 Tests: `cargo test -p bc-engine-dir --test sync`.
 
+## GUI integration refinements (Wave C)
+
+- Side-qualified find_side/update/refresh resolves the actual side path after alignment;
+  logical lookup prefers logical names, and replay retains each side's original directory.
+- apply_virtual_content stores a revision-checked pair result for Flatten without changing
+  physical orphan nodes. OpPlan uses displayed partners for directional/Exchange operations;
+  orphan destinations retain original relative paths and collision checks remain mandatory.
+- Content differences retain quick-test newer direction; skipped tests keep content_status
+  unset. The central content icon must not be inferred from the quick status.
+- read_entry_details and cache_details provide cancellable CRC / PE-version column data.
+- Pending/error folders are visible until resolved; destructive planning rejects unreadable
+  sources rather than endlessly requesting another scan. Cancelling a confirmation produces
+  a Cancelled result, not an ordinary skip.
+- Regression: `cargo test -p bc-engine-dir --test view_integration --test golden_dir`.
+
 ## Reference class map (from `vmt_report.txt`)
 
 | this crate | reference classes |

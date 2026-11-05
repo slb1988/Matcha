@@ -225,6 +225,7 @@ fn four_folder_modes_ancestors_and_deterministic_flatten_duplicates() {
     tree.apply_listing(0, "a", vec![file("same.txt")]).unwrap();
     tree.apply_listing(0, "b", vec![file("same.txt")]).unwrap();
     tree.apply_listing(1, "b", vec![file("same.txt")]).unwrap();
+    for side in 0..2 {tree.apply_listing(side,"empty",vec![]).unwrap();}
     tree.set_expanded(None, true);
     tree.apply_filters(
         &NameFilter::parse("*.txt").unwrap(),

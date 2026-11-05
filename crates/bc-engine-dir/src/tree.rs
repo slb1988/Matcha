@@ -171,6 +171,12 @@ struct VisibleCache {
     rows: Vec<RowRef>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct VirtualContent {
+    pub revisions: [u64; 2],
+    pub content: Option<CompareStatus>,
+    pub versions_equal: Option<bool>,
+}
 #[derive(Debug)]
 pub struct DirTree {
     nodes: Vec<DirNode>,
@@ -178,6 +184,7 @@ pub struct DirTree {
     pairing: PairingOptions,
     align_overrides: Vec<AlignmentRule>,
     criteria: Criteria,
+    virtual_results: BTreeMap<(NodeId, NodeId), VirtualContent>,
     dirty: BTreeSet<NodeId>,
     pub(crate) generation: u64,
     visible: RefCell<VisibleCache>,
@@ -197,6 +204,7 @@ impl Default for DirTree {
             pairing: PairingOptions::default(),
             align_overrides: Vec::new(),
             criteria: Criteria::default(),
+            virtual_results: BTreeMap::new(),
             dirty: BTreeSet::new(),
             generation: 0,
             visible: RefCell::default(),
@@ -214,6 +222,18 @@ pub fn normalize_path(relative: &str) -> String {
 impl DirTree {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// Reorder sibling tables once per user sort, not during painting.
+    pub fn sort_children_by(&mut self, compare: impl Fn(&DirNode, &DirNode) -> std::cmp::Ordering) {
+        for id in 0..self.nodes.len() {
+            if self.nodes[id].children.is_empty() {
+                continue;
+            }
+            let mut children = std::mem::take(&mut self.nodes[id].children);
+            children.sort_by(|&a, &b| compare(&self.nodes[a], &self.nodes[b]));
+            self.nodes[id].children = children;
+        }
+        self.generation += 1;
     }
     pub fn root(&self) -> &DirNode {
         &self.nodes[0]
@@ -233,16 +253,66 @@ impl DirTree {
             .split('/')
             .filter(|p| !p.is_empty())
         {
-            current = *self.nodes[current].children.iter().find(|&&id| {
-                let n = &self.nodes[id];
-                n.alive
-                    && (n.name == part
-                        || n.sides.iter().flatten().any(|e| e.name == part)
-                        || (!self.pairing.case_sensitive
-                            && n.name.to_lowercase() == part.to_lowercase()))
-            })?;
+            let children = &self.nodes[current].children;
+            current = *children
+                .iter()
+                .find(|&&id| self.nodes[id].alive && self.nodes[id].name == part)
+                .or_else(|| {
+                    children.iter().find(|&&id| {
+                        let n = &self.nodes[id];
+                        n.alive
+                            && !self.pairing.case_sensitive
+                            && n.name.to_lowercase() == part.to_lowercase()
+                    })
+                })
+                .or_else(|| {
+                    children.iter().find(|&&id| {
+                        self.nodes[id].alive
+                            && self.nodes[id]
+                                .sides
+                                .iter()
+                                .flatten()
+                                .any(|e| e.name == part)
+                    })
+                })?;
         }
         Some(current)
+    }
+    /// Resolve an actual filesystem-relative path without confusing an opposite-side alias.
+    pub fn find_side(&self, relative: &str, side: usize) -> Option<NodeId> {
+        if side > 2 {
+            return None;
+        }
+        let mut current = 0;
+        for part in normalize_path(relative)
+            .split('/')
+            .filter(|p| !p.is_empty())
+        {
+            let children = &self.nodes[current].children;
+            let matches = |id: NodeId, fold: bool| {
+                let n = &self.nodes[id];
+                n.alive
+                    && n.sides[side].as_ref().is_some_and(|e| {
+                        if fold {
+                            e.name.to_lowercase() == part.to_lowercase()
+                        } else {
+                            e.name == part
+                        }
+                    })
+            };
+            current = *children
+                .iter()
+                .find(|&&id| matches(id, false))
+                .or_else(|| {
+                    children
+                        .iter()
+                        .find(|&&id| !self.pairing.case_sensitive && matches(id, true))
+                })?;
+        }
+        Some(current)
+    }
+    pub fn alignment_rules(&self) -> &[AlignmentRule] {
+        &self.align_overrides
     }
     pub fn set_pairing(&mut self, options: PairingOptions) -> VfsResult<()> {
         if options.normalize_nfc {
@@ -268,21 +338,24 @@ impl DirTree {
         };
         let rule = AlignmentRule::new(&literal(left), &literal(right), true, Some(folder.into()))
             .map_err(bc_vfs::VfsError::Other)?;
-        self.add_alignment(rule)
+        self.align_overrides.insert(0, rule);
+        self.realign()
     }
     fn realign(&mut self) -> VfsResult<()> {
+        self.virtual_results.clear();
         // Replay listings top-down; overrides survive future refreshes.
         let snapshots: Vec<_> = self
             .nodes()
             .filter(|(_, n)| n.is_dir)
-            .map(|(_, n)| {
+            .map(|(id, n)| {
+                let paths: [String; 3] = std::array::from_fn(|side| self.side_relative(id, side));
                 let listings: [Vec<VfsEntry>; 3] = std::array::from_fn(|side| {
                     n.children
                         .iter()
                         .filter_map(|&id| self.nodes[id].sides[side].clone())
                         .collect()
                 });
-                (n.relative.clone(), n.loaded, listings)
+                (n.relative.clone(), paths, n.loaded, listings)
             })
             .collect();
         // Retire old ids so in-flight content results can never hit a newly paired row.
@@ -293,13 +366,13 @@ impl DirTree {
         self.nodes[0].child_table.clear();
         self.nodes[0].loaded = [false; 3];
         self.generation += 1;
-        for (relative, loaded, listings) in snapshots {
+        for (relative, paths, loaded, listings) in snapshots {
             if self.find(&relative).is_none() {
                 continue;
             }
             for (side, entries) in listings.into_iter().enumerate() {
                 if loaded[side] {
-                    self.apply_listing(side, &relative, entries)?;
+                    self.apply_listing(side, &paths[side], entries)?;
                 }
             }
         }
@@ -341,7 +414,8 @@ impl DirTree {
             return Err(bc_vfs::VfsError::Other("invalid side".into()));
         }
         let parent = self
-            .find(relative)
+            .find_side(relative, side)
+            .or_else(|| self.find(relative))
             .ok_or_else(|| bc_vfs::VfsError::Other(format!("folder not found: {relative}")))?;
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         let relative = self.nodes[parent].relative.clone();
@@ -550,6 +624,74 @@ impl DirTree {
         self.summarize();
         true
     }
+    pub fn apply_skipped_content(
+        &mut self,
+        id: NodeId,
+        revision: u64,
+        versions_equal: Option<bool>,
+    ) -> bool {
+        let Some(node) = self
+            .nodes
+            .get_mut(id)
+            .filter(|n| n.alive && n.revision == revision)
+        else {
+            return false;
+        };
+        node.content_status = None;
+        node.status = self
+            .criteria
+            .combine(node.quick_status, None, versions_equal);
+        self.mark_dirty(id);
+        self.summarize();
+        true
+    }
+    pub fn apply_virtual_content(
+        &mut self,
+        pair: [NodeId; 2],
+        revisions: [u64; 2],
+        content: Option<CompareStatus>,
+        versions_equal: Option<bool>,
+    ) -> bool {
+        if !(0..2).all(|side| {
+            self.node(pair[side])
+                .is_some_and(|n| n.revision == revisions[side] && n.sides[side].is_some())
+        }) {
+            return false;
+        }
+        if pair[0] == pair[1] {
+            return if let Some(content) = content {
+                self.apply_content(pair[0], revisions[0], content, versions_equal)
+            } else {
+                self.apply_skipped_content(pair[0], revisions[0], versions_equal)
+            };
+        }
+        self.virtual_results.insert(
+            (pair[0], pair[1]),
+            VirtualContent {
+                revisions,
+                content,
+                versions_equal,
+            },
+        );
+        self.generation += 1;
+        true
+    }
+    pub(crate) fn virtual_result(&self, left: NodeId, right: NodeId) -> Option<&VirtualContent> {
+        self.virtual_results.get(&(left, right)).filter(|r| {
+            self.node(left)
+                .is_some_and(|n| n.revision == r.revisions[0])
+                && self
+                    .node(right)
+                    .is_some_and(|n| n.revision == r.revisions[1])
+        })
+    }
+    pub fn virtual_content_status(&self, left: NodeId, right: NodeId) -> Option<CompareStatus> {
+        if left == right {
+            self.node(left).and_then(|n| n.content_status)
+        } else {
+            self.virtual_result(left, right).and_then(|r| r.content)
+        }
+    }
     pub fn set_expanded(&mut self, paths: Option<&[String]>, expanded: bool) {
         let ids: Vec<_> = if let Some(paths) = paths {
             paths.iter().filter_map(|p| self.find(p)).collect()
@@ -681,7 +823,8 @@ impl DirTree {
         let relative = normalize_path(relative);
         let (parent_path, name) = relative.rsplit_once('/').unwrap_or(("", &relative));
         let parent = self
-            .find(parent_path)
+            .find_side(parent_path, side)
+            .or_else(|| self.find(parent_path))
             .ok_or_else(|| bc_vfs::VfsError::Other(format!("parent missing: {parent_path}")))?;
         let old = self.nodes[parent].children.iter().copied().find(|&id| {
             self.nodes[id].alive
@@ -787,6 +930,34 @@ impl DirTree {
         }
     }
 
+    /// Cached column data is valid only for the metadata revision that was read.
+    pub fn cache_details(
+        &mut self,
+        id: NodeId,
+        side: usize,
+        revision: u64,
+        crc: Option<u32>,
+        version: Option<String>,
+    ) -> bool {
+        let Some(node) = self
+            .nodes
+            .get_mut(id)
+            .filter(|n| n.alive && n.revision == revision)
+        else {
+            return false;
+        };
+        let Some(entry) = node.sides.get_mut(side).and_then(Option::as_mut) else {
+            return false;
+        };
+        if crc.is_some() {
+            entry.crc32 = crc;
+        }
+        if version.is_some() {
+            entry.version = version;
+        }
+        self.generation += 1;
+        true
+    }
     pub fn set_ignored(&mut self, id: NodeId, ignored: bool) {
         if let Some(node) = self.nodes.get_mut(id).filter(|n| n.alive) {
             node.ignored = ignored;

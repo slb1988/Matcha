@@ -62,7 +62,7 @@ pub fn refresh_locations(
             }
             prefix.push_str(part);
             let absent = tree
-                .find(&prefix)
+                .find_side(&prefix, side)
                 .and_then(|id| tree.node(id))
                 .map_or(true, |n| n.sides[side].is_none());
             if absent {
@@ -79,14 +79,14 @@ pub fn refresh_locations(
                 }
             }
         }
-        if tree.find(parent).is_none() {
+        if tree.find_side(parent, side).is_none() {
             continue;
         }
         let entry = metadata_optional(vfs, &place.path)?;
         stats.metadata_reads += 1;
         let scan = entry.as_ref().is_some_and(|e| e.kind == EntryKind::Dir)
             && tree
-                .find(&place.relative)
+                .find_side(&place.relative, side)
                 .and_then(|id| tree.node(id))
                 .map_or(true, |n| !n.loaded[side]);
         if let Some(id) = tree.update_entry(side, &place.relative, entry)? {
@@ -148,7 +148,7 @@ fn scan_from(
             }
         }
         tree.apply_listing(side, &relative, entries)?;
-        if let Some(id) = tree.find(&relative) {
+        if let Some(id) = tree.find_side(&relative, side) {
             stats.changed_nodes.insert(id);
         }
     }

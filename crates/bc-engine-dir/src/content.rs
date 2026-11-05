@@ -15,7 +15,11 @@ pub struct ContentResult {
 }
 impl ContentResult {
     pub fn apply(&self, tree: &mut crate::DirTree) -> bool {
-        tree.apply_content(self.node, self.revision, self.status, self.versions_equal)
+        if self.skipped {
+            tree.apply_skipped_content(self.node, self.revision, self.versions_equal)
+        } else {
+            tree.apply_content(self.node, self.revision, self.status, self.versions_equal)
+        }
     }
 }
 fn check(cancel: &dyn CancelCheck) -> VfsResult<()> {

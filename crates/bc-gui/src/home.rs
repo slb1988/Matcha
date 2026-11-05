@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HomeAction {
     OpenTextCompare { left: PathBuf, right: PathBuf },
+    OpenFolderCompare { left: PathBuf, right: PathBuf },
 }
 
 /// Home page state.
@@ -63,7 +64,17 @@ impl HomeView {
         });
 
         ui.separator();
-        ui.add_enabled(false, egui::Button::new("Folder Compare (not in scaffold)"));
+        ui.group(|ui| {
+            ui.heading("Folder Compare");
+            ui.label("Enter two folder paths above, or drop two folders here.");
+            if ui.button("Compare folders").clicked() {
+                action=Some(HomeAction::OpenFolderCompare { left:PathBuf::from(self.left.trim()), right:PathBuf::from(self.right.trim()) });
+            }
+        });
+        let dropped: Vec<_> = ui.ctx().input(|i|i.raw.dropped_files.iter().map(|f|f.path().to_path_buf()).collect());
+        if dropped.len()==2 && dropped.iter().all(|p|p.is_dir()) {
+            action=Some(HomeAction::OpenFolderCompare { left:dropped[0].clone(),right:dropped[1].clone() });
+        }
         ui.add_enabled(false, egui::Button::new("Table Compare (not in scaffold)"));
         action
     }

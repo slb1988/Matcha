@@ -75,13 +75,17 @@ impl DirTree {
                 options.suppress_filters,
                 options.ignore_unimportant,
             );
+            let pending_hint=node.summary.pending&&options.display!=DisplayFilter::None&&(!node.is_orphan()||options.display.shows(status));
+            let error_hint=node.sides.iter().flatten().any(|e|e.error.is_some())&&options.display.shows(status);
             let show = if node.is_dir {
                 (options.suppress_filters
                     || present.iter().enumerate().any(|(s, p)| *p && included[s]))
                     && (options.suppress_filters
-                        || options
-                            .folders
-                            .shows(status, has_visible_file, options.display))
+                        || options.folders.shows(
+                            status,
+                            has_visible_file || pending_hint || error_hint,
+                            options.display,
+                        ))
             } else {
                 visibility.visible
             };
@@ -119,9 +123,12 @@ impl DirTree {
     }
     fn flatten_rows(&self, options: ViewOptions) -> Vec<ViewRow> {
         let mut groups: BTreeMap<String, [Vec<NodeId>; 2]> = BTreeMap::new();
-        for (id, node) in self.nodes().filter(|(_, n)| !n.is_dir) {
+        for (id, node) in self.nodes() {
             for side in 0..2 {
                 if let Some(entry) = &node.sides[side] {
+                    if entry.kind == bc_vfs::EntryKind::Dir {
+                        continue;
+                    }
                     let mut name = if self.pairing().normalize_nfc {
                         // set_pairing validated platform support before this projection.
                         bc_vfs::LocalFs::normalize_nfc(&entry.name).expect("validated NFC support")
@@ -150,6 +157,12 @@ impl DirTree {
                 let mut status = self.criteria().quick(entries[0], entries[1]);
                 if ids[0].is_some() && ids[0] == ids[1] {
                     status = self.node(ids[0].unwrap()).unwrap().status;
+                } else if let (Some(left), Some(right)) = (ids[0], ids[1]) {
+                    if let Some(result) = self.virtual_result(left, right) {
+                        status =
+                            self.criteria()
+                                .combine(status, result.content, result.versions_equal);
+                    }
                 }
                 if options.ignore_unimportant && status == CompareStatus::SimilarUnimportant {
                     status = CompareStatus::Same;

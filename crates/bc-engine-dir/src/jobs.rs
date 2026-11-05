@@ -113,6 +113,54 @@ impl Job for ContentCompareJob {
     }
 }
 
+/// Optional column details, computed off the UI thread with the shared cancellation contract.
+pub fn read_entry_details(
+    manager: &bc_vfs::VfsManager,
+    path: &VfsPath,
+    crc: bool,
+    version: bool,
+    cancel: &dyn bc_core::cancel::CancelCheck,
+) -> bc_vfs::VfsResult<(Option<u32>, Option<String>)> {
+    use std::io::Read;
+    let check = || {
+        if cancel.is_cancelled() {
+            Err(bc_vfs::VfsError::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
+    check()?;
+    let checksum = if crc {
+        let mut reader = manager.resolve(path)?.open_read(path)?;
+        let mut buffer = vec![0; 64 * 1024];
+        let mut hash = bc_core::hash::Crc32::new();
+        loop {
+            check()?;
+            let n = reader.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buffer[..n]);
+        }
+        Some(hash.finish())
+    } else {
+        None
+    };
+    let version = if version {
+        let local = path
+            .to_local_path()
+            .ok_or(bc_vfs::VfsError::Unsupported("remote version metadata"))?;
+        bc_engine_bin::ver::read_version_info(&local)?
+            .into_iter()
+            .find(|tag| tag.name == "FileVersion")
+            .map(|tag| tag.value)
+    } else {
+        None
+    };
+    check()?;
+    Ok((checksum, version))
+}
+
 /// Find text inside files of the comparison – `TDirTreeContentSearchJob`.
 pub struct ContentSearchJob {
     pub vfs: Arc<bc_vfs::VfsManager>,

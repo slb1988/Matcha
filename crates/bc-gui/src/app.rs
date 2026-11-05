@@ -11,12 +11,15 @@ use std::time::Instant;
 pub enum View {
     Home(HomeView),
     TextCompare(TextCompareView),
+    FolderCompare(Box<crate::dir_view::DirCompareView>),
+    FolderSync(Box<crate::sync_view::SyncView>),
 }
 
 /// Top-level egui application.
 pub struct MatchaApp {
     view: View,
     bench: Option<BenchState>,
+    bench_dir: Option<crate::bench_dir::DirBench>,
     last_update_ms: f64,
     frame_cpu_ms: Option<f64>,
 }
@@ -34,6 +37,7 @@ impl MatchaApp {
 
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
+            (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(crate::dir_view::DirCompareView::open(&cc.egui_ctx,l,r,false,options.bench_dir))),
             (Some(l), Some(r)) => match TextCompareView::open(l, r) {
                 Ok(v) => View::TextCompare(v),
                 Err(e) => {
@@ -53,7 +57,8 @@ impl MatchaApp {
             _ => None,
         };
 
-        Self { view, bench, last_update_ms: 0.0, frame_cpu_ms: None }
+        let bench_dir=options.bench_dir.then(crate::bench_dir::DirBench::default);
+        Self { view, bench, bench_dir, last_update_ms: 0.0, frame_cpu_ms: None }
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -66,6 +71,8 @@ impl MatchaApp {
                 match &self.view {
                     View::Home(_) => ui.label("Home"),
                     View::TextCompare(_) => ui.label("Text Compare (prototype)"),
+                    View::FolderCompare(_) => ui.label("Folder Compare"),
+                    View::FolderSync(_) => ui.label("Folder Sync"),
                 };
             });
         });
@@ -108,17 +115,23 @@ impl eframe::App for MatchaApp {
             }
         }
 
+        if let (Some(bench),View::FolderCompare(view))=(&mut self.bench_dir,&mut self.view) {
+            view.poll(&ctx);bench.drive(view,&ctx);
+        }
         self.top_bar(ui);
         self.status_bar(ui);
 
         let mut action = None;
+        let mut folder_switch = None;
         egui::CentralPanel::default().show(ui, |ui| match &mut self.view {
             View::Home(home) => action = home.ui(ui),
             View::TextCompare(view) => view.ui(ui),
+            View::FolderCompare(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some((true,paths)); } },
+            View::FolderSync(view) => { if let Some(paths)=view.ui(ui) { folder_switch=Some((false,paths)); } },
         });
 
-        if let Some(HomeAction::OpenTextCompare { left, right }) = action {
-            match TextCompareView::open(&left, &right) {
+        if let Some(HomeAction::OpenTextCompare { left, right }) = &action {
+            match TextCompareView::open(left, right) {
                 Ok(v) => self.view = View::TextCompare(v),
                 Err(e) => {
                     if let View::Home(home) = &mut self.view {
@@ -128,7 +141,20 @@ impl eframe::App for MatchaApp {
             }
         }
 
+        if let Some(HomeAction::OpenFolderCompare{left,right})=action {
+            self.view=View::FolderCompare(Box::new(crate::dir_view::DirCompareView::open(&ctx,&left,&right,false,false)));
+        }
+        if let Some((sync,paths))=folder_switch {
+            self.view=if sync { View::FolderSync(Box::new(crate::sync_view::SyncView::open(&ctx,&paths[0],&paths[1]))) }
+                else { View::FolderCompare(Box::new(crate::dir_view::DirCompareView::open(&ctx,&paths[0],&paths[1],false,false))) };
+        }
         self.last_update_ms = started.elapsed().as_secs_f64() * 1e3;
+        let mut dir_done=false;
+        if let (Some(bench),View::FolderCompare(view))=(&mut self.bench_dir,&self.view) {
+            if bench.record(started.elapsed(),view) { println!("{}",bench.summary(view));ctx.send_viewport_cmd(egui::ViewportCommand::Close);dir_done=true; }
+            else {ctx.request_repaint();}
+        }
+        if dir_done {self.bench_dir=None;}
 
         let mut finished = false;
         if let (Some(bench), View::TextCompare(view)) = (&mut self.bench, &self.view) {

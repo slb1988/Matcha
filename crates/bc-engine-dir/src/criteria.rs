@@ -157,10 +157,15 @@ impl Criteria {
             return quick;
         }
         if versions_equal == Some(false) {
-            return Different;
+            return if matches!(quick, LeftNewer | RightNewer) {
+                quick
+            } else {
+                Different
+            };
         }
         let result = match content {
             Some(Error) => Error,
+            Some(Different) if matches!(quick, LeftNewer | RightNewer) => quick,
             Some(value) if self.content_overrides_quick || quick == Same => value,
             _ => quick,
         };

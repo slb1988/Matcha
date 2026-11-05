@@ -17,7 +17,9 @@ fn main() -> ExitCode {
     let mut positional: Vec<PathBuf> = Vec::new();
 
     for arg in std::env::args().skip(1) {
-        if let Some(rest) = arg.strip_prefix("--bench") {
+        if arg == "--bench-dir" {
+            options.bench_dir = true;
+        } else if let Some(rest) = arg.strip_prefix("--bench") {
             let mut bench = bc_gui::bench::BenchOptions::default();
             if let Some(n) = rest.strip_prefix('=') {
                 match n.parse::<usize>() {
@@ -30,7 +32,7 @@ fn main() -> ExitCode {
             }
             options.bench = Some(bench);
         } else if arg == "--help" || arg == "/?" || arg == "-h" {
-            println!("usage: matcha [<left> <right>] [--bench[=<frames>]]");
+            println!("usage: matcha [<left> <right>] [--bench[=<frames>]] | matcha --bench-dir <left-folder> <right-folder>");
             println!("(full switch set: see bc-script::cli; not wired in the scaffold)");
             return ExitCode::SUCCESS;
         } else {
@@ -43,6 +45,10 @@ fn main() -> ExitCode {
         options.right = Some(positional.remove(0));
     }
 
+    if options.bench_dir && !matches!((&options.left,&options.right),(Some(l),Some(r)) if l.is_dir()&&r.is_dir()) {
+        eprintln!("--bench-dir requires two readable folders");
+        return ExitCode::FAILURE;
+    }
     match bc_gui::run(options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

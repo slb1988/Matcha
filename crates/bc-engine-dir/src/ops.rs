@@ -235,10 +235,17 @@ impl OpPlan {
             options,
             hidden_skipped: 0,
         };
+        let flat = options_for_flat(&plan.options, op).then(|| FlatTargets::new(tree));
         let mut selection = selection.clone();
         if matches!(op, DirOp::Exchange) {
             for (id, side) in selection.items.clone() {
-                selection.insert(id, 1 - side);
+                if let Some(flat) = &flat {
+                    if let Some(peer) = flat.peer(id, side) {
+                        selection.insert(peer, 1 - side);
+                    }
+                } else {
+                    selection.insert(id, 1 - side);
+                }
             }
         }
         let recursive = matches!(
@@ -294,6 +301,23 @@ impl OpPlan {
                     plan.hidden_skipped += 1;
                     continue;
                 }
+                if !matches!(op, DirOp::Exclude | DirOp::Ignored(_) | DirOp::CopyFilename) {
+                    if let Some(error) = node.sides[side].as_ref().and_then(|e| e.error.as_ref()) {
+                        return Err(PlanError::Invalid(format!(
+                            "unreadable source {}: {error}",
+                            node.relative
+                        )));
+                    }
+                }
+                if flat.is_some()
+                    && node.sides[side]
+                        .as_ref()
+                        .is_some_and(|e| e.kind == EntryKind::Dir)
+                {
+                    return Err(PlanError::Invalid(
+                        "Flatten operations require file rows".into(),
+                    ));
+                }
                 if !selected.insert((id, side)) {
                     continue;
                 }
@@ -342,8 +366,9 @@ impl OpPlan {
                     if side == to {
                         return Err(PlanError::Invalid("same-side transfer".into()));
                     }
-                    item.destination = Some(location(tree, id, to)?);
-                    item.target_entry = node.sides[to].clone();
+                    let (destination, entry) = target_location(tree, id, side, to, flat.as_ref())?;
+                    item.destination = Some(destination);
+                    item.target_entry = entry;
                     item.action = if is_dir {
                         OpAction::EnsureDir
                     } else if matches!(op, DirOp::Move { .. }) {
@@ -353,8 +378,10 @@ impl OpPlan {
                     };
                 }
                 DirOp::CopyOther | DirOp::MoveOther => {
-                    item.destination = Some(location(tree, id, 1 - side)?);
-                    item.target_entry = node.sides[1 - side].clone();
+                    let (destination, entry) =
+                        target_location(tree, id, side, 1 - side, flat.as_ref())?;
+                    item.destination = Some(destination);
+                    item.target_entry = entry;
                     item.action = if is_dir {
                         OpAction::EnsureDir
                     } else if matches!(op, DirOp::MoveOther) {
@@ -422,30 +449,44 @@ impl OpPlan {
                     };
                 }
                 DirOp::Exchange => {
-                    if !exchange_done.insert(id) {
+                    let virtual_peer = flat.as_ref().and_then(|f| f.peer(id, side));
+                    let peer = virtual_peer.unwrap_or(id);
+                    let mate = if flat.is_some() {
+                        virtual_peer.unwrap_or(usize::MAX)
+                    } else {
+                        id
+                    };
+                    let pair = if side == 0 { (id, mate) } else { (mate, id) };
+                    if !exchange_done.insert(pair) {
                         continue;
                     }
                     let to = 1 - side;
-                    if node.sides[to].is_some()
-                        && (node.filtered[to] || node.excluded)
+                    let opposite = tree.node(peer).unwrap();
+                    if (flat.is_none() || virtual_peer.is_some())
+                        && opposite.sides[to].is_some()
+                        && (opposite.filtered[to] || opposite.excluded)
                         && !plan.options.include_hidden
                         && !plan.options.view.suppress_filters
                     {
                         plan.hidden_skipped += 1;
                         continue;
                     }
-                    if node.sides[to]
-                        .as_ref()
-                        .is_some_and(|e| e.kind == EntryKind::Dir)
-                        && !node.loaded[to]
+                    if (flat.is_none() || virtual_peer.is_some())
+                        && opposite.sides[to]
+                            .as_ref()
+                            .is_some_and(|e| e.kind == EntryKind::Dir)
+                        && !opposite.loaded[to]
                     {
                         return Err(PlanError::ScanRequired { node: id, side: to });
                     }
-                    item.destination = Some(location(tree, id, to)?);
-                    item.target_entry = node.sides[to].clone();
+                    let (destination, entry) = target_location(tree, id, side, to, flat.as_ref())?;
+                    item.destination = Some(destination);
+                    item.target_entry = entry;
                     item.action = if is_dir {
                         OpAction::EnsureDir
-                    } else if item.target_entry.is_none() {
+                    } else if item.target_entry.is_none()
+                        || (flat.is_some() && virtual_peer.is_none())
+                    {
                         OpAction::Move
                     } else {
                         OpAction::Exchange
@@ -499,7 +540,14 @@ impl OpPlan {
                         continue;
                     }
                     let from = side_index(*from)?;
-                    let when = node.sides[from]
+                    let peer = if let Some(flat) = &flat {
+                        flat.peer(id, side).ok_or_else(|| {
+                            PlanError::Invalid("displayed opposite timestamp missing".into())
+                        })?
+                    } else {
+                        id
+                    };
+                    let when = tree.node(peer).unwrap().sides[from]
                         .as_ref()
                         .and_then(|e| e.modified)
                         .ok_or_else(|| PlanError::Invalid("opposite timestamp missing".into()))?;
@@ -664,6 +712,87 @@ impl OpPlan {
     }
     pub fn total_bytes(&self) -> u64 {
         self.items.iter().map(OpItem::bytes).sum()
+    }
+}
+fn options_for_flat(options: &PlanOptions, op: &DirOp) -> bool {
+    options.view.folders == crate::filter::FolderDisplay::Flatten
+        && matches!(
+            op,
+            DirOp::Copy { .. }
+                | DirOp::Move { .. }
+                | DirOp::CopyOther
+                | DirOp::MoveOther
+                | DirOp::Exchange
+                | DirOp::Touch(TouchSpec::Copy { .. })
+        )
+}
+struct FlatTargets {
+    pairs: BTreeMap<(NodeId, usize), Option<NodeId>>,
+    entries: BTreeMap<(usize, String), VfsEntry>,
+}
+impl FlatTargets {
+    fn new(tree: &DirTree) -> Self {
+        let mut pairs = BTreeMap::new();
+        let mut entries = BTreeMap::new();
+        for row in tree.view_rows(ViewOptions {
+            folders: crate::filter::FolderDisplay::Flatten,
+            suppress_filters: true,
+            ..Default::default()
+        }) {
+            for side in 0..2 {
+                if let Some(id) = row.sides[side] {
+                    pairs.insert((id, side), row.sides[1 - side]);
+                }
+            }
+        }
+        for (id, node) in tree.nodes() {
+            for side in 0..2 {
+                if let Some(entry) = &node.sides[side] {
+                    if let Ok(place) = location(tree, id, side) {
+                        entries.insert((side, path_key(&place.path)), entry.clone());
+                    }
+                }
+            }
+        }
+        Self { pairs, entries }
+    }
+    fn peer(&self, id: NodeId, side: usize) -> Option<NodeId> {
+        self.pairs.get(&(id, side)).copied().flatten()
+    }
+}
+fn target_location(
+    tree: &DirTree,
+    id: NodeId,
+    from: usize,
+    to: usize,
+    flat: Option<&FlatTargets>,
+) -> Result<(Location, Option<VfsEntry>), PlanError> {
+    if let Some(flat) = flat {
+        if let Some(peer) = flat.peer(id, from) {
+            return Ok((
+                location(tree, peer, to)?,
+                tree.node(peer).unwrap().sides[to].clone(),
+            ));
+        }
+        let relative = tree.side_relative(id, from);
+        let base = tree.bases[to]
+            .as_ref()
+            .ok_or_else(|| PlanError::Invalid("base folder missing".into()))?;
+        let path = base.join(&relative);
+        let entry = flat.entries.get(&(to, path_key(&path))).cloned();
+        Ok((
+            Location {
+                path,
+                side: Some(to),
+                relative,
+            },
+            entry,
+        ))
+    } else {
+        Ok((
+            location(tree, id, to)?,
+            tree.node(id).unwrap().sides[to].clone(),
+        ))
     }
 }
 pub fn location(tree: &DirTree, id: NodeId, side: usize) -> Result<Location, PlanError> {

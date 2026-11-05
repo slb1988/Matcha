@@ -24,6 +24,23 @@ impl Default for DiffColors {
     }
 }
 
+/// Folder palette is independent of text importance colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FolderColors {
+    pub unknown: [u8; 3],
+    pub same: [u8; 3],
+    pub orphan: [u8; 3],
+    pub different: [u8; 3],
+    pub filtered: [u8; 3],
+    pub unscanned: [u8; 3],
+}
+impl Default for FolderColors {
+    fn default() -> Self {
+        Self { unknown: [128,128,128], same: [0,0,0], orphan: [0x6A,0,0xD5],
+            different: [255,0,0], filtered: [0,128,128], unscanned: [255,255,0] }
+    }
+}
+
 /// Backup behaviour on save (`/nobackups` overrides).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BackupPrefs {

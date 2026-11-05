@@ -328,6 +328,9 @@ pub fn execute(
                 item.confirmations = super::ops::confirmations(&item);
                 for kind in item.confirmations.clone() {
                     if !confirmations.permit(kind, &item) {
+                        if ctx.cancel.is_cancelled() {
+                            return Err(VfsError::Cancelled);
+                        }
                         return Ok(false);
                     }
                 }

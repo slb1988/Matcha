@@ -22,6 +22,13 @@ pub mod app;
 pub mod bench;
 pub mod home;
 pub mod text_view;
+pub mod dir_view;
+pub mod sync_view;
+pub mod bench_dir;
+pub mod legend;
+pub mod log_panel;
+pub mod filters_bar;
+pub mod dialogs;
 
 use std::path::PathBuf;
 
@@ -32,6 +39,8 @@ pub struct LaunchOptions {
     pub right: Option<PathBuf>,
     /// Run the scroll benchmark and exit.
     pub bench: Option<bench::BenchOptions>,
+    /// Benchmark a loaded folder tree using the real native view.
+    pub bench_dir: bool,
 }
 
 /// Start the native window. Blocks until the window closes.

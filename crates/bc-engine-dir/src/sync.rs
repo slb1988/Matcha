@@ -289,7 +289,10 @@ impl SyncPlan {
                 }
             }
             let sides = [node.sides[0].clone(), node.sides[1].clone()];
-            let status = if options.operation.view.ignore_unimportant
+            let unreadable = sides.iter().flatten().any(|e| e.error.is_some());
+            let status = if unreadable {
+                CompareStatus::Error
+            } else if options.operation.view.ignore_unimportant
                 && node.status == CompareStatus::SimilarUnimportant
             {
                 CompareStatus::Same
@@ -309,7 +312,9 @@ impl SyncPlan {
             } else {
                 choice_for(mode, status)
             };
-            let mut reason = if conflict {
+            let mut reason = if unreadable {
+                "unreadable or cyclic entry".into()
+            } else if conflict {
                 "both sides changed or no unambiguous direction".into()
             } else {
                 String::new()
@@ -424,6 +429,11 @@ impl SyncPlan {
                         "override source missing: {}",
                         item.relative
                     )));
+                }
+                if item.sides[side].as_ref().is_some_and(|e| e.error.is_some()) {
+                    return Err(PlanError::Invalid(
+                        "unreadable source cannot be overridden; refresh first".into(),
+                    ));
                 }
                 if !item.allowed[side] {
                     return Err(PlanError::Invalid(
