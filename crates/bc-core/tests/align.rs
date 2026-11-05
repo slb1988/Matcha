@@ -55,6 +55,41 @@ fn no_alignment_pairs_nth_lines_and_preserves_tail() {
     assert_eq!(map.row(1).unwrap().kind, DiffKind::LeftOnly);
 }
 
+#[test]
+fn myers_display_packs_only_within_replacement_blocks() {
+    let left = [
+        ContentHash(1),
+        ContentHash(2),
+        ContentHash(3),
+        ContentHash(4),
+        ContentHash(9),
+    ];
+    let right = [
+        ContentHash(1),
+        ContentHash(5),
+        ContentHash(6),
+        ContentHash(9),
+    ];
+    let map = QuickAlign.align2(input(&left), input(&right));
+    validate(&map, 5, 4);
+    assert_eq!(
+        map.rows().iter().map(|r| r.kind).collect::<Vec<_>>(),
+        vec![
+            DiffKind::Same,
+            DiffKind::Changed,
+            DiffKind::Changed,
+            DiffKind::LeftOnly,
+            DiffKind::Same
+        ]
+    );
+    assert_eq!(map.row(1).unwrap().left, Some(1));
+    assert_eq!(map.row(1).unwrap().right, Some(1));
+    let raw = QuickAlign.align2_unpaired(input(&left), input(&right));
+    validate(&raw, 5, 4);
+    assert_eq!(raw.len(), 7);
+    assert!(raw.rows().iter().all(|r| r.kind != DiffKind::Changed));
+}
+
 fn input(hashes: &[ContentHash]) -> AlignInput<'_> {
     AlignInput {
         hashes,

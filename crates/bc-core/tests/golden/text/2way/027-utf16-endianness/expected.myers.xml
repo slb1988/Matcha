@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:31 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:31 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\027-utf16-endianness\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\027-utf16-endianness\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">中文</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">end</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

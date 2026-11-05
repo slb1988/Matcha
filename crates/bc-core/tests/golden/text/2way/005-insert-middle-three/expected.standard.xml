@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:25 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:25 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\005-insert-middle-three\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\005-insert-middle-three\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">one</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">two</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="3">new A</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="4">new B</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="5">new C</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="3" rtid="6">three</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="4" rtid="7">four</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

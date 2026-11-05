@@ -6,11 +6,11 @@ Rust implementation can be driven towards 1:1 behaviour without knowing BC inter
 
 | directory | inputs | expected artefact | drives |
 |---|---|---|---|
-| `text/2way/<case>/` | `left.txt`, `right.txt`, optional `rules.toml` | `expected.align` (row list: `L<idx>|R<idx>|kind`) | `Aligner::align2`, `Differ` |
+| `text/2way/<case>/` | UTF-8 `left.txt`, `right.txt`, `case.properties` | `expected.myers.xml`, `expected.standard.xml` (raw reference reports) | `Aligner::align2`, `Differ` |
 | `text/3way/<case>/` | `left.txt`, `center.txt`, `right.txt` | `expected.align` + `expected.merge` (auto-merge output, conflict markers) | `Aligner::align3`, bc-engine-text merge |
 | `text/inline/<case>/` | `a.txt`, `b.txt` (single lines) | `expected.spans` (char ranges) | inline (character level) diff |
-| `align/quick/<case>/` | same as `text/2way` | `expected.align` from BC with alignment = *Quick* | `QuickAlign` |
-| `align/smart/<case>/` | same as `text/2way` | `expected.align` from BC with alignment = *Smart* (default) | `SmartAlign` |
+| `align/quick/<case>/` | reserved legacy location | active Myers oracle is beside `text/2way` inputs | `QuickAlign` |
+| `align/smart/<case>/` | reserved legacy location | active Standard oracle is beside `text/2way` inputs | `SmartAlign` |
 | `dir/criteria/<case>/` | two folder trees (zipped) + `criteria.txt` | `expected.tree` (BC folder-report `layout:xml`) | bc-engine-dir criteria pipeline |
 | `table/key-align/<case>/` | `left.csv`, `right.csv`, `keys.txt` | `expected.align` | bc-engine-table `KeyAlign` |
 
@@ -27,8 +27,10 @@ Conventions
 Wave 3 now includes 30 synthetic UTF-8 input-template pairs and case.properties.
 The generator stages real encoded/line-ended working files; source templates remain
 UTF-8. Expected reports are named expected.myers.xml / expected.standard.xml and must
-be checked in verbatim. The complete oracle set is currently pending the decisions
-recorded in tools/golden/README.md; absent oracle tests announce a skip, but partial
-oracle sets fail. Do not mistake the diagnostic reports outside this tree for the
-formal corpus. Engine regression checks all cases; core additionally checks the
-format-independent normalized alignment subset.
+be checked in verbatim. The complete 60-report oracle set is checked in: Myers matches 30/30 cases and
+Standard+closeness 29/30 (one documented intentional difference). See
+`tools/golden/README.md` and `KNOWN_DIFFS.md`. Absent oracle tests still announce a
+skip for an empty corpus, but partial sets fail; the committed corpus does not skip.
+Diagnostic reports outside this tree are not formal exceptions. Engine regression
+checks all 30 cases, including raw importance; core also checks the 26
+format-independent normalized alignment cases.

@@ -36,7 +36,7 @@ fn token_case_and_element_importance_follow_specs() {
     );
     assert_eq!(
         compiled.classify(view("BEGIN", &lt[..1]), view("begin", &rt[..1])),
-        I::Same
+        I::Unimportant
     );
     assert_eq!(
         compiled.classify_orphan(
@@ -119,7 +119,22 @@ fn whitespace_ending_and_case_flags_are_independent() {
                 ..LineView::plain("x")
             }
         ),
-        I::Unimportant
+        I::Same
+    );
+    r.importance.line_endings_unimportant = false;
+    let c = CompiledComparison::new(&r).unwrap();
+    assert_eq!(
+        c.classify(
+            LineView {
+                ending: L::None,
+                ..LineView::plain("x")
+            },
+            LineView {
+                ending: L::Lf,
+                ..LineView::plain("x")
+            }
+        ),
+        I::Important
     );
 }
 #[test]

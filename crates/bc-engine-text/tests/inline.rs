@@ -89,6 +89,37 @@ fn mixed_line_keeps_case_only_island_unimportant() {
 }
 
 #[test]
+fn format_intrinsic_case_difference_has_minor_inline_spans() {
+    let format = bc_formats::builtin_formats()
+        .iter()
+        .find(|f| f.name == "PAS")
+        .unwrap();
+    let tokenizer = bc_formats::grammar::Tokenizer::new(format).unwrap();
+    let lt = tokenizer.tokenize_line("BEGIN", &mut Default::default());
+    let rt = tokenizer.tokenize_line("begin", &mut Default::default());
+    let comparison = CompiledComparison::new(&Default::default()).unwrap();
+    let diff = inline_diff_classified(
+        LineView {
+            text: "BEGIN",
+            tokens: &lt,
+            format: Some(format),
+            ..LineView::plain("BEGIN")
+        },
+        LineView {
+            text: "begin",
+            tokens: &rt,
+            format: Some(format),
+            ..LineView::plain("begin")
+        },
+        &comparison,
+        &Default::default(),
+    );
+    assert_eq!(diff.left[0].range, 0..5);
+    assert_eq!(diff.left[0].importance, Importance::Unimportant);
+    assert_eq!(diff.right[0].importance, Importance::Unimportant);
+}
+
+#[test]
 fn half_megabyte_lines_fall_back_without_character_diff() {
     let left = "a".repeat(500_000);
     let right = "b".repeat(500_000);

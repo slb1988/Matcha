@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:26 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:26 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\006-delete-middle-three\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\006-delete-middle-three\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">one</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">two</text>
+		</linecomp>
+		<linecomp status="leftorphan">
+			<text ltid="3">old A</text>
+		</linecomp>
+		<linecomp status="leftorphan">
+			<text ltid="4">old B</text>
+		</linecomp>
+		<linecomp status="leftorphan">
+			<text ltid="5">old C</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="6" rtid="3">three</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="7" rtid="4">four</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

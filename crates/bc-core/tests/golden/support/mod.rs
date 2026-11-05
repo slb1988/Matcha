@@ -19,6 +19,91 @@ pub struct ExpectedRow {
     pub kind: DiffKind,
     pub importance: u8,
 }
+/// Formal exceptions pin both complete outputs, not only a permissive case name.
+pub fn documented_cases(document: &str, strategy: &str) -> Vec<String> {
+    let prefix = format!("<!-- project-output:{strategy}:");
+    document
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix(&prefix)
+                .and_then(|s| s.strip_suffix(" -->"))
+                .map(str::to_owned)
+        })
+        .collect()
+}
+pub fn documented_project_rows(
+    document: &str,
+    strategy: &str,
+    name: &str,
+) -> Result<Option<Vec<ExpectedRow>>, String> {
+    documented_rows(document, "project-output", strategy, name)
+}
+pub fn documented_reference_rows(
+    document: &str,
+    strategy: &str,
+    name: &str,
+) -> Result<Option<Vec<ExpectedRow>>, String> {
+    documented_rows(document, "reference-output", strategy, name)
+}
+fn documented_rows(
+    document: &str,
+    output: &str,
+    strategy: &str,
+    name: &str,
+) -> Result<Option<Vec<ExpectedRow>>, String> {
+    let document = document.replace("\r\n", "\n");
+    let marker = format!("<!-- {output}:{strategy}:{name} -->");
+    let Some((_, tail)) = document.split_once(&marker) else {
+        return Ok(None);
+    };
+    let (_, tail) = tail
+        .split_once("```text\n")
+        .ok_or("missing project output fence")?;
+    let (body, _) = tail
+        .split_once("\n```")
+        .ok_or("unterminated project output fence")?;
+    let optional = |s: &str| -> Result<Option<usize>, String> {
+        if s == "-" {
+            Ok(None)
+        } else {
+            Ok(Some(
+                s.parse::<usize>()
+                    .map_err(|e| e.to_string())?
+                    .checked_sub(1)
+                    .ok_or("line numbers must be positive")?,
+            ))
+        }
+    };
+    body.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let parts: Vec<_> = line.split('|').collect();
+            if parts.len() != 4 {
+                return Err("bad documented project row".into());
+            }
+            let kind = match parts[2] {
+                "Same" => DiffKind::Same,
+                "Changed" => DiffKind::Changed,
+                "LeftOnly" => DiffKind::LeftOnly,
+                "RightOnly" => DiffKind::RightOnly,
+                _ => return Err("bad documented row kind".into()),
+            };
+            let importance = parts[3].parse::<u8>().map_err(|e| e.to_string())?;
+            if importance > 2 {
+                return Err("bad documented importance".into());
+            }
+            Ok(ExpectedRow {
+                left: optional(parts[0])?,
+                right: optional(parts[1])?,
+                kind,
+                importance,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
 #[derive(Debug, Clone)]
 pub struct Case {
     pub name: String,

@@ -2,9 +2,9 @@
 use crate::{content::TextContent, importance::Importance, rules::TextRules};
 use bc_core::{
     align::{AlignMap, AlignRow, AlignmentOverrides},
-    edit::EditItem,
+    edit::{EditGroup, EditItem},
     hash::ContentHash,
-    line::{LineEdit, MaterializeContext},
+    line::{LineEdit, LineEnding, MaterializeContext},
     CoreError, DiffKind, Side,
 };
 use std::{
@@ -385,8 +385,35 @@ impl TextMap {
         } else {
             bc_core::line::LineList::new()
         };
-        let mut line =
-            LineEdit::replace_range(&target.lines, start..start + targets.len(), &replacement);
+        let mut line = EditGroup {
+            description: "Copy section".into(),
+            items: Vec::new(),
+        };
+        let repair_boundary = start > 0
+            && !replacement.is_empty()
+            && target.lines.borrow().ending(start - 1) == Some(LineEnding::None);
+        if repair_boundary {
+            // An append after an unterminated anchor needs the source separator,
+            // not an invented default CRLF. Keep that repair in the same undo step.
+            let source_lines = source.lines.borrow();
+            let boundary = sources
+                .first()
+                .and_then(|i| i.checked_sub(1))
+                .and_then(|i| source_lines.ending(i))
+                .filter(|e| *e != LineEnding::None)
+                .unwrap_or_else(|| source_lines.dominant_ending());
+            drop(source_lines);
+            line.items.push(Box::new(LineEdit::set_ending(
+                &target.lines,
+                start - 1,
+                boundary,
+            )));
+        }
+        line.items.push(Box::new(LineEdit::replace_range(
+            &target.lines,
+            start..start + targets.len(),
+            &replacement,
+        )));
         if let Err(error) = self.recompare() {
             line.undo();
             return Err(error);
@@ -462,7 +489,7 @@ impl Iterator for Rows<'_> {
 impl ExactSizeIterator for Rows<'_> {}
 #[derive(Debug)]
 struct MapEdit {
-    line: LineEdit,
+    line: EditGroup,
     before: Arc<AlignedData>,
     after: Arc<AlignedData>,
     state: Rc<RefCell<Arc<AlignedData>>>,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:29 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:29 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\019-case-ignored\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\019-case-ignored\right.txt</filename2>
+		<linecomp status="similar">
+			<text ltid="1">Print VALUE</text>
+			<text rtid="1">print value</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

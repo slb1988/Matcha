@@ -55,13 +55,17 @@ Integration tests: `cargo test -p bc-core`.
 ## Two-way alignment
 
 `AlignInput::lines: Option<&LineList>` provides borrowed text for Smart scoring; no
-per-file String list is constructed. Without text, Smart keeps the Quick skeleton.
+per-file String list is constructed. Without text, Smart keeps the unpaired LCS skeleton.
 Manual `AlignmentOverrides` are ordered noncrossing anchors stored outside the map;
 pass the same anchors to `align2_with_overrides` / `align2_cancellable` after recompare,
 or clear them to recover automatic output. `force_pair` rewires an existing two-way
 map while retaining every index and returns errors for invalid indices.
 
-Quick expands Myers runs directly. Smart compacts orphan blocks in place using
+Quick preserves the Myers SES but packs adjacent delete/insert blocks positionally
+for display by default. `align2_unpaired` / `align2_unpaired_cancellable` expose the
+raw backbone for Smart and NeverAlignDiffs=True. Packing never crosses equality or
+manual anchors; see [ADR 006](../../docs/decisions/006-myers-display-packing.md).
+Smart compacts orphan blocks in place using
 bounded 128-line windows, a skew band (default 8), Unicode character LCS (70%) plus
 word Jaccard (30%), a default 0.5 threshold, and matching positive-weight bonuses.
 Only up to 256 characters per candidate are scored (configurable up to 1024);

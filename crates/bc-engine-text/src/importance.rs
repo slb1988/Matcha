@@ -229,10 +229,14 @@ impl CompiledComparison {
             }
             text
         };
-        let l = canonical(left, ls);
-        let r = canonical(right, rs);
+        let l = canonical(left, ls.clone());
+        let r = canonical(right, rs.clone());
         if l == r {
-            Some(Importance::Same)
+            Some(if left.text[ls.clone()] == right.text[rs.clone()] {
+                Importance::Same
+            } else {
+                Importance::Unimportant
+            })
         } else if self.rules.importance.case_unimportant && l.to_lowercase() == r.to_lowercase() {
             Some(Importance::Unimportant)
         } else {
@@ -253,33 +257,16 @@ impl CompiledComparison {
     }
     pub fn classify(&self, left: LineView<'_>, right: LineView<'_>) -> Importance {
         if left.text == right.text {
-            return if left.ending == right.ending
-                || (self.rules.importance.line_endings_unimportant
-                    && left.ending != LineEnding::None
-                    && right.ending != LineEnding::None)
+            return if left.ending == right.ending || self.rules.importance.line_endings_unimportant
             {
                 Importance::Same
-            } else if self.rules.importance.line_endings_unimportant {
-                Importance::Unimportant
             } else {
                 Importance::Important
             };
         }
         let l = self.prepare(left, Side::Left);
         let r = self.prepare(right, Side::Right);
-        if l.exact == r.exact {
-            if left.ending == right.ending
-                || (self.rules.importance.line_endings_unimportant
-                    && left.ending != LineEnding::None
-                    && right.ending != LineEnding::None)
-            {
-                Importance::Same
-            } else if self.rules.importance.line_endings_unimportant {
-                Importance::Unimportant
-            } else {
-                Importance::Important
-            }
-        } else if l.significant == r.significant
+        if (l.exact == r.exact || l.significant == r.significant)
             && (self.rules.importance.line_endings_unimportant || left.ending == right.ending)
         {
             Importance::Unimportant

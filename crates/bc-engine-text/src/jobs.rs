@@ -237,6 +237,9 @@ fn align_range(
             job.strategy
         };
     match strategy {
+        AlignStrategy::Quick if job.rules.alignment.never_align_differences => {
+            QuickAlign.align2_unpaired_cancellable(l, r, &overrides, cancel)
+        }
         AlignStrategy::Quick => QuickAlign.align2_cancellable(l, r, &overrides, cancel),
         AlignStrategy::Smart => SmartAlign {
             options: SmartAlignOptions {

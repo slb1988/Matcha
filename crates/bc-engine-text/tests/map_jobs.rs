@@ -56,6 +56,18 @@ fn sections_copy_undo_and_ignore_projection() {
     assert_eq!(map.difference_counts(), (0, 0));
 }
 #[test]
+fn myers_never_align_switch_selects_unpaired_entry() {
+    let mut rules = TextRules::default();
+    rules.alignment.strategy = bc_core::align::AlignStrategy::Quick;
+    let mut map = TextMap::compare(content("AAAA"), content("1111"), rules).unwrap();
+    assert_eq!(map.row_count(), 1);
+    assert_eq!(map.row(0).unwrap().kind, bc_core::DiffKind::Changed);
+    map.rules.alignment.never_align_differences = true;
+    map.recompare().unwrap();
+    assert_eq!(map.row_count(), 2);
+}
+
+#[test]
 fn copy_insert_delete_and_unterminated_joins() {
     for (left, right) in [("a\nnew\nz", "a\nz"), ("a\nz", "a\nold\nz"), ("a\nb", "a")] {
         let mut map = TextMap::compare(content(left), content(right), Default::default()).unwrap();

@@ -1,21 +1,30 @@
 <#
 Generates raw reference XML from synthetic UTF-8 templates. No key/license files
-are accessed. Normal mode requires verified per-case comparison-rule templates;
-missing templates fail before any settings write. Diagnostic mode is deliberately
+are accessed. Normal mode builds verified corpus rule templates by default; explicit
+custom templates remain supported and are preflighted. Diagnostic mode is deliberately
 forbidden from writing to the checked-in oracle corpus.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$ReferenceExe,
-    [string]$CorpusRoot=(Join-Path $PSScriptRoot '../../crates/bc-core/tests/golden/text/2way'),
+    [Parameter(Mandatory=$true)][string]$WorkerId,
+    [ValidateRange(0,600)][int]$LockTimeoutSeconds=600,
+    [string]$CorpusRoot='',
     [string]$OutputRoot='',
-    [string]$ComparisonTemplates=(Join-Path $PSScriptRoot 'profiles'),
+    [string]$ComparisonTemplates='',
     [string]$SessionsPath=(Join-Path $env:APPDATA 'Scooter Software/Beyond Compare 5/BCSessions.xml'),
+    [string]$FileFormatsPath=(Join-Path $env:APPDATA 'Scooter Software/Beyond Compare 5/BCFileFormats.xml'),
     [string[]]$CaseNames=@(),
     [switch]$MyersNeverAlignDifferences,
     [switch]$DiagnosticInheritRules
 )
 $ErrorActionPreference='Stop'
+$scriptRoot=Split-Path -Parent $MyInvocation.MyCommand.Path
+if(!$CorpusRoot){$CorpusRoot=Join-Path $scriptRoot '../../crates/bc-core/tests/golden/text/2way'}
+if(!$ComparisonTemplates){$ComparisonTemplates=Join-Path $scriptRoot 'profiles'}
+if(!$DiagnosticInheritRules -and !$PSBoundParameters.ContainsKey('ComparisonTemplates')) {
+    & (Join-Path $scriptRoot 'build_rule_templates.ps1') -CorpusRoot $CorpusRoot -OutputDirectory $ComparisonTemplates
+}
 $ReferenceExe=(Resolve-Path -LiteralPath $ReferenceExe).Path
 $CorpusRoot=(Resolve-Path -LiteralPath $CorpusRoot).Path
 if(!$OutputRoot){$OutputRoot=$CorpusRoot}
@@ -23,13 +32,16 @@ $OutputRoot=[IO.Path]::GetFullPath($OutputRoot)
 if($DiagnosticInheritRules -and $OutputRoot.TrimEnd('\','/') -eq $CorpusRoot.TrimEnd('\','/')) {
     throw 'Diagnostic reports must not overwrite checked-in golden expectations'
 }
+. (Join-Path $scriptRoot 'reference_lock.ps1')
+$referenceLease=Enter-MatchaReferenceLock -WorkerId $WorkerId -TimeoutSeconds $LockTimeoutSeconds
+try {
 if(Get-Process -Name BCompare -ErrorAction SilentlyContinue){throw 'Close the reference tool before modifying its two temporary sessions'}
 if(!(Test-Path -LiteralPath $SessionsPath -PathType Leaf)){throw 'The explicit session XML file does not exist'}
 $cases=@(Get-ChildItem -LiteralPath $CorpusRoot -Directory | Where-Object {
     (Test-Path -LiteralPath (Join-Path $_.FullName 'case.properties')) -and (!$CaseNames.Count -or $CaseNames -contains $_.Name)
 } | Sort-Object Name)
 if(!$cases.Count){throw 'No corpus cases selected'}
-$repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+$repo=[IO.Path]::GetFullPath((Join-Path $scriptRoot '../..'))
 $work=Join-Path $repo 'target/golden-work'
 $utf8=New-Object Text.UTF8Encoding($false,$true)
 function Properties([string]$path) {
@@ -95,7 +107,7 @@ foreach($case in $cases) {
     $props=Properties (Join-Path $case.FullName 'case.properties')
     $plans+=@{Case=$case;Props=$props;Rules=(Rules-Body $case $props)}
 }
-$backup=Join-Path $PSScriptRoot ('backup/'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+$backup=Join-Path $scriptRoot ('backup/'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 $null=New-Item -ItemType Directory -Path $backup -Force
 Copy-Item -LiteralPath $SessionsPath -Destination (Join-Path $backup 'BCSessions.xml')
 $original=[IO.File]::ReadAllBytes($SessionsPath)
@@ -104,8 +116,31 @@ $base=[IO.File]::ReadAllText($SessionsPath,$utf8)
 $base=[regex]::Replace($base,'(?s)[\t ]*<TTextCompareSession Value="matcha-golden-(?:myers|standard)">.*?</TTextCompareSession>\r?\n?','')
 $close=$base.LastIndexOf('</BCSessions>')
 if($close -lt 0){throw 'Unexpected session document root'}
+$needsLongFormat=@($plans | Where-Object { $_.Props['reference_extension'] -eq 'matcha-golden-long' }).Count -gt 0
+$formatsExisted=$false
+$formatsOriginal=$null
+$temporaryFormats=$null
+if($needsLongFormat){
+    $formatsExisted=Test-Path -LiteralPath $FileFormatsPath -PathType Leaf
+    if($formatsExisted){
+        Copy-Item -LiteralPath $FileFormatsPath -Destination (Join-Path $backup 'BCFileFormats.xml')
+        $formatsOriginal=[IO.File]::ReadAllBytes($FileFormatsPath)
+        $formatsText=[IO.File]::ReadAllText($FileFormatsPath,$utf8)
+    } else {
+        $formatsText="<?xml version=`"1.0`" encoding=`"UTF-8`"?>`r`n<BCFileFormats>`r`n</BCFileFormats>`r`n"
+    }
+    if($formatsText.Contains('matcha-golden-long') -or $formatsText.Contains('Matcha Golden Long Text')){
+        throw 'Dedicated golden long-line format collides with an existing user format'
+    }
+    $formatRoot=[regex]::Match($formatsText,'<BCFileFormats\b[^>]*>')
+    if(!$formatRoot.Success){throw 'Unexpected file-format document root'}
+    $node="`r`n`t<TTextFormat Value=`"Matcha Golden Long Text`">`r`n`t`t<Mask Value=`"*.matcha-golden-long`"/>`r`n`t`t<CharPerLine Value=`"65536`"/>`r`n`t</TTextFormat>`r`n"
+    # The exclusive mask is first so even a user's broad mask cannot intercept it.
+    $temporaryFormats=$formatsText.Insert($formatRoot.Index+$formatRoot.Length,$node)
+}
 $ownedProcess=$null
 try {
+    if($needsLongFormat){[IO.File]::WriteAllText($FileFormatsPath,$temporaryFormats,$utf8)}
     foreach($plan in $plans) {
         if(Get-Process -Name BCompare -ErrorAction SilentlyContinue){throw 'Reference process is still running'}
         $case=$plan.Case;$props=$plan.Props
@@ -114,6 +149,10 @@ try {
         $null=New-Item -ItemType Directory -Path $directory -Force
         $null=New-Item -ItemType Directory -Path $destination -Force
         $extension=switch(Get-Property $props 'format' ''){'CPP'{'.cpp'};'PAS'{'.pas'};default{'.txt'}}
+        if($props.ContainsKey('reference_extension')) {
+            if($props['reference_extension'] -ne 'matcha-golden-long'){throw 'Unknown dedicated reference extension'}
+            $extension='.matcha-golden-long'
+        }
         $left=Join-Path $directory ('left'+$extension);$right=Join-Path $directory ('right'+$extension)
         [IO.File]::WriteAllBytes($left,(Encode-Input (Join-Path $case.FullName 'left.txt') $props 'left'))
         [IO.File]::WriteAllBytes($right,(Encode-Input (Join-Path $case.FullName 'right.txt') $props 'right'))
@@ -149,6 +188,21 @@ try {
 } finally {
     if($ownedProcess -and !$ownedProcess.HasExited){$ownedProcess.Kill();$ownedProcess.WaitForExit()}
     if(Get-Process -Name BCompare -ErrorAction SilentlyContinue){throw "Cannot restore settings while an external reference instance is running; backup: $backup"}
-    [IO.File]::WriteAllBytes($SessionsPath,$original)
-    Write-Output "session XML restored; byte-exact backup: $backup"
+    try { [IO.File]::WriteAllBytes($SessionsPath,$original) }
+    finally {
+        if($needsLongFormat){
+            if($formatsExisted){[IO.File]::WriteAllBytes($FileFormatsPath,$formatsOriginal)}
+            elseif(Test-Path -LiteralPath $FileFormatsPath){Remove-Item -LiteralPath $FileFormatsPath}
+        }
+    }
+    if([Convert]::ToBase64String([IO.File]::ReadAllBytes($SessionsPath)) -cne [Convert]::ToBase64String($original)) {throw 'Session restoration verification failed'}
+    if($needsLongFormat){
+        if($formatsExisted){
+            if([Convert]::ToBase64String([IO.File]::ReadAllBytes($FileFormatsPath)) -cne [Convert]::ToBase64String($formatsOriginal)){throw 'Format restoration verification failed'}
+        } elseif(Test-Path -LiteralPath $FileFormatsPath){throw 'Temporary format file was not removed'}
+    }
+    Write-Output "session/temporary-format settings restored and byte-verified; backup: $backup"
+}
+} finally {
+    Exit-MatchaReferenceLock -Lease $referenceLease
 }

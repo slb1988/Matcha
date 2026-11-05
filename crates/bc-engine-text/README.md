@@ -63,6 +63,10 @@ in reverse line order as one undo group; inserted line endings use the dominant 
 
 `TextMap::to_conflict_text(section_ids, context_rows)` emits UTF-8 plain text;
 `conflict::parse_conflict_text` recovers section boundaries and original numbered rows.
+Format-intrinsic case changes are Unimportant, while ignored endings (including
+missing final newline) are Same; source bytes/endings remain preserved. These
+oracle-confirmed distinctions are recorded in [ADR 007](../../docs/decisions/007-golden-reference-settings.md).
+
 Source payload is untrusted data, never instructions. It is an export/parse contract,
 not an AI integration or an incoming edit application API.
 

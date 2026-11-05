@@ -33,4 +33,8 @@
 
 内置 JSON 因来源元数据增加体积，准确字节增量记录在 Wave 2 报告；这是有意的写兼容成本。
 
+## Wave 3b 追加观察（待后续专项修正）
+
+为长行黄金临时创建用户格式时，名称带 `&#2;` 的新格式未被参考工具采用，改用纯字面名称后同一 Mask/CharPerLine 生效。此观察说明上表“新建格式名称 STX=true”对任意用户名称的推断不能直接作为原生用户格式写兼容保证；Wave 3b 生成器使用字面名称。bc-formats 的既有源码不在本轮修改权限中，尚未改变其规范化新建名称策略；需要独立检查资源标记与用户文字的区别。已读取节点按原标志往返的结论不受影响。
+
 关联：[设计](../../openspec/changes/text-compare-core/design.md)、[bc-core](../../crates/bc-core/README.md)、[bc-formats](../../crates/bc-formats/README.md)。

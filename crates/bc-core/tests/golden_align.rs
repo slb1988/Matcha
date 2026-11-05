@@ -21,7 +21,7 @@ fn captured_myers_never_align_diagnostic_matches_current_core() {
     let right = LineList::from_bytes(case.input("right").unwrap());
     let lh = LineHasher::default().hash_lines(&left);
     let rh = LineHasher::default().hash_lines(&right);
-    let map = QuickAlign.align2(
+    let map = QuickAlign.align2_unpaired(
         AlignInput {
             hashes: &lh,
             ..Default::default()
@@ -58,6 +58,11 @@ fn reference_alignment_corpus() {
         return;
     }
     let known = std::fs::read_to_string(root.join("../../KNOWN_DIFFS.md")).unwrap_or_default();
+    assert_eq!(
+        support::documented_cases(&known, "standard").len(),
+        1,
+        "expected exactly one formal Standard exception"
+    );
     let mut failures = Vec::new();
     let mut checked = 0;
     for case in &cases {
@@ -116,9 +121,14 @@ fn reference_alignment_corpus() {
                 .iter()
                 .map(|r| (r.left, r.right, r.kind))
                 .collect();
-            let expected: Vec<_> = case
-                .expected(strategy)
-                .unwrap()
+            let expected_rows = case.expected(strategy).unwrap();
+            if expected_rows.iter().any(|row| {
+                row.left.is_some_and(|i| i >= lh.len()) || row.right.is_some_and(|i| i >= rh.len())
+            }) {
+                failures.push(format!("{} {strategy}: reference line indices exceed physical input; check reference long-line splitting", case.name));
+                continue;
+            }
+            let expected: Vec<_> = expected_rows
                 .iter()
                 .map(|r| {
                     let kind = match (r.left, r.right) {
@@ -131,6 +141,28 @@ fn reference_alignment_corpus() {
             if actual != expected {
                 let documented = strategy == "standard"
                     && known.contains(&format!("| standard | {} |", case.name));
+                if documented {
+                    assert_eq!(
+                        expected_rows,
+                        support::documented_reference_rows(&known, strategy, &case.name)
+                            .unwrap()
+                            .expect("documented reference output"),
+                        "known reference changed {}",
+                        case.name
+                    );
+                    let recorded = support::documented_project_rows(&known, strategy, &case.name)
+                        .unwrap()
+                        .expect("documented full output");
+                    assert_eq!(
+                        actual,
+                        recorded
+                            .iter()
+                            .map(|r| (r.left, r.right, r.kind))
+                            .collect::<Vec<_>>(),
+                        "changed known exception {}",
+                        case.name
+                    );
+                }
                 if !documented {
                     failures.push(format!(
                         "{} {strategy}: actual {actual:?}, expected {expected:?}",

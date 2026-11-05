@@ -77,6 +77,19 @@ fn all_reference_rows_alignment_and_importance() {
                 if strategy == "myers" {
                     quick_failures.push(detail);
                 } else {
+                    if let Some(recorded) =
+                        support::documented_project_rows(&known, strategy, &case.name).unwrap()
+                    {
+                        assert_eq!(actual, recorded, "known exception changed: {}", case.name);
+                        assert_eq!(
+                            expected,
+                            support::documented_reference_rows(&known, strategy, &case.name)
+                                .unwrap()
+                                .expect("documented reference output"),
+                            "known reference changed: {}",
+                            case.name
+                        );
+                    }
                     smart_failures.push((case.name.clone(), detail));
                 }
             }
@@ -90,6 +103,9 @@ fn all_reference_rows_alignment_and_importance() {
         cases.len(),
         smart_failures.len()
     );
+    if !smart_failures.is_empty() {
+        eprintln!("Standard mismatches: {smart_failures:?}");
+    }
     assert!(
         quick_failures.is_empty(),
         "Myers mismatches:\n{}",
@@ -99,6 +115,14 @@ fn all_reference_rows_alignment_and_importance() {
         smart_failures.len() * 100 <= cases.len() * 5,
         "Standard below 95%:\n{:?}",
         smart_failures
+    );
+    assert_eq!(
+        support::documented_cases(&known, "standard"),
+        smart_failures
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>(),
+        "stale or missing formal exceptions"
     );
     for (name, detail) in smart_failures {
         assert!(

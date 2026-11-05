@@ -1,0 +1,51 @@
+<Rules Value="TTextRules">
+  <CaseSig Value="True"/>
+  <CompareEndings Value="False"/>
+  <LeadWSSig Value="True"/>
+  <EmbeddedWSSig Value="False"/>
+  <TrailWSSig Value="True"/>
+  <NonWSSig Value="True"/>
+  <OrphansAlwaysSig Value="False"/>
+  <ElementSigs>
+    <_0>
+      <ElementStr Value="Comment"/>
+      <ValueBool Value="True"/>
+    </_0>
+    <_1>
+      <ElementStr Value="Directive"/>
+      <ValueBool Value="True"/>
+    </_1>
+    <_2>
+      <ElementStr Value="EnvironmentVar"/>
+      <ValueBool Value="True"/>
+    </_2>
+    <_3>
+      <ElementStr Value="Identifier"/>
+      <ValueBool Value="True"/>
+    </_3>
+    <_4>
+      <ElementStr Value="Indent"/>
+      <ValueBool Value="True"/>
+    </_4>
+    <_5>
+      <ElementStr Value="Keyword"/>
+      <ValueBool Value="True"/>
+    </_5>
+    <_6>
+      <ElementStr Value="LineNum"/>
+      <ValueBool Value="True"/>
+    </_6>
+    <_7>
+      <ElementStr Value="Number"/>
+      <ValueBool Value="True"/>
+    </_7>
+    <_8>
+      <ElementStr Value="Operator"/>
+      <ValueBool Value="True"/>
+    </_8>
+    <_9>
+      <ElementStr Value="String"/>
+      <ValueBool Value="True"/>
+    </_9>
+  </ElementSigs>
+</Rules>

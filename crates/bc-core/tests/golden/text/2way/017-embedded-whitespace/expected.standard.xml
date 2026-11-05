@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:29 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:29 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\017-embedded-whitespace\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\017-embedded-whitespace\right.txt</filename2>
+		<linecomp status="similar">
+			<text ltid="1">alpha + beta</text>
+			<text rtid="1">alpha   +   beta</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>
