@@ -28,7 +28,17 @@ pub struct FileAttrs {
 impl FileAttrs {
     /// Parse a BC attribute set string: any of `a`, `s`, `h`, `r` in any order.
     pub fn parse_set(set: &str) -> Option<FileAttrs> {
-        todo!("bc-vfs::entry: parse [a][s][h][r]")
+        let mut attrs = Self::default();
+        for c in set.chars() {
+            match c.to_ascii_lowercase() {
+                'a' => attrs.archive = true,
+                's' => attrs.system = true,
+                'h' => attrs.hidden = true,
+                'r' => attrs.readonly = true,
+                _ => return None,
+            }
+        }
+        Some(attrs)
     }
 }
 
@@ -44,6 +54,8 @@ pub struct VfsEntry {
     pub version: Option<String>,
     /// Cached CRC when already computed (snapshots store it: `snapshot save-crc`).
     pub crc32: Option<u32>,
+    /// Per-entry failure; siblings remain usable when a child cannot be read.
+    pub error: Option<String>,
 }
 
 /// File-system change notification – `TVfsChangeNotifier` payload.
@@ -52,7 +64,10 @@ pub enum ChangeEvent {
     Created(VfsPath),
     Modified(VfsPath),
     Deleted(VfsPath),
-    Renamed { from: VfsPath, to: VfsPath },
+    Renamed {
+        from: VfsPath,
+        to: VfsPath,
+    },
     /// Too many changes – caller should rescan.
     Overflow,
 }

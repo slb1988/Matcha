@@ -13,16 +13,21 @@
 //!   any threading dependency.
 //! * Paths are [`VfsPath`]s: a scheme plus a scheme-specific string, mirroring BC's
 //!   `vfs://` URLs in `BCSessions.xml` while keeping local paths as `std::path`.
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
 
 pub mod entry;
 pub mod local;
 pub mod manager;
 pub mod path;
+#[cfg(not(windows))]
+mod poll_watch;
 
 pub use entry::{ChangeEvent, EntryKind, FileAttrs, VfsEntry};
-pub use local::LocalFs;
+pub use local::{CopyOptions, LocalFs};
 pub use manager::VfsManager;
 pub use path::VfsPath;
 
@@ -33,6 +38,7 @@ use std::time::SystemTime;
 /// VFS error – maps onto the `TOp*` error dialogs on the UI side.
 #[derive(Debug)]
 pub enum VfsError {
+    Cancelled,
     NotFound(VfsPath),
     AlreadyExists(VfsPath),
     PermissionDenied(VfsPath),
@@ -47,6 +53,7 @@ pub enum VfsError {
 impl std::fmt::Display for VfsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            VfsError::Cancelled => f.write_str("cancelled"),
             VfsError::NotFound(p) => write!(f, "not found: {p}"),
             VfsError::AlreadyExists(p) => write!(f, "already exists: {p}"),
             VfsError::PermissionDenied(p) => write!(f, "permission denied: {p}"),

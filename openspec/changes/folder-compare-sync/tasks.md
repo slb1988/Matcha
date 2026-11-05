@@ -1,13 +1,13 @@
 # Tasks
 
-说明：本 change 在分支/worktree `folder-compare-sync` 上实现，与 `text-compare-core` 并行。全程约束：`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 通过、除 `bc-vfs` 的 `windows-sys`（三个特性）外不新增第三方依赖、引擎 crate 不依赖 GUI、不改动 `tmp/` 与 vault。每个任务组至少一个 Conventional Commits 提交。
+说明：本 change 在分支/worktree `folder-compare-sync` 上实现，与 `text-compare-core` 并行。全程约束：`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 通过、除 `bc-vfs` 的 `windows-sys`（五个特性）外不新增第三方依赖、引擎 crate 不依赖 GUI、不改动 `tmp/` 与 vault。每个任务组至少一个 Conventional Commits 提交。
 
 ## 1. 本地文件系统与路径
 
-- [ ] 1.1 实现 `VfsPath::parse/join/parent/file_name`（本地路径、UNC、`scheme://` 往返、显示形式保持）；验证单测覆盖盘符、UNC、相对、`file://` 与非法输入
-- [ ] 1.2 实现 `LocalFs::list/metadata/open_read`：类型、大小、修改时间、DOS 属性、链接判定（reparse point）、无权限子目录带错误返回；验证单测在临时目录构造文件/文件夹/junction（Windows）并断言字段
-- [ ] 1.3 实现 `LocalFs::get/put/rename/make_dir`（流式复制、临时名+原子改名、同卷移动走重命名、跨卷复制+删除、可取消）与 `set_modified/set_attrs`；验证单测：复制保留时间戳与属性、取消后无半成品、Touch 指定时间往返
-- [ ] 1.4 实现 `LocalFs::delete`（永久/回收站，`windows-sys` 回收站，不支持时返回 `Unsupported`）、`crc32`（流式 + 取消）、`watch`（Windows `ReadDirectoryChangesW`，其他平台轮询）；验证单测：永久删除递归、CRC 与已知向量一致、监视能收到创建事件；回收站测试 `#[ignore]` 并在报告记录手动结果
+- [x] 1.1 实现 `VfsPath::parse/join/parent/file_name`（本地路径、UNC、`scheme://` 往返、显示形式保持）；验证单测覆盖盘符、UNC、相对、`file://` 与非法输入
+- [x] 1.2 实现 `LocalFs::list/metadata/open_read`：类型、大小、修改时间、DOS 属性、链接判定（reparse point）、无权限子目录带错误返回；验证单测在临时目录构造文件/文件夹/junction（Windows）并断言字段
+- [x] 1.3 实现 `LocalFs::get/put/rename/make_dir`（流式复制、临时名+原子改名、同卷移动走重命名、跨卷复制+删除、可取消）与 `set_modified/set_attrs`；验证单测：复制保留时间戳与属性、取消后无半成品、Touch 指定时间往返
+- [x] 1.4 实现 `LocalFs::delete`（永久/回收站，`windows-sys` 回收站，不支持时返回 `Unsupported`）、`crc32`（流式 + 取消）、`watch`（Windows `ReadDirectoryChangesW`，其他平台轮询）；验证单测：永久删除递归、CRC 与已知向量一致、监视能收到创建事件；回收站测试 `#[ignore]` 并在报告记录手动结果
 - [ ] 1.5 基准 `examples/list_bench.rs`：生成 10 万文件的临时树，测枚举+快速状态耗时；验证 < 1 s 顶层可见、全树枚举耗时写入报告
 
 ## 2. 比较树与准则

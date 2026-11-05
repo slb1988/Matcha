@@ -1,7 +1,7 @@
 # bc-vfs
 
 Virtual file-system abstraction. Milestone 1 ships the `Vfs` trait, `VfsPath`,
-`VfsEntry`, `VfsManager` and a `LocalFs` skeleton; remote protocols are deliberately
+`VfsEntry`, `VfsManager` and a streaming `LocalFs`; remote protocols are deliberately
 absent (spec non-goal) and will be further `Vfs` implementations.
 
 ## Responsibilities
@@ -10,14 +10,35 @@ absent (spec non-goal) and will be further `Vfs` implementations.
   `make_dir`, `crc32`, `set_modified`, `set_attrs`, `watch` – each maps to one `TVfs*Job`.
 - `VfsPath` – scheme + path; local paths stay `std::path`, remote ones mirror `vfs://` URLs.
 - `VfsEntry`, `EntryKind`, `FileAttrs` (DOS attributes + unix mode), `ChangeEvent`, `Watcher`.
-- `LocalFs` – all methods `todo!()`.
+- `LocalFs` – enumeration, per-entry errors, DOS metadata, streaming atomic copies,
+  cross-volume moves, recursive deletion, CRC32 and directory notifications.
+- `CopyOptions` controls overwrite (default false), timestamps/attributes (default true),
+  creation time (default false). `get_cancellable/put_cancellable/rename_cancellable/
+  crc32_cancellable` accept `bc_core::cancel::CancelCheck`.
+- Copies publish one complete file at a time; cancellation leaves already completed
+  files but removes the current temporary file. Directory links are not traversed
+  unless requested; copying an unfollowed link returns Unsupported.
+- `VfsPath::parse` returns Result and preserves explicit URL spelling, including file://.
+  `VfsEntry::error` records child errors without losing readable siblings.
 - `VfsManager` – provider registry (`local_only()` for M1), implemented.
 
 ## Dependency boundary
 
-No dependencies at all. Synchronous API: concurrency and cancellation belong to
-`bc-jobs` (engines wrap VFS calls in jobs). Used by every engine, the session layer and
-the script runner.
+Depends on bc-core for CancelCheck/Crc32. Windows-only windows-sys 0.61 enables
+Foundation, Storage_FileSystem, UI_Shell, System_IO and Globalization (all Win32_).
+The coordinator approved the last two to use generated I/O and NFC bindings rather
+than handwritten FFI. Unsafe code is confined to the documented Windows boundary.
+No jobs dependency or async runtime.
+
+Windows watch uses overlapped ReadDirectoryChangesW with cancellation/drain on drop;
+other platforms use snapshot polling (renames appear as delete/create). NFC is exposed
+by LocalFs::normalize_nfc; enabling NFC on non-Windows returns Unsupported.
+Windows recycle uses the shell and rejects UNC/non-fixed drives; non-Windows returns
+Unsupported. It never silently falls back to permanent deletion.
+
+Tests: `cargo test -p bc-vfs`; the ignored `recycle_bin_manual` test additionally
+checks Shell.Application's recycle namespace (run explicitly with --ignored).
+All fixtures live in the system temporary directory.
 
 ## Reference class map (from `vmt_report.txt`)
 
@@ -41,8 +62,6 @@ the script runner.
 
 ## Open questions
 
-- Recycle-bin delete and DOS attributes on Windows need Win32 calls; decide between a
-  tiny `windows-sys` dependency and manual FFI (constraint: keep dependencies minimal).
-- Junction/symlink semantics for `follow_symlinks` on Windows (reparse points).
-- Whether `VfsPath` should normalise case/separators for local paths when pairing
-  folder-compare nodes (currently left to `bc-engine-dir`).
+- Pairing case/separator semantics remain in bc-engine-dir, not VfsPath.
+- Shell recycle policy can depend on the local volume/user configuration; callers
+  must report a failure and explicitly decide any fallback.
