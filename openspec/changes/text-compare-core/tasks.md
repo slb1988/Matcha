@@ -39,13 +39,13 @@
 
 ## 6. bc-engine-text 引擎
 
-- [ ] 6.1 实现 `TextContent::from_bytes/to_bytes`（检测 → 解码 → 分行；保存时编码/BOM/行尾策略）；验证单测：规格 `text-encoding` 全部场景
-- [ ] 6.2 实现 `importance::classify_pair/propagate_block` 与 `ElementImportance`、不重要文本规则、替换规则（含双向/全词）；验证单测：规格 `text-importance` 的三态、关键字大小写优先、时间戳替换、双向替换、混合区块
-- [ ] 6.3 实现 `inline::inline_diff`（字符 diff → 碎片合并 → 词边界吸附 → 区间重要性 → 超长行退化）；验证单测：规格 `text-inline-diff` 全部场景与 500 KB 单行耗时上界
-- [ ] 6.4 实现 `TextMap`：行/区块/三态构建、`text_at`、导航（含忽略不重要）、`difference_counts`、`copy_section`（作为 `EditItem`）；验证单测：忽略不重要开关影响导航与计数；复制区块后该块变为相同且可撤销
-- [ ] 6.5 实现 `jobs::Align2Job/Realign2Job`（快照 → 哈希 → 对齐 → 分级；脏范围扩展到锚点的窗口化重算）；验证单测：局部重算结果在脏范围外与全量一致
-- [ ] 6.6 实现 `search::find_next/replace_all`（字面/正则/全词/方向/仅差异；全部替换为一个撤销组）；验证单测：仅差异查找只命中非相同行，replace_all 一次 undo 全部恢复
-- [ ] 6.7 实现 `TextMap::to_conflict_text()`：把指定区块导出为带行号、三态、前后文的纯文本块（为后续 AI 冲突包预留）；验证单测：导出可被重新解析回区块边界
+- [x] 6.1 实现 `TextContent::from_bytes/to_bytes`（检测 → 解码 → 分行；保存时编码/BOM/行尾策略）；验证单测：规格 `text-encoding` 全部场景
+- [x] 6.2 实现 `importance::classify_pair/propagate_block` 与 `ElementImportance`、不重要文本规则、替换规则（含双向/全词）；验证单测：规格 `text-importance` 的三态、关键字大小写优先、时间戳替换、双向替换、混合区块
+- [x] 6.3 实现 `inline::inline_diff`（字符 diff → 碎片合并 → 词边界吸附 → 区间重要性 → 超长行退化）；验证单测：规格 `text-inline-diff` 全部场景与 500 KB 单行耗时上界
+- [x] 6.4 实现 `TextMap`：行/区块/三态构建、`text_at`、导航（含忽略不重要）、`difference_counts`、`copy_section`（作为 `EditItem`）；验证单测：忽略不重要开关影响导航与计数；复制区块后该块变为相同且可撤销
+- [x] 6.5 实现 `jobs::Align2Job/Realign2Job`（快照 → 哈希 → 对齐 → 分级；脏范围扩展到锚点的窗口化重算）；验证单测：局部重算结果在脏范围外与全量一致
+- [x] 6.6 实现 `search::find_next/replace_all`（字面/正则/全词/方向/仅差异；全部替换为一个撤销组）；验证单测：仅差异查找只命中非相同行，replace_all 一次 undo 全部恢复
+- [x] 6.7 实现 `TextMap::to_conflict_text()`：把指定区块导出为带行号、三态、前后文的纯文本块（为后续 AI 冲突包预留）；验证单测：导出可被重新解析回区块边界
 
 ## 7. 黄金语料
 

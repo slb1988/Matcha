@@ -2,7 +2,7 @@
 //! policy-neutral; tokens contain only grammar-classified UTF-8 byte ranges.
 use crate::model::{ElementKind, FileFormat, GrammarMatch};
 use bc_core::{pattern::Pattern, CoreError};
-use std::{collections::HashMap, ops::Range};
+use std::{borrow::Cow, collections::HashMap, ops::Range};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -40,7 +40,7 @@ enum Compiled {
 
 #[derive(Debug)]
 pub struct Tokenizer<'f> {
-    format: &'f FileFormat,
+    format: Cow<'f, FileFormat>,
     compiled: Vec<Compiled>,
     weights: Vec<(Pattern, bc_core::align::LineWeight)>,
 }
@@ -140,14 +140,22 @@ impl<'f> Tokenizer<'f> {
             })
             .collect::<Result<_, _>>()?;
         Ok(Self {
-            format,
+            format: Cow::Borrowed(format),
             compiled,
             weights,
         })
     }
 
-    pub fn format(&self) -> &'f FileFormat {
-        self.format
+    pub fn format(&self) -> &FileFormat {
+        &self.format
+    }
+
+    pub fn into_owned(self) -> Tokenizer<'static> {
+        Tokenizer {
+            format: Cow::Owned(self.format.into_owned()),
+            compiled: self.compiled,
+            weights: self.weights,
+        }
     }
 
     /// Highest matching format priority, ready for AlignInput::weights. Weight

@@ -14,6 +14,9 @@ pub trait EditItem: std::fmt::Debug {
     fn try_merge(&mut self, _next: &dyn EditItem) -> bool {
         false
     }
+    /// Rebase mapped snapshots without losing undo history; default items hold no maps.
+    fn materialize(&mut self, _context: &mut crate::line::MaterializeContext) {}
+
     /// Optional concrete type access for coalescing compatible edits.
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         None
@@ -28,6 +31,11 @@ pub struct EditGroup {
 }
 
 impl EditItem for EditGroup {
+    fn materialize(&mut self, context: &mut crate::line::MaterializeContext) {
+        for item in &mut self.items {
+            item.materialize(context);
+        }
+    }
     fn description(&self) -> String {
         self.description.clone()
     }
@@ -203,6 +211,16 @@ impl EditStack {
             {
                 self.saved_depth = None;
             }
+        }
+    }
+
+    /// Rebase all live history snapshots, including redo and nested open groups.
+    pub fn materialize(&mut self, context: &mut crate::line::MaterializeContext) {
+        for item in self.undo.iter_mut().chain(&mut self.redo) {
+            item.materialize(context);
+        }
+        for group in &mut self.open_groups {
+            group.materialize(context);
         }
     }
 

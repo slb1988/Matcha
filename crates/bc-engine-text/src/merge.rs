@@ -59,27 +59,32 @@ pub struct MergeState {
 
 impl MergeState {
     /// Initial classification of every row after a 3-way alignment.
+    #[allow(unused_variables)] // three-way work is outside this change
     pub fn classify(map: &TextMap, rules: &TextMergeRules) -> Self {
         todo!("bc-engine-text::merge: classify rows (left/right/both/conflict, favor rules)")
     }
 
     /// Unresolved conflicts, optionally ignoring unimportant ones (`/iu`).
+    #[allow(unused_variables)] // three-way work is outside this change
     pub fn conflicts(&self, ignore_unimportant: bool) -> Vec<Conflict> {
         todo!("bc-engine-text::merge: collect conflicts")
     }
 
     /// Resolve a conflict block by taking `side`.
+    #[allow(unused_variables)] // three-way work is outside this change
     pub fn resolve(&mut self, conflict: &Conflict, side: Side) {
         todo!("bc-engine-text::merge: resolve")
     }
 
     /// Produce the output pane text.
+    #[allow(unused_variables)] // three-way work is outside this change
     pub fn render_output(&self, map: &TextMap) -> Vec<u8> {
         todo!("bc-engine-text::merge: render output (markers when forced)")
     }
 }
 
 /// Non-interactive merge as performed by `/automerge`.
+#[allow(unused_variables)] // three-way work is outside this change
 pub fn auto_merge(map: &TextMap, rules: &TextMergeRules) -> AutoMergeOutcome {
     todo!("bc-engine-text::merge: automerge")
 }

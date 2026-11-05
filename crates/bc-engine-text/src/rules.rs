@@ -47,6 +47,8 @@ pub struct TextRules {
     pub alignment: AlignmentRules,
     /// Session-level format override (name), else resolved by mask.
     pub format_override: Option<String>,
+    /// View/navigation projection only; original classifications stay intact.
+    pub ignore_unimportant: bool,
 }
 
 /// Which side wins unimportant conflicts – CLI `/favorleft` `/favorright`.
