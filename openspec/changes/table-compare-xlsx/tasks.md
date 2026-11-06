@@ -35,9 +35,9 @@
 
 ## 5. 黄金语料与对照
 
-- [ ] 5.1 编写 `tools/golden/gen_table_expected.ps1`：≥ 20 个 CSV 用例（键对齐、排序、重复键、容差、不重要列、大小写/空白、列数不同、多 sheet xlsx 由参考工具转换）用参考工具 `table-report layout:side-by-side output-options:html-color` 生成期望并入库，持互斥锁与备份/恢复纪律；验证脚本本机跑通
+- [x] 5.1 编写 `tools/golden/gen_table_expected.ps1`：≥ 20 个 CSV 用例（键对齐、排序、重复键、容差、不重要列、大小写/空白、列数不同、多 sheet xlsx 由参考工具转换）用参考工具 `table-report layout:side-by-side output-options:html-color` 生成期望并入库，持互斥锁与备份/恢复纪律；验证脚本本机跑通
 - [x] 5.2 编写 HTML 期望解析器与回归 `bc-engine-table/tests/golden_table.rs`（语料为空时跳过）；验证行状态与差异单元格一致率 ≥ 95%，不一致写 `tests/golden/table/KNOWN_DIFFS.md`
-- [ ] 5.3 编写 `docs/reference-parity/table-compare.md`（D9 逐条命令/选项）；验证覆盖 `commandstable.html` 每条命令
+- [x] 5.3 编写 `docs/reference-parity/table-compare.md`（D9 逐条命令/选项）；验证覆盖 `commandstable.html` 每条命令
 
 ## 6. 集成
 

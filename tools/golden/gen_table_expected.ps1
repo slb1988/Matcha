@@ -34,8 +34,16 @@ try {
  $owned=$null
  try {
   foreach($case in $cases) {
+   if($case.Name -notmatch '^\d{3}-[a-z0-9-]+$'){throw 'Unexpected corpus directory name'}
    if(Get-Process -Name BCompare -ErrorAction SilentlyContinue){throw 'Another reference process is running'}
    $p=[IO.File]::ReadAllText((Join-Path $case.FullName 'case.json'),$utf8)|ConvertFrom-Json
+   $allowedHandling=@('AsText','DateTimeTolerance','Insig','NumTolerance','NumToleranceRelative','StrCaseInsig','StrWSInsig')
+   foreach($column in $p.handling.PSObject.Properties){
+    if($column.Name -notmatch '^\d+$'){throw 'Handling column must be a nonnegative index'}
+    foreach($property in $column.Value.PSObject.Properties){
+     if($allowedHandling -notcontains $property.Name){throw "Unexpected table Handling property: $($property.Name)"}
+    }
+   }
    $dir=Join-Path $work $case.Name;$null=New-Item -ItemType Directory -Path $dir -Force
    $left=Join-Path $case.FullName 'left.csv';$right=Join-Path $case.FullName 'right.csv'
    if($p.xlsx) {
@@ -77,17 +85,23 @@ try {
    $report=Join-Path $dir 'expected.html';$log=Join-Path $dir 'generation.log';$script=Join-Path $dir 'report.txt'
    $commands='log verbose "'+$log+'"'+"`r`n"+'load <default>'+"`r`n"+'table-report layout:side-by-side options:display-all output-to:"'+$report+'" output-options:html-color "matcha-golden-table"'+"`r`n"
    [IO.File]::WriteAllText($script,$commands,$utf8)
+   if(Test-Path -LiteralPath $report){Remove-Item -LiteralPath $report -Force}
    $owned=Start-Process -FilePath $ReferenceExe -ArgumentList @(('"@'+$script+'"'),'/silent','/solo') -PassThru
    if(!$owned.WaitForExit(60000)){$owned.Kill();$owned.WaitForExit();throw 'Owned table report process timed out'}
    $exit=$owned.ExitCode;$owned=$null;if($exit -ne 0){throw "Table report failed ($exit): $log"}
-   if(!(Test-Path -LiteralPath $report)){throw "Missing report $report"}
+   if(!(Test-Path -LiteralPath $report -PathType Leaf) -or (Get-Item -LiteralPath $report).Length -eq 0){throw "Missing or empty report $report"}
    # Native multiline cells can contain NULs. A reversible JSON string keeps
    # those exact HTML bytes without committing a binary-classified fixture.
    $rawPath=Join-Path $case.FullName 'expected.html'
    $jsonPath=Join-Path $case.FullName 'expected.html.json'
-   $html=[IO.File]::ReadAllText($report,$utf8)
+   $nativeBytes=[IO.File]::ReadAllBytes($report)
+   $html=$utf8.GetString($nativeBytes)
    if($html.IndexOf([char]0) -ge 0) {
-    [IO.File]::WriteAllText($jsonPath,(ConvertTo-Json -InputObject $html -Compress)+"`n",$utf8)
+    $encoded=ConvertTo-Json -InputObject $html -Compress
+    $restored=ConvertFrom-Json -InputObject $encoded
+    if([Convert]::ToBase64String($utf8.GetBytes($restored)) -cne [Convert]::ToBase64String($nativeBytes)){throw 'Native HTML JSON roundtrip changed bytes'}
+    [IO.File]::WriteAllText($jsonPath,$encoded+"`n",$utf8)
+    Write-Output "lossless JSON wrapper verified: $($case.Name)"
     if(Test-Path -LiteralPath $rawPath){Remove-Item -LiteralPath $rawPath -Force}
    } else {
     Copy-Item -LiteralPath $report -Destination $rawPath -Force

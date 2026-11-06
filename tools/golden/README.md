@@ -1,5 +1,40 @@
 # 正式黄金语料生成
 
+## 表格采集与普通设置协议
+
+`gen_table_expected.ps1` 处理 `crates/bc-core/tests/golden/table` 中 30 个合成用例（27 CSV、3 个临时生成的 xlsx，含多 sheet）。沿用下述共享锁；只临时添加普通 `TTableCompareSession`，finally 恢复指定会话 XML 原字节并校验。不读取其他配置或授权文件；图片与工作簿只生成到忽略的 target，不提交参考图标或二进制 fixture。
+
+```powershell
+./tools/golden/gen_table_expected.ps1 -ReferenceExe '<本机参考程序 exe>' -WorkerId '<本次运行标识>' -LockTimeoutSeconds 30
+cargo test -p bc-engine-table --test golden_table -- --nocapture
+```
+
+已经定向检查并由原生报告验证的表格协议（不需要再次逆向或猜属性名）：
+
+- `TTableCompareSession` 直接放在 `BCSessions` 根下，`Rules Value="TTableRules"`。
+- 脚本先 `load <default>`，再 `table-report layout:side-by-side options:display-all output-options:html-color ... "matcha-golden-table"`。直接 `load` 表格会话不是合法的表格脚本入口，会报要求 Folder Compare。
+- `ColKeys/_N Value="0;1"`：N 为零基 sheet，值为零基比较列集合，**分号**分隔，不是逗号。
+- `ColHandling/_N/_M`：N 为 sheet、M 为比较列。普通属性为 `AsText`、`Insig`、`StrCaseInsig`、`StrWSInsig`、`NumTolerance`、`NumToleranceRelative`、`DateTimeTolerance`。默认 Handling 在 Rules 下使用相同名称的 `Col` 前缀。
+- `AlignDef/_N/Kind` 使用 `alignNone/alignPatience/alignQuick/alignSmart`；`AlignSort` 为分号分隔的 sheet 集合；还显式设置 NeverAlignDiffs、UseCloseness、SkewTolerance。
+- 多 sheet 的键/Handling/AlignDef 分别写入对应 N，不能只配置第一张表后声称所有 sheet 使用相同设置。
+- 正式语料显式按 Data 首行与当前原生报告对齐；日期语料明确记录 MDY / 分隔符，不将地区解释差异靠状态归一化掩盖。
+- 原生多行字段报告可能含 NUL；使用可逆 `expected.html.json` 字符串封装并验证解码字节完全一致。普通 HTML 保持原字节；绝不修改状态或合并行。
+- 每次运行先删除自有 target 中的旧报告并要求新报告非空，避免把遗留结果误认成新采集。提交前仍需检查没有图标、私人备份或二进制文件。
+- 唯一 Unaligned 例外完整签名与 95% 行/格双门槛见 corpus 的 KNOWN_DIFFS。该报告路径差异不等同于参考 GUI 行为结论。
+
+## 表格逐命令清单校验
+
+`docs/reference-parity/table-compare.md` 逐段覆盖 D9。对只读解包的帮助运行：
+
+```text
+python tools/golden/check_table_parity.py --help-dir <帮助目录>
+python tools/golden/test_table_parity.py
+```
+
+覆盖 77 个命令段落（保留重复菜单前缀）、15 个主题；兼容帮助声明的 ISO-8859-1 编码。此检查只证明清单完整，不能当作所有功能已实现的证据。
+
+## 文本线既有结果
+
 Wave 3b 已完成 **30 个合成用例 × Myers/Standard 两种策略 = 60 份原始 XML**。Myers 30/30（100%），Standard + closeness 29/30（96.67%）；唯一“不相似不强配”差异在 [KNOWN_DIFFS](../../crates/bc-core/tests/golden/KNOWN_DIFFS.md) 保存输入与双方完整输出，并由测试钉住，不能扩大成任意错误白名单。
 
 ## 正式模式
