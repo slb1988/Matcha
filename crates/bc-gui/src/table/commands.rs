@@ -261,38 +261,30 @@ impl TableCompareView {
             self.message = "Wait for comparison before copying".into();
             return;
         }
-        let p = self.pair.as_mut().unwrap();
-        let a = self.grid.anchor.unwrap_or(self.grid.cursor);
-        let b = self.grid.cursor;
-        p.history[to].begin_group(if whole_row { "Copy rows" } else { "Copy cells" });
-        let mut error = None;
-        for r in (a.row.min(b.row)..=a.row.max(b.row)).rev() {
-            if whole_row {
-                match p.map.copy_row(r, side(from)) {
-                    Ok(e) => p.history[to].push(e),
-                    Err(e) => {
-                        error = Some(e);
-                        break;
-                    }
-                }
-            } else {
-                for c in a.column.min(b.column)..=a.column.max(b.column) {
-                    match p.map.copy_cell(r, c, side(from)) {
-                        Ok(e) => p.history[to].push(e),
-                        Err(e) => {
-                            error = Some(e);
-                            break;
-                        }
-                    }
-                }
-            }
+        let selected = self.selection();
+        if selected.rows.is_empty() || (!whole_row && selected.columns.is_empty()) {
+            self.message = "No visible rows / cells selected".into();
+            return;
         }
-        p.history[to].end_group();
-        self.grid.active = to;
-        self.focus_grid = Some(to);
-        self.edited();
-        if let Some(e) = error {
-            self.message = e.to_string();
+        let p = self.pair.as_mut().unwrap();
+        let result = if whole_row {
+            p.map.copy_rows(&selected.rows, side(from))
+        } else {
+            let cells = selected
+                .rows
+                .iter()
+                .flat_map(|&row| selected.columns.iter().map(move |&column| (row, column)))
+                .collect::<Vec<_>>();
+            p.map.copy_cells(&cells, side(from))
+        };
+        match result {
+            Ok(edit) => {
+                p.history[to].push(edit);
+                self.grid.active = to;
+                self.focus_grid = Some(to);
+                self.edited();
+            }
+            Err(error) => self.message = error.to_string(),
         }
     }
     fn selected_cells(&self) -> Vec<(usize, usize)> {

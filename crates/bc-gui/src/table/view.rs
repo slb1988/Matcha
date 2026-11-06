@@ -254,9 +254,12 @@ impl TableCompareView {
         self.request(Pending::Exit);
     }
     pub(super) fn cancel(&mut self) {
+        self.cancel_comparison();
+        drop(self.scan.take());
+    }
+    fn cancel_comparison(&mut self) {
         drop(self.worker.take());
         self.held_output = None;
-        drop(self.scan.take());
         self.edited_at = None;
         self.expected_rules = None;
     }
@@ -488,7 +491,9 @@ impl TableCompareView {
         self.project_with_fit(false);
     }
     pub(super) fn project_with_fit(&mut self, fit_all: bool) {
-        self.cancel();
+        // Sheet scans return raw statistics for all three layers. A display-only
+        // change must not cancel them and leave unvisited sheet tabs pending.
+        self.cancel_comparison();
         if let Some(p) = &self.pair {
             let rules = p.map.rules().clone();
             self.default_rules.layers = rules.layers;

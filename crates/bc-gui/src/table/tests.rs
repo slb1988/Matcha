@@ -17,8 +17,12 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
+#[path = "copy_tests.rs"]
+mod copying;
 #[path = "edit_tests.rs"]
 mod editing;
+#[path = "projection_tests.rs"]
+mod projections;
 
 fn sheet(text: &str) -> Sheet {
     read_text(IoCursor::new(text), &ReadOptions::default(), &NeverCancel)

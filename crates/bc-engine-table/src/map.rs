@@ -1,6 +1,6 @@
 use crate::{
     align::{DuplicateKeys, KeyAlign, KeyAlignment},
-    columns::{align_columns, ColumnChange, ColumnMapping, Side},
+    columns::{align_columns, ColumnMapping, Side},
     compare::{CellComparator, CellDiff, Importance, PackedStates},
     invalid,
     rules::{ColumnMode, KeySelection, Layers},
@@ -562,129 +562,10 @@ impl TableMap {
         })
     }
     pub fn copy_cell(&self, row: usize, column: usize, from: Side) -> Result<Box<dyn EditItem>> {
-        let pair = self
-            .row(row)
-            .ok_or_else(|| invalid("display row out of range"))?;
-        let mapping = self
-            .rules()
-            .columns
-            .0
-            .get(column)
-            .cloned()
-            .ok_or_else(|| invalid("comparison column out of range"))?;
-        let (source_row, dest_row) = match from {
-            Side::Left => (pair.left, pair.right),
-            Side::Right => (pair.right, pair.left),
-        };
-        let source_row = source_row.ok_or_else(|| invalid("source cell is a gap"))?;
-        let dest_row =
-            dest_row.ok_or_else(|| invalid("destination row is a gap; copy the row first"))?;
-        let source_column = mapping
-            .index(from)
-            .ok_or_else(|| invalid("source column is a gap"))?;
-        let dest_column = mapping
-            .index(from.other())
-            .ok_or_else(|| invalid("destination column is a gap"))?;
-        let source = self.target(from);
-        let source = source.borrow();
-        let mut cell = source
-            .cell(source_row, source_column)
-            .cloned()
-            .ok_or_else(|| invalid("source cell out of range"))?;
-        let style = source.style(cell.style).cloned();
-        let display = source.display_at(source_row, source_column).unwrap();
-        drop(source);
-        self.apply_edit(from.other(), "Copy cell", move |sheet, _| {
-            cell.style = style.map(|s| sheet.intern_style(s));
-            sheet.set_cell(dest_row, dest_column, cell)?;
-            sheet
-                .display_overrides
-                .insert((dest_row, dest_column), display.into());
-            Ok(())
-        })
+        self.copy_cells(&[(row, column)], from)
     }
     pub fn copy_row(&self, row: usize, from: Side) -> Result<Box<dyn EditItem>> {
-        let pair = self
-            .row(row)
-            .ok_or_else(|| invalid("display row out of range"))?;
-        let (source_row, dest_row) = match from {
-            Side::Left => (pair.left, pair.right),
-            Side::Right => (pair.right, pair.left),
-        };
-        let source_row = source_row.ok_or_else(|| invalid("source row is a gap"))?;
-        let source = self.target(from).borrow().clone();
-        let destination = from.other();
-        let at = dest_row.unwrap_or_else(|| {
-            ((row + 1)..self.row_count())
-                .find_map(|r| match destination {
-                    Side::Left => self.row(r)?.left,
-                    Side::Right => self.row(r)?.right,
-                })
-                .unwrap_or_else(|| self.target(destination).borrow().row_count())
-        });
-        self.apply_edit(destination, "Copy row", move |sheet, settings| {
-            let mut cells = if let Some(row) = dest_row {
-                (0..sheet.column_count())
-                    .map(|c| sheet.cell(row, c).unwrap().clone())
-                    .collect::<Vec<_>>()
-            } else {
-                vec![Cell::default(); sheet.column_count()]
-            };
-            let mut displays = Vec::new();
-            for col in &mut settings.rules.columns.0 {
-                if let Some(sc) = col.index(from) {
-                    let dc = if let Some(dc) = col.index(destination) {
-                        dc
-                    } else {
-                        let dc = cells.len();
-                        cells.push(Cell::default());
-                        match destination {
-                            Side::Left => col.left = Some(dc),
-                            Side::Right => col.right = Some(dc),
-                        }
-                        col.changes.retain(|c| {
-                            !matches!(c, ColumnChange::Inserted | ColumnChange::Deleted)
-                        });
-                        dc
-                    };
-                    let mut cell = source.cell(source_row, sc).unwrap().clone();
-                    cell.style = source
-                        .style(cell.style)
-                        .cloned()
-                        .map(|s| sheet.intern_style(s));
-                    cells[dc] = cell;
-                    displays.push((dc, source.display_at(source_row, sc).unwrap()));
-                }
-            }
-            if let Some(row) = dest_row {
-                sheet.ensure_size(sheet.row_count(), cells.len());
-                for (c, cell) in cells.into_iter().enumerate() {
-                    sheet.set_cell(row, c, cell)?;
-                }
-            } else {
-                sheet.insert_row(at, cells)?;
-                let mut shifted = AlignmentOverrides::default();
-                for &(l, r) in settings.overrides.pairs() {
-                    shifted.insert(
-                        if destination == Side::Left && l >= at {
-                            l + 1
-                        } else {
-                            l
-                        },
-                        if destination == Side::Right && r >= at {
-                            r + 1
-                        } else {
-                            r
-                        },
-                    )?;
-                }
-                settings.overrides = shifted;
-            }
-            for (column, display) in displays {
-                sheet.display_overrides.insert((at, column), display.into());
-            }
-            Ok(())
-        })
+        self.copy_rows(&[row], from)
     }
 }
 #[derive(Debug)]

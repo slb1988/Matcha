@@ -9,6 +9,7 @@ pub use model::{Cell, CellValue, MergedRange, Sheet, Style, StyleId, TableModel}
 
 pub mod align;
 pub mod compare;
+mod copying;
 pub mod editing;
 pub mod jobs;
 pub mod map;
