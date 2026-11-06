@@ -65,12 +65,7 @@
 
 ## 提交
 
-本波以两个本地 Conventional Commits 收口（代码 SHA 见提交后回填；不 push、不归档、不 amend）：
-
-1. 代码/测试（15 个 Rust 文件）：`fix(table): complete session and workbook state acceptance` → 提交 SHA 见下节回填。
-2. 文档与工具：`test(table): record final xlsx acceptance and same-round benchmarks` → 提交 SHA 见下节回填。
-
-### 提交回填
+本波主要提交如下（未 push、未归档、不 amend；完整列表以 git log 为准）：
 
 - 代码提交：`283b47e8e7c356a0b5e7d66769a238b1ed266081`（`fix(table): complete session and workbook state acceptance`，15 个 Rust 文件，+4613/−190）
-- 文档提交：见包含本报告的 `test(table)` 提交；按规则不在本文自引用其 SHA、不留待填占位。
+- 文档/验收提交：`test(table): record final xlsx acceptance and same-round benchmarks`（含本报告与验收证据）；另有文档校对修正提交。
