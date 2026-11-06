@@ -7,7 +7,7 @@ use bc_engine_dir::{
     view::ViewOptions,
     CompareStatus, Criteria, DirTree,
 };
-use bc_vfs::{FileAttrs, LocalFs, Vfs, VfsError, VfsManager, VfsPath};
+use bc_vfs::{FileAttrs, LocalFs, Vfs, VfsManager, VfsPath};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -304,7 +304,6 @@ fn run_case(case_dir: &Path, manifest: &Xml) -> Result<Rows, Box<dyn std::error:
     ];
     refresh::full_refresh(&mut tree, &vfs, &|| false)?;
     tree.evaluate_quick(&criteria);
-    let mut unsupported = BTreeSet::new();
     let ids: Vec<_> = tree
         .nodes()
         .filter(|(_, n)| !n.is_dir && n.sides[0].is_some() && n.sides[1].is_some())
@@ -328,17 +327,7 @@ fn run_case(case_dir: &Path, manifest: &Xml) -> Result<Rows, Box<dyn std::error:
                 node: id,
                 revision: node.revision,
             };
-            match job.compare(&|| false) {
-                Ok(result) => {
-                    result.apply(&mut tree);
-                }
-                Err(VfsError::Unsupported(_))
-                    if manifest.attr("knownDiff") == "rules-unavailable" =>
-                {
-                    unsupported.insert(id);
-                }
-                Err(error) => return Err(error.into()),
-            }
+            job.compare(&|| false)?.apply(&mut tree);
         }
     }
     let mut filters = FilterSettings::default();
@@ -368,17 +357,7 @@ fn run_case(case_dir: &Path, manifest: &Xml) -> Result<Rows, Box<dyn std::error:
         {
             rows.folders.insert(pair);
         } else {
-            let state = if row
-                .sides
-                .iter()
-                .flatten()
-                .any(|id| unsupported.contains(id))
-            {
-                "Unsupported"
-            } else {
-                status(row.status)
-            };
-            if rows.files.insert(pair, state.into()).is_some() {
+            if rows.files.insert(pair, status(row.status).into()).is_some() {
                 return Err("duplicate candidate pairing".into());
             }
         }
@@ -406,9 +385,6 @@ fn golden_directory_statuses_and_structure() {
     assert!(cases.len() >= 20);
     let mut total = 0;
     let mut matches = 0;
-    let mut supported_total = 0;
-    let mut supported_matches = 0;
-    let mut known = 0;
     let mut errors = Vec::new();
     let mut folders = 0;
     for case in &cases {
@@ -424,34 +400,20 @@ fn golden_directory_statuses_and_structure() {
             .chain(actual.files.keys())
             .cloned()
             .collect();
-        let exception = manifest.attr("knownDiff") == "rules-unavailable";
+        // knownDiff="rules-unavailable" in rules-comments is a capture-time note; rules-based
+        // comparison now runs through the text engine, so every row must match.
         for pair in keys {
             total += 1;
             let equal = expected.files.get(&pair) == actual.files.get(&pair);
             matches += usize::from(equal);
-            if exception {
-                if !equal {
-                    known += 1;
-                    println!(
-                        "golden.dir.known_diff={} {:?}: {:?} -> {:?}",
-                        manifest.attr("name"),
-                        pair,
-                        expected.files.get(&pair),
-                        actual.files.get(&pair)
-                    );
-                }
-            } else {
-                supported_total += 1;
-                supported_matches += usize::from(equal);
-                if !equal {
-                    errors.push(format!(
-                        "{} {:?}: expected {:?}, actual {:?}",
-                        manifest.attr("name"),
-                        pair,
-                        expected.files.get(&pair),
-                        actual.files.get(&pair)
-                    ));
-                }
+            if !equal {
+                errors.push(format!(
+                    "{} {:?}: expected {:?}, actual {:?}",
+                    manifest.attr("name"),
+                    pair,
+                    expected.files.get(&pair),
+                    actual.files.get(&pair)
+                ));
             }
         }
         folders += expected.folders.len();
@@ -464,11 +426,10 @@ fn golden_directory_statuses_and_structure() {
             ));
         }
     }
-    println!("golden.dir.cases={}; rows={total}; matched={matches}; overall_pct={:.6}; supported_rows={supported_total}; supported_matched={supported_matches}; supported_pct={:.6}; folder_rows={folders}; known_diffs={known}",
-        cases.len(),matches as f64/total as f64*100.0,supported_matches as f64/supported_total as f64*100.0);
-    assert_eq!(
-        known, 1,
-        "only the explicitly approved rules-based row may differ"
+    println!(
+        "golden.dir.cases={}; rows={total}; matched={matches}; overall_pct={:.6}; folder_rows={folders}; known_diffs=0",
+        cases.len(),
+        matches as f64 / total as f64 * 100.0
     );
     assert!(errors.is_empty(), "{}", errors.join("\n"));
 }

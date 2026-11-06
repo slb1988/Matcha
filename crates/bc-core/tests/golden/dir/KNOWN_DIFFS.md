@@ -1,14 +1,18 @@
 # Folder golden 已知差异
 
-## 已批准的不一致：1 条
+## 已批准的不一致：0 条
 
-| case | 配对行 | 原生 XML | 本分支 | 原因与处理 |
-|---|---|---|---|---|
-| rules-comments | example.cpp ↔ example.cpp | diff | Unsupported | 文本规则入口须合并 text-compare-core 后接通；协调者批准本波明确例外，不伪造规则结果 |
+任务 8.2 合并 master 后，规则比较经 bc-engine-text 接通（默认文本规则，按文件名选格式），
+rules-comments 的 example.cpp ↔ example.cpp 得到 Different，与原生 XML 的 diff 一致。
+回归现在要求全部 33 个文件行一致，任何不一致直接失败。
 
-两份输入只有行注释文字不同；保留本机参考工具实际报告的 diff，
-不自行把它改写为“相似”。报告的文件状态没有展开重要/不重要的全部细节。
-回归要求这个例外仍然恰好一行；新增差异直接失败，例外被解决后也要求更新本文件/断言。
+历史：Wave C 时该行为 Unsupported，是协调者批准的唯一例外。语料 case.xml 仍保留采集时的
+knownDiff="rules-unavailable" 注记；为不改动带 provenance 的生成器与语料字节，没有重写它，
+测试也不再据此放行任何行。
+
+两份输入只有行注释文字不同；保留本机参考工具实际报告的 diff。默认文本规则下注释是重要的；
+`criteria rules-based comments-unimportant` 时同一对为“相似”，开启 ignore-unimportant 视为相同
+（引擎单测覆盖）。原生 XML 状态不区分重要/不重要差异，因此这一点没有原生 oracle。
 
 ## 采集限制（不是候选状态不一致，不计入上述 1 条）
 

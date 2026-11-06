@@ -55,7 +55,7 @@ fn binary_crc_and_short_readers() {
     }
 }
 #[test]
-fn rules_are_explicitly_unsupported_and_skip_reads_nothing() {
+fn skip_quick_same_reads_nothing() {
     let mut task = job(
         "nonexistent-left".into(),
         "nonexistent-right".into(),
@@ -65,11 +65,76 @@ fn rules_are_explicitly_unsupported_and_skip_reads_nothing() {
     let result = task.compare(&|| false).unwrap();
     assert!(result.skipped);
     assert_eq!(result.bytes_read, [0, 0]);
-    task.criteria.content = ContentCompare::RulesBased;
-    assert!(matches!(
-        task.compare(&|| false),
-        Err(VfsError::Unsupported(_))
-    ));
+}
+#[test]
+fn rules_based_uses_the_text_engine_default_rules() {
+    let dir = std::env::temp_dir().join(format!("matcha-rules-{}", std::process::id()));
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(dir.clone());
+    let pair = |name: &str, left: &[u8], right: &[u8]| {
+        let [l, r] = ["left", "right"].map(|side| dir.join(side).join(name));
+        for (path, bytes) in [(&l, left), (&r, right)] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        }
+        job(l, r, ContentCompare::RulesBased)
+    };
+    let rules = |task: ContentCompareJob| task.compare(&|| false).unwrap();
+    // Default text rules keep comments important (the native golden reports "diff").
+    let comment = pair(
+        "example.cpp",
+        b"int value = 1; // left comment\n",
+        b"int value = 1; // right comment\n",
+    );
+    let result = rules(comment);
+    assert_eq!(result.status, CompareStatus::Different);
+    assert_eq!(result.bytes_read, [31, 32]);
+    // Spec scenario: with comments unimportant the same pair is only "similar", and
+    // Ignore Unimportant then treats it as the same.
+    let mut comment = pair(
+        "example.cpp",
+        b"int value = 1; // left comment\n",
+        b"int value = 1; // right comment\n",
+    );
+    comment.criteria = Criteria::parse_script("rules-based comments-unimportant").unwrap();
+    assert_eq!(rules(comment).status, CompareStatus::SimilarUnimportant);
+    let mut ignoring = Criteria::parse_script("rules-based comments-unimportant").unwrap();
+    assert_eq!(
+        ignoring.combine(CompareStatus::Same, Some(CompareStatus::SimilarUnimportant), None),
+        CompareStatus::SimilarUnimportant
+    );
+    ignoring.ignore_unimportant = true;
+    assert_eq!(
+        ignoring.combine(CompareStatus::Same, Some(CompareStatus::SimilarUnimportant), None),
+        CompareStatus::Same
+    );
+    // Line endings are unimportant by default: different bytes, "similar" result.
+    let endings = pair("endings.cpp", b"int a;\r\nint b;\r\n", b"int a;\nint b;\n");
+    assert_eq!(rules(endings).status, CompareStatus::SimilarUnimportant);
+    let code = pair("code.cpp", b"int value = 1;\n", b"int value = 2;\n");
+    assert_eq!(rules(code).status, CompareStatus::Different);
+    let same = pair("same.cpp", b"int value = 1;\n", b"int value = 1;\n");
+    assert_eq!(rules(same).status, CompareStatus::Same);
+    // Binary input is not text: the byte result stands.
+    let binary = pair("blob.bin", b"\0\x01\x02\0", b"\0\x01\x03\0");
+    assert_eq!(rules(binary).status, CompareStatus::Different);
+    assert_eq!(
+        compare_readers(
+            &mut Cursor::new(b"a\r\nb\r\n"),
+            &mut Cursor::new(b"a\nb\n"),
+            ContentCompare::RulesBased,
+            &|| false
+        )
+        .unwrap(),
+        (CompareStatus::SimilarUnimportant, [6, 4])
+    );
+    let cancelled = pair("cancel.cpp", b"a\n", b"b\n").compare(&|| true);
+    assert!(matches!(cancelled, Err(VfsError::Cancelled)));
 }
 #[test]
 fn sparse_gigabyte_early_exit_and_real_thread_cancel() {

@@ -118,6 +118,7 @@ fn criteria_script_roundtrip_and_validation() {
         "timestamp:;IgnoreDST size",
         "timestamp binary timezone:ignore",
         "no-size filename-case skip-quick-same no-content-override",
+        "rules-based comments-unimportant comments-unimportant",
     ] {
         let c = Criteria::parse_script(input).unwrap();
         assert_eq!(Criteria::parse_script(&c.to_script()).unwrap(), c);

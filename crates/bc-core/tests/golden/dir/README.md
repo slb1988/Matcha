@@ -22,9 +22,8 @@ cargo test -p bc-engine-dir --test golden_dir -- --nocapture
 既有语料实际为 28 case、33 个文件配对行、4 个文件夹结构行。
 
 结果口径：
-- 总体：32 / 33 = 96.969697%。
-- 已支持范围：32 / 32 = 100%。
-- 已批准例外：1 行规则比较 Unsupported，见 KNOWN_DIFFS.md。
+- 总体：33 / 33 = 100%（任务 8.2 接通规则比较后）。
+- 已批准例外：0；Wave C 时的 1 行规则比较 Unsupported 已解决，见 KNOWN_DIFFS.md。
 - 目录结构：4 / 4 配对一致，不将其冒计为含 status 的文件行。
 
 再生成会调用外部参考程序；请阅读 tools/golden/README.md 的互斥锁与配置恢复约束。

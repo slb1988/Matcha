@@ -572,9 +572,6 @@ impl Model {
         if mode == ContentCompare::Size && !self.criteria.version {
             return Ok(());
         }
-        if mode == ContentCompare::RulesBased {
-            return Err("Rules comparison is unavailable until text-engine integration; quick results are not content results".into());
-        }
         if self.view.folders == FolderDisplay::Flatten {
             let rows = self.tree.view_rows(ViewOptions {
                 display: bc_engine_dir::DisplayFilter::All,
@@ -2274,7 +2271,7 @@ impl DirCompareView {
                 (ContentCompare::Size, "Size"),
                 (ContentCompare::Crc, "CRC"),
                 (ContentCompare::Binary, "Binary"),
-                (ContentCompare::RulesBased, "Rules (unavailable)"),
+                (ContentCompare::RulesBased, "Rules-based"),
             ] {
                 if ui.button(label).clicked() {
                     match self.selected_pair() {
@@ -2289,6 +2286,7 @@ impl DirCompareView {
             for (mode, label) in [
                 (ContentCompare::Crc, "CRC"),
                 (ContentCompare::Binary, "Binary"),
+                (ContentCompare::RulesBased, "Rules-based"),
             ] {
                 if ui.button(label).clicked() {
                     self.send(Command::Compare {
@@ -2566,7 +2564,7 @@ impl DirCompareView {
         let mut align = false;
         egui::Window::new("Folder comparison rules").open(&mut open).show(ctx,|ui|{
             ui.label("criteria arguments");ui.add(egui::TextEdit::singleline(&mut self.criteria_text).desired_width(550.0));
-            ui.small("Examples: timestamp:2sec;IgnoreDST size / CRC / binary / skip-quick-same. Rules-based remains Unsupported until merge.");
+            ui.small("Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / skip-quick-same. Rules-based uses the default text rules; add comments-unimportant to ignore comment edits.");
             ui.checkbox(&mut self.pairing.case_sensitive,"Case-sensitive pairing");ui.checkbox(&mut self.pairing.ignore_extension,"Align different extensions");ui.checkbox(&mut self.pairing.normalize_nfc,"Align Unicode normalization forms");
             ui.checkbox(&mut self.scan.automatic,"Automatic recursive scan");ui.checkbox(&mut self.scan.scan_orphans,"Scan top-level orphan folders");ui.checkbox(&mut self.scan.expand_on_load,"Expand folders on load");ui.checkbox(&mut self.scan.differences_only,"Expand differences only");ui.checkbox(&mut self.scan.auto_refresh,"Automatic filesystem refresh");
             ui.separator();
@@ -3643,6 +3641,16 @@ mod tests {
         ));
         wait(&mut view, &ctx);
         assert!(view.quick.as_ref().unwrap().contains("Different"));
+        for (name, expected) in [("a.txt", "Different"), ("b.txt", "Same")] {
+            view.focus_row(row(&view, name), None);
+            view.send(Command::Quick(
+                view.selected_pair().unwrap(),
+                ContentCompare::RulesBased,
+            ));
+            wait(&mut view, &ctx);
+            assert!(view.quick.as_ref().unwrap().starts_with(expected));
+        }
+        view.focus_row(row(&view, "a.txt"), None);
         view.send(Command::SyncMode(
             SyncMode::Update(bc_engine_dir::sync::SyncDirection::Both),
             true,

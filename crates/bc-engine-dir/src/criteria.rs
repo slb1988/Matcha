@@ -1,5 +1,7 @@
 //! Directory quick tests and the script criteria contract.
 use crate::CompareStatus;
+use bc_engine_text::rules::ComparisonRules;
+use bc_formats::ElementKind;
 use bc_vfs::{FileAttrs, VfsEntry};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -35,6 +37,8 @@ pub struct Criteria {
     pub compare_filename_case: bool,
     pub skip_content_if_quick_same: bool,
     pub content_overrides_quick: bool,
+    /// Text importance used by rules-based content comparison (default text rules).
+    pub rules: ComparisonRules,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimestampCriteria {
@@ -63,6 +67,7 @@ impl Default for Criteria {
             compare_filename_case: false,
             skip_content_if_quick_same: false,
             content_overrides_quick: true,
+            rules: ComparisonRules::default(),
         }
     }
 }
@@ -194,6 +199,12 @@ impl Criteria {
                 "no-size" => result.compare_size = false,
                 "skip-quick-same" => result.skip_content_if_quick_same = true,
                 "no-content-override" => result.content_overrides_quick = false,
+                "comments-unimportant" => {
+                    let unimportant = &mut result.rules.importance.unimportant;
+                    if !unimportant.contains(&ElementKind::Comment) {
+                        unimportant.push(ElementKind::Comment);
+                    }
+                }
                 "size" | "crc" | "binary" | "rules-based" => {
                     if content_seen {
                         return Err("content criteria are mutually exclusive".into());
@@ -292,6 +303,13 @@ impl Criteria {
             (!self.compare_size, "no-size"),
             (self.skip_content_if_quick_same, "skip-quick-same"),
             (!self.content_overrides_quick, "no-content-override"),
+            (
+                self.rules
+                    .importance
+                    .unimportant
+                    .contains(&ElementKind::Comment),
+                "comments-unimportant",
+            ),
         ] {
             if enabled {
                 fields.push(name.into());
