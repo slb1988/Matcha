@@ -270,6 +270,12 @@ impl eframe::App for MatchaApp {
                 if v.is_ready() {
                     self.table_perf_reported = true;
                     crate::perf::mark("app:first-ready-frame");
+                    if let Some(s) = v.statistics() {
+                        eprintln!(
+                            "[table-perf] fingerprint rows={} same={} unimportant={} important={} left_only={} right_only={}",
+                            v.row_count(), s.same, s.unimportant, s.important, s.left_only, s.right_only
+                        );
+                    }
                     if std::env::var_os("MATCHA_TABLE_PERF_EXIT").is_some() {
                         self.exit_confirmed = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);

@@ -246,6 +246,10 @@ impl TableCompareView {
     pub fn row_count(&self) -> usize {
         self.pair.as_ref().map_or(0, |p| p.projection.len())
     }
+    /// Statistics of the active pair (launch-perf fingerprinting).
+    pub fn statistics(&self) -> Option<bc_engine_table::map::TableStatistics> {
+        self.pair.as_ref().map(|p| p.cache.statistics)
+    }
     pub fn top_row(&self, _height: f32) -> usize {
         (self.grid.scroll.y / ROW_HEIGHT).max(0.0) as usize
     }
