@@ -36,7 +36,7 @@
 ## 5. 黄金语料与对照
 
 - [ ] 5.1 编写 `tools/golden/gen_table_expected.ps1`：≥ 20 个 CSV 用例（键对齐、排序、重复键、容差、不重要列、大小写/空白、列数不同、多 sheet xlsx 由参考工具转换）用参考工具 `table-report layout:side-by-side output-options:html-color` 生成期望并入库，持互斥锁与备份/恢复纪律；验证脚本本机跑通
-- [ ] 5.2 编写 HTML 期望解析器与回归 `bc-engine-table/tests/golden_table.rs`（语料为空时跳过）；验证行状态与差异单元格一致率 ≥ 95%，不一致写 `tests/golden/table/KNOWN_DIFFS.md`
+- [x] 5.2 编写 HTML 期望解析器与回归 `bc-engine-table/tests/golden_table.rs`（语料为空时跳过）；验证行状态与差异单元格一致率 ≥ 95%，不一致写 `tests/golden/table/KNOWN_DIFFS.md`
 - [ ] 5.3 编写 `docs/reference-parity/table-compare.md`（D9 逐条命令/选项）；验证覆盖 `commandstable.html` 每条命令
 
 ## 6. 集成
@@ -46,3 +46,4 @@
 ## Workflow follow-up
 
 - 评审通过后归档本 change；xlsx 写回与格式层扩展另立 change。
+- Wave 2 阶段收口为**部分交付**，未归档；本轮仅确认 5.2 完成（行状态 81/83、单元格 236/242，1 条已知差异）。4.1–4.5、5.1、5.3、6.1 保留未完成；实现、已执行验证与待验边界见 `docs/worker-reports/table-compare-xlsx-wave2.md`，构建成功不等同于全部交互验收完成。
