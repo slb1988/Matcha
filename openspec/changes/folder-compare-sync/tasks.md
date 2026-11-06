@@ -57,8 +57,8 @@
 
 ## 8. 集成
 
-- [ ] 8.1 全量回归（clippy `-D warnings`、test、10 万文件基准、黄金一致率）并写报告；验证数字写入 `docs/worker-reports/folder-compare-sync-*.md`
-- [ ] 8.2 与 `master` 合并：rebase 或 merge 后重新跑全量回归，解决 `bc-gui/app.rs`、`home.rs` 冲突并接通 2.5 规则比较；验证合并后 `cargo test --workspace` 全绿且两个视图都可打开
+- [x] 8.1 全量回归（clippy `-D warnings`、test、10 万文件基准、黄金一致率）并写报告；验证数字写入 `docs/worker-reports/folder-compare-sync-*.md`
+- [x] 8.2 与 `master` 合并：rebase 或 merge 后重新跑全量回归，解决 `bc-gui/app.rs`、`home.rs` 冲突并接通 2.5 规则比较；验证合并后 `cargo test --workspace` 全绿且两个视图都可打开
 
 ## Workflow follow-up
 
