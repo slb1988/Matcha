@@ -344,7 +344,38 @@ impl TableModel {
 /// Bounded interning: repeating textual values share storage, but high-cardinality
 /// columns do not retain a second unbounded index beside the model.
 #[derive(Default)]
-pub(crate) struct StringPool(HashMap<String, Arc<str>>);
+pub(crate) struct StringPool(
+    HashMap<String, Arc<str>, std::hash::BuildHasherDefault<StrHasher>>,
+);
+
+/// Word-at-a-time multiply-xor hasher for short strings: millions of cell
+/// texts hash through the pool on load, where SipHash is needlessly slow.
+/// The pool is capped (65k entries), so collision floods stay bounded.
+#[derive(Default)]
+pub(crate) struct StrHasher(u64);
+impl std::hash::Hasher for StrHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        const P: u64 = 0x1000_0000_01b3;
+        let mut h = self.0;
+        let mut chunks = bytes.chunks_exact(8);
+        for c in &mut chunks {
+            h = (h ^ u64::from_le_bytes(c.try_into().unwrap())).wrapping_mul(P);
+        }
+        let mut tail = 0u64;
+        for (i, &b) in chunks.remainder().iter().enumerate() {
+            tail |= u64::from(b) << (i * 8);
+        }
+        // Finalizer matters: hashbrown indexes buckets by the LOW bits, and a
+        // bare multiply never lets high input bytes (e.g. the last character
+        // of an 8-byte string) reach them.
+        h = (h ^ tail).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        h ^= h >> 29;
+        self.0 = h;
+    }
+}
 impl StringPool {
     pub fn intern(&mut self, value: &str) -> Arc<str> {
         if let Some(existing) = self.0.get(value) {
