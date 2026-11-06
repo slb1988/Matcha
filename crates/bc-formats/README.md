@@ -54,6 +54,13 @@ survive XML patches; new formats follow [ADR 001](../../docs/decisions/001-stx-w
 The built-in XML round-trip test checks both typed/tree equality and line-by-line
 content after stripping formatting whitespace, not just successful reparsing.
 
+## TableOptions（Type / Regional）
+
+`model::{TableType, HeaderMode, RegionalSettings, DateOrder}` 承载分隔/固定字符宽度、
+连续分隔符、周围空白、自动检测、首行策略与区域设置；宿主可直接绑定格式面板。
+新增默认字段不写出 XML，原始树/STX 补丁规则不变，25 个内置格式的语义/树/文本往返全保留。
+新属性的名称是本项目格式扩展契约，尚未用参考工具原生保存文件确认互操作；未知节点仍保留。
+
 ## Dependency boundary
 
 `bc-core` (persist), `serde`, `serde_json`. Build dependencies: the same three.

@@ -21,6 +21,8 @@ pub struct ComparisonRules {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlignmentRules {
     pub strategy: AlignStrategy,
+    /// Standard's public "Use closeness matching" option.
+    pub use_closeness: bool,
     /// Never align differences (show as pure insert/delete).
     pub never_align_differences: bool,
     /// Skew tolerance in lines for Smart alignment.
@@ -33,6 +35,7 @@ impl Default for AlignmentRules {
     fn default() -> Self {
         Self {
             strategy: AlignStrategy::Smart,
+            use_closeness: true,
             never_align_differences: false,
             skew_tolerance: 2000,
             weights: Vec::new(),
@@ -47,6 +50,17 @@ pub struct TextRules {
     pub alignment: AlignmentRules,
     /// Session-level format override (name), else resolved by mask.
     pub format_override: Option<String>,
+    /// View/navigation projection only; original classifications stay intact.
+    pub ignore_unimportant: bool,
+}
+
+impl TextRules {
+    /// View-only ignore projection does not invalidate comparison work or caches.
+    pub fn same_comparison(&self, other: &Self) -> bool {
+        self.comparison == other.comparison
+            && self.alignment == other.alignment
+            && self.format_override == other.format_override
+    }
 }
 
 /// Which side wins unimportant conflicts – CLI `/favorleft` `/favorright`.

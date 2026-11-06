@@ -244,8 +244,10 @@ impl Watcher for LocalWatcher {
                 break;
             }
             let name: Vec<u16> = bytes[offset + 12..offset + 12 + len]
-                .chunks_exact(2)
-                .map(|v| u16::from_le_bytes([v[0], v[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|v| u16::from_le_bytes(*v))
                 .collect();
             let path = self.dir.join(&String::from_utf16_lossy(&name));
             match action {

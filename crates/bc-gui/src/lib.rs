@@ -1,27 +1,23 @@
 //! # bc-gui
 //!
-//! GUI shell. Scaffold milestone: an eframe/egui application with
-//!
-//! * a Home placeholder page (`THomeView` / `ViewHome`), and
-//! * a dual-pane text view prototype (`TUiTextEditor` / `TTextCompareView`) whose only
-//!   job is to prove that virtual scrolling over a ≥100 MB file is smooth.
-//!
-//! Findings are recorded in `docs/ui-framework-decision.md`. Nothing here is final UI;
-//! the real views (`TextView`, `DirTreeView`, `PixView`, …) are added after the framework
-//! decision. Engine crates never depend on this crate.
+//! eframe 应用外壳、基于 TextMap 的正式虚拟化文本比较控件，以及文件夹比较/同步视图。
+//! 引擎不依赖 GUI；基准沿用 --bench 与 bench.* 协议，文件夹基准为 --bench-dir。
 //!
 //! | module | BC classes |
 //! |---|---|
 //! | [`app`] | `TBcApplication`, `TBcView`, `TEmptyView`, main form |
 //! | [`home`] | `THomeView`, `THomeState`, `THomeActions`, `THomeCommands` |
-//! | [`text_view`] | `TUiTextEditor`, `TUiTextBody`, `TUiTextGutter`, `TUiTextRuler`, `TUiTextNav`, `TTextCompareView` |
-//! | [`bench`] | prototype-only scroll benchmark driver |
-#![deny(unsafe_code)] // one audited `unsafe` (mmap) in text_view.rs
+//! | [`text`] | `TUiTextEditor`, `TUiTextBody`, `TUiTextGutter`, `TUiTextRuler`, `TUiTextNav`, `TTextCompareView` |
+//! | [`bench`] | 正式控件滚动基准 |
+//! | [`dir_view`] / [`sync_view`] | `TDirCompareView`, `TDirSyncView`, `TDirTreeView`, `TDirSyncTreeView` |
+//! | [`bench_dir`] | 文件夹视图原生窗口基准 |
+#![forbid(unsafe_code)]
 
 pub mod app;
 pub mod bench;
 pub mod home;
-pub mod text_view;
+pub mod table;
+pub mod text;
 pub mod dir_view;
 pub mod sync_view;
 pub mod bench_dir;
@@ -39,8 +35,12 @@ pub struct LaunchOptions {
     pub right: Option<PathBuf>,
     /// Run the scroll benchmark and exit.
     pub bench: Option<bench::BenchOptions>,
+    /// Run the 600-frame two-dimensional table benchmark.
+    pub bench_table: bool,
     /// Benchmark a loaded folder tree using the real native view.
     pub bench_dir: bool,
+    /// Capture this application's own framebuffer as BMP, even on a locked desktop.
+    pub screenshot: Option<PathBuf>,
 }
 
 /// Start the native window. Blocks until the window closes.

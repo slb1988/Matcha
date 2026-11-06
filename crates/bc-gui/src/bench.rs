@@ -1,10 +1,42 @@
-//! Scroll benchmark driver for the prototype (`matcha --bench`).
+//! 正式文本控件的滚动基准 (`matcha --bench`)。
 //!
 //! Drives the dual-pane view through a fixed scroll pattern, records per-frame cost and
 //! prints a summary to stdout before closing the window. Results feed
 //! `docs/ui-framework-decision.md`.
 
 use std::time::{Duration, Instant};
+
+/// Save the app framebuffer without a desktop capture API or an image dependency.
+pub fn save_screenshot(
+    path: &std::path::Path,
+    image: &eframe::egui::ColorImage,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let width = image.width() as u32;
+    let height = image.height() as u32;
+    let stride = (width * 3 + 3) & !3;
+    let size = 54 + stride * height;
+    let mut header = vec![0u8; 54];
+    header[..2].copy_from_slice(b"BM");
+    header[2..6].copy_from_slice(&size.to_le_bytes());
+    header[10..14].copy_from_slice(&54u32.to_le_bytes());
+    header[14..18].copy_from_slice(&40u32.to_le_bytes());
+    header[18..22].copy_from_slice(&width.to_le_bytes());
+    header[22..26].copy_from_slice(&(-(height as i32)).to_le_bytes());
+    header[26..28].copy_from_slice(&1u16.to_le_bytes());
+    header[28..30].copy_from_slice(&24u16.to_le_bytes());
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    file.write_all(&header)?;
+    let mut row = vec![0u8; stride as usize];
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let c = image.pixels[y * width as usize + x];
+            row[x * 3..x * 3 + 3].copy_from_slice(&[c.b(), c.g(), c.r()]);
+        }
+        file.write_all(&row)?;
+    }
+    file.flush()
+}
 
 /// Benchmark configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,7 +49,10 @@ pub struct BenchOptions {
 
 impl Default for BenchOptions {
     fn default() -> Self {
-        Self { frames: 600, warmup: 30 }
+        Self {
+            frames: 600,
+            warmup: 30,
+        }
     }
 }
 
@@ -58,7 +93,7 @@ impl BenchState {
     /// Next scroll step. Mix: 3 smooth frames then one jump, over `total_rows`.
     pub fn next_step(&mut self, total_rows: usize) -> Step {
         self.frame += 1;
-        if self.frame % 4 == 0 {
+        if self.frame.is_multiple_of(4) {
             // xorshift64*
             self.rng ^= self.rng >> 12;
             self.rng ^= self.rng << 25;
@@ -87,8 +122,19 @@ impl BenchState {
     }
 
     /// Human readable summary (also machine-greppable `key=value` lines).
-    pub fn summary(&self, left_bytes: usize, right_bytes: usize, load_left: Duration, load_right: Duration, index_bytes: usize) -> String {
-        let mut upd: Vec<f64> = self.update_times.iter().map(|d| d.as_secs_f64() * 1e3).collect();
+    pub fn summary(
+        &self,
+        left_bytes: usize,
+        right_bytes: usize,
+        load_left: Duration,
+        load_right: Duration,
+        index_bytes: usize,
+    ) -> String {
+        let mut upd: Vec<f64> = self
+            .update_times
+            .iter()
+            .map(|d| d.as_secs_f64() * 1e3)
+            .collect();
         upd.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mut cpu: Vec<f64> = self.cpu_times.iter().map(|&c| c as f64 * 1e3).collect();
         cpu.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -99,8 +145,20 @@ impl BenchState {
             let idx = ((v.len() - 1) as f64 * p).round() as usize;
             v[idx]
         };
-        let mean = |v: &[f64]| -> f64 { if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 } };
-        let rows = mean(&self.rows_drawn.iter().map(|&r| r as f64).collect::<Vec<_>>());
+        let mean = |v: &[f64]| -> f64 {
+            if v.is_empty() {
+                0.0
+            } else {
+                v.iter().sum::<f64>() / v.len() as f64
+            }
+        };
+        let rows = mean(
+            &self
+                .rows_drawn
+                .iter()
+                .map(|&r| r as f64)
+                .collect::<Vec<_>>(),
+        );
         let wall = self.started.elapsed().as_secs_f64();
         let measured = self.update_times.len();
         format!(
@@ -118,8 +176,16 @@ impl BenchState {
             load_left.as_secs_f64() * 1e3,
             load_right.as_secs_f64() * 1e3,
             index_bytes as f64 / 1e6,
-            mean(&upd), pct(&upd, 0.5), pct(&upd, 0.95), pct(&upd, 0.99), pct(&upd, 1.0),
-            mean(&cpu), pct(&cpu, 0.5), pct(&cpu, 0.95), pct(&cpu, 0.99), pct(&cpu, 1.0),
+            mean(&upd),
+            pct(&upd, 0.5),
+            pct(&upd, 0.95),
+            pct(&upd, 0.99),
+            pct(&upd, 1.0),
+            mean(&cpu),
+            pct(&cpu, 0.5),
+            pct(&cpu, 0.95),
+            pct(&cpu, 0.99),
+            pct(&cpu, 1.0),
         )
     }
 }

@@ -11,7 +11,7 @@ use crate::{
     filters_bar::FiltersBar,
     legend,
     log_panel::LogPanel,
-    text_view::TextCompareView,
+    text::{TextCompareView, ViewAction},
 };
 use bc_core::Side;
 use bc_engine_dir::{
@@ -28,7 +28,7 @@ use bc_engine_dir::{
     Criteria,
 };
 use bc_jobs::{CancelToken, Confirmation, Interaction, JobContext, JobId, Progress, ProgressSink};
-use bc_session::prefs::FolderColors;
+use bc_session::prefs::{FolderColors, Prefs};
 use bc_vfs::{EntryKind, LocalFs, VfsEntry, VfsError, VfsManager, VfsPath};
 use std::{
     cmp::Ordering,
@@ -238,7 +238,8 @@ enum Notice {
     Message(String),
     Clipboard(String),
     Quick(String),
-    Text(Box<TextCompareView>),
+    /// Verified file pair; the formal text view holds Rc/RefCell, so it is built on the UI thread.
+    Text([PathBuf; 2]),
     Presets(FilterPresets),
     Focus(NodeId),
 }
@@ -664,7 +665,7 @@ impl Model {
                         .is_some_and(|e| e.kind == EntryKind::File)
                     && ((!n.excluded && (!n.filtered[0] || !n.filtered[1]))
                         || (force && self.view.suppress_filters))
-                    && selection.map_or(true, |s| s.items.iter().any(|(n, _)| n == id))
+                    && selection.is_none_or(|s| s.items.iter().any(|(n, _)| n == id))
             })
             .map(|(id, _)| id)
             .collect();
@@ -1174,9 +1175,15 @@ impl Model {
                 self.rebuild_sync()?;
             }
             Command::OpenText(paths) => {
-                let view =
-                    TextCompareView::open(&paths[0], &paths[1]).map_err(|e| e.to_string())?;
-                self.shared.notify(Notice::Text(Box::new(view)));
+                for path in &paths {
+                    if !std::fs::metadata(path)
+                        .map_err(|e| format!("{}: {e}", path.display()))?
+                        .is_file()
+                    {
+                        return Err(format!("{} is not a file", path.display()));
+                    }
+                }
+                self.shared.notify(Notice::Text(paths));
                 return Ok(());
             }
             Command::Quick(paths, mode) => {
@@ -1404,7 +1411,7 @@ impl Model {
                     .filter(|(id, s, _)| {
                         selection
                             .as_ref()
-                            .map_or(true, |selected| selected.items.contains(&(*id, *s)))
+                            .is_none_or(|selected| selected.items.contains(&(*id, *s)))
                     })
                     .collect();
                 for (index, (id, side, revision)) in items.iter().copied().enumerate() {
@@ -1669,7 +1676,9 @@ pub struct DirCompareView {
     question: Option<dialogs::Question>,
     message: String,
     quick: Option<String>,
-    text: Option<TextCompareView>,
+    text: Option<Box<TextCompareView>>,
+    text_prefs: Prefs,
+    exit_requested: bool,
     compare_to: bool,
     align_to: bool,
     anchor: Option<(usize, usize)>,
@@ -1756,6 +1765,8 @@ impl DirCompareView {
             message: "Loading folders".into(),
             quick: None,
             text: None,
+            text_prefs: Prefs::default(),
+            exit_requested: false,
             compare_to: false,
             align_to: false,
             anchor: None,
@@ -1847,7 +1858,10 @@ impl DirCompareView {
                 Notice::Message(text) => self.message = text,
                 Notice::Clipboard(text) => ctx.copy_text(text),
                 Notice::Quick(text) => self.quick = Some(text),
-                Notice::Text(view) => self.text = Some(*view),
+                Notice::Text(paths) => match TextCompareView::open(&paths[0], &paths[1]) {
+                    Ok(view) => self.text = Some(Box::new(view)),
+                    Err(e) => self.message = format!("Cannot open text: {e}"),
+                },
                 Notice::Presets(presets) => self.filters.presets = presets,
                 Notice::Focus(node) => self.pending_focus = Some(node),
             }
@@ -1957,6 +1971,31 @@ impl DirCompareView {
             op,
             include_hidden,
         });
+    }
+    /// Routes Home/close through an edited text window's save prompt (here or in a child).
+    /// Returns true when that prompt now blocks the caller.
+    pub fn request_text_close(&mut self, exit: bool) -> bool {
+        if let Some(child) = &mut self.child {
+            if child.request_text_close(exit) {
+                return true;
+            }
+        }
+        match &mut self.text {
+            Some(view) if view.is_dirty() => {
+                if exit {
+                    view.request_exit();
+                } else {
+                    view.request_home();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+    /// True once a text window confirmed Exit (the app then closes the window).
+    pub fn take_exit_request(&mut self) -> bool {
+        let child = self.child.as_mut().is_some_and(|c| c.take_exit_request());
+        std::mem::take(&mut self.exit_requested) || child
     }
     fn new_folder_view(&mut self, paths: [PathBuf; 2]) {
         self.rules_open = false;
@@ -2657,12 +2696,27 @@ impl DirCompareView {
         }
         if let Some(view) = &mut self.text {
             let mut open = true;
+            let mut action = None;
             egui::Window::new("Text Compare — selected files")
+                .id(egui::Id::unique(("folder_text", self.window_id)))
                 .open(&mut open)
                 .default_size([1150.0, 650.0])
-                .show(&ctx, |ui| view.ui(ui));
+                .show(&ctx, |ui| action = view.ui(ui, &mut self.text_prefs));
             if !open {
-                self.text = None;
+                // The close box goes through the text view's own save prompt.
+                view.request_home();
+            }
+            match action {
+                Some(ViewAction::Home) => self.text = None,
+                Some(ViewAction::Exit) => {
+                    self.text = None;
+                    self.exit_requested = true;
+                }
+                // Only offered for clean text, so replacing the window loses nothing.
+                Some(ViewAction::CompareParentFolders { left, right }) => {
+                    self.new_folder_view([left, right]);
+                }
+                None => {}
             }
         }
         // F12 is a local diagnostic capture, useful even when desktop capture cannot
@@ -2679,7 +2733,8 @@ impl DirCompareView {
                 });
             });
         }
-        if self.child.is_none() && !ctx.egui_wants_keyboard_input() {
+        // The text window has its own keyboard map; Enter/Delete must not reach the folder.
+        if self.child.is_none() && self.text.is_none() && !ctx.egui_wants_keyboard_input() {
             if ctx.input(|i| i.key_pressed(egui::Key::F7)) {
                 self.navigate(ctx.input(|i| i.modifiers.shift), self.sync_mode);
             }
@@ -3108,7 +3163,7 @@ mod tests {
     impl Temp {
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
-                "matcha-gui-test-{}-{}",
+                "matcha-folder-gui-test-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, AtomicOrdering::Relaxed)
             ));
@@ -3236,9 +3291,26 @@ mod tests {
         view.open_pair();
         wait(&mut view, &ctx);
         let text = view.text.as_ref().unwrap();
-        assert!(text.left.path.ends_with("left/b.txt"));
-        assert!(text.right.path.ends_with("right/a.txt"));
+        let [left, right] = text.paths();
+        assert!(left.unwrap().ends_with("left/b.txt"));
+        assert!(right.unwrap().ends_with("right/a.txt"));
+        // The formal view classifies the cross-row pair, so the difference is highlighted.
+        while !view.text.as_ref().unwrap().is_ready() {
+            frame(&mut view, &ctx);
+            thread::sleep(Duration::from_millis(5));
+        }
+        let text = view.text.as_ref().unwrap();
+        assert!(text.map.statistics().important > 0);
+        let parents = text.parent_folders().unwrap();
+        assert!(parents[0].ends_with("left") && parents[1].ends_with("right"));
         frame(&mut view, &ctx);
+        assert!(!view.request_text_close(false));
+        let text = view.text.as_mut().unwrap();
+        text.content_mut(0).replace_line(0, b"edited").unwrap();
+        // Unsaved text edits block Home/close until the text view's own prompt answers.
+        assert!(view.request_text_close(false));
+        frame(&mut view, &ctx);
+        assert!(view.text.is_some() && !view.take_exit_request());
         view.text = None;
         view.find.text = "A.TXT".into();
         view.find.case_sensitive = false;

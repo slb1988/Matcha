@@ -13,7 +13,7 @@ Windows 以 `OpenOptionsExt::share_mode(FILE_SHARE_READ)` 打开，禁止共享�
 
 ## 保存与外部修改限制
 
-映射存活期间正常外部写入、删除和截断会被 Windows 拒绝。原路径保存之前必须释放所有映射引用（含历史快照），或先另存到其他路径；保存流程由后续引擎/GUI 任务处理。本轮不实现自动关闭映射保存，也不对原型 GUI 的 mmap 作修改。
+映射存活期间正常外部写入、删除和截断会被 Windows 拒绝。原路径保存之前必须释放所有映射引用（含历史快照），或先另存到其他路径；保存流程由后续引擎/GUI 任务处理。Wave 3 已新增显式 materialize_and_save：MaterializeContext 按共享缓冲身份去重，当前内容、原始内容及 EditStack 的 undo/redo/group 快照都换为 owned，保留历史；转换 context 释放旧映射后再以临时文件原子写回。外部 worker 持有的快照不能强行失效，GUI 保存前必须 cancel/join 相关 job 并释放这些快照；若仍有锁则原文件不被截断，释放后重试或安全另存。Wave 4 已移除原型 GUI 的 mmap：正式视图保存前 cancel/join worker，随后使用同一个 MaterializeContext 调用两侧 TextContent::materialize_owned，再释放 context 并保存目标侧。必须覆盖两侧是因为 Copy Section 的 LineList slice 可能在另一侧当前内容/撤销历史中继续引用来源 mmap；仅物化保存侧不足以解除该锁。另一侧的 dirty/save point 不改变。
 
 ## 验证
 

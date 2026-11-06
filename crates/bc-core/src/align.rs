@@ -313,7 +313,8 @@ pub trait Aligner {
     ) -> AlignMap;
 }
 
-/// `TBcQuickAlign` – LCS only.
+/// Myers LCS backbone with positional replacement packing for display.
+/// Use the unpaired entry points when raw delete/insert rows are required.
 #[derive(Debug, Default)]
 pub struct QuickAlign;
 
@@ -356,6 +357,33 @@ impl QuickAlign {
         overrides: &AlignmentOverrides,
         cancel: &dyn CancelCheck,
     ) -> Result<AlignMap, crate::CoreError> {
+        self.align2_impl(left, right, overrides, cancel, true)
+    }
+
+    pub fn align2_unpaired(&self, left: AlignInput<'_>, right: AlignInput<'_>) -> AlignMap {
+        self.align2_unpaired_cancellable(left, right, &AlignmentOverrides::default(), &NeverCancel)
+            .expect("valid alignment inputs")
+    }
+
+    /// Pure SES rows, used by Smart and NeverAlignDiffs; explicit anchors still win.
+    pub fn align2_unpaired_cancellable(
+        &self,
+        left: AlignInput<'_>,
+        right: AlignInput<'_>,
+        overrides: &AlignmentOverrides,
+        cancel: &dyn CancelCheck,
+    ) -> Result<AlignMap, crate::CoreError> {
+        self.align2_impl(left, right, overrides, cancel, false)
+    }
+
+    fn align2_impl(
+        &self,
+        left: AlignInput<'_>,
+        right: AlignInput<'_>,
+        overrides: &AlignmentOverrides,
+        cancel: &dyn CancelCheck,
+        pack: bool,
+    ) -> Result<AlignMap, crate::CoreError> {
         cancel.check()?;
         let mut rows = Vec::new();
         let (mut l, mut r) = (0, 0);
@@ -372,6 +400,7 @@ impl QuickAlign {
                 r,
                 &mut rows,
                 cancel,
+                pack,
             )?;
             rows.push(AlignRow {
                 left: Some(li),
@@ -393,6 +422,7 @@ impl QuickAlign {
             r,
             &mut rows,
             cancel,
+            pack,
         )?;
         AlignMap::from_rows_cancellable(rows, cancel)
     }
@@ -405,8 +435,12 @@ fn quick_rows(
     ro: usize,
     rows: &mut Vec<AlignRow>,
     cancel: &dyn CancelCheck,
+    pack: bool,
 ) -> Result<(), crate::CoreError> {
     let ops = MyersDiff::default().diff_cancellable(left, right, cancel)?;
+    if pack {
+        return packed_rows(&ops, rows, (lo, ro), (left, right), cancel);
+    }
     let count: usize = ops
         .iter()
         .map(|op| match op {
@@ -441,6 +475,95 @@ fn quick_rows(
                     rows.extend(range.map(|i| right_only(ro + b_start + i)))
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn packed_rows(
+    ops: &[DiffOp],
+    rows: &mut Vec<AlignRow>,
+    offsets: (usize, usize),
+    hashes: (&[ContentHash], &[ContentHash]),
+    cancel: &dyn CancelCheck,
+) -> Result<(), crate::CoreError> {
+    let mut count = 0;
+    let (mut deleted, mut inserted) = (0usize, 0usize);
+    for op in ops {
+        match *op {
+            DiffOp::Equal { len, .. } => {
+                count += deleted.max(inserted) + len;
+                deleted = 0;
+                inserted = 0;
+            }
+            DiffOp::Delete { len, .. } => deleted += len,
+            DiffOp::Insert { len, .. } => inserted += len,
+        }
+    }
+    rows.reserve_exact(count + deleted.max(inserted));
+    let mut cursor = 0;
+    while cursor < ops.len() {
+        cancel.check()?;
+        if let DiffOp::Equal {
+            a_start,
+            b_start,
+            len,
+        } = ops[cursor]
+        {
+            for i in 0..len {
+                if i % 4096 == 0 {
+                    cancel.check()?;
+                }
+                rows.push(AlignRow {
+                    left: Some(offsets.0 + a_start + i),
+                    right: Some(offsets.1 + b_start + i),
+                    center: None,
+                    kind: DiffKind::Same,
+                });
+            }
+            cursor += 1;
+            continue;
+        }
+        let (mut left, mut right) = (0..0, 0..0);
+        while cursor < ops.len() {
+            match ops[cursor] {
+                DiffOp::Equal { .. } => break,
+                DiffOp::Delete { a_start, len, .. } => {
+                    if left.is_empty() {
+                        left.start = a_start;
+                    }
+                    left.end = a_start + len;
+                }
+                DiffOp::Insert { b_start, len, .. } => {
+                    if right.is_empty() {
+                        right.start = b_start;
+                    }
+                    right.end = b_start + len;
+                }
+            }
+            cursor += 1;
+        }
+        for i in 0..left.len().max(right.len()) {
+            if i % 4096 == 0 {
+                cancel.check()?;
+            }
+            let l = (i < left.len()).then_some(left.start + i);
+            let r = (i < right.len()).then_some(right.start + i);
+            rows.push(match (l, r) {
+                (Some(l), Some(r)) => AlignRow {
+                    left: Some(offsets.0 + l),
+                    right: Some(offsets.1 + r),
+                    center: None,
+                    kind: if hashes.0[l] == hashes.1[r] {
+                        DiffKind::Same
+                    } else {
+                        DiffKind::Changed
+                    },
+                },
+                (Some(l), None) => left_only(offsets.0 + l),
+                (None, Some(r)) => right_only(offsets.1 + r),
+                _ => unreachable!(),
+            });
         }
     }
     Ok(())
@@ -522,7 +645,12 @@ impl SmartAlign {
     ) -> Result<AlignMap, crate::CoreError> {
         cancel.check()?;
         validate_smart(&left, &right, &self.options)?;
-        let map = QuickAlign.align2_cancellable(left.clone(), right.clone(), overrides, cancel)?;
+        let map = QuickAlign.align2_unpaired_cancellable(
+            left.clone(),
+            right.clone(),
+            overrides,
+            cancel,
+        )?;
         if left.lines.is_none() || right.lines.is_none() {
             return Ok(map);
         }

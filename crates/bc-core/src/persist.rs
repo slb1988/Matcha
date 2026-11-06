@@ -270,7 +270,7 @@ fn write_node(node: &Node, depth: usize, header: Option<&XmlHeader>, output: &mu
             && chars.all(|c| xml_name_start(c) || matches!(c, '-' | '.' | '0'..='9' | '\u{b7}' | '\u{300}'..='\u{36f}' | '\u{203f}'..='\u{2040}')),
         "invalid XML node name"
     );
-    output.extend(std::iter::repeat('\t').take(depth));
+    output.extend(std::iter::repeat_n('\t', depth));
     output.push('<');
     output.push_str(&node.name);
     if let Some(value) = &node.value {
@@ -305,7 +305,7 @@ fn write_node(node: &Node, depth: usize, header: Option<&XmlHeader>, output: &mu
         for child in &node.children {
             write_node(child, depth + 1, None, output);
         }
-        output.extend(std::iter::repeat('\t').take(depth));
+        output.extend(std::iter::repeat_n('\t', depth));
         output.push_str("</");
         output.push_str(&node.name);
         output.push_str(">\n");

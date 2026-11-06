@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:30 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:30 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\020-keyword-case\left.pas</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\020-keyword-case\right.pas</filename2>
+		<linecomp status="similar">
+			<text ltid="1">BEGIN</text>
+			<text rtid="1">begin</text>
+		</linecomp>
+		<linecomp status="similar">
+			<text ltid="2">END;</text>
+			<text rtid="2">end;</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

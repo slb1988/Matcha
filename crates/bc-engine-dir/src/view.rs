@@ -57,7 +57,7 @@ impl DirTree {
                     && node.children.iter().all(|child| {
                         statuses
                             .get(child)
-                            .map_or(true, |s| *s == CompareStatus::Same)
+                            .is_none_or(|s| *s == CompareStatus::Same)
                     })
                     && !node.summary.pending
                 {

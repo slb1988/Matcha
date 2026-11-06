@@ -1,6 +1,6 @@
 [package]
 name = "bc-gui"
-description = "eframe/egui shell: Home placeholder and dual-pane text view prototype used to validate virtual scrolling on 100 MB inputs (BC Ui*/View* layer)."
+description = "Virtualized text comparison, editing and application shell."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,7 @@ bc-formats = { workspace = true }
 bc-vfs = { workspace = true }
 bc-jobs = { workspace = true }
 bc-engine-text = { workspace = true }
+bc-engine-table = { workspace = true }
 bc-engine-dir = { workspace = true }
 bc-session = { workspace = true }
 eframe = { workspace = true }
-memmap2 = { workspace = true }

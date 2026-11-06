@@ -1,6 +1,6 @@
 //! `matcha` – main GUI executable (reference: the single-instance main program).
 //!
-//! Scaffold behaviour: minimal argument handling sufficient for the prototype and the
+//! Minimal argument handling for text comparison and the
 //! scroll benchmark. The real command line goes through `bc_script::cli::CliArgs::parse`
 //! (switch set + positional inference) and single-instance hand-off
 //! (`bc_script::cli::Switch::Solo` opts out) once those are implemented.
@@ -19,6 +19,9 @@ fn main() -> ExitCode {
     for arg in std::env::args().skip(1) {
         if arg == "--bench-dir" {
             options.bench_dir = true;
+        } else if arg == "--bench-table" {
+            options.bench_table = true;
+            options.bench = Some(bc_gui::bench::BenchOptions::default());
         } else if let Some(rest) = arg.strip_prefix("--bench") {
             let mut bench = bc_gui::bench::BenchOptions::default();
             if let Some(n) = rest.strip_prefix('=') {
@@ -31,9 +34,12 @@ fn main() -> ExitCode {
                 }
             }
             options.bench = Some(bench);
+        } else if let Some(path) = arg.strip_prefix("--screenshot=") {
+            options.screenshot = Some(PathBuf::from(path));
         } else if arg == "--help" || arg == "/?" || arg == "-h" {
-            println!("usage: matcha [<left> <right>] [--bench[=<frames>]] | matcha --bench-dir <left-folder> <right-folder>");
-            println!("(full switch set: see bc-script::cli; not wired in the scaffold)");
+            println!("usage: matcha [<left> <right>] [--bench[=<frames>]] [--bench-table] [--screenshot=<file.bmp>]");
+            println!("       matcha --bench-dir <left-folder> <right-folder>");
+            println!("(full switch set: see bc-script::cli; not wired yet)");
             return ExitCode::SUCCESS;
         } else {
             positional.push(PathBuf::from(arg));

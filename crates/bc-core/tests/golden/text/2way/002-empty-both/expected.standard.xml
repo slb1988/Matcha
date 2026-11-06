@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:24 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:24 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\002-empty-both\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\002-empty-both\right.txt</filename2>
+	</filecomparison>
+</bcreport>

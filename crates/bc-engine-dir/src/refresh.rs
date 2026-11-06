@@ -64,7 +64,7 @@ pub fn refresh_locations(
             let absent = tree
                 .find_side(&prefix, side)
                 .and_then(|id| tree.node(id))
-                .map_or(true, |n| n.sides[side].is_none());
+                .is_none_or(|n| n.sides[side].is_none());
             if absent {
                 let base = tree.bases[side]
                     .as_ref()
@@ -88,7 +88,7 @@ pub fn refresh_locations(
             && tree
                 .find_side(&place.relative, side)
                 .and_then(|id| tree.node(id))
-                .map_or(true, |n| !n.loaded[side]);
+                .is_none_or(|n| !n.loaded[side]);
         if let Some(id) = tree.update_entry(side, &place.relative, entry)? {
             stats.changed_nodes.insert(id);
         }

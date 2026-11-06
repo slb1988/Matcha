@@ -6,6 +6,28 @@
 use std::{any::Any, cell::RefCell, ops::Range, path::Path, rc::Rc, sync::Arc};
 
 use crate::edit::EditItem;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+fn revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Deduplicates mapping copies across current content and undo/redo snapshots.
+/// Drop after conversion to release its retained original mapping handles.
+#[derive(Debug, Default)]
+pub struct MaterializeContext {
+    buffers: HashMap<usize, (Arc<Buffer>, Arc<Buffer>)>,
+}
+
+impl MaterializeContext {
+    pub fn copied_buffers(&self) -> usize {
+        self.buffers.len()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LineEnding {
@@ -96,6 +118,7 @@ pub struct LineList {
     /// CRLF / LF / CR / unterminated counts.
     ending_counts: [usize; 4],
     backend: StorageBackend,
+    revision: u64,
 }
 
 impl LineList {
@@ -143,10 +166,36 @@ impl LineList {
         self.backend
     }
 
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Change backing storage only; content revisions and every line ending stay unchanged.
+    pub fn materialize_owned(&mut self, context: &mut MaterializeContext) {
+        for piece in &mut self.pieces {
+            if !matches!(&*piece.buffer, Buffer::Owned(_)) {
+                let key = Arc::as_ptr(&piece.buffer) as usize;
+                let (_, owned) = context.buffers.entry(key).or_insert_with(|| {
+                    (
+                        piece.buffer.clone(),
+                        Arc::new(Buffer::Owned(piece.buffer.bytes().to_vec())),
+                    )
+                });
+                piece.buffer = owned.clone();
+            }
+        }
+        self.backend = if self.pieces.len() <= 1 {
+            StorageBackend::Owned
+        } else {
+            StorageBackend::Segmented
+        };
+    }
+
     fn from_buffer(buffer: Buffer, backend: StorageBackend) -> Self {
         let (lines, _) = LineParser::default().parse(buffer.bytes());
         let mut result = Self {
             backend,
+            revision: revision(),
             ..Self::new()
         };
         for line in &lines {
@@ -274,6 +323,7 @@ impl LineList {
             "only the last line may lack an ending"
         );
         self.backend = StorageBackend::Segmented;
+        self.revision = revision();
         for piece in &mut self.pieces {
             let mut lines = piece.lines().to_vec();
             for line in &mut lines {
@@ -287,6 +337,7 @@ impl LineList {
     }
 
     fn splice(&mut self, index: usize, remove: bool, replacement: Option<Piece>) {
+        self.revision = revision();
         self.backend = StorageBackend::Segmented;
         if remove {
             self.ending_counts[self.ending(index).unwrap() as usize] -= 1;
@@ -321,6 +372,75 @@ impl LineList {
             end += piece.range.len();
             self.ends.push(end);
         }
+    }
+
+    /// Shared line-range snapshot (no text-byte copy).
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        assert!(
+            range.start <= range.end && range.end <= self.len(),
+            "invalid line range"
+        );
+        if range == (0..self.len()) {
+            return self.clone();
+        }
+        let mut result = Self {
+            backend: self.backend,
+            revision: revision(),
+            ..Self::new()
+        };
+        let mut start = 0;
+        for piece in &self.pieces {
+            let end = start + piece.range.len();
+            let lo = start.max(range.start);
+            let hi = end.min(range.end);
+            if lo < hi {
+                let mut part = piece.clone();
+                part.range = piece.range.start + lo - start..piece.range.start + hi - start;
+                for line in part.lines() {
+                    result.ending_counts[line.ending as usize] += 1;
+                }
+                let total = result.len() + hi - lo;
+                result.pieces.push(part);
+                result.ends.push(total);
+            }
+            start = end;
+        }
+        result
+    }
+
+    /// Replace a line range by shared pieces; repair only unterminated join boundaries.
+    pub fn replace_range(&mut self, range: Range<usize>, replacement: &LineList) {
+        assert!(
+            range.start <= range.end && range.end <= self.len(),
+            "invalid line range"
+        );
+        let ending = self.dominant_ending();
+        let before = self.slice(0..range.start);
+        let after = self.slice(range.end..self.len());
+        let mut result = Self {
+            backend: StorageBackend::Segmented,
+            revision: revision(),
+            ..Self::new()
+        };
+        for source in [&before, replacement, &after] {
+            for piece in &source.pieces {
+                let end = result.len() + piece.range.len();
+                result.pieces.push(piece.clone());
+                result.ends.push(end);
+            }
+            for (count, add) in result.ending_counts.iter_mut().zip(source.ending_counts) {
+                *count += add;
+            }
+        }
+        for boundary in [before.len(), before.len() + replacement.len()] {
+            if boundary > 0
+                && boundary < result.len()
+                && result.ending(boundary - 1) == Some(LineEnding::None)
+            {
+                result.set_ending(boundary - 1, ending);
+            }
+        }
+        *self = result;
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -406,6 +526,16 @@ impl LineEdit {
         })
     }
 
+    pub fn replace_range(
+        target: &SharedLines,
+        range: Range<usize>,
+        replacement: &LineList,
+    ) -> Self {
+        Self::apply(target, "Replace lines", None, |lines| {
+            lines.replace_range(range, replacement)
+        })
+    }
+
     pub fn set_all_endings(target: &SharedLines, ending: LineEnding) -> Self {
         Self::apply(target, "Convert line endings", None, |lines| {
             lines.set_all_endings(ending)
@@ -443,6 +573,12 @@ impl EditItem for LineEdit {
 
     fn as_any(&self) -> Option<&dyn Any> {
         Some(self)
+    }
+
+    fn materialize(&mut self, context: &mut MaterializeContext) {
+        self.target.borrow_mut().materialize_owned(context);
+        self.before.materialize_owned(context);
+        self.after.materialize_owned(context);
     }
 }
 

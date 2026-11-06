@@ -470,7 +470,7 @@ impl SyncPlan {
         self.items
             .iter()
             .enumerate()
-            .find(|(i, item)| after.map_or(true, |a| *i > a) && item.unresolved_conflict())
+            .find(|(i, item)| after.is_none_or(|a| *i > a) && item.unresolved_conflict())
             .map(|(i, _)| i)
     }
     pub fn previous_conflict(&self, before: Option<usize>) -> Option<usize> {
@@ -478,7 +478,7 @@ impl SyncPlan {
             .iter()
             .enumerate()
             .rev()
-            .find(|(i, item)| before.map_or(true, |a| *i < a) && item.unresolved_conflict())
+            .find(|(i, item)| before.is_none_or(|a| *i < a) && item.unresolved_conflict())
             .map(|(i, _)| i)
     }
     fn rebuild_summaries(&mut self) {

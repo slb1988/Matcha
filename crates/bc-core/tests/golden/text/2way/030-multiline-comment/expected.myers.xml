@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:32 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:32 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\030-multiline-comment\left.cpp</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\030-multiline-comment\right.cpp</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">int a;</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">/* first</text>
+		</linecomp>
+		<linecomp status="similar">
+			<text ltid="3">old inside text</text>
+			<text rtid="3">new inside text</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="4" rtid="4">last */</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="5" rtid="5">int b;</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

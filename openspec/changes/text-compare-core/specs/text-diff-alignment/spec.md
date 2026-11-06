@@ -22,22 +22,26 @@
 - **THEN** 按输出顺序读取左侧行索引得到严格递增序列，右侧同理
 
 ### Requirement: 对齐策略可选
-系统 SHALL 提供 Quick（纯最长公共子序列）与 Smart（启发式重配对，默认）两种对齐策略，以及"不对齐"（第 n 行对第 n 行）模式，并允许每个比较会话独立选择。
+系统 SHALL 以参考工具的公开名称提供对齐策略：Standard（默认，可勾选"closeness matching"把相似的改动行配对）、Myers O(ND)（纯最长公共子序列）、Patience，以及"不对齐"（第 n 行对第 n 行）模式，并允许每个比较会话独立选择。内部实现名 Smart/Quick/Patience 与之一一对应，不向用户暴露。
 
-#### Scenario: 默认使用 Smart
+#### Scenario: 默认使用 Standard
 - **WHEN** 用户未更改对齐设置打开比较
-- **THEN** 采用 Smart 策略
+- **THEN** 采用 Standard 策略且 closeness matching 开启
 
 #### Scenario: 切换策略后重新对齐
-- **WHEN** 用户把策略从 Smart 切为 Quick
+- **WHEN** 用户把策略从 Standard 切为 Myers O(ND)
 - **THEN** 系统重新计算对齐并刷新视图，文件内容不变
+
+#### Scenario: 关闭 closeness matching
+- **WHEN** 用户在 Standard 下取消 closeness matching
+- **THEN** 差异区块内不再做相似行配对，改动显示为删除加插入
 
 #### Scenario: 不对齐模式
 - **WHEN** 用户选择"不对齐"
 - **THEN** 第 i 行左侧与第 i 行右侧配对，较长一侧多出的行显示为插入
 
-### Requirement: Smart 对齐把相似的改动行配对
-在 Smart 策略下，一个差异区块内若左侧某行与右侧某行高度相似（仅少量字符不同），系统 SHALL 将它们配对为同一输出行并标记为"已修改"，而不是分别标记为删除与插入。
+### Requirement: Standard 对齐把相似的改动行配对
+在 Standard 策略开启 closeness matching 时，一个差异区块内若左侧某行与右侧某行高度相似（仅少量字符不同），系统 SHALL 将它们配对为同一输出行并标记为"已修改"，而不是分别标记为删除与插入。
 
 #### Scenario: 单字符改动
 - **WHEN** 左侧为 `total = price * qty` 而右侧为 `total = price * quantity`，其余行相同
@@ -77,7 +81,7 @@
 - **THEN** 对齐结果恢复为自动策略的输出
 
 ### Requirement: 黄金语料一致性
-对于项目黄金语料库中的每个 2 路用例，系统的对齐输出 SHALL 与参考工具在相同策略下产出的期望对齐一致。
+对于项目黄金语料库中的每个 2 路用例，系统的对齐输出 SHALL 与参考工具在相同策略（Myers O(ND) 对应内部 Quick，Standard+closeness 对应内部 Smart）下产出的期望对齐一致。
 
 #### Scenario: 语料回归
 - **WHEN** 执行黄金语料回归测试

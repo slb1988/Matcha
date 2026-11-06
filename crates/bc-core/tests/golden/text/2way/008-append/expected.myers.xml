@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:26 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:26 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\008-append\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\008-append\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">header</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">body</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="3">tail</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

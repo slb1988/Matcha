@@ -5,7 +5,7 @@ members = ["crates/*", "apps/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
@@ -33,6 +33,7 @@ serde_json = "1"
 crossbeam-channel = "0.5"
 memmap2 = "0.9"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_IO", "Win32_Globalization"] }
+calamine = { version = "0.38", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 
 [profile.release]

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:27 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:27 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\011-similar-identifier\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\011-similar-identifier\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">before</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="2">total = price * qty</text>
+			<text rtid="2">total = price * quantity</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="3" rtid="3">after</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

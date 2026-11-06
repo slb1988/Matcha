@@ -11,3 +11,6 @@ bc-core = { workspace = true }
 bc-formats = { workspace = true }
 bc-jobs = { workspace = true }
 bc-vfs = { workspace = true }
+
+[dev-dependencies]
+quick-xml = { workspace = true }

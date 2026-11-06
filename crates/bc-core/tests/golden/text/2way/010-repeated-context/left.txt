@@ -1,0 +1,5 @@
+start
+repeat
+middle unique
+repeat
+end

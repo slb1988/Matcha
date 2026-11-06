@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 4:31:25 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 4:31:25 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\003-empty-left\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\003-empty-left\right.txt</filename2>
+		<linecomp status="rightorphan">
+			<text rtid="1">alpha</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="2">beta</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

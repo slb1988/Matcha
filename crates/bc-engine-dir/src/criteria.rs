@@ -131,7 +131,7 @@ impl Criteria {
                 let hour = 3600 * 1_000_000_000u128;
                 let equal = difference <= u128::from(time.tolerance_secs) * 1_000_000_000
                     || (time.ignore_dst && difference == hour)
-                    || (self.timezone == TimezoneRule::Ignore && difference % hour == 0);
+                    || (self.timezone == TimezoneRule::Ignore && difference.is_multiple_of(hour));
                 if !equal {
                     return if delta > 0 { LeftNewer } else { RightNewer };
                 }

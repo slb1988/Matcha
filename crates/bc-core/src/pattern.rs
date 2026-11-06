@@ -88,6 +88,27 @@ impl Pattern {
             .filter(|m| m.span.start == start)
     }
 
+    /// Filtered capture-aware replacement, preserving anchor context and zero-width progress.
+    pub fn replace_all_if(
+        &self,
+        haystack: &str,
+        replacement: &str,
+        mut accept: impl FnMut(std::ops::Range<usize>) -> bool,
+    ) -> String {
+        let mut output = String::new();
+        let mut last = 0;
+        for captures in self.regex.captures_iter(haystack) {
+            let span = captures.get(0).unwrap().range();
+            if accept(span.clone()) {
+                output.push_str(&haystack[last..span.start]);
+                captures.expand(replacement, &mut output);
+                last = span.end;
+            }
+        }
+        output.push_str(&haystack[last..]);
+        output
+    }
+
     /// Replace using regex `$1` / `${name}` capture expansion (and `$$` for `$`).
     pub fn replace_all(&self, haystack: &str, replacement: &str) -> String {
         self.regex.replace_all(haystack, replacement).into_owned()

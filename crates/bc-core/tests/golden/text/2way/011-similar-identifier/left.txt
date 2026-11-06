@@ -1,0 +1,3 @@
+before
+total = price * qty
+after

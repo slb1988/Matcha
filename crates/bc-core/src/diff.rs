@@ -70,6 +70,23 @@ impl MyersDiff {
 #[derive(Debug, Clone, Default)]
 pub struct PatienceDiff;
 
+impl PatienceDiff {
+    pub fn diff_cancellable(
+        &self,
+        a: &[ContentHash],
+        b: &[ContentHash],
+        cancel: &dyn CancelCheck,
+    ) -> Result<Vec<DiffOp>, CoreError> {
+        diff_ranges(
+            a,
+            b,
+            MyersDiff::default().block_fallback_threshold,
+            true,
+            cancel,
+        )
+    }
+}
+
 impl Differ for PatienceDiff {
     fn diff(&self, a: &[ContentHash], b: &[ContentHash]) -> Vec<DiffOp> {
         diff_ranges(

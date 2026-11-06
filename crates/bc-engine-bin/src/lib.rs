@@ -152,7 +152,7 @@ pub mod ver {
         Ok(u32::from_le_bytes(bytes.get(at..at + 4).ok_or_else(invalid)?.try_into().unwrap()))
     }
     fn read_at(file: &mut std::fs::File, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-        if offset.checked_add(len as u64).map_or(true, |end| end > file.metadata().map(|m| m.len()).unwrap_or(0)) { return Err(invalid()); }
+        if offset.checked_add(len as u64).is_none_or(|end| end > file.metadata().map(|m| m.len()).unwrap_or(0)) { return Err(invalid()); }
         file.seek(SeekFrom::Start(offset))?;
         let mut bytes = vec![0; len];
         file.read_exact(&mut bytes)?;
@@ -181,7 +181,7 @@ pub mod ver {
         if size > 32 * 1024 * 1024 || sections > 1024 { return Err(invalid()); }
         let table = read_at(&mut file, pe + 24 + optional_size as u64, sections * 40)?;
         let map_rva = |address: u32, len: usize| -> io::Result<u64> {
-            for section in table.chunks_exact(40) {
+            for section in table.as_chunks::<40>().0 {
                 let base = u32_at(section, 12)?;
                 let raw_size = u32_at(section, 16)?;
                 if let Some(offset) = address.checked_sub(base) {

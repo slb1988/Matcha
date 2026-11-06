@@ -104,6 +104,75 @@ cargo build --release -p bcompare
 
 The benchmark prints `bench.*` key/value lines to stdout and closes the window.
 
+## 正式控件复测（Wave 4，2026-11-06 本地时间）
+
+正式 `bc-gui::text::TextCompareView` 已替换独立 mmap 原型。数据来自真实
+`TextMap::row()`，包括空隙、三态、语法/行内色、原行号、自绘选区和光标、编辑、
+导航、会话设置、状态区；基准没有绕过这些控件。
+
+### 复测环境与方法
+
+- 同机 Windows 11 / Rust 1.99.1 / egui、eframe 0.37 / glow / release。
+- `tmp/left.txt`、`tmp/right.txt` 各 110,000,043 B、2,119,483 来源行，输入未改写。
+- `cargo build --release -p bcompare` 后运行
+  `target/release/matcha.exe tmp/left.txt tmp/right.txt --bench=600`。
+- 等待真实 Align2Job 完成后才进入 30 帧预热和 600 帧计量；仍是三次 +3 行滚动、
+  一次随机跳转的固定模式。表中不是无对齐或简化渲染基准。
+- 只为可见行排版；长行每次最多 4096 字节的水平窗口；过滤索引按区段、缩略图
+  按 512 桶缓存，统计不在每帧重算。
+
+| 600 帧轮次 | update mean / p99 ms | frame CPU mean / p99 ms | 单侧加载 ms |
+|---|---:|---:|---:|
+| 复测 1 | 0.618 / 1.104 | 1.053 / 1.762 | 132 / 130 |
+| 复测 2 | 0.626 / 1.174 | 1.074 / 1.810 | 132 / 129 |
+| Tab 修正后 | 0.614 / 1.163 | 1.068 / 1.646 | 135 / 137 |
+| 最终（光标边界修正后） | **0.613 / 1.129** | **1.072 / 1.688** | **134 / 133** |
+
+最终 update p50/p95/max = 0.524/0.973/1.354 ms；frame CPU p50/p95/max =
+1.035/1.538/2.009 ms。每帧两侧合计约 78 行，比原型少是因为新增命令/双侧状态区
+占用了部分高度。全部轮次满足 **update p99 <4 ms / CPU p99 <8 ms**；相较原型
+尾部耗时有小幅波动，未声称每一个百分位都严格优于原型。
+
+保留全部原 `bench.*` 键与格式。`bench.wall_seconds=11.61` /
+`bench.fps_overall=54.3` 包括前置比较等待时间，而统计样本仅计算等待后的帧，
+因此不能把该 overall fps 解释成稳态刷新率。`bench.index_mb=101.7` 现在表示
+两侧引擎 Line 元数据的估计大小（行范围+逐行行尾），不再是原型的 u32 起点表。
+这里没有重新测量 GUI 峰值私有内存，也不把基准日志当作峰值内存证明。
+
+### 功能与风险复核
+
+- 18 个 GUI 回归：真实 RawInput 鼠标/键盘/剪贴板/拖放/IME 注入、tessellation、
+  滚动和上下布局、三态与两处行内色、过滤折叠、70% 导航、独立保存/备份、
+  共享 mmap 历史、查找替换、关闭取消、格式/编码与公开策略。
+- 补字变相同的实际防抖+后台结果应用约 **353 ms**，测试断言 <500 ms；撤销恢复着色。
+- 发现并修复的 GUI 问题包括：子行点击使编辑器丢焦点、上下布局继承水平布局、
+  短文件程序跳转导致两侧首帧不同步、替换成多字节文字后旧 byte caret 切进 UTF-8。
+- 原生程序 framebuffer 截图见
+  [正式视图](worker-reports/evidence/text-compare-wave4.png)。截图只捕获本应用，
+  不读取桌面/其他应用。`--screenshot=target/text.bmp` 直接写 BMP，不加图像依赖。
+- **原生 Windows 中文输入法候选窗仍待人工验收**：桌面锁定；普通屏幕截图返回
+  invalid handle。经协调者明确接受，本轮以 IME Preedit/Commit、光标输出与
+  CJK 后备字体验证作为自动门禁，保留候选窗专项待验，不尝试解锁。
+- 全量门禁：严格 Clippy 零 warning；workspace **122** 个测试通过；
+  黄金 **Myers 30/30、Standard 29/30**（唯一既有差异未增加）；release 构建成功。
+  命令尾部及提交信息见 [实施报告](worker-reports/text-compare-core-wave4.md)。
+
+### egui 0.37 接线注意
+
+- eframe 使用 `App::ui(&mut self, ui, frame)`，不是旧版 update(Context, ...)。
+- `egui::Panel::top/bottom(...).show(ui, ...)` 以根 Ui 为入口；
+  `ScrollArea::show_rows` 的行高加间距必须一致，正式文本行间距设为 0。
+- 从 `output.state.clamped_offset()` 取得偏移，不依赖旧 state.offset 字段；
+  顶层全局样式使用 `ctx.all_styles_mut`。
+- 子 Ui 默认继承布局，Over-Under 的父容器必须显式 top_down，不能在横向容器中
+  连续 allocate_ui 后假定它们会纵向排列。
+- `Id::unique`、`DroppedFile::path()`、typed CharIndex/ByteIndex 及
+  `ctx.request_screenshot(callback)` 均采用 0.37 API。
+- 无 GPU 的测试必须显式 clear 未上传的 textures_delta；测试仍执行真实 tessellate，
+  原生程序则正常由 backend 应用纹理。
+- 文件夹线合并只需扩展 app 的 View/action 分支与 Home 入口，勿重新引入原型
+  LoadedText 或第二份全量文本缓冲。
+
 ## Folder view follow-up (Wave C)
 
 The independent folder track now uses a worker-owned tree and latest-only immutable GUI
@@ -120,5 +189,5 @@ Reproduce with `tools/golden/bench_dir.ps1` or
 The native framebuffer screenshot avoids the black image returned by Win32 PrintWindow
 for OpenGL. Desktop input was restricted during capture; the owner must still perform
 the separate physical mouse/keyboard checklist in
-[the Wave C report](worker-reports/folder-compare-sync-waveC.md). Original text measurements
-above are unchanged.
+[the Wave C report](worker-reports/folder-compare-sync-waveC.md). The text measurements above
+are the formal Wave 4 control and were not changed by the folder track.

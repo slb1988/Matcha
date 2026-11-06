@@ -1,0 +1,13 @@
+{
+  "keys": [
+    0
+  ],
+  "sort": false,
+  "strategy": "Quick",
+  "handling": {
+    "2": {
+      "NumTolerance": 0.01
+    }
+  },
+  "header": "Data"
+}

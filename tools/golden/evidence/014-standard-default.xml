@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 2:41:25 AM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/6/2026 2:41:25 AM">
+		<filename1>D:\Github\Matcha\target\golden-work\014-comment-deletion\left.cpp</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\014-comment-deletion\right.cpp</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">int x;</text>
+		</linecomp>
+		<linecomp status="leftsimilar">
+			<text ltid="2">// standalone old comment</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="3" rtid="2">int y;</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

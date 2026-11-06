@@ -14,9 +14,9 @@
 //! | [`merge`] | 3-way merge state, conflicts, favor rules (`TTextMergeSession` behaviour) |
 //! | [`jobs`] | `TTextMapJob`, `TTextMapAlign2Job`, `TTextMapRealign2Job`, `TTextMapAlign3Job`, `TTextMapRealign3Job` |
 //! | [`search`] | find / find-in-files (`TTEXTFINDINFILESDIALOG` backend) |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 #![forbid(unsafe_code)]
 
+pub mod conflict;
 pub mod content;
 pub mod importance;
 pub mod inline;

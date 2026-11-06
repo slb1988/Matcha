@@ -59,7 +59,7 @@ impl DirBench {
         self.rng ^= self.rng >> 12;
         self.rng ^= self.rng << 25;
         self.rng ^= self.rng >> 27;
-        let row = if self.frame % 4 == 0 {
+        let row = if self.frame.is_multiple_of(4) {
             self.rng as usize % view.row_count().max(1)
         } else {
             view.last_stats.top_row + 3
