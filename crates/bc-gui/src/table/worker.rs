@@ -214,12 +214,22 @@ fn load(
         .is_some_and(|e| matches!(e.to_string_lossy().to_lowercase().as_str(), "xlsx" | "xlsm"));
     if workbook {
         let t = Instant::now();
-        let mut book = Workbook::open(path, Arc::new(ctx.cancel.clone())).map_err(error)?;
-        let names = book.sheet_names().to_vec();
+        let names = {
+            let book = Workbook::open(path, Arc::new(ctx.cancel.clone())).map_err(error)?;
+            book.sheet_names().to_vec()
+        };
         crate::perf::span("worker:workbook-open", t);
         let t = Instant::now();
         let mut sheet = if let Some(name) = index.and_then(|i| names.get(i)) {
-            book.load_sheet(name).map_err(error)?
+            // Values/styles, formulas and merges are three independent
+            // decompress+parse streams over the same zip entry; run them
+            // concurrently (identical result to the serial sequence).
+            bc_engine_table::workbook::load_sheet_parallel(
+                path,
+                name,
+                Arc::new(ctx.cancel.clone()),
+            )
+            .map_err(error)?
         } else {
             Sheet::default()
         };
@@ -273,21 +283,61 @@ impl Job for LoadJob {
             .unwrap_or([Some(0), Some(0)]);
         let mut sheets: [Option<Sheet>; 2] = [None, None];
         let mut names: [Vec<String>; 2] = [Vec::new(), Vec::new()];
-        for s in 0..2 {
-            if let Some(memory) = &self.memory[s] {
-                names[s] = memory.names.clone();
-                if indices[s] == Some(memory.index) {
-                    sheets[s] = Some(memory.sheet.clone());
-                    continue;
+        // Initial open reads both files from disk; the two parses are
+        // independent, so run them concurrently. A side served from memory
+        // (single-side replacement) keeps the original serial path.
+        let mem_hit = |s: usize| matches!(&self.memory[s], Some(m) if indices[s] == Some(m.index));
+        if !mem_hit(0) && !mem_hit(1) {
+            let mut results: [Option<(Result<(Sheet, Vec<String>), JobError>, Duration)>; 2] =
+                [None, None];
+            let this: &LoadJob = &self;
+            std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for s in 0..2 {
+                    let cancel = ctx.cancel.clone();
+                    let handle = scope.spawn(move || {
+                        let start = Instant::now();
+                        let result = load(&this.paths[s], &this.options[s], indices[s], ctx);
+                        // A failing side cancels its sibling's parse early.
+                        if result.is_err() {
+                            cancel.cancel();
+                        }
+                        crate::perf::span(&format!("worker:load-side-{s}"), start);
+                        (s, result, start.elapsed())
+                    });
+                    handles.push(handle);
                 }
-            }
-            let start = Instant::now();
-            let (sheet, n) = load(&self.paths[s], &self.options[s], indices[s], ctx)?;
-            times[s] = start.elapsed();
-            crate::perf::span(&format!("worker:load-side-{s}"), start);
-            sheets[s] = Some(sheet);
-            if self.memory[s].is_none() {
+                for handle in handles {
+                    let (s, result, elapsed) = handle
+                        .join()
+                        .unwrap_or_else(|_| panic!("table load thread panicked"));
+                    results[s] = Some((result, elapsed));
+                }
+            });
+            for s in 0..2 {
+                let (result, elapsed) = results[s].take().unwrap();
+                times[s] = elapsed;
+                let (sheet, n) = result?;
+                sheets[s] = Some(sheet);
                 names[s] = n;
+            }
+        } else {
+            for s in 0..2 {
+                if let Some(memory) = &self.memory[s] {
+                    names[s] = memory.names.clone();
+                    if indices[s] == Some(memory.index) {
+                        sheets[s] = Some(memory.sheet.clone());
+                        continue;
+                    }
+                }
+                let start = Instant::now();
+                let (sheet, n) = load(&self.paths[s], &self.options[s], indices[s], ctx)?;
+                times[s] = start.elapsed();
+                crate::perf::span(&format!("worker:load-side-{s}"), start);
+                sheets[s] = Some(sheet);
+                if self.memory[s].is_none() {
+                    names[s] = n;
+                }
             }
         }
         let mut pairs = self
