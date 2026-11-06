@@ -254,6 +254,7 @@ impl TableCompareView {
         self.request(Pending::Exit);
     }
     pub(super) fn cancel(&mut self) {
+        self.align_with = None;
         self.cancel_comparison();
         drop(self.scan.take());
     }
@@ -440,6 +441,7 @@ impl TableCompareView {
         }
     }
     pub(super) fn edited(&mut self) {
+        self.align_with = None;
         if let Some(w) = &self.worker {
             w.cancel();
         }

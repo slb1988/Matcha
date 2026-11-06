@@ -17,6 +17,8 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
+#[path = "command_tests.rs"]
+mod command_matrix;
 #[path = "copy_tests.rs"]
 mod copying;
 #[path = "edit_tests.rs"]

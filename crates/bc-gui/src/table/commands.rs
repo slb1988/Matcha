@@ -24,12 +24,20 @@ fn invalid(message: &str) -> CoreError {
     CoreError::Invalid(message.into())
 }
 impl TableCompareView {
+    fn source_row(&self, side: usize, row: usize) -> Result<usize, CoreError> {
+        let pair = self
+            .pair
+            .as_ref()
+            .ok_or_else(|| invalid("Table is loading"))?;
+        let row = grid::mapped(&pair.map, row);
+        (if side == 0 { row.left } else { row.right })
+            .ok_or_else(|| invalid("Row is a gap; copy the row first"))
+    }
     fn source_position(&self, s: usize, cursor: Cursor) -> Result<(usize, usize), CoreError> {
         let p = self
             .pair
             .as_ref()
             .ok_or_else(|| invalid("Table is loading"))?;
-        let row = grid::mapped(&p.map, cursor.row);
         let column = p
             .map
             .rules()
@@ -38,11 +46,7 @@ impl TableCompareView {
             .get(cursor.column)
             .and_then(|c| c.index(side(s)))
             .ok_or_else(|| invalid("Column is a gap"))?;
-        Ok((
-            (if s == 0 { row.left } else { row.right })
-                .ok_or_else(|| invalid("Row is a gap; copy the row first"))?,
-            column,
-        ))
+        Ok((self.source_row(s, cursor.row)?, column))
     }
     pub(super) fn begin_edit(&mut self, s: usize, cursor: Cursor, replacement: Option<String>) {
         if self.files[s].readonly {
@@ -141,9 +145,14 @@ impl TableCompareView {
             GridAction::Select(s, c, e) => (s, c, e, false),
             GridAction::Edit(s, c) => (s, c, false, true),
         };
+        if self.align_with.is_some() && !self.is_ready() {
+            self.align_with = None;
+            self.message = "Wait for comparison before aligning rows".into();
+            return;
+        }
         if let Some((from, row)) = self.align_with.take() {
             if from != s {
-                if let Ok((to, _)) = self.source_position(s, cursor) {
+                if let Ok(to) = self.source_row(s, cursor.row) {
                     let p = self.pair.as_mut().unwrap();
                     let edit = p.map.edit_sheet(side(s), "Align With", |_, _, anchors| {
                         anchors.insert(
@@ -154,6 +163,10 @@ impl TableCompareView {
                     match edit {
                         Ok(edit) => {
                             p.history[s].push(edit);
+                            self.grid.active = s;
+                            self.grid.cursor = cursor;
+                            self.grid.anchor = None;
+                            self.focus_grid = Some(s);
                             self.edited();
                         }
                         Err(e) => self.message = e.to_string(),
@@ -471,6 +484,11 @@ impl TableCompareView {
         if self.files[s].readonly {
             return Err(invalid("Editing disabled"));
         }
+        if !self.is_ready() || self.editor.is_some() {
+            return Err(invalid(
+                "Finish editing and wait for comparison before changing structure",
+            ));
+        }
         let cursor = self.grid.cursor;
         let mut selected_rows = self.selected_source_rows(s);
         let mut selected_cols = self.selected_source_columns(s);
@@ -483,7 +501,59 @@ impl TableCompareView {
         {
             return Ok(());
         }
-        let (row, col) = self.source_position(s, cursor).unwrap_or((0, 0));
+        let (row, col) = {
+            let p = self.pair.as_ref().unwrap();
+            let sheet = if s == 0 {
+                p.map.left.borrow()
+            } else {
+                p.map.right.borrow()
+            };
+            let rules = p.map.rules();
+            let source_row = p
+                .map
+                .row(cursor.row)
+                .and_then(|r| if s == 0 { r.left } else { r.right });
+            if matches!(operation, 0 | 1)
+                && p.map.row_count() > 0
+                && super::cache::projected(&p.projection, p.projection.display_for(cursor.row))
+                    != Some(cursor.row)
+            {
+                return Err(invalid("Select a visible row before inserting"));
+            }
+            if matches!(operation, 3 | 4)
+                && !rules.columns.0.is_empty()
+                && !self.grid.columns.contains(&cursor.column)
+            {
+                return Err(invalid("Select a visible column before inserting"));
+            }
+            let row = source_row
+                .map(|r| r + usize::from(operation == 1))
+                .unwrap_or_else(|| {
+                    (cursor.row.saturating_add(1)..p.map.row_count())
+                        .find_map(|r| {
+                            p.map
+                                .row(r)
+                                .and_then(|r| if s == 0 { r.left } else { r.right })
+                        })
+                        .unwrap_or(sheet.row_count())
+                });
+            let col = rules
+                .columns
+                .0
+                .get(cursor.column)
+                .and_then(|c| c.index(side(s)))
+                .map(|c| c + usize::from(operation == 4))
+                .unwrap_or_else(|| {
+                    rules
+                        .columns
+                        .0
+                        .iter()
+                        .skip(cursor.column.saturating_add(1))
+                        .find_map(|c| c.index(side(s)))
+                        .unwrap_or(sheet.column_count())
+                });
+            (row, col)
+        };
         let p = self
             .pair
             .as_mut()
@@ -498,10 +568,10 @@ impl TableCompareView {
                 }
                 match operation {
                     0 => sheet.insert_row(row.min(sheet.row_count()), Vec::new())?,
-                    1 => sheet.insert_row((row + 1).min(sheet.row_count()), Vec::new())?,
+                    1 => sheet.insert_row(row.min(sheet.row_count()), Vec::new())?,
                     2 => sheet.remove_row_indices(&selected_rows)?,
                     3 | 4 => {
-                        let at = (col + usize::from(operation == 4)).min(sheet.column_count());
+                        let at = col.min(sheet.column_count());
                         sheet.insert_column(at, "New column".into())?;
                         for c in &mut rules.columns.0 {
                             let index = if s == 0 { &mut c.left } else { &mut c.right };
@@ -512,7 +582,8 @@ impl TableCompareView {
                             }
                         }
                         rules.columns.0.insert(
-                            cursor.column.min(rules.columns.0.len()),
+                            (cursor.column + usize::from(operation == 4))
+                                .min(rules.columns.0.len()),
                             ComparisonColumn::new((s == 0).then_some(at), (s == 1).then_some(at)),
                         );
                     }
@@ -548,6 +619,7 @@ impl TableCompareView {
             },
         )?;
         p.history[s].push(e);
+        self.focus_grid = Some(s);
         self.edited();
         Ok(())
     }
@@ -625,35 +697,60 @@ impl TableCompareView {
                 ui.close();
             }
             if ui.button("Align With — click opposite row").clicked() {
-                if let Ok((r, _)) = self.source_position(self.grid.active, self.grid.cursor) {
+                if !self.is_ready() {
+                    self.message = "Wait for comparison before aligning rows".into();
+                } else if let Ok(r) = self.source_row(self.grid.active, self.grid.cursor.row) {
                     self.align_with = Some((self.grid.active, r));
                 }
                 ui.close();
             }
             if ui.button("Clear alignment overrides").clicked() {
-                if let Some(p) = &mut self.pair {
-                    if let Ok(e) =
-                        p.map
-                            .edit_sheet(side(self.grid.active), "Clear alignment", |_, _, a| {
-                                a.clear();
-                                Ok(())
-                            })
-                    {
-                        p.history[self.grid.active].push(e);
-                        self.edited();
-                    }
-                }
+                self.clear_alignment();
                 ui.close();
             }
         });
     }
+    fn clear_alignment(&mut self) {
+        if !self.is_ready() {
+            self.message = "Wait for comparison before clearing alignment".into();
+            return;
+        }
+        if let Some(p) = &mut self.pair {
+            if p.map.overrides().pairs().is_empty() {
+                return;
+            }
+            match p
+                .map
+                .edit_sheet(side(self.grid.active), "Clear alignment", |_, _, a| {
+                    a.clear();
+                    Ok(())
+                }) {
+                Ok(edit) => {
+                    p.history[self.grid.active].push(edit);
+                    self.focus_grid = Some(self.grid.active);
+                    self.edited();
+                }
+                Err(error) => self.message = error.to_string(),
+            }
+        }
+    }
     fn select_all(&mut self) {
         if let Some(p) = &self.pair {
+            let rows = if p.map.is_stale() {
+                p.map
+                    .left
+                    .borrow()
+                    .row_count()
+                    .max(p.map.right.borrow().row_count())
+            } else {
+                p.cache.total
+            };
             self.grid.anchor = Some(Cursor::default());
             self.grid.cursor = Cursor {
-                row: p.cache.total.saturating_sub(1),
-                column: p.map.column_count().saturating_sub(1),
+                row: rows.saturating_sub(1),
+                column: p.map.rules().columns.0.len().saturating_sub(1),
             };
+            self.focus_grid = Some(self.grid.active);
         }
     }
     pub(super) fn find_action(&mut self, action: Action) -> Result<(), CoreError> {
