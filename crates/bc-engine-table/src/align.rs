@@ -1,7 +1,7 @@
 //! Key preparation only; all sequence alignment is delegated to bc-core.
 use crate::{
     columns::Side,
-    compare::{equal_values, normalized_value},
+    compare::{equal_values, normalized_value, raw_text_equal},
     invalid,
     rules::ColumnHandling,
     CellValue, Result, Sheet, TableRules,
@@ -93,7 +93,16 @@ fn keys_equal(
     rules: &TableRules,
     keys: &[(usize, ColumnHandling)],
 ) -> bool {
+    let same_regional = left.regional == right.regional;
     keys.iter().all(|(c, h)| {
+        let lc = rules.columns.0[*c].left.and_then(|col| left.cell(l, col));
+        let rc = rules.columns.0[*c].right.and_then(|col| right.cell(r, col));
+        if same_regional
+            && h.column_type != crate::rules::ColumnType::Text
+            && raw_text_equal(lc, rc)
+        {
+            return true;
+        }
         equal_values(
             &normalized_value(left, l, rules.columns.0[*c].left, h),
             &normalized_value(right, r, rules.columns.0[*c].right, h),

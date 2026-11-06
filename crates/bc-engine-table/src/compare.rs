@@ -1,6 +1,6 @@
 use crate::{
     rules::{ColumnHandling, ColumnType, Layers},
-    CellValue, Sheet,
+    Cell, CellValue, Sheet,
 };
 use std::borrow::Cow;
 
@@ -59,6 +59,18 @@ impl CellDiff {
             formula: self.formula.max(other.formula),
             format: self.format.max(other.format),
         }
+    }
+}
+/// Both cells hold identical raw text: with equal regional settings and a
+/// non-Text-typed column their normalized comparison values are identical,
+/// so callers may skip normalization entirely.
+pub(crate) fn raw_text_equal(a: Option<&Cell>, b: Option<&Cell>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => match (&a.value, &b.value) {
+            (CellValue::Text(t), CellValue::Text(u)) => t == u,
+            _ => false,
+        },
+        _ => false,
     }
 }
 pub(crate) fn normalized_value<'a>(
@@ -130,8 +142,17 @@ impl CellComparator<'_> {
             date_tolerance: Default::default(),
             ..self.handling.clone()
         };
+        // Identical raw text with identical regional settings normalizes to
+        // identical values; skip the parse/interpret work for that case. Only
+        // text cells benefit, and only when the column is not forced to
+        // Text-typed comparison (which reads override-aware display text).
+        let raw_text_same = self.handling.column_type != ColumnType::Text
+            && left.regional == right.regional
+            && raw_text_equal(lc, rc);
         let value = if lc.is_some() != rc.is_some() {
             changed
+        } else if raw_text_same {
+            Importance::Same
         } else if equal_values(
             &normalized_value(left, l, columns.0, &exact_handling),
             &normalized_value(right, r, columns.1, &exact_handling),
@@ -149,14 +170,8 @@ impl CellComparator<'_> {
         };
         // Trim only boundary whitespace and the leading '='; formula string
         // literals and significant internal spaces must never be rewritten.
-        let formula = |c: Option<&crate::Cell>| {
-            c.and_then(|c| c.formula.as_deref())
-                .unwrap_or("")
-                .trim()
-                .trim_start_matches('=')
-                .to_string()
-        };
-        let formula = if formula(lc) == formula(rc) {
+        // Compared as &str: no per-cell String allocation.
+        let formula = if formula_text(lc) == formula_text(rc) {
             Importance::Same
         } else {
             changed
@@ -180,6 +195,14 @@ impl CellComparator<'_> {
             format,
         }
     }
+}
+
+/// Formula text for comparison: trimmed, without the leading '='.
+fn formula_text(c: Option<&Cell>) -> &str {
+    c.and_then(|c| c.formula.as_deref())
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('=')
 }
 
 /// Three independent 2-bit states per cell; no Vec<CellDiff> per row.
