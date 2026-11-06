@@ -2,7 +2,7 @@
 
 ## 范围与证据口径
 
-本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.1–4.5 和最终集成仍须按任务验收。本轮代码测试使用 egui RawInput/tessellation，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
+本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.5 三档回归已完成，4.1–4.4 和最终集成仍须按任务验收。本轮代码测试使用 egui RawInput/tessellation，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
 
 - `commandstable.html` 含 **77 个 p_Command 段落**，其中包含菜单分组和拆开的子项，不等于 77 个独立可执行命令。
 - 下表逐段保留原顺序与名称，包括两个重复的 `Open With >` 和隐藏标记 `*`，避免菜单组被去重后漏项。
@@ -57,9 +57,9 @@
 | C28 | `Redo` | 已实现、部分回归 | 目的侧 EditStack + 后台重算；TextEdit 草稿使用本地历史，已提交编辑生成新 revision 防 ABA。 |
 | C29 | `Align With` | 已有实现、待专项验收 | 先选源行再点对侧，锚点作为 EditItem；清除入口存在，完整输入回归仍待 4.3。 |
 | C30 | `Copy to Right / Copy to Left *` | 能力合并 | 方向别名并入 Copy to Other Side，按活动侧选择目的侧。 |
-| C31 | `Copy to Other Side` | 部分 | 单格复制/撤销已有回归；多选批量复制的事务性、排序视图和空隙处理仍需 4.3。 |
+| C31 | `Copy to Other Side` | 批量原子性已补 | 先按可见行列规划一次 EditItem；非法坐标或单元格空隙拒绝整批，无部分写入。过滤/隐藏列、Show None、Undo/Redo 已回归；完整性能/交互矩阵仍属 4.3。 |
 | C32 | `Copy Row to Right / Copy Row to Left *` | 能力合并 | 方向别名并入 Copy Row to Other Side。 |
-| C33 | `Copy Row to Other Side` | 部分 | 整行复制有引擎测试；GUI 多选/排序视图场景仍待验。 |
+| C33 | `Copy Row to Other Side` | 批量原子性已补 | 基于原始目的源索引规划插入，支持排序/过滤视图、连续空隙、缺列/空侧、样式/拼写和一次撤销；大规模结构插入性能仍待专项验收。 |
 | C34 | `Cut / Copy / Paste / Delete` | 安全路径已补、完整矩阵待补 | edit_tests.rs 验证 TSV 引号/tab/CRLF/空字段往返、Find 焦点隔离与菜单粘贴；完整 IME/批量矩阵待 4.3。 |
 | C35 | `Delete Row` | 多选已补 | 可见投影映射到源行集合，一次重建删除；过滤选区与撤销已有回归。 |
 | C36 | `Delete Column` | 多选已补 | 按比较列映射到源列，降序删除并修正映射；错序源列的多选删除/撤销已有回归。 |
@@ -99,7 +99,7 @@
 | C60 | `Show Differences` | 已有实现、部分回归 | 仅差异投影；Ignore Unimportant 生效，过滤后的删除不触及隐藏行。 |
 | C61 | `Show Same` | 已有实现、矩阵待补 | 差异区间的补集；完整切换组合待 4.2。 |
 | C62 | `Show None *` | 已有实现、矩阵待补 | 投影为空、模型/统计保留；隐藏状态下的数据命令边界待专项验收。 |
-| C63 | `Ignore Unimportant Differences` | 已有实现、部分回归 | 仅将 U 投影为 S，保留原三态；影响导航、过滤、计数和 sheet 色点。 |
+| C63 | `Ignore Unimportant Differences` | 已有实现、部分回归 | 仅将 U 投影为 S，保留原三态；三档/数字格式及缓存 sheet 过滤往返已有真实输入回归。显示层切换保留后台全层汇总扫描；完整导航矩阵仍待 4.2。 |
 | C64 | `Hide Same Columns` | 已有实现、矩阵待补 | 按列汇总隐藏无差异列；隐藏计数提示与组合场景仍待 4.1。 |
 | C65 | `Resize Columns to Fit` | 已有实现、矩阵待补 | 初始有界采样；显式命令由 worker 扫描全部已加载内容，长字段输入回归待补。 |
 | C66 | `Visible Whitespace` | 已有实现、矩阵待补 | 空格/tab/换行可视符号仅用于绘制，不写入文件。 |
@@ -111,7 +111,7 @@
 | C72 | `Side-by-Side Layout` | 已有实现、部分回归 | 共享 x/y 偏移的左右/上下网格；已有二维虚拟化、几何与 tessellation 回归。 |
 | C73 | `Over-Under Layout` | 已有实现、部分回归 | 共享 x/y 偏移的左右/上下网格；已有二维虚拟化、几何与 tessellation 回归。 |
 | C74 | `Thumbnail` | 已有实现、矩阵待补 | 固定 512 桶和可视范围，点击定位入口已有；过滤组合的输入矩阵待 4.1。 |
-| C75 | `Text Details` | 已有实现、部分回归 | 两侧完整逻辑值、公式和数字格式；不计算公式。 |
+| C75 | `Text Details` | 三档及公式详情回归通过 | 两侧完整逻辑值、公式和数字格式；真实点击三档并校验两侧公式文本、原始三态保留，不计算公式。 |
 | C76 | `File Info` | 已有实现、矩阵待补 | 路径/字节/只读/修改提示已有；编码诊断、缓存 sheet 和保存目标展示待核验。 |
 | C77 | `Toolbar` | 待补齐 | 命令栏常驻，完整隐藏/恢复入口尚未实现，保留为 4.1 缺口。 |
 
@@ -162,7 +162,7 @@
 | Whitespace | 同上，前后与词间数量变化按规则处理。 |
 | Numeric tolerance | 容差内差异为 U；原本相同的值仍 S。 |
 | Date tolerance | 内部毫秒，GUI 小时输入（24 = 一天）；引擎有天/小时构造。 |
-| 格式重要性 | 数字格式默认 U、引擎可配重要性；GUI 配置及三档完整回归仍待 4.4/4.5。 |
+| 格式重要性 | 数字格式默认 U、引擎可配重要性；默认数字格式的三档/Ignore 往返已验证，重要性 GUI 配置仍待 4.4。 |
 
 ### `sessiontablealignment.html`
 
@@ -235,7 +235,7 @@ Use system / Decimal separator / Thousands separator / Date order / Date separat
 - Sheet 标签用于切换当前比较；后台可逐 Sheet 计算色点/统计，未计算使用 pending 状态。
 - 同文件两侧可以通过 Sheets 重排比较不同 Sheet；底层配对有测试，完整 GUI 情况仍待 4.4。
 - HTML tables 按 design 非目标，不接入转换器伪装实现。
-- 当前层档位/Ignore Unimportant 应影响标签与导航；扫描取消后的恢复及缓存编辑路径仍需专项验收。
+- 显示层切换不再取消全层汇总扫描，三档/Ignore 与缓存 sheet 切换/过滤已回归；设置或重载取消后的恢复及缓存编辑路径仍需 4.4 专项验收。
 
 ## 额外协议与校准
 

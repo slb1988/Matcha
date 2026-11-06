@@ -31,7 +31,7 @@
 - [ ] 4.2 实现导航与显示过滤（Next/Previous Difference Cell/Row、Next/Previous Edit、Go To、Show All/Differences/Same/None、Ignore Unimportant）；验证输入注入回归对照 table-compare-view 场景
 - [ ] 4.3 实现编辑（Modify、剪贴板、插入/删除行列、Sort、Copy to Other Side、Copy Row、Select All、Align With、撤销重做）与键改变重对齐；验证输入注入回归：复制单元格到对侧后相同、修改键后重新配对
 - [ ] 4.4 实现查找/替换、Go To、会话设置面板（Specs/Format/Columns/Alignment/Sheets，含键推断标注与列结构变化接受/改写）、Table Compare Info、Swap/Reload/Recompare、两侧独立保存与 xlsx 只读提示、sheet 标签色点与切换、差异摘要导出入口；验证输入注入回归对照规格
-- [ ] 4.5 三层档位切换（只看值 / 值+公式 / 值+公式+格式）与 Text Details 显示两侧公式；验证回归：值同公式不同用例
+- [x] 4.5 三层档位切换（只看值 / 值+公式 / 值+公式+格式）与 Text Details 显示两侧公式；验证回归：值同公式不同用例
 
 ## 5. 黄金语料与对照
 
@@ -46,4 +46,5 @@
 ## Workflow follow-up
 
 - 评审通过后归档本 change；xlsx 写回与格式层扩展另立 change。
-- Wave 2 阶段收口为**部分交付**，未归档；本轮仅确认 5.2 完成（行状态 81/83、单元格 236/242，1 条已知差异）。4.1–4.5、5.1、5.3、6.1 保留未完成；实现、已执行验证与待验边界见 `docs/worker-reports/table-compare-xlsx-wave2.md`，构建成功不等同于全部交互验收完成。
+- Wave 2 历史收口为**部分交付**，当时仅确认 5.2 完成；证据见 `docs/worker-reports/table-compare-xlsx-wave2.md`。Wave 3 补齐 5.1、5.3，见 `docs/worker-reports/table-compare-xlsx-wave3.md`。
+- Wave 4 补齐 4.5 的三档实际输入/公式详情/数字格式回归，并修复批量复制与显示层切换的扫描取消问题；累计 18/23。4.1–4.4、6.1 继续未完成，多列排序的范围决策仍待确认；证据与限制见 `docs/worker-reports/table-compare-xlsx-wave4.md`。构建成功不等同于全部交互验收完成，暂不归档。
