@@ -1,5 +1,4 @@
 use super::{
-    cache::Filter,
     find::Action,
     grid::{self, Cursor, GridAction},
     view::{CellEditor, FileMode, PathDialog, Pending, TableAction, TableCompareView},
@@ -50,42 +49,90 @@ impl TableCompareView {
             self.message = "Editing disabled".into();
             return;
         }
+        if self.editor.is_some() {
+            return;
+        }
         match self.source_position(s, cursor) {
             Ok((row, col)) => {
-                let p = self.pair.as_ref().unwrap();
-                let sheet = if s == 0 {
-                    p.map.left.borrow()
-                } else {
-                    p.map.right.borrow()
+                let editor = {
+                    let p = self.pair.as_ref().unwrap();
+                    let sheet = if s == 0 {
+                        p.map.left.borrow()
+                    } else {
+                        p.map.right.borrow()
+                    };
+                    let original = sheet.display_at(row, col).unwrap_or_default();
+                    CellEditor {
+                        side: s,
+                        source: Cursor { row, column: col },
+                        display: cursor,
+                        text: replacement.unwrap_or_else(|| original.clone()),
+                        original,
+                        original_cell: sheet.cell(row, col).unwrap().clone(),
+                        focus: true,
+                    }
                 };
-                self.editor = Some(CellEditor {
-                    side: s,
-                    source: Cursor { row, column: col },
-                    text: replacement
-                        .unwrap_or_else(|| sheet.display_at(row, col).unwrap_or_default()),
-                    focus: true,
-                });
+                self.grid.active = s;
+                self.grid.cursor = cursor;
+                if !self.grid.columns.contains(&cursor.column) {
+                    self.hide_same = false;
+                    self.refresh_grid();
+                }
+                if !self.grid.visible.contains(&cursor.row) {
+                    self.goto_cell(cursor);
+                }
+                self.editor = Some(editor);
             }
             Err(e) => self.message = e.to_string(),
         }
     }
     pub(super) fn commit_edit(&mut self) -> Result<(), CoreError> {
-        let Some(editor) = self.editor.take() else {
+        let Some(editor) = self.editor.as_ref() else {
             return Ok(());
         };
-        if self.files[editor.side].readonly {
-            return Err(invalid("Editing disabled"));
+        let side_index = editor.side;
+        if !editor.changed() {
+            self.editor = None;
+            self.focus_grid = Some(side_index);
+            return Ok(());
         }
-        let p = self
+        if self.files[side_index].readonly {
+            return Err(invalid("Editing disabled; the draft has been retained"));
+        }
+        let pair = self
             .pair
             .as_mut()
-            .ok_or_else(|| invalid("Table is loading"))?;
-        p.history[editor.side].push(p.map.modify_cell(
-            side(editor.side),
+            .ok_or_else(|| invalid("Table is loading; the draft has been retained"))?;
+        {
+            let sheet = if side_index == 0 {
+                pair.map.left.borrow()
+            } else {
+                pair.map.right.borrow()
+            };
+            if sheet.cell(editor.source.row, editor.source.column) != Some(&editor.original_cell)
+                || sheet
+                    .display_at(editor.source.row, editor.source.column)
+                    .as_deref()
+                    != Some(&editor.original)
+            {
+                return Err(invalid(
+                    "The cell changed while editing; the draft has been retained",
+                ));
+            }
+        }
+        let mut cell = editor.original_cell.clone();
+        cell.value = bc_engine_table::CellValue::Text(editor.text.clone().into());
+        cell.formula = None; // Entering a literal replaces a formula, never evaluates one.
+        let edit = pair.map.modify_cell(
+            side(side_index),
             editor.source.row,
             editor.source.column,
-            Cell::text(editor.text),
-        )?);
+            cell,
+        )?;
+        pair.history[side_index].push(edit);
+        self.editor = None;
+        self.grid.active = side_index;
+        self.focus_grid = Some(side_index);
         self.edited();
         Ok(())
     }
@@ -242,69 +289,71 @@ impl TableCompareView {
         }
         p.history[to].end_group();
         self.grid.active = to;
+        self.focus_grid = Some(to);
         self.edited();
         if let Some(e) = error {
             self.message = e.to_string();
         }
     }
     fn selected_cells(&self) -> Vec<(usize, usize)> {
-        let Some(p) = &self.pair else {
-            return Vec::new();
-        };
-        let a = self.grid.anchor.unwrap_or(self.grid.cursor);
-        let b = self.grid.cursor;
-        let mut cells = Vec::new();
-        for row in a.row.min(b.row)..=a.row.max(b.row) {
-            let different = p.cache.diff_rows.binary_search(&row).is_ok();
-            if self.filter == Filter::None
-                || (self.filter == Filter::Differences && !different)
-                || (self.filter == Filter::Same && different)
-            {
-                continue;
-            }
-            for col in a.column.min(b.column)..=a.column.max(b.column) {
-                if let Ok(cell) =
-                    self.source_position(self.grid.active, Cursor { row, column: col })
-                {
-                    cells.push(cell);
-                }
-            }
-        }
-        cells
+        let selected = self.selection();
+        selected
+            .rows
+            .into_iter()
+            .flat_map(|row| {
+                selected.columns.iter().filter_map(move |&column| {
+                    self.source_position(self.grid.active, Cursor { row, column })
+                        .ok()
+                })
+            })
+            .collect()
     }
-    fn clipboard_text(&self) -> String {
-        let Some(p) = &self.pair else {
-            return String::new();
-        };
+    fn clipboard_text(&self) -> Option<String> {
+        let pair = self.pair.as_ref()?;
+        let selected = self.selection();
+        if selected.rows.is_empty() || selected.columns.is_empty() {
+            return None;
+        }
         let s = self.grid.active;
         let sheet = if s == 0 {
-            p.map.left.borrow()
+            pair.map.left.borrow()
         } else {
-            p.map.right.borrow()
+            pair.map.right.borrow()
         };
-        let a = self.grid.anchor.unwrap_or(self.grid.cursor);
-        let b = self.grid.cursor;
-        let mut rows = Vec::new();
-        for row in a.row.min(b.row)..=a.row.max(b.row) {
-            let different = p.cache.diff_rows.binary_search(&row).is_ok();
-            if self.filter == Filter::None
-                || (self.filter == Filter::Differences && !different)
-                || (self.filter == Filter::Same && different)
-            {
+        let quote = |text: String| {
+            if text.is_empty() || text.contains(['\t', '\r', '\n', '"']) {
+                format!("\"{}\"", text.replace('"', "\"\""))
+            } else {
+                text
+            }
+        };
+        let mut records = Vec::new();
+        for row in selected.rows {
+            let mapped = grid::mapped(&pair.map, row);
+            if (if s == 0 { mapped.left } else { mapped.right }).is_none() {
                 continue;
             }
-            let mut cells = Vec::new();
-            for col in a.column.min(b.column)..=a.column.max(b.column) {
-                cells.push(
-                    self.source_position(s, Cursor { row, column: col })
-                        .ok()
-                        .and_then(|(r, c)| sheet.display_at(r, c))
-                        .unwrap_or_default(),
-                );
-            }
-            rows.push(cells.join("\t"));
+            records.push(
+                selected
+                    .columns
+                    .iter()
+                    .map(|&column| {
+                        quote(
+                            self.source_position(s, Cursor { row, column })
+                                .ok()
+                                .and_then(|(r, c)| sheet.display_at(r, c))
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\t"),
+            );
         }
-        rows.join("\n")
+        if records.is_empty() {
+            None
+        } else {
+            Some(records.join("\r\n"))
+        }
     }
     pub(super) fn clear_selected(&mut self) {
         let s = self.grid.active;
@@ -313,6 +362,9 @@ impl TableCompareView {
             return;
         }
         let cells = self.selected_cells();
+        if cells.is_empty() {
+            return;
+        }
         let Some(p) = &mut self.pair else {
             return;
         };
@@ -355,7 +407,10 @@ impl TableCompareView {
             ..Default::default()
         };
         let pasted = read_text(IoCursor::new(text), &options, &NeverCancel)?.sheet;
-        let values = (0..pasted.row_count())
+        if pasted.row_count() == 0 || pasted.column_count() == 0 {
+            return Ok(());
+        }
+        let mut values: Vec<Vec<Cell>> = (0..pasted.row_count())
             .map(|r| {
                 (0..pasted.column_count())
                     .map(|c| Cell::text(pasted.display_at(r, c).unwrap_or_default()))
@@ -366,6 +421,11 @@ impl TableCompareView {
         let e = p
             .map
             .edit_sheet(side(s), "Paste cells", |sheet, rules, anchors| {
+                for (row, cells) in values.iter_mut().enumerate() {
+                    for (col, cell) in cells.iter_mut().enumerate() {
+                        cell.style = sheet.cell(r + row, c + col).and_then(|cell| cell.style);
+                    }
+                }
                 sheet.paste_cells(r, c, values)?;
                 let max = sheet.column_count();
                 let mut represented = rules
@@ -396,6 +456,17 @@ impl TableCompareView {
             return Err(invalid("Editing disabled"));
         }
         let cursor = self.grid.cursor;
+        let mut selected_rows = self.selected_source_rows(s);
+        let mut selected_cols = self.selected_source_columns(s);
+        selected_rows.sort_unstable();
+        selected_rows.dedup();
+        selected_cols.sort_unstable();
+        selected_cols.dedup();
+        if (operation == 2 && selected_rows.is_empty())
+            || (operation == 5 && selected_cols.is_empty())
+        {
+            return Ok(());
+        }
         let (row, col) = self.source_position(s, cursor).unwrap_or((0, 0));
         let p = self
             .pair
@@ -413,11 +484,7 @@ impl TableCompareView {
                 match operation {
                     0 => sheet.insert_row(row.min(sheet.row_count()), Vec::new())?,
                     1 => sheet.insert_row((row + 1).min(sheet.row_count()), Vec::new())?,
-                    2 => {
-                        if row < sheet.row_count() {
-                            sheet.remove_rows(row..row + 1)?;
-                        }
-                    }
+                    2 => sheet.remove_row_indices(&selected_rows)?,
                     3 | 4 => {
                         let at = (col + usize::from(operation == 4)).min(sheet.column_count());
                         sheet.insert_column(at, "New column".into())?;
@@ -435,14 +502,16 @@ impl TableCompareView {
                         );
                     }
                     5 => {
-                        sheet.remove_column(col)?;
+                        for &column in selected_cols.iter().rev() {
+                            sheet.remove_column(column)?;
+                        }
                         for c in &mut rules.columns.0 {
                             let index = if s == 0 { &mut c.left } else { &mut c.right };
                             *index = index.and_then(|i| {
-                                if i == col {
+                                if selected_cols.binary_search(&i).is_ok() {
                                     None
                                 } else {
-                                    Some(if i > col { i - 1 } else { i })
+                                    Some(i - selected_cols.partition_point(|&c| c < i))
                                 }
                             });
                         }
@@ -508,15 +577,21 @@ impl TableCompareView {
                 ui.close();
             }
             if ui.button("Cut").clicked() {
-                ui.ctx().copy_text(self.clipboard_text());
-                self.clear_selected();
+                if let Some(text) = self.clipboard_text() {
+                    ui.ctx().copy_text(text);
+                    self.clear_selected();
+                }
                 ui.close();
             }
             if ui.button("Copy").clicked() {
-                ui.ctx().copy_text(self.clipboard_text());
+                if let Some(text) = self.clipboard_text() {
+                    ui.ctx().copy_text(text);
+                }
                 ui.close();
             }
             if ui.button("Paste").clicked() {
+                self.paste_requested = true;
+                self.focus_grid = Some(self.grid.active);
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
                 ui.close();
@@ -696,6 +771,9 @@ impl TableCompareView {
         let events = ctx.input(|i| i.events.clone());
         let focused =
             ctx.memory(|m| m.has_focus(egui::Id::unique(("table_grid_focus", self.grid.active))));
+        if self.paste_requested && !focused {
+            self.paste_requested = false;
+        }
         for event in events {
             match event {
                 egui::Event::Paste(text) if self.clipboard_side.is_some() => {
@@ -718,15 +796,22 @@ impl TableCompareView {
                         self.message = e.to_string();
                     }
                 }
-                _ if !focused => {}
-                egui::Event::Copy => ctx.copy_text(self.clipboard_text()),
-                egui::Event::Cut => {
-                    ctx.copy_text(self.clipboard_text());
-                    self.clear_selected();
-                }
-                egui::Event::Paste(text) => {
+                egui::Event::Paste(text) if self.paste_requested || focused => {
+                    self.paste_requested = false;
                     if let Err(e) = self.paste(text) {
                         self.message = e.to_string();
+                    }
+                }
+                _ if !focused => {}
+                egui::Event::Copy => {
+                    if let Some(text) = self.clipboard_text() {
+                        ctx.copy_text(text);
+                    }
+                }
+                egui::Event::Cut => {
+                    if let Some(text) = self.clipboard_text() {
+                        ctx.copy_text(text);
+                        self.clear_selected();
                     }
                 }
                 egui::Event::Text(text) => {
@@ -796,6 +881,9 @@ impl TableCompareView {
         prefs: &Prefs,
         export: bool,
     ) -> Result<(), CoreError> {
+        if self.editor.as_ref().is_some_and(|e| e.side == s) {
+            self.commit_edit()?;
+        }
         self.cancel();
         let p = self
             .pair
@@ -890,13 +978,14 @@ impl TableCompareView {
             }
             _ => true,
         };
-        if destroys && self.is_dirty() {
+        if (destroys || self.editor.as_ref().is_some_and(CellEditor::changed)) && self.is_dirty() {
             self.pending = Some(p);
         } else {
             self.perform(p);
         }
     }
     pub(super) fn perform(&mut self, p: Pending) {
+        self.editor = None; // request/confirmation has resolved any dirty draft first.
         match p {
             Pending::Home => {
                 self.cancel();
@@ -1045,36 +1134,45 @@ impl TableCompareView {
     pub(super) fn dialogs(&mut self, ctx: &egui::Context, prefs: &Prefs) {
         let mut commit = false;
         let mut cancel = false;
-        if let Some(editor) = &mut self.editor {
-            egui::Window::new("Modify cell")
-                .id(egui::Id::unique("table_modify"))
-                .default_width(520.0)
-                .show(ctx, |ui| {
-                    ui.label("Value (formula evaluation is not performed)");
-                    let r = ui.add(
-                        egui::TextEdit::multiline(&mut editor.text)
-                            .id_salt("table_cell_text")
-                            .desired_rows(3)
-                            .desired_width(500.0),
-                    );
-                    if editor.focus {
-                        r.request_focus();
-                        editor.focus = false;
-                    }
-                    ui.horizontal(|ui| {
-                        commit = ui.button("Commit (Ctrl+Enter)").clicked();
-                        cancel = ui.button("Cancel edit").clicked();
+        // The draft stays intact while a destructive-action confirmation is open.
+        if self.pending.is_none() && self.dialog.is_none() {
+            if let (Some(editor), Some(rect)) = (&mut self.editor, self.grid.edit_rect) {
+                egui::Area::new(egui::Id::unique("table_modify"))
+                    .fixed_pos(rect.min)
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            commit |= ui.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                            });
+                            let width = rect.width().max(260.0);
+                            let response = ui.add(
+                                egui::TextEdit::multiline(&mut editor.text)
+                                    .id_salt("table_cell_text")
+                                    .desired_width(width)
+                                    .desired_rows(1),
+                            );
+                            if editor.focus {
+                                response.request_focus();
+                                editor.focus = false;
+                            }
+                            ui.horizontal(|ui| {
+                                commit |= ui.button("Commit (Ctrl+Enter)").clicked();
+                                cancel = ui.button("Cancel edit").clicked();
+                            });
+                            cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        });
                     });
-                    commit |= ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.command);
-                    cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
-                });
+            }
         }
         if commit {
             if let Err(e) = self.commit_edit() {
                 self.message = e.to_string();
             }
         } else if cancel {
-            self.editor = None;
+            if let Some(editor) = self.editor.take() {
+                self.focus_grid = Some(editor.side);
+            }
         }
         let mut execute = None;
         let mut cancel = false;
@@ -1151,6 +1249,10 @@ impl TableCompareView {
         }
         match decision {
             1 => {
+                if let Err(e) = self.commit_edit() {
+                    self.message = e.to_string();
+                    return;
+                }
                 let mut saved = true;
                 for s in 0..2 {
                     if self.files[s].clipboard_dirty
@@ -1184,7 +1286,12 @@ impl TableCompareView {
                     self.perform(p);
                 }
             }
-            3 => self.pending = None,
+            3 => {
+                self.pending = None;
+                if let Some(e) = &mut self.editor {
+                    e.focus = true;
+                }
+            }
             _ => {}
         }
     }

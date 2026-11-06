@@ -27,6 +27,8 @@ pub struct GridState {
     pub visible: Range<usize>,
     pub rows_drawn: usize,
     pub cells_drawn: usize,
+    pub edit_target: Option<(usize, Cursor)>,
+    pub edit_rect: Option<egui::Rect>,
 }
 impl Default for GridState {
     fn default() -> Self {
@@ -45,6 +47,8 @@ impl Default for GridState {
             visible: 0..0,
             rows_drawn: 0,
             cells_drawn: 0,
+            edit_target: None,
+            edit_rect: None,
         }
     }
 }
@@ -183,6 +187,9 @@ pub fn pane(
                             egui::pos2(gutter.right(), clip.top()),
                             clip.max,
                         ));
+                    if state.edit_target == Some((side, Cursor { row, column: c })) {
+                        state.edit_rect = Some(paint_rect);
+                    }
                     if !paint_rect.is_positive() {
                         continue;
                     }

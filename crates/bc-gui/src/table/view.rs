@@ -49,11 +49,20 @@ pub(super) struct PathDialog {
     pub mode: FileMode,
     pub path: String,
 }
+#[derive(Clone)]
 pub(super) struct CellEditor {
     pub side: usize,
     pub source: Cursor,
+    pub display: Cursor,
+    pub original: String,
+    pub original_cell: bc_engine_table::Cell,
     pub text: String,
     pub focus: bool,
+}
+impl CellEditor {
+    pub fn changed(&self) -> bool {
+        self.text != self.original
+    }
 }
 pub(super) struct Pair {
     pub map: TableMap,
@@ -83,6 +92,7 @@ pub struct TableCompareView {
     pub(super) default_rules: TableRules,
     pub(super) left_source: bool,
     pub(super) worker: Option<Worker>,
+    pub(super) held_output: Option<Result<Output, bc_jobs::JobError>>,
     pub(super) scan: Option<Worker>,
     pub(super) expected_rules: Option<TableRules>,
     pub(super) edited_at: Option<Instant>,
@@ -103,6 +113,8 @@ pub struct TableCompareView {
     pub(super) goto: [usize; 2],
     pub(super) align_with: Option<(usize, usize)>,
     pub(super) clipboard_side: Option<usize>,
+    pub(super) paste_requested: bool,
+    pub(super) focus_grid: Option<usize>,
 }
 impl TableCompareView {
     pub(super) fn blank() -> Self {
@@ -119,6 +131,7 @@ impl TableCompareView {
             default_rules: Default::default(),
             left_source: true,
             worker: None,
+            held_output: None,
             scan: None,
             expected_rules: None,
             edited_at: None,
@@ -142,6 +155,8 @@ impl TableCompareView {
             goto: [1, 1],
             align_with: None,
             clipboard_side: None,
+            paste_requested: false,
+            focus_grid: None,
         }
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -193,7 +208,8 @@ impl TableCompareView {
         [self.files[0].path.clone(), self.files[1].path.clone()]
     }
     pub fn is_dirty(&self) -> bool {
-        self.files.iter().any(|f| f.clipboard_dirty)
+        self.editor.as_ref().is_some_and(CellEditor::changed)
+            || self.files.iter().any(|f| f.clipboard_dirty)
             || self
                 .pair
                 .iter()
@@ -202,6 +218,7 @@ impl TableCompareView {
     }
     pub fn is_ready(&self) -> bool {
         self.worker.is_none()
+            && self.held_output.is_none()
             && self.edited_at.is_none()
             && self.pair.as_ref().is_some_and(|p| !p.map.is_stale())
     }
@@ -238,6 +255,7 @@ impl TableCompareView {
     }
     pub(super) fn cancel(&mut self) {
         drop(self.worker.take());
+        self.held_output = None;
         drop(self.scan.take());
         self.edited_at = None;
         self.expected_rules = None;
@@ -313,7 +331,19 @@ impl TableCompareView {
         Ok(())
     }
     pub fn poll(&mut self) {
-        if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
+        // Do not move comparison coordinates underneath an uncommitted cell edit.
+        if self.held_output.is_none() {
+            if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
+                self.worker = None;
+                self.held_output = Some(result);
+            }
+        }
+        let result = if self.editor.is_none() {
+            self.held_output.take()
+        } else {
+            None
+        };
+        if let Some(result) = result {
             self.worker = None;
             match result {
                 Ok(Output::Loaded(loaded)) => {
@@ -390,6 +420,8 @@ impl TableCompareView {
             }
         }
         if self.worker.is_none()
+            && self.editor.is_none()
+            && self.held_output.is_none()
             && self
                 .edited_at
                 .is_some_and(|t| t.elapsed() >= Duration::from_millis(350))
@@ -569,6 +601,7 @@ impl TableCompareView {
         if self.pending.is_some() || self.dialog.is_some() || self.editor.is_some() {
             ui.disable();
         }
+        self.restore_grid_focus(&ctx);
         self.keyboard(&ctx, prefs);
         self.toolbar(ui, prefs);
         if let Some(action) = self.find.ui(ui) {
@@ -576,8 +609,10 @@ impl TableCompareView {
                 self.message = e.to_string();
             }
         }
-        if let Some(draft) = self.settings.ui(&ctx, &self.names) {
-            self.request(Pending::Settings(Box::new(draft)));
+        if self.editor.is_none() && self.pending.is_none() {
+            if let Some(draft) = self.settings.ui(&ctx, &self.names) {
+                self.request(Pending::Settings(Box::new(draft)));
+            }
         }
         if self.show_details {
             if let Some(p) = &self.pair {
@@ -605,6 +640,8 @@ impl TableCompareView {
         });
         self.grid.rows_drawn = 0;
         self.grid.cells_drawn = 0;
+        self.grid.edit_target = self.editor.as_ref().map(|e| (e.side, e.display));
+        self.grid.edit_rect = None;
         let mut grid_action = None;
         let mut nav_target = None;
         if let Some(p) = &self.pair {
@@ -676,6 +713,7 @@ impl TableCompareView {
             self.grid_action(action);
         }
         self.dialogs(&ctx, prefs);
+        self.restore_grid_focus(&ctx);
         if let Some(path) =
             ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()))
         {
@@ -686,6 +724,13 @@ impl TableCompareView {
             self.request(Pending::Open(side, path));
         }
         self.action.take()
+    }
+    fn restore_grid_focus(&mut self, ctx: &egui::Context) {
+        if self.editor.is_none() && self.pending.is_none() && self.dialog.is_none() {
+            if let Some(side) = self.focus_grid.take() {
+                ctx.memory_mut(|m| m.request_focus(egui::Id::unique(("table_grid_focus", side))));
+            }
+        }
     }
     fn toolbar(&mut self, ui: &mut egui::Ui, prefs: &Prefs) {
         egui::Panel::top("table_commands").show(ui, |ui| {

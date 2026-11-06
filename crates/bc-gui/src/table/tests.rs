@@ -17,6 +17,9 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
+#[path = "edit_tests.rs"]
+mod editing;
+
 fn sheet(text: &str) -> Sheet {
     read_text(IoCursor::new(text), &ReadOptions::default(), &NeverCancel)
         .unwrap()

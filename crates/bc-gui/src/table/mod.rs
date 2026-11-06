@@ -6,6 +6,7 @@ mod find;
 mod grid;
 mod header;
 mod regional;
+mod selection;
 mod settings_panel;
 mod sheet_tabs;
 pub mod view;

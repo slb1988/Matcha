@@ -16,6 +16,25 @@ impl Sheet {
         }
         Ok(())
     }
+    /// Delete a possibly non-contiguous selection with one column rebuild.
+    pub fn remove_row_indices(&mut self, rows: &[usize]) -> Result<()> {
+        if rows.iter().any(|&r| r >= self.row_count) {
+            return Err(invalid("row deletion out of bounds"));
+        }
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let deleted: HashSet<_> = rows.iter().copied().collect();
+        let order = (0..self.row_count)
+            .filter(|r| !deleted.contains(r))
+            .collect::<Vec<_>>();
+        self.retain_rows(&order)?;
+        if self.row_count > 0 {
+            self.row_edit_marks
+                .insert(rows.iter().copied().min().unwrap().min(self.row_count - 1));
+        }
+        Ok(())
+    }
     pub fn reorder_rows(&mut self, order: &[usize]) -> Result<()> {
         if order.len() != self.row_count {
             return Err(invalid("row permutation length mismatch"));
