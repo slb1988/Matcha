@@ -51,6 +51,7 @@ fn copy_cells_uses_visible_projection_and_does_not_touch_hidden_formulas() {
     v.grid.anchor = Some(Cursor { row: 0, column: 0 });
     v.grid.cursor = Cursor { row: 2, column: 2 };
     let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]); // Settle the initial panel geometry before targeting a button.
     let out = frame(&ctx, &mut v, vec![]);
     click(&ctx, &mut v, button(&out, "Copy cell → other"));
     ready(&mut v);

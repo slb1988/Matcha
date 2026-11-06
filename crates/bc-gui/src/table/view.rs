@@ -102,6 +102,7 @@ pub struct TableCompareView {
     pub(super) show_details: bool,
     pub(super) show_info: bool,
     pub(super) show_thumbnail: bool,
+    pub(super) show_toolbar: bool,
     pub(super) find: FindPanel,
     pub(super) settings: SettingsPanel,
     pub(super) editor: Option<CellEditor>,
@@ -144,6 +145,7 @@ impl TableCompareView {
             show_details: false,
             show_info: true,
             show_thumbnail: true,
+            show_toolbar: true,
             find: Default::default(),
             settings: Default::default(),
             editor: None,
@@ -160,23 +162,22 @@ impl TableCompareView {
         }
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
-        for path in [left, right] {
-            if !std::fs::metadata(path)?.is_file() {
+        Self::open_with_registry(left, right, &super::formats::load_registry()?)
+    }
+    pub(crate) fn open_with_registry(
+        left: &Path,
+        right: &Path,
+        registry: &bc_formats::registry::FormatRegistry,
+    ) -> Result<Self, CoreError> {
+        let mut view = Self::blank();
+        for (side, path) in [left, right].iter().enumerate() {
+            let metadata = std::fs::metadata(path)?;
+            if !metadata.is_file() {
                 return Err(CoreError::Invalid("Choose two files".into()));
             }
-        }
-        let mut view = Self::blank();
-        view.files[0].path = Some(left.into());
-        view.files[1].path = Some(right.into());
-        for (s, path) in [left, right].iter().enumerate() {
-            view.options[s].format.detect_delimiter = true;
-            if path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
-            {
-                view.options[s].format.delimiters = vec!['\t'];
-                view.options[s].format.detect_delimiter = false;
-            }
+            view.files[side].path = Some((*path).into());
+            view.files[side].readonly = metadata.permissions().readonly();
+            view.options[side] = super::formats::options(path, registry)?;
         }
         view.reload();
         Ok(view)
@@ -785,6 +786,20 @@ impl TableCompareView {
             }
         }
     }
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("View", |ui| {
+            ui.checkbox(&mut self.show_toolbar, "Toolbar");
+            ui.checkbox(&mut self.grid.row_numbers, "Row Numbers");
+            ui.checkbox(&mut self.grid.whitespace, "Visible Whitespace");
+            ui.checkbox(&mut self.show_details, "Text Details");
+            ui.checkbox(&mut self.show_info, "File Info");
+            ui.checkbox(&mut self.show_thumbnail, "Thumbnail");
+            if ui.button("Resize Columns to Fit").clicked() {
+                self.project_with_fit(true);
+                ui.close();
+            }
+        });
+    }
     fn toolbar(&mut self, ui: &mut egui::Ui, prefs: &Prefs) {
         egui::Panel::top("table_commands").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -913,74 +928,68 @@ impl TableCompareView {
                         ui.close();
                     }
                 });
-                if ui.button("◀ Difference").clicked() {
-                    self.navigate(false, 0);
-                }
-                if ui.button("Difference ▶").clicked() {
-                    self.navigate(true, 0);
-                }
-                if ui.button("Copy cell → other").clicked() {
-                    self.copy(false);
-                }
-                if ui.button("Settings").clicked() {
-                    self.settings_open();
-                }
-                ui.label("Go To");
-                ui.add(egui::DragValue::new(&mut self.goto[0]).range(1..=usize::MAX));
-                ui.add(egui::DragValue::new(&mut self.goto[1]).range(1..=usize::MAX));
-                if ui.button("Go").clicked() {
-                    self.go_to();
-                }
+                self.view_menu(ui);
             });
-            ui.horizontal_wrapped(|ui| {
-                let old = self.filter;
-                for f in [Filter::All, Filter::Differences, Filter::Same, Filter::None] {
-                    ui.selectable_value(&mut self.filter, f, format!("{f:?}"));
-                }
-                if old != self.filter {
-                    if let Some(p) = &mut self.pair {
-                        p.projection = p.cache.project(self.filter);
+            if self.show_toolbar {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("◀ Difference").clicked() {
+                        self.navigate(false, 0);
                     }
-                    self.grid.scroll.y = 0.0;
-                }
-                let mut changed = false;
-                if let Some(p) = &self.pair {
-                    let mut rules = p.map.rules_mut();
-                    changed |= ui
-                        .checkbox(&mut rules.ignore_unimportant, "Ignore Unimportant")
-                        .changed();
-                    for (layer, label) in [
-                        (Layers::Values, "Values"),
-                        (Layers::ValuesAndFormulas, "+ Formulas"),
-                        (Layers::All, "+ Number formats"),
-                    ] {
-                        changed |= ui
-                            .selectable_value(&mut rules.layers, layer, label)
-                            .changed();
+                    if ui.button("Difference ▶").clicked() {
+                        self.navigate(true, 0);
                     }
-                }
-                if changed {
-                    self.project();
-                }
-                if ui
-                    .checkbox(&mut self.hide_same, "Hide Same Columns")
-                    .changed()
-                {
-                    self.refresh_grid();
-                }
-                ui.checkbox(&mut self.grid.stacked, "Over-Under");
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.grid.row_numbers, "Row Numbers");
-                    ui.checkbox(&mut self.grid.whitespace, "Visible Whitespace");
-                    ui.checkbox(&mut self.show_details, "Text Details");
-                    ui.checkbox(&mut self.show_info, "File Info");
-                    ui.checkbox(&mut self.show_thumbnail, "Thumbnail");
-                    if ui.button("Resize Columns to Fit").clicked() {
-                        self.project_with_fit(true);
-                        ui.close();
+                    if ui.button("Copy cell → other").clicked() {
+                        self.copy(false);
+                    }
+                    if ui.button("Settings").clicked() {
+                        self.settings_open();
+                    }
+                    ui.label("Go To");
+                    ui.add(egui::DragValue::new(&mut self.goto[0]).range(1..=usize::MAX));
+                    ui.add(egui::DragValue::new(&mut self.goto[1]).range(1..=usize::MAX));
+                    if ui.button("Go").clicked() {
+                        self.go_to();
                     }
                 });
-            });
+                ui.horizontal_wrapped(|ui| {
+                    let old = self.filter;
+                    for f in [Filter::All, Filter::Differences, Filter::Same, Filter::None] {
+                        ui.selectable_value(&mut self.filter, f, format!("{f:?}"));
+                    }
+                    if old != self.filter {
+                        if let Some(p) = &mut self.pair {
+                            p.projection = p.cache.project(self.filter);
+                        }
+                        self.grid.scroll.y = 0.0;
+                    }
+                    let mut changed = false;
+                    if let Some(p) = &self.pair {
+                        let mut rules = p.map.rules_mut();
+                        changed |= ui
+                            .checkbox(&mut rules.ignore_unimportant, "Ignore Unimportant")
+                            .changed();
+                        for (layer, label) in [
+                            (Layers::Values, "Values"),
+                            (Layers::ValuesAndFormulas, "+ Formulas"),
+                            (Layers::All, "+ Number formats"),
+                        ] {
+                            changed |= ui
+                                .selectable_value(&mut rules.layers, layer, label)
+                                .changed();
+                        }
+                    }
+                    if changed {
+                        self.project();
+                    }
+                    if ui
+                        .checkbox(&mut self.hide_same, "Hide Same Columns")
+                        .changed()
+                    {
+                        self.refresh_grid();
+                    }
+                    ui.checkbox(&mut self.grid.stacked, "Over-Under");
+                });
+            }
             if self.show_info {
                 for s in 0..2 {
                     let dirty = self.pair.as_ref().is_some_and(|p| p.history[s].is_dirty());

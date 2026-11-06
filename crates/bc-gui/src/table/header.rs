@@ -7,6 +7,16 @@ pub fn ui(ui: &mut egui::Ui, map: &TableMap, state: &GridState, side: usize) {
     ui.painter()
         .rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
     let rules = map.rules();
+    let hidden = rules.columns.0.len().saturating_sub(state.columns.len());
+    if hidden > 0 {
+        ui.painter().text(
+            rect.left_center() + egui::vec2(3.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            format!("{hidden} hidden"),
+            egui::FontId::proportional(11.0),
+            ui.visuals().weak_text_color(),
+        );
+    }
     let sheet = if side == 0 {
         map.left.borrow()
     } else {

@@ -8,14 +8,11 @@ pub enum HomeAction {
     OpenFolderCompare { left: PathBuf, right: PathBuf },
 }
 pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
-    [left, right].iter().any(|p| {
-        p.extension().is_some_and(|e| {
-            matches!(
-                e.to_string_lossy().to_lowercase().as_str(),
-                "csv" | "tsv" | "xlsx" | "xlsm"
-            )
-        })
-    })
+    let registry = crate::table::formats::load_registry()
+        .unwrap_or_else(|_| bc_formats::registry::FormatRegistry::with_builtins());
+    [left, right]
+        .iter()
+        .any(|path| crate::table::formats::table_path(path, &registry))
 }
 fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
     if left.is_dir() && right.is_dir() {

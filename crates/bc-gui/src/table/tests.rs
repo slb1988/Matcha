@@ -29,6 +29,8 @@ mod navigation;
 mod projections;
 #[path = "sort_tests.rs"]
 mod sorting;
+#[path = "view_tests.rs"]
+mod view_features;
 
 fn sheet(text: &str) -> Sheet {
     read_text(IoCursor::new(text), &ReadOptions::default(), &NeverCancel)

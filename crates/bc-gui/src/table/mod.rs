@@ -3,6 +3,7 @@ mod cache;
 mod commands;
 mod details;
 mod find;
+pub(crate) mod formats;
 mod grid;
 mod header;
 mod regional;
