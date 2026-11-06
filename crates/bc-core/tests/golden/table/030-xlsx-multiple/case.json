@@ -1,0 +1,11 @@
+{
+  "keys": [
+    0
+  ],
+  "sort": false,
+  "strategy": "Quick",
+  "handling": {},
+  "header": "Data",
+  "xlsx": true,
+  "multiple": true
+}

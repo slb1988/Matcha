@@ -1,0 +1,5 @@
+# 黄金输入与原生报告保留精确字节；CRLF 是合法行尾，不是尾随空白。
+*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.html -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.xml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

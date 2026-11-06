@@ -1,0 +1,15 @@
+{
+  "keys": [
+    0
+  ],
+  "sort": false,
+  "strategy": "Quick",
+  "handling": {
+    "1": {
+      "DateTimeTolerance": 86400
+    }
+  },
+  "header": "Data",
+  "date_order": "Mdy",
+  "date_separator": "/"
+}
