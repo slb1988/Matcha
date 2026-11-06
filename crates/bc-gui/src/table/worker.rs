@@ -125,6 +125,7 @@ pub enum Output {
     Projected(Box<Cache>, (u64, u64), TableRules, bool),
     Scanned(Vec<[bc_engine_table::map::TableStatistics; 3]>),
 }
+type SideLoad = (Result<(Sheet, Vec<String>), JobError>, Duration);
 fn error(e: CoreError) -> JobError {
     match e {
         CoreError::Cancelled => JobError::Cancelled,
@@ -288,16 +289,15 @@ impl Job for LoadJob {
         // (single-side replacement) keeps the original serial path.
         let mem_hit = |s: usize| matches!(&self.memory[s], Some(m) if indices[s] == Some(m.index));
         if !mem_hit(0) && !mem_hit(1) {
-            let mut results: [Option<(Result<(Sheet, Vec<String>), JobError>, Duration)>; 2] =
-                [None, None];
+            let mut results: [Option<SideLoad>; 2] = [None, None];
             let this: &LoadJob = &self;
             std::thread::scope(|scope| {
                 let mut handles = Vec::new();
-                for s in 0..2 {
+                for (s, &index) in indices.iter().enumerate() {
                     let cancel = ctx.cancel.clone();
                     let handle = scope.spawn(move || {
                         let start = Instant::now();
-                        let result = load(&this.paths[s], &this.options[s], indices[s], ctx);
+                        let result = load(&this.paths[s], &this.options[s], index, ctx);
                         // A failing side cancels its sibling's parse early.
                         if result.is_err() {
                             cancel.cancel();

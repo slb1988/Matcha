@@ -360,12 +360,12 @@ impl std::hash::Hasher for StrHasher {
     fn write(&mut self, bytes: &[u8]) {
         const P: u64 = 0x1000_0000_01b3;
         let mut h = self.0;
-        let mut chunks = bytes.chunks_exact(8);
-        for c in &mut chunks {
-            h = (h ^ u64::from_le_bytes(c.try_into().unwrap())).wrapping_mul(P);
+        let (chunks, remainder) = bytes.as_chunks::<8>();
+        for &c in chunks {
+            h = (h ^ u64::from_le_bytes(c)).wrapping_mul(P);
         }
         let mut tail = 0u64;
-        for (i, &b) in chunks.remainder().iter().enumerate() {
+        for (i, &b) in remainder.iter().enumerate() {
             tail |= u64::from(b) << (i * 8);
         }
         // Finalizer matters: hashbrown indexes buckets by the LOW bits, and a

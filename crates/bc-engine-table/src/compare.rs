@@ -151,13 +151,13 @@ impl CellComparator<'_> {
             && raw_text_equal(lc, rc);
         let value = if lc.is_some() != rc.is_some() {
             changed
-        } else if raw_text_same {
-            Importance::Same
-        } else if equal_values(
-            &normalized_value(left, l, columns.0, &exact_handling),
-            &normalized_value(right, r, columns.1, &exact_handling),
-            &exact_handling,
-        ) {
+        } else if raw_text_same
+            || equal_values(
+                &normalized_value(left, l, columns.0, &exact_handling),
+                &normalized_value(right, r, columns.1, &exact_handling),
+                &exact_handling,
+            )
+        {
             Importance::Same
         } else if equal_values(
             &normalized_value(left, l, columns.0, self.handling),

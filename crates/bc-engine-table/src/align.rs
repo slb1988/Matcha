@@ -389,8 +389,16 @@ impl KeyAlign {
         let ro = order(right, Side::Right, rules, &keys, cancel)?;
         crate::perf::span("key-align:order", t);
         let t = std::time::Instant::now();
-        let (mut lh, ld) = hashes(left, &lo, Side::Left, rules, &keys, cancel)?;
-        let (mut rh, rd) = hashes(right, &ro, Side::Right, rules, &keys, cancel)?;
+        // The two sides hash independently; run them concurrently.
+        let (mut lh, ld, mut rh, rd) = std::thread::scope(|scope| {
+            let right = scope.spawn(|| hashes(right, &ro, Side::Right, rules, &keys, cancel));
+            let left = hashes(left, &lo, Side::Left, rules, &keys, cancel);
+            let right = right
+                .join()
+                .unwrap_or_else(|_| Err(invalid("right hashing panicked")));
+            Ok::<_, bc_core::CoreError>((left?, right?))
+        })
+        .map(|(l, r)| (l.0, l.1, r.0, r.1))?;
         crate::perf::span("key-align:hashes", t);
         if keys
             .iter()
@@ -429,7 +437,14 @@ impl KeyAlign {
         }
         let t = std::time::Instant::now();
         let text = if rules.strategy == AlignStrategy::Smart && rules.use_closeness {
-            Some((row_text(left, &lo, cancel)?, row_text(right, &ro, cancel)?))
+            Some(std::thread::scope(|scope| {
+                let right = scope.spawn(|| row_text(right, &ro, cancel));
+                let left = row_text(left, &lo, cancel);
+                let right = right
+                    .join()
+                    .unwrap_or_else(|_| Err(invalid("right row text panicked")));
+                Ok::<_, bc_core::CoreError>((left?, right?))
+            })?)
         } else {
             None
         };

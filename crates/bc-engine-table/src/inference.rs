@@ -1,5 +1,6 @@
 use crate::{
     columns::{finish_row_hash, row_hash_into, Side},
+    invalid,
     rules::KeySelection,
     Result, Sheet, TableRules,
 };
@@ -61,6 +62,51 @@ impl ScoreScratch {
             r: KeyMap::with_capacity_and_hasher(right.row_count(), Default::default()),
         }
     }
+}
+/// Score a wave of candidates. Large sheets score candidates concurrently in
+/// order-preserving chunks (each thread gets its own preallocated scratch
+/// maps); results concatenate in candidate order so the `best()` tie-break
+/// observes exactly the sequential candidate sequence.
+fn score_wave(
+    left: &Sheet,
+    right: &Sheet,
+    rules: &TableRules,
+    columns_list: &[Vec<usize>],
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<KeyCandidate>> {
+    let big = left.row_count().max(right.row_count()) >= 4096;
+    if columns_list.len() < 2 || !big {
+        let mut scratch = ScoreScratch::new(left, right);
+        let mut out = Vec::with_capacity(columns_list.len());
+        for c in columns_list {
+            out.push(score(left, right, rules, c.clone(), &mut scratch, cancel)?);
+        }
+        return Ok(out);
+    }
+    let threads = columns_list.len().min(4);
+    let chunk = columns_list.len().div_ceil(threads);
+    let mut results = Vec::new();
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for chunk in columns_list.chunks(chunk) {
+            handles.push(scope.spawn(move || {
+                let mut scratch = ScoreScratch::new(left, right);
+                let mut out = Vec::with_capacity(chunk.len());
+                for c in chunk {
+                    out.push(score(left, right, rules, c.clone(), &mut scratch, cancel)?);
+                }
+                Ok(out)
+            }));
+        }
+        for h in handles {
+            results.push(h.join().unwrap_or_else(|_| Err(invalid("key inference panicked"))));
+        }
+    });
+    let mut out = Vec::with_capacity(columns_list.len());
+    for r in results {
+        out.extend(r?);
+    }
+    Ok(out)
 }
 fn score(
     left: &Sheet,
@@ -124,11 +170,8 @@ pub fn infer_keys(
         .filter(|(_, c)| c.left.is_some() && c.right.is_some())
         .map(|(i, _)| i)
         .collect();
-    let mut scratch = ScoreScratch::new(left, right);
-    let mut candidates = Vec::new();
-    for &c in &usable {
-        candidates.push(score(left, right, rules, vec![c], &mut scratch, cancel)?);
-    }
+    let singles: Vec<Vec<usize>> = usable.iter().map(|&c| vec![c]).collect();
+    let mut candidates = score_wave(left, right, rules, &singles, cancel)?;
     fn best(candidates: &[KeyCandidate]) -> Option<&KeyCandidate> {
         candidates
             .iter()
@@ -140,11 +183,12 @@ pub fn infer_keys(
             })
     }
     if best(&candidates).is_none() {
-        for pair in usable.windows(2) {
-            if pair[1] == pair[0] + 1 {
-                candidates.push(score(left, right, rules, pair.to_vec(), &mut scratch, cancel)?);
-            }
-        }
+        let pairs: Vec<Vec<usize>> = usable
+            .windows(2)
+            .filter(|pair| pair[1] == pair[0] + 1)
+            .map(|pair| pair.to_vec())
+            .collect();
+        candidates.extend(score_wave(left, right, rules, &pairs, cancel)?);
     }
     let selection =
         best(&candidates).map_or(KeySelection::AllColumns, |c| KeySelection::Automatic {
