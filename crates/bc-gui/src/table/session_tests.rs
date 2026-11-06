@@ -1064,3 +1064,35 @@ fn swap_mirrors_orphan_counts_and_statistics() {
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.right_only, 2);
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.same, 1);
 }
+
+#[test]
+fn open_two_real_xlsx_files_compares_via_parallel_load() {
+    // 真实 xlsx 走 LoadJob 的并行双侧/三段解析路径；统计与内容必须与串行一致。
+    let left = std::env::temp_dir().join(format!("matcha-xlsx-par-left-{}.xlsx", std::process::id()));
+    let right = std::env::temp_dir().join(format!("matcha-xlsx-par-right-{}.xlsx", std::process::id()));
+    std::fs::write(
+        &left,
+        super::sheets::xlsx(&[("Data", "id,name\n1,apple\n2,banana\n3,cherry")]),
+    )
+    .unwrap();
+    std::fs::write(
+        &right,
+        super::sheets::xlsx(&[("Data", "id,name\n1,apple\n2,BLUEberry\n4,damson")]),
+    )
+    .unwrap();
+    let mut v = open_files(&left, &right);
+    ready(&mut v);
+    assert_eq!(v.row_count(), 4);
+    let p = v.pair.as_ref().unwrap();
+    let s = &p.cache.statistics;
+    assert_eq!(s.same, 1);
+    assert_eq!(s.important, 1);
+    assert_eq!(s.left_only, 1);
+    assert_eq!(s.right_only, 1);
+    assert_eq!(p.map.left.borrow().row_count(), 3);
+    assert_eq!(p.map.right.borrow().row_count(), 3);
+    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "banana");
+    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "BLUEberry");
+    let _ = std::fs::remove_file(left);
+    let _ = std::fs::remove_file(right);
+}
