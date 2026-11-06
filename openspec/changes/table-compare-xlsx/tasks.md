@@ -28,7 +28,7 @@
 ## 4. GUI
 
 - [ ] 4.1 实现 `bc-gui/src/table/` 双网格（只渲染可见行列、同步滚动、行状态色点、表头、缩略图、Text Details、File Info、Side-by-Side/Over-Under、行号、可见空白、Resize Columns、Hide Same Columns），`app.rs` 加 `View::TableCompare`、`home.rs` 加表格卡片与按掩码路由；验证手动 + egui 输入注入回归：百万行网格滚动 update p99 < 4 ms（`--bench-table`）
-- [ ] 4.2 实现导航与显示过滤（Next/Previous Difference Cell/Row、Next/Previous Edit、Go To、Show All/Differences/Same/None、Ignore Unimportant）；验证输入注入回归对照 table-compare-view 场景
+- [x] 4.2 实现导航与显示过滤（Next/Previous Difference Cell/Row、Next/Previous Edit、Go To、Show All/Differences/Same/None、Ignore Unimportant）；验证输入注入回归对照 table-compare-view 场景
 - [ ] 4.3 实现编辑（Modify、剪贴板、插入/删除行列、Sort、Copy to Other Side、Copy Row、Select All、Align With、撤销重做）与键改变重对齐；验证输入注入回归：复制单元格到对侧后相同、修改键后重新配对
 - [ ] 4.4 实现查找/替换、Go To、会话设置面板（Specs/Format/Columns/Alignment/Sheets，含键推断标注与列结构变化接受/改写）、Table Compare Info、Swap/Reload/Recompare、两侧独立保存与 xlsx 只读提示、sheet 标签色点与切换、差异摘要导出入口；验证输入注入回归对照规格
 - [x] 4.5 三层档位切换（只看值 / 值+公式 / 值+公式+格式）与 Text Details 显示两侧公式；验证回归：值同公式不同用例

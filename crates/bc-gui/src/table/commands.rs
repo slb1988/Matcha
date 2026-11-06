@@ -182,7 +182,22 @@ impl TableCompareView {
             return;
         }
         let p = self.pair.as_ref().unwrap();
-        let current = self.grid.cursor;
+        if p.map.row_count() == 0 || (kind == 0 && p.map.column_count() == 0) {
+            self.message = "No more differences / edits".into();
+            return;
+        }
+        let current = Cursor {
+            row: self
+                .grid
+                .cursor
+                .row
+                .min(p.map.row_count().saturating_sub(1)),
+            column: self
+                .grid
+                .cursor
+                .column
+                .min(p.map.column_count().saturating_sub(1)),
+        };
         let rows = if kind == 2 {
             &p.cache.edited_rows
         } else {
@@ -214,8 +229,9 @@ impl TableCompareView {
                     Box::new((0..column.min(cols)).rev())
                 };
                 if let Some(c) = range.into_iter().find(|&c| {
-                    p.map.cell_importance(row, c)
-                        != Some(bc_engine_table::compare::Importance::Same)
+                    p.map
+                        .cell_importance(row, c)
+                        .is_some_and(|i| i != bc_engine_table::compare::Importance::Same)
                 }) {
                     found = Some(Cursor { row, column: c });
                     break;
@@ -230,11 +246,16 @@ impl TableCompareView {
         } else {
             next_row(current.row).map(|row| Cursor {
                 row,
-                column: current.column,
+                column: if self.grid.columns.contains(&current.column) {
+                    current.column
+                } else {
+                    self.grid.columns.first().copied().unwrap_or(current.column)
+                },
             })
         };
         if let Some(target) = target {
             self.goto_cell(target);
+            self.focus_grid = Some(self.grid.active);
         } else {
             self.message = "No more differences / edits".into();
         }

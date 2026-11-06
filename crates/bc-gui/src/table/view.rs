@@ -568,19 +568,65 @@ impl TableCompareView {
             })));
         }
     }
-    pub(super) fn goto_cell(&mut self, cursor: Cursor) {
+    pub(super) fn goto_cell(&mut self, mut cursor: Cursor) {
         if let Some(pair) = &mut self.pair {
+            let stale = pair.map.is_stale();
+            let count = if stale {
+                pair.map
+                    .left
+                    .borrow()
+                    .row_count()
+                    .max(pair.map.right.borrow().row_count())
+            } else {
+                pair.cache.total
+            };
+            if count == 0 {
+                self.message = "Table has no rows".into();
+                return;
+            }
+            let columns = pair.map.rules().columns.0.len();
+            cursor.row = cursor.row.min(count - 1);
+            cursor.column = cursor.column.min(columns.saturating_sub(1));
+            let display = pair.projection.display_for(cursor.row);
+            if super::cache::projected(&pair.projection, display) != Some(cursor.row) {
+                self.filter = Filter::All;
+                pair.projection = if stale {
+                    Projection::build(count, &[], DisplayFilter::All, 0, &[])
+                } else {
+                    pair.cache.project(self.filter)
+                };
+            }
+            if self.hide_same && !self.grid.columns.contains(&cursor.column) {
+                self.hide_same = false;
+                self.grid.rebuild_columns(columns, &[], false);
+            }
             self.grid.cursor = cursor;
             self.grid.anchor = None;
-            if self.filter == Filter::Same || self.filter == Filter::None {
-                self.filter = Filter::All;
-                pair.projection = pair.cache.project(self.filter);
-            }
             self.grid.scroll.y = pair.projection.display_for(cursor.row) as f32 * ROW_HEIGHT;
             if let Some(d) = self.grid.columns.iter().position(|&c| c == cursor.column) {
                 self.grid.scroll.x = self.grid.offsets[d];
             }
+            self.message = format!("Row {}, column {}", cursor.row + 1, cursor.column + 1);
         }
+    }
+    fn go_to(&mut self) {
+        if !self.is_ready() || self.editor.is_some() {
+            self.message = "Wait for comparison / finish editing before Go To".into();
+            return;
+        }
+        let pair = self.pair.as_ref().unwrap();
+        let (rows, columns) = (pair.map.row_count(), pair.map.column_count());
+        if rows == 0 || columns == 0 {
+            self.message = "Table has no cells".into();
+            return;
+        }
+        let cursor = Cursor {
+            row: self.goto[0].saturating_sub(1).min(rows - 1),
+            column: self.goto[1].saturating_sub(1).min(columns - 1),
+        };
+        self.goto_cell(cursor);
+        self.goto = [cursor.row + 1, cursor.column + 1];
+        self.focus_grid = Some(self.grid.active);
     }
     fn settings_open(&mut self) {
         if let Some(pair) = &self.pair {
@@ -881,15 +927,7 @@ impl TableCompareView {
                 ui.add(egui::DragValue::new(&mut self.goto[0]).range(1..=usize::MAX));
                 ui.add(egui::DragValue::new(&mut self.goto[1]).range(1..=usize::MAX));
                 if ui.button("Go").clicked() {
-                    if let Some(p) = &self.pair {
-                        let row = self.goto[0]
-                            .saturating_sub(1)
-                            .min(p.cache.total.saturating_sub(1));
-                        let column = self.goto[1]
-                            .saturating_sub(1)
-                            .min(p.map.column_count().saturating_sub(1));
-                        self.goto_cell(Cursor { row, column });
-                    }
+                    self.go_to();
                 }
             });
             ui.horizontal_wrapped(|ui| {

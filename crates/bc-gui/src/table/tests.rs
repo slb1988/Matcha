@@ -21,6 +21,8 @@ use std::{
 mod copying;
 #[path = "edit_tests.rs"]
 mod editing;
+#[path = "navigation_tests.rs"]
+mod navigation;
 #[path = "projection_tests.rs"]
 mod projections;
 #[path = "sort_tests.rs"]
