@@ -32,9 +32,9 @@
 
 ## 新增测试：69 项（58 GUI + 11 引擎）
 
-- GUI（`bc-gui/src/table/`）：session_tests 25、sheet_tests 8、review_tests 14、search_tests 12（Search worker）；其中含 worker2 交付的 12 项。53 → **111**。
+- GUI（`bc-gui/src/table/`）：session_tests 25、sheet_tests 7、review_tests 14、search_tests 12（Search worker 交付），合计 58；53 → **111**（已经静态 `#[test]` 计数与 `cargo test --lib table:: -- --list` 核实）。
 - 引擎（`bc-engine-table/tests/`）：session_history 6（对抗 worker）+ swap_orientation 5 = **11**。
-- 全部新测试先录旧代码失败证据（含 e3784b2 独立快照复跑），日志见 `target/table-wave7/implementation/pre-fix-*.log`、`review-final/pre-fix-*.log`。
+- 关键缺陷反例均先复现旧代码失败再修复（含 e3784b2 独立快照复跑 Swap 用例），日志见 `target/table-wave7/implementation/pre-fix-*.log`、`review-final/pre-fix-*.log`；其余新增用例为覆盖性回归（固有通过），不逐个冒称旧码失败。
 
 ## 最终门禁（validation worker 独立执行，证据链见其报告）
 
@@ -72,5 +72,5 @@
 
 ### 提交回填
 
-- 代码提交：`283b47e8e7c356a0b5e7d66769a238b1ed266081`（15 个 Rust 文件，+4613/−190）
-- 文档提交：（待回填）
+- 代码提交：`283b47e8e7c356a0b5e7d66769a238b1ed266081`（`fix(table): complete session and workbook state acceptance`，15 个 Rust 文件，+4613/−190）
+- 文档提交：见包含本报告的 `test(table)` 提交；按规则不在本文自引用其 SHA、不留待填占位。
