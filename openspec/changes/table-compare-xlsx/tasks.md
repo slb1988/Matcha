@@ -47,4 +47,5 @@
 
 - 评审通过后归档本 change；xlsx 写回与格式层扩展另立 change。
 - Wave 2 历史收口为**部分交付**，当时仅确认 5.2 完成；证据见 `docs/worker-reports/table-compare-xlsx-wave2.md`。Wave 3 补齐 5.1、5.3，见 `docs/worker-reports/table-compare-xlsx-wave3.md`。
-- Wave 4 补齐 4.5 的三档实际输入/公式详情/数字格式回归，并修复批量复制与显示层切换的扫描取消问题；累计 18/23。4.1–4.4、6.1 继续未完成，多列排序的范围决策仍待确认；证据与限制见 `docs/worker-reports/table-compare-xlsx-wave4.md`。构建成功不等同于全部交互验收完成，暂不归档。
+- Wave 4 补齐 4.5 的三档实际输入/公式详情/数字格式回归，并修复批量复制与显示层切换的扫描取消问题；累计 18/23。当时多列排序的范围决策待确认，证据与限制见 `docs/worker-reports/table-compare-xlsx-wave4.md`。
+- Wave 5 按用户确认实现稳定多键排序及跨行选区范围，补升降序、映射、过滤和撤销/重做回归；详见 `docs/worker-reports/table-compare-xlsx-wave5.md`。4.3 其他交互/性能验收仍有缺口，故累计仍为 18/23，4.1–4.4、6.1 不勾选。构建成功不等同于全部交互验收完成，暂不归档。

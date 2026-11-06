@@ -58,6 +58,7 @@
 ### D7. GUI：新模块 + 虚拟化二维网格
 
 - 选择：`bc-gui/src/table/{view,grid,header,sheet_tabs,details,settings_panel,find}.rs`；网格只渲染可见行列（`show_rows` + 自定义列窗口）；复用文本线的 worker/防抖/修订号模式；`app.rs` 只加 `View::TableCompare` 与 `HomeAction::OpenTableCompare`，`home.rs` 加表格卡片；颜色复用 `DiffColors`。
+- Edit > Sort（用户已确认）：按所选可见比较列顺序稳定多键排序；跨行选区只重排其中可见的实际源行，其他源行位置不动；未跨行时排序当前侧全表。先按源索引规划完整置换，再生成一个 EditItem；升降序都保留等键源行次序。复用键排序的 Handling 规范化与值全序，不用非传递的数值/日期容差判定排序相等；不修改键模式或排序后对齐设置。空/无变化操作不生成历史，排序后沿用后台重比较。
 - 合并约束：与文件夹线的 `View::FolderCompare/FolderSync` 分支并存，不改对方代码。
 
 ### D8. 黄金语料

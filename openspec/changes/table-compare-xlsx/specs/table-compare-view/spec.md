@@ -30,6 +30,8 @@
 ### Requirement: 编辑
 视图 SHALL 支持单元格就地编辑（Modify）、Cut/Copy/Paste/Delete、Delete Row/Column、Insert Row Before/After、Insert Column Before/After、Sort（对选中列排序）、Copy to Other Side、Copy Row to Other Side、Select All；全部可撤销，编辑后重新比较该行（键改变时重新对齐）。
 
+Sort SHALL 按选中且可见的比较列顺序做稳定多键排序，映射到当前侧源列并按其 Handling 解释值。原始选区跨比较行时，仅重排其中仍可见、在当前侧存在的源行，并回填这些源行位置；否则在有有效可见选区时排序当前侧全表。未选中的源行 MUST 保持原位；排序键比较相等的行在升序和降序中均保持原源行相对顺序。空选区、全为空隙或顺序未变化时 MUST 不生成编辑历史。数值/日期容差不是排序相等关系；排序不改写 KeySelection 或“排序后对齐”设置。
+
 #### Scenario: 复制单元格到对侧
 - **WHEN** 对一个差异单元格执行 Copy to Right
 - **THEN** 右侧单元格变为左侧值，该单元格变为相同，可撤销
@@ -37,6 +39,14 @@
 #### Scenario: 修改键值
 - **WHEN** 用户把某行键值改为对侧存在的键
 - **THEN** 重新对齐后该行与对侧对应行配对
+
+#### Scenario: 多列整侧排序
+- **WHEN** 用户在同一比较行选择两列，第一列映射到源第 3 列、第二列映射到源第 2 列，并执行 Sort
+- **THEN** 当前侧全表按源第 3 列、源第 2 列的优先级稳定排序，另一侧不变，整次排序可一次撤销/重做
+
+#### Scenario: 过滤后的跨行选区排序
+- **WHEN** 跨行选区覆盖源行 1、3、5，源行 2、4 被显示过滤隐藏，并执行 Sort
+- **THEN** 只重排源行 1、3、5 并回填原位置；源行 2、4 保持原位；若过滤后仅剩一行，不扩展为整表排序
 
 ### Requirement: Align With
 用户 SHALL 可选中一行再点击对侧一行强制配对，覆盖键对齐；清除覆盖后恢复。
