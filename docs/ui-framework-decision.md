@@ -103,3 +103,22 @@ cargo build --release -p bcompare
 ```
 
 The benchmark prints `bench.*` key/value lines to stdout and closes the window.
+
+## Folder view follow-up (Wave C)
+
+The independent folder track now uses a worker-owned tree and latest-only immutable GUI
+snapshots, fixed 22 px rows and `ScrollArea::show_rows`. Spacing is fixed before range
+calculation; sorting/filtering/I/O are not done in the per-frame paint loop.
+
+A native-window run with two generated 100,000-file trees (100,100 displayed rows) measured
+600 samples after 30 warm-up samples: update p50 0.445 ms, p95 0.620 ms,
+**p99 0.721 ms**, max 0.935 ms, at most 32 rows painted per pass.
+This is default-column synthetic-data evidence, not a cold-storage or every-option SLA.
+
+Reproduce with `tools/golden/bench_dir.ps1` or
+`matcha --bench-dir <left-folder> <right-folder>`.
+The native framebuffer screenshot avoids the black image returned by Win32 PrintWindow
+for OpenGL. Desktop input was restricted during capture; the owner must still perform
+the separate physical mouse/keyboard checklist in
+[the Wave C report](worker-reports/folder-compare-sync-waveC.md). Original text measurements
+above are unchanged.
