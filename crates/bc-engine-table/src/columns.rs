@@ -103,6 +103,22 @@ impl ColumnMapping {
     pub fn tidy(&mut self) {
         self.0.retain(|c| c.left.is_some() || c.right.is_some());
     }
+    /// Swap Sides: every comparison column exchanges its left/right source, and
+    /// directional structure annotations flip with it (a column inserted on the
+    /// right is a column deleted from the new right after the swap).
+    pub fn transpose(&mut self) {
+        for c in &mut self.0 {
+            std::mem::swap(&mut c.left, &mut c.right);
+            for change in &mut c.changes {
+                *change = match change {
+                    ColumnChange::Inserted => ColumnChange::Deleted,
+                    ColumnChange::Deleted => ColumnChange::Inserted,
+                    ColumnChange::Renamed => ColumnChange::Renamed,
+                    ColumnChange::Moved => ColumnChange::Moved,
+                };
+            }
+        }
+    }
     pub fn validate(&self, left: usize, right: usize) -> Result<()> {
         for (side, len) in [(Side::Left, left), (Side::Right, right)] {
             let mut seen = HashSet::new();

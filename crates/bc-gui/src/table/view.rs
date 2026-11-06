@@ -38,6 +38,17 @@ pub(super) enum Pending {
     Settings(Box<Draft>),
     Text,
 }
+/// A destructive load staged on the worker: files/options/rules/pairs of the
+/// running session are replaced only after the load succeeds; a failure keeps
+/// the previous comparison untouched.
+pub(super) enum Staged {
+    Reload,
+    /// side, new path, whether the in-memory other side is preserved, routed options
+    Open(usize, PathBuf, bool, ReadOptions),
+    Settings(Box<Draft>),
+    /// Load the replacement side sheet for a preserved pair being visited.
+    PairSide(usize),
+}
 #[derive(Clone, Copy)]
 pub(super) enum FileMode {
     Open(usize),
@@ -69,6 +80,9 @@ pub(super) struct Pair {
     pub history: [EditStack; 2],
     pub cache: Cache,
     pub projection: Projection,
+    /// A preserved pair whose replacement side sheet is still loading:
+    /// (side, sheet index) to fetch before it can be compared.
+    pub pending_side: Option<(usize, usize)>,
 }
 #[derive(Default, Clone)]
 pub struct FileInfo {
@@ -92,8 +106,12 @@ pub struct TableCompareView {
     pub(super) default_rules: TableRules,
     pub(super) left_source: bool,
     pub(super) worker: Option<Worker>,
+    pub(super) staged: Option<Staged>,
     pub(super) held_output: Option<Result<Output, bc_jobs::JobError>>,
     pub(super) scan: Option<Worker>,
+    /// A completed scan attempt that failed; cleared by the next user action
+    /// (cancel), so pending sheets never look Same and never busy-restart.
+    pub(super) scan_failed: bool,
     pub(super) expected_rules: Option<TableRules>,
     pub(super) edited_at: Option<Instant>,
     pub(super) grid: GridState,
@@ -132,8 +150,10 @@ impl TableCompareView {
             default_rules: Default::default(),
             left_source: true,
             worker: None,
+            staged: None,
             held_output: None,
             scan: None,
+            scan_failed: false,
             expected_rules: None,
             edited_at: None,
             grid: GridState {
@@ -258,54 +278,43 @@ impl TableCompareView {
         self.align_with = None;
         self.cancel_comparison();
         drop(self.scan.take());
+        // A user action is the retry path for a failed sheet scan.
+        self.scan_failed = false;
     }
-    fn cancel_comparison(&mut self) {
+    pub(super) fn cancel_comparison(&mut self) {
         drop(self.worker.take());
+        self.staged = None;
         self.held_output = None;
         self.edited_at = None;
         self.expected_rules = None;
     }
     pub(super) fn reload(&mut self) {
         self.cancel();
-        self.pair = None;
-        self.cached.clear();
-        self.active_pair = 0;
-        self.grid.scroll = egui::Vec2::ZERO;
-        self.default_rules.columns.0.clear();
+        // Staged: the running comparison, names and options stay until the
+        // worker finishes; a failed reload keeps the previous session.
+        let mut rules = self.default_rules.clone();
+        rules.columns.0.clear();
+        self.staged = Some(Staged::Reload);
         self.worker = Some(Worker::spawn(Box::new(LoadJob {
             paths: self.paths(),
             options: self.options.clone(),
-            rules: self.default_rules.clone(),
+            rules,
             pair: None,
             left_source: self.left_source,
+            memory: [None, None],
+            fixed_pairs: None,
         })));
         self.message = "Loading and comparing in background…".into();
     }
-    fn install(&mut self, prepared: Prepared) -> Result<(), CoreError> {
+    pub(super) fn install(&mut self, prepared: Prepared) -> Result<(), CoreError> {
         let Prepared {
             left,
             right,
             output,
             cache,
         } = prepared;
-        if let Some(pair) = &mut self.pair {
-            if self
-                .expected_rules
-                .as_ref()
-                .is_some_and(|r| *r != *pair.map.rules())
-                || output.revisions
-                    != (
-                        pair.map.left.borrow().revision(),
-                        pair.map.right.borrow().revision(),
-                    )
-            {
-                return Err(CoreError::Invalid("stale table result discarded".into()));
-            }
-            // Auto column/key discovery resolves the exact requested draft on the worker.
-            *pair.map.rules_mut() = output.rules.clone();
-            pair.map.set_alignment(output)?;
-            pair.cache = cache;
-            pair.projection = pair.cache.project(self.filter);
+        if self.pair.is_some() {
+            self.install_aligned(output, cache)
         } else {
             let mut map = TableMap::from_output(left, right, output)?;
             map.set_deferred_edits(true);
@@ -315,8 +324,44 @@ impl TableCompareView {
                 history: [EditStack::new(), EditStack::new()],
                 cache,
                 projection,
+                pending_side: None,
             });
+            self.finish_install();
+            Ok(())
         }
+    }
+    /// Publish a worker result into the live pair: revisions must match the
+    /// current sheets (a single-side replacement swaps its sheet in first).
+    pub(super) fn install_aligned(
+        &mut self,
+        output: bc_engine_table::map::TableAlignOutput,
+        cache: Cache,
+    ) -> Result<(), CoreError> {
+        let pair = self
+            .pair
+            .as_mut()
+            .ok_or_else(|| CoreError::Invalid("Table is loading".into()))?;
+        if self
+            .expected_rules
+            .as_ref()
+            .is_some_and(|r| *r != *pair.map.rules())
+            || output.revisions
+                != (
+                    pair.map.left.borrow().revision(),
+                    pair.map.right.borrow().revision(),
+                )
+        {
+            return Err(CoreError::Invalid("stale table result discarded".into()));
+        }
+        // Auto column/key discovery resolves the exact requested draft on the worker.
+        *pair.map.rules_mut() = output.rules.clone();
+        pair.map.set_alignment(output)?;
+        pair.cache = cache;
+        pair.projection = pair.cache.project(self.filter);
+        self.finish_install();
+        Ok(())
+    }
+    fn finish_install(&mut self) {
         self.edited_at = None;
         self.expected_rules = None;
         self.refresh_grid();
@@ -333,7 +378,29 @@ impl TableCompareView {
             }
         }
         self.message = "Comparison complete".into();
-        Ok(())
+    }
+    fn maybe_spawn_scan(&mut self) {
+        // Never scan mid-transaction: a scan spawned with the outgoing
+        // paths/pairing has no generation guard and could publish into the
+        // committed structure by index.
+        if self.staged.is_some() {
+            return;
+        }
+        // Only pairs this ScanJob can publish for — non-active and not cached —
+        // justify a scan; retained pending cached pairs must not loop the
+        // scanner, and a failed scan waits for a user action (cancel clears it).
+        let fillable =
+            self.states.iter().enumerate().any(|(i, s)| {
+                s.is_none() && i != self.active_pair && !self.cached.contains_key(&i)
+            });
+        if self.pairs.0.len() > 1 && self.scan.is_none() && !self.scan_failed && fillable {
+            self.scan = Some(Worker::spawn(Box::new(ScanJob {
+                paths: self.paths(),
+                options: self.options.clone(),
+                pairs: self.pairs.clone(),
+                rules: self.default_rules.clone(),
+            })));
+        }
     }
     pub fn poll(&mut self) {
         // Do not move comparison coordinates underneath an uncommitted cell edit.
@@ -353,26 +420,97 @@ impl TableCompareView {
             match result {
                 Ok(Output::Loaded(loaded)) => {
                     let loaded = *loaded;
-                    if self.names[0].is_empty() {
-                        self.names = loaded.names;
-                        self.pairs = loaded.pairs;
+                    let staged = self.staged.take();
+                    // Open commits its own names/pairs and re-hangs cached pairs;
+                    // the other full replacements reset the whole structure here.
+                    let full = matches!(staged, Some(Staged::Reload | Staged::Settings(_)))
+                        || (staged.is_none() && self.names[0].is_empty());
+                    if full {
+                        self.names = loaded.names.clone();
+                        self.pairs = loaded.pairs.clone();
                         self.states = vec![None; self.pairs.0.len()];
                         self.summaries = vec![None; self.pairs.0.len()];
+                        self.cached.clear();
+                        self.grid.scroll = egui::Vec2::ZERO;
                     }
-                    for s in 0..2 {
-                        self.files[s].byte_len = loaded.bytes[s];
-                        self.files[s].load_time = loaded.times[s];
-                    }
-                    if let Err(e) = self.install(loaded.prepared) {
-                        self.message = e.to_string();
-                    }
-                    if self.pairs.0.len() > 1 && self.scan.is_none() {
-                        self.scan = Some(Worker::spawn(Box::new(ScanJob {
-                            paths: self.paths(),
-                            options: self.options.clone(),
-                            pairs: self.pairs.clone(),
-                            rules: self.default_rules.clone(),
-                        })));
+                    match staged {
+                        Some(Staged::PairSide(s)) => {
+                            // Visiting a preserved pair whose replacement side
+                            // sheet just arrived: swap it in and realign.
+                            let super::worker::Prepared {
+                                left,
+                                right,
+                                output,
+                                cache,
+                            } = loaded.prepared;
+                            if self.pair.is_some() {
+                                {
+                                    let p = self.pair.as_mut().unwrap();
+                                    p.map.replace_sheet(
+                                        super::commands::side(s),
+                                        if s == 0 { left } else { right },
+                                    );
+                                }
+                                match self.install_aligned(output, cache) {
+                                    Ok(()) => {
+                                        // Only a successful publish clears the
+                                        // flag; failure keeps it for retry.
+                                        if let Some(p) = &mut self.pair {
+                                            p.pending_side = None;
+                                        }
+                                    }
+                                    Err(e) => self.message = e.to_string(),
+                                }
+                            } else if let Err(e) = self.install(super::worker::Prepared {
+                                left,
+                                right,
+                                output,
+                                cache,
+                            }) {
+                                self.message = e.to_string();
+                            }
+                        }
+                        Some(Staged::Open(s, path, preserve, options)) => {
+                            self.commit_open_side(s, path, preserve, options, loaded);
+                        }
+                        Some(Staged::Settings(draft)) => {
+                            self.default_rules = draft.rules.clone();
+                            self.default_rules.left_is_source = draft.left_source;
+                            self.options = draft.options;
+                            self.left_source = draft.left_source;
+                            for s in 0..2 {
+                                self.files[s].readonly = draft.readonly[s];
+                                self.files[s].path = (!draft.paths[s].is_empty())
+                                    .then(|| draft.paths[s].clone().into());
+                                self.files[s].target = None;
+                                self.files[s].clipboard_dirty = false;
+                                self.files[s].byte_len = loaded.bytes[s];
+                                self.files[s].load_time = loaded.times[s];
+                            }
+                            self.pair = None;
+                            // The worker resolved the active pair exactly (the
+                            // fixed manual pairing or a re-derived pairing for
+                            // changed sources); always publish it.
+                            self.active_pair =
+                                loaded.active.min(self.pairs.0.len().saturating_sub(1));
+                            if let Err(e) = self.install(loaded.prepared) {
+                                self.message = e.to_string();
+                            }
+                        }
+                        other => {
+                            if matches!(other, Some(Staged::Reload)) {
+                                self.pair = None;
+                                self.active_pair = 0;
+                                self.default_rules.columns.0.clear();
+                            }
+                            for s in 0..2 {
+                                self.files[s].byte_len = loaded.bytes[s];
+                                self.files[s].load_time = loaded.times[s];
+                            }
+                            if let Err(e) = self.install(loaded.prepared) {
+                                self.message = e.to_string();
+                            }
+                        }
                     }
                 }
                 Ok(Output::Aligned(prepared)) => {
@@ -399,28 +537,44 @@ impl TableCompareView {
                     self.refresh_grid();
                 }
                 Ok(Output::Scanned(_)) => {}
-                Err(bc_jobs::JobError::Cancelled) => {}
+                Err(bc_jobs::JobError::Cancelled) => {
+                    self.staged = None;
+                }
                 Err(e) => {
                     self.message = e.to_string();
                     self.edited_at = None;
+                    // A failed staged load keeps the previous session untouched.
+                    self.staged = None;
                 }
             }
         }
+        self.maybe_spawn_scan();
         if let Some(result) = self.scan.as_mut().and_then(Worker::poll) {
             self.scan = None;
-            if let Ok(Output::Scanned(states)) = result {
-                for (i, state) in states.into_iter().enumerate() {
-                    if i != self.active_pair
-                        && !self.cached.contains_key(&i)
-                        && i < self.states.len()
-                    {
-                        self.states[i] = Some(
-                            state[super::cache::layer_index(self.default_rules.layers)]
-                                .importance(),
-                        );
-                        self.summaries.resize(self.states.len(), None);
-                        self.summaries[i] = Some(state);
+            match result {
+                Ok(Output::Scanned(states)) => {
+                    for (i, state) in states.into_iter().enumerate() {
+                        if i != self.active_pair
+                            && !self.cached.contains_key(&i)
+                            && i < self.states.len()
+                        {
+                            self.states[i] = Some(
+                                state[super::cache::layer_index(self.default_rules.layers)]
+                                    .importance(),
+                            );
+                            self.summaries.resize(self.states.len(), None);
+                            self.summaries[i] = Some(state);
+                        }
                     }
+                }
+                Ok(_) => {}
+                Err(bc_jobs::JobError::Cancelled) => {}
+                Err(e) => {
+                    // Honest pending dots plus an explicit message; the next
+                    // user action (tab switch/Reload/…) allows the retry.
+                    self.scan_failed = true;
+                    self.message =
+                        format!("Sheet scan failed: {e}; switch sheets or Reload to retry");
                 }
             }
         }
@@ -461,8 +615,84 @@ impl TableCompareView {
         }
         self.message = "Edited — background realignment pending".into();
     }
+    /// (Re)start the background load of the active pair's pending replacement
+    /// side sheet. Shared by select_sheet, Swap, Recompare and projection so a
+    /// placeholder is never compared or reported as ready.
+    pub(super) fn load_pending_pair(&mut self) {
+        let Some((s, _sheet)) = self.pair.as_ref().and_then(|p| p.pending_side) else {
+            return;
+        };
+        let index = self.active_pair;
+        let p = self.pair.as_ref().unwrap();
+        let other = 1 - s;
+        let mut memory = [None, None];
+        memory[other] = Some(super::worker::MemorySheet {
+            sheet: if other == 0 {
+                p.map.left.borrow().clone()
+            } else {
+                p.map.right.borrow().clone()
+            },
+            names: self.names[other].clone(),
+            index: if other == 0 {
+                self.pairs.0[index].left
+            } else {
+                self.pairs.0[index].right
+            }
+            .unwrap_or(0),
+        });
+        let mut rules = self.default_rules.clone();
+        rules.columns.0.clear();
+        self.staged = Some(Staged::PairSide(s));
+        self.worker = Some(Worker::spawn(Box::new(LoadJob {
+            paths: self.paths(),
+            options: self.options.clone(),
+            rules,
+            pair: Some(self.pairs.0[index].clone()),
+            left_source: self.left_source,
+            memory,
+            fixed_pairs: Some(self.pairs.clone()),
+        })));
+        self.message = "Loading the replaced side's sheet…".into();
+    }
+    /// 键列标注：自动/手动推断结果带比较列名，如 `id（自动）`。
+    pub(super) fn keys_description(&self) -> String {
+        let Some(p) = &self.pair else {
+            return String::new();
+        };
+        let rules = p.map.rules();
+        let label = rules.keys.label();
+        match &rules.keys {
+            bc_engine_table::rules::KeySelection::Automatic { .. }
+            | bc_engine_table::rules::KeySelection::Manual(_) => {
+                let names = rules
+                    .key_columns()
+                    .iter()
+                    .map(|&c| {
+                        let column = &rules.columns.0[c];
+                        column
+                            .left
+                            .map(|i| p.map.left.borrow().column_name(i))
+                            .or_else(|| column.right.map(|i| p.map.right.borrow().column_name(i)))
+                            .unwrap_or_else(|| format!("Column {}", c + 1))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("+");
+                if names.is_empty() {
+                    label.into()
+                } else {
+                    format!("{names}（{label}）")
+                }
+            }
+            _ => label.into(),
+        }
+    }
     pub(super) fn recompare(&mut self) {
         self.cancel();
+        if self.pair.as_ref().is_some_and(|p| p.pending_side.is_some()) {
+            // A pending placeholder is never compared: restart the side load.
+            self.load_pending_pair();
+            return;
+        }
         if let Some(p) = &self.pair {
             self.expected_rules = Some(p.map.rules().clone());
             self.worker = Some(Worker::spawn(Box::new(AlignJob {
@@ -510,13 +740,21 @@ impl TableCompareView {
             for (&i, p) in &self.cached {
                 p.map.rules_mut().layers = rules.layers;
                 p.map.rules_mut().ignore_unimportant = rules.ignore_unimportant;
-                if i < self.states.len() {
+                // A stale or still-loading pair keeps its pending dot; never
+                // publish a state computed from an outdated snapshot.
+                if i < self.states.len() && !p.map.is_stale() && p.pending_side.is_none() {
                     self.states[i] = Some(p.map.output().data.importance(rules.layers, false));
                 }
             }
-            if self.active_pair < self.states.len() {
+            if self.active_pair < self.states.len() && p.pending_side.is_none() {
                 self.states[self.active_pair] =
                     Some(p.map.output().data.importance(rules.layers, false));
+            }
+            if p.pending_side.is_some() {
+                // A display-layer change does not compare a placeholder; the
+                // replacement side load restarts with the updated rules.
+                self.load_pending_pair();
+                return;
             }
             if p.map.is_stale() {
                 self.recompare();
@@ -548,9 +786,14 @@ impl TableCompareView {
             ..Default::default()
         };
         if let Some(p) = self.cached.remove(&index) {
+            let pending = p.pending_side;
             self.pair = Some(p);
             self.refresh_grid();
-            if self.pair.as_ref().is_some_and(|p| p.map.is_stale()) {
+            if pending.is_some() {
+                // A preserved pair whose replacement side sheet has not loaded
+                // yet: fetch it in the background, then replace + realign.
+                self.load_pending_pair();
+            } else if self.pair.as_ref().is_some_and(|p| p.map.is_stale()) {
                 self.recompare();
             } else {
                 self.project();
@@ -568,6 +811,10 @@ impl TableCompareView {
                 rules,
                 pair: Some(self.pairs.0[index].clone()),
                 left_source: self.left_source,
+                memory: [None, None],
+                // The current pairing (possibly manually arranged) is the
+                // source of truth for tab indices; never re-derive it here.
+                fixed_pairs: Some(self.pairs.clone()),
             })));
         }
     }
@@ -631,7 +878,7 @@ impl TableCompareView {
         self.goto = [cursor.row + 1, cursor.column + 1];
         self.focus_grid = Some(self.grid.active);
     }
-    fn settings_open(&mut self) {
+    pub(super) fn settings_open(&mut self) {
         if let Some(pair) = &self.pair {
             self.settings.draft = Some(Draft {
                 rules: pair.map.rules().clone(),
@@ -664,7 +911,8 @@ impl TableCompareView {
             }
         }
         if self.editor.is_none() && self.pending.is_none() {
-            if let Some(draft) = self.settings.ui(&ctx, &self.names) {
+            let key_hint = self.keys_description();
+            if let Some(draft) = self.settings.ui(&ctx, &self.names, &key_hint) {
                 self.request(Pending::Settings(Box::new(draft)));
             }
         }
@@ -689,7 +937,7 @@ impl TableCompareView {
             self.select_sheet(index);
         }
         egui::Panel::bottom("table_status").show(ui,|ui|{
-            if let Some(p)=&self.pair{let s=p.cache.statistics;ui.label(format!("{} same · {} unimportant · {} important · {} left-only · {} right-only · {} columns · keys: {}{}",s.same,s.unimportant,s.important,s.left_only,s.right_only,s.columns,p.map.rules().keys.label(),if p.map.is_stale(){" · stale (recomparing)"}else{""}));}
+            if let Some(p)=&self.pair{let s=p.cache.statistics;ui.label(format!("{} same · {} unimportant · {} important · {} left-only · {} right-only · {} columns · keys: {}{}",s.same,s.unimportant,s.important,s.left_only,s.right_only,s.columns,self.keys_description(),if p.map.is_stale(){" · stale (recomparing)"}else{""}));}
             ui.label(self.worker.as_ref().map(Worker::progress).filter(|s|!s.is_empty()).unwrap_or_else(||self.message.clone()));
         });
         self.grid.rows_drawn = 0;
@@ -753,6 +1001,13 @@ impl TableCompareView {
                     },
                 );
             });
+        } else if self.worker.is_none() {
+            // Initial load failed: show the error with an explicit retry entry
+            // instead of spinning forever.
+            ui.label(format!("Load failed: {}", self.message));
+            if ui.button("Retry load").clicked() {
+                self.reload();
+            }
         } else {
             ui.spinner();
             ui.label("Loading table sources on worker…");

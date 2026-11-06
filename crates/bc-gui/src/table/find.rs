@@ -10,6 +10,8 @@ pub struct FindPanel {
     pub whole: bool,
     pub side: usize,
     pub last: Option<(usize, usize, std::ops::Range<usize>)>,
+    /// Side that `last` was computed on; a hit position is side-local.
+    pub last_side: usize,
 }
 #[derive(Clone, Copy)]
 pub enum Action {
@@ -58,8 +60,12 @@ impl FindPanel {
                 ui.checkbox(&mut self.regex, "Regex");
                 ui.checkbox(&mut self.case, "Case");
                 ui.checkbox(&mut self.whole, "Whole words");
-                ui.selectable_value(&mut self.side, 0, "Left");
-                ui.selectable_value(&mut self.side, 1, "Right");
+                if ui.selectable_value(&mut self.side, 0, "Left").changed() {
+                    self.last = None;
+                }
+                if ui.selectable_value(&mut self.side, 1, "Right").changed() {
+                    self.last = None;
+                }
                 if ui.button("×").clicked() {
                     self.open = false;
                 }

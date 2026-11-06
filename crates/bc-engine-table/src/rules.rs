@@ -158,6 +158,11 @@ impl TableRules {
             .map(|c| c.handling.resolved(&self.default_handling))
             .unwrap_or_else(|| self.default_handling.clone())
     }
+    /// Swap Sides: exchange left/right column sources; the pairing-source flag
+    /// is positional ("left file is source") and stays unchanged.
+    pub fn transpose(&mut self) {
+        self.columns.transpose();
+    }
     pub fn key_columns(&self) -> Vec<usize> {
         let explicit: Vec<_> = self
             .columns

@@ -27,6 +27,14 @@ mod editing;
 mod navigation;
 #[path = "projection_tests.rs"]
 mod projections;
+#[path = "review_tests.rs"]
+mod review;
+#[path = "search_tests.rs"]
+mod search;
+#[path = "session_tests.rs"]
+mod session;
+#[path = "sheet_tests.rs"]
+mod sheets;
 #[path = "sort_tests.rs"]
 mod sorting;
 #[path = "view_tests.rs"]
@@ -120,6 +128,31 @@ fn button(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
             _ => None,
         })
         .unwrap_or_else(|| panic!("missing button {label}"))
+}
+fn no_backup_prefs() -> Prefs {
+    Prefs {
+        backups: bc_session::prefs::BackupPrefs {
+            enabled: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn temp_file(name: &str, content: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("matcha-wave7-{}-{name}", std::process::id()));
+    std::fs::write(&path, content).unwrap();
+    path
+}
+fn open_files(left: &Path, right: &Path) -> TableCompareView {
+    let mut v = TableCompareView::open_with_registry(
+        left,
+        right,
+        &bc_formats::registry::FormatRegistry::with_builtins(),
+    )
+    .unwrap();
+    ready(&mut v);
+    v
 }
 #[test]
 fn grid_tessellation_cell_colours_two_dimensional_virtualization_and_stacked_sync() {

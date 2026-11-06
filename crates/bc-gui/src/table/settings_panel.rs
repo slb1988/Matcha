@@ -21,13 +21,13 @@ pub struct Draft {
 pub struct SettingsPanel {
     pub open: bool,
     pub draft: Option<Draft>,
-    tab: usize,
-    selected: usize,
-    sheet: usize,
-    move_side: usize,
-    format_side: usize,
-    description: String,
-    error: String,
+    pub(crate) tab: usize,
+    pub(crate) selected: usize,
+    pub(crate) sheet: usize,
+    pub(crate) move_side: usize,
+    pub(crate) format_side: usize,
+    pub(crate) description: String,
+    pub(crate) error: String,
 }
 fn handling(ui: &mut egui::Ui, h: &mut ColumnHandling, default: bool) {
     if !default {
@@ -210,7 +210,12 @@ pub fn format_options(ui: &mut egui::Ui, options: &mut ReadOptions, error: &mut 
     });
 }
 impl SettingsPanel {
-    pub fn ui(&mut self, ctx: &egui::Context, names: &[Vec<String>; 2]) -> Option<Draft> {
+    pub fn ui(
+        &mut self,
+        ctx: &egui::Context,
+        names: &[Vec<String>; 2],
+        key_hint: &str,
+    ) -> Option<Draft> {
         if !self.open {
             return None;
         }
@@ -234,7 +239,7 @@ impl SettingsPanel {
                     format_options(ui,&mut draft.options[self.format_side],&mut self.error);
                 }
                 2=>{
-                    ui.label(format!("Keys: {} — comparison-column order defines priority",draft.rules.keys.label()));
+                    ui.label(format!("Keys: {} ({}) — comparison-column order defines priority",draft.rules.keys.label(),key_hint));
                     ui.horizontal(|ui|{
                         if ui.button("Auto infer keys").clicked(){for c in &mut draft.rules.columns.0{c.handling.is_key=false;}draft.rules.keys=KeySelection::Automatic{columns:Vec::new(),score:0.0};}
                         if ui.button("All columns").clicked(){for c in &mut draft.rules.columns.0{c.handling.is_key=false;}draft.rules.keys=KeySelection::AllColumns;}
@@ -265,6 +270,8 @@ impl SettingsPanel {
                         handling(ui,&mut c.handling,false);
                     }
                     ui.collapsing("Default Handling",|ui|handling(ui,&mut draft.rules.default_handling,true));
+                    ui.checkbox(&mut draft.rules.format_important,"Format differences are important")
+                        .on_hover_text("Applies to the + Number formats layer; values/formulas layers are unaffected");
                 }
                 3=>{
                     ui.checkbox(&mut draft.rules.sort_by_key,"Sort rows before alignment");

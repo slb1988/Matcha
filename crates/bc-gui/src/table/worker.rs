@@ -28,6 +28,96 @@ pub struct Loaded {
     pub pairs: SheetPairs,
     pub times: [Duration; 2],
     pub bytes: [u64; 2],
+    pub active: usize,
+}
+/// A side that must be served from memory (unedited in-memory sheet with its
+/// sheet list), e.g. the untouched side of a single-side Open File.
+pub struct MemorySheet {
+    pub sheet: Sheet,
+    pub names: Vec<String>,
+    pub index: usize,
+}
+/// Pairing after a single-side replacement: by-name over the new side's sheets
+/// and the preserved side's existing sheet list; the active pair keeps the
+/// previously viewed preserved-side sheet (forcing a pairing with the new
+/// side's first sheet when no name matches), so every preserved-side sheet
+/// keeps a tab.
+pub fn pair_for_replacement(
+    new_names: &[String],
+    other_names: &[String],
+    new_side: usize,
+    prefer_other: usize,
+    left_source: bool,
+) -> (SheetPairs, usize) {
+    let (left, right) = if new_side == 0 {
+        (new_names, other_names)
+    } else {
+        (other_names, new_names)
+    };
+    let mut pairs = if left.len() == 1 && right.len() == 1 {
+        SheetPairs(vec![SheetPair {
+            left: Some(0),
+            right: Some(0),
+        }])
+    } else {
+        SheetPairs::by_name(left, right, left_source)
+    };
+    let side_of = |p: &SheetPair| if new_side == 0 { p.left } else { p.right };
+    let other_of = |p: &SheetPair| if new_side == 0 { p.right } else { p.left };
+    let active = pairs
+        .0
+        .iter()
+        .position(|p| other_of(p) == Some(prefer_other) && side_of(p).is_some())
+        .or_else(|| {
+            pairs
+                .0
+                .iter()
+                .position(|p| p.left.is_some() && p.right.is_some())
+        })
+        .unwrap_or_else(|| {
+            // No usable name match: compare the new side's first sheet against
+            // the previously viewed sheet. A previous holder of the new side's
+            // first sheet is removed when it is a pure orphan, demoted when it
+            // pairs with another preserved sheet.
+            if let Some(h) = pairs.0.iter().position(|p| side_of(p) == Some(0)) {
+                if other_of(&pairs.0[h]).is_none() {
+                    pairs.0.remove(h);
+                } else if new_side == 0 {
+                    pairs.0[h].left = None;
+                } else {
+                    pairs.0[h].right = None;
+                }
+            }
+            if let Some(p) = pairs
+                .0
+                .iter_mut()
+                .find(|p| other_of(p) == Some(prefer_other))
+            {
+                if new_side == 0 {
+                    p.left = Some(0);
+                } else {
+                    p.right = Some(0);
+                }
+            } else {
+                pairs.0.push(if new_side == 0 {
+                    SheetPair {
+                        left: Some(0),
+                        right: Some(prefer_other),
+                    }
+                } else {
+                    SheetPair {
+                        left: Some(prefer_other),
+                        right: Some(0),
+                    }
+                });
+            }
+            pairs
+                .0
+                .iter()
+                .position(|p| side_of(p) == Some(0) && other_of(p) == Some(prefer_other))
+                .unwrap_or(0)
+        });
+    (pairs, active)
 }
 pub enum Output {
     Loaded(Box<Loaded>),
@@ -155,6 +245,9 @@ pub struct LoadJob {
     pub rules: TableRules,
     pub pair: Option<SheetPair>,
     pub left_source: bool,
+    pub memory: [Option<MemorySheet>; 2],
+    /// 用户在 Sheets 页排好的手动配对：逐字使用，不按名重新推导。
+    pub fixed_pairs: Option<SheetPairs>,
 }
 impl Job for LoadJob {
     fn name(&self) -> String {
@@ -168,29 +261,76 @@ impl Job for LoadJob {
             .as_ref()
             .map(|p| [p.left, p.right])
             .unwrap_or([Some(0), Some(0)]);
-        let start = Instant::now();
-        let (left, ln) = load(&self.paths[0], &self.options[0], indices[0], ctx)?;
-        times[0] = start.elapsed();
-        let start = Instant::now();
-        let (mut right, rn) = load(&self.paths[1], &self.options[1], indices[1], ctx)?;
-        times[1] = start.elapsed();
-        let mut pairs = SheetPairs::by_name(&ln, &rn, self.left_source);
+        let mut sheets: [Option<Sheet>; 2] = [None, None];
+        let mut names: [Vec<String>; 2] = [Vec::new(), Vec::new()];
+        for s in 0..2 {
+            if let Some(memory) = &self.memory[s] {
+                names[s] = memory.names.clone();
+                if indices[s] == Some(memory.index) {
+                    sheets[s] = Some(memory.sheet.clone());
+                    continue;
+                }
+            }
+            let start = Instant::now();
+            let (sheet, n) = load(&self.paths[s], &self.options[s], indices[s], ctx)?;
+            times[s] = start.elapsed();
+            sheets[s] = Some(sheet);
+            if self.memory[s].is_none() {
+                names[s] = n;
+            }
+        }
+        let mut pairs = self
+            .fixed_pairs
+            .clone()
+            .unwrap_or_else(|| SheetPairs::by_name(&names[0], &names[1], self.left_source));
         // Two single-sheet text sources compare regardless of their filenames.
-        if ln.len() == 1 && rn.len() == 1 {
+        if self.fixed_pairs.is_none() && names[0].len() == 1 && names[1].len() == 1 {
             pairs = SheetPairs(vec![SheetPair {
                 left: Some(0),
                 right: Some(0),
             }]);
         }
-        let mut left = left;
-        if self.pair.is_none() {
-            if let Some(pair) = pairs.0.first() {
-                if pair.left != indices[0] {
-                    left = load(&self.paths[0], &self.options[0], pair.left, ctx)?.0;
+        // Choose the active pair: an explicit pair (sheet switch) wins; with a
+        // memory side the shared replacement-pairing helper keeps the preserved
+        // sheet active and a tab for every preserved sheet; otherwise the first.
+        let active = if let Some(p) = &self.pair {
+            pairs.0.iter().position(|x| x == p).unwrap_or(0)
+        } else if let Some((mem_side, mem)) = self
+            .memory
+            .iter()
+            .enumerate()
+            .find_map(|(s, m)| m.as_ref().map(|m| (s, m)))
+        {
+            let (new_pairs, chosen) = pair_for_replacement(
+                &names[1 - mem_side],
+                &mem.names,
+                1 - mem_side,
+                mem.index,
+                self.left_source,
+            );
+            pairs = new_pairs;
+            chosen
+        } else {
+            0
+        };
+        let chosen = pairs.0.get(active).cloned().unwrap_or(SheetPair {
+            left: Some(0),
+            right: Some(0),
+        });
+        // Reload whichever side the chosen pair does not already have loaded.
+        for s in 0..2 {
+            let want = if s == 0 { chosen.left } else { chosen.right };
+            if let Some(memory) = &self.memory[s] {
+                if want == Some(memory.index) {
+                    sheets[s] = Some(memory.sheet.clone());
+                    continue;
                 }
-                if pair.right != indices[1] {
-                    right = load(&self.paths[1], &self.options[1], pair.right, ctx)?.0;
-                }
+            }
+            if want != indices[s] || sheets[s].is_none() {
+                let start = Instant::now();
+                let (sheet, _) = load(&self.paths[s], &self.options[s], want, ctx)?;
+                times[s] += start.elapsed();
+                sheets[s] = Some(sheet);
             }
         }
         for (s, path) in self.paths.iter().enumerate() {
@@ -199,19 +339,36 @@ impl Job for LoadJob {
                 .and_then(|p| std::fs::metadata(p).ok())
                 .map_or(0, |m| m.len());
         }
+        let left = sheets[0].take().unwrap_or_default();
+        let right = sheets[1].take().unwrap_or_default();
+        let mut rules = self.rules;
+        if rules
+            .validate(left.column_count(), right.column_count())
+            .is_err()
+        {
+            // A format/path change can invalidate the resolved mapping; fall
+            // back to automatic mapping and key inference rather than failing
+            // the whole reload (same contract as TableMap::replace_sheet).
+            rules.columns.0.clear();
+            rules.keys = bc_engine_table::rules::KeySelection::Automatic {
+                columns: Vec::new(),
+                score: 0.0,
+            };
+        }
         let job = TableAlignJob {
             left: left.clone(),
             right: right.clone(),
-            rules: self.rules,
+            rules,
             overrides: AlignmentOverrides::default(),
         };
         let prepared = prepare(Box::new(job), left, right, ctx)?;
         Ok(Box::new(Output::Loaded(Box::new(Loaded {
             prepared,
-            names: [ln, rn],
+            names,
             pairs,
             times,
             bytes,
+            active,
         }))))
     }
 }

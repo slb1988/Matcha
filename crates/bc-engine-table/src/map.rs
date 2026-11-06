@@ -13,7 +13,7 @@ use bc_core::{
     DiffKind,
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell as Parity, Ref, RefCell, RefMut},
     collections::HashSet,
     rc::Rc,
     sync::Arc,
@@ -204,6 +204,61 @@ pub fn compare_alignment(
 pub(crate) struct Settings {
     pub rules: TableRules,
     pub overrides: AlignmentOverrides,
+    /// Bumped by replace_sheet: edits captured before a side replacement must
+    /// not resurrect anchors that addressed the replaced content.
+    pub anchors_generation: u64,
+}
+fn transpose_overrides(overrides: &AlignmentOverrides) -> AlignmentOverrides {
+    let mut out = AlignmentOverrides::default();
+    for &(left, right) in overrides.pairs() {
+        let _ = out.insert(right, left);
+    }
+    out
+}
+impl Settings {
+    fn transpose(&self) -> Self {
+        let mut rules = self.rules.clone();
+        rules.transpose();
+        Self {
+            rules,
+            overrides: transpose_overrides(&self.overrides),
+            anchors_generation: self.anchors_generation,
+        }
+    }
+}
+impl TableAlignOutput {
+    /// Mirror image of this comparison: rows, revisions, rules and anchors
+    /// exchange sides; per-column cell states are keyed by comparison column
+    /// and stay put.
+    fn transpose(&self) -> Self {
+        let data = &self.data;
+        let mut rules = self.rules.clone();
+        rules.transpose();
+        Self {
+            data: Arc::new(ComparedData {
+                rows: data
+                    .rows
+                    .iter()
+                    .map(|row| CompactRow {
+                        left: row.right,
+                        right: row.left,
+                        ..*row
+                    })
+                    .collect(),
+                states: data.states.clone(),
+                columns: data.columns,
+                column_states: data.column_states.clone(),
+                summary: data.summary,
+                duplicates: DuplicateKeys {
+                    left: data.duplicates.right,
+                    right: data.duplicates.left,
+                },
+            }),
+            revisions: (self.revisions.1, self.revisions.0),
+            rules,
+            overrides: transpose_overrides(&self.overrides),
+        }
+    }
 }
 pub(crate) fn same_comparison(a: &TableRules, b: &TableRules) -> bool {
     let mut a = a.clone();
@@ -257,6 +312,8 @@ pub struct TableMap {
     pub(crate) settings: Rc<RefCell<Settings>>,
     pub(crate) state: Rc<RefCell<TableAlignOutput>>,
     deferred_edits: bool,
+    /// Swap Sides parity shared with captured edits: `false` = as compared.
+    pub(crate) orientation: Rc<Parity<bool>>,
 }
 pub(crate) fn prepare_rules(
     left: &Sheet,
@@ -306,9 +363,14 @@ impl TableMap {
         Ok(Self {
             left: Rc::new(RefCell::new(left)),
             right: Rc::new(RefCell::new(right)),
-            settings: Rc::new(RefCell::new(Settings { rules, overrides })),
+            settings: Rc::new(RefCell::new(Settings {
+                rules,
+                overrides,
+                anchors_generation: 0,
+            })),
             state: Rc::new(RefCell::new(output)),
             deferred_edits: false,
+            orientation: Rc::new(Parity::new(false)),
         })
     }
     /// GUI edit commands never synchronously align. Keep stale state until a
@@ -341,6 +403,66 @@ impl TableMap {
     pub fn set_overrides(&self, overrides: AlignmentOverrides) {
         self.settings.borrow_mut().overrides = overrides;
     }
+    /// Swap Sides in place: exchange the sheets and mirror rules, anchors and the
+    /// installed comparison. The transposed snapshot is exactly the mirrored
+    /// comparison, so the map stays aligned; captured edits consult the shared
+    /// orientation parity to restore correctly across the swap.
+    pub fn swap_sides(&mut self) {
+        self.orientation.set(!self.orientation.get());
+        std::mem::swap(&mut self.left, &mut self.right);
+        let settings = self.settings.borrow().transpose();
+        *self.settings.borrow_mut() = settings;
+        let state = self.state.borrow().transpose();
+        *self.state.borrow_mut() = state;
+    }
+    /// Replace one side's content in place (Open File/Clipboard on one side).
+    /// The other side keeps its sheet object, edit history and captured
+    /// snapshots; the new sheet's revision marks the map stale for realignment.
+    /// The caller clears the replaced side's own edit stack: its coordinates
+    /// described the previous content. The resolved mapping is re-matched
+    /// against the new source: an incompatible layout or changed header names
+    /// fall back to automatic mapping and key inference instead of silently
+    /// comparing the wrong columns. Manual anchors bind row pairs across both
+    /// sides, so they are dropped and the anchor generation bumped.
+    pub fn replace_sheet(&self, side: Side, sheet: Sheet) {
+        let target = self.target(side);
+        let rematch = {
+            let settings = self.settings.borrow();
+            let old = target.borrow();
+            // ByNumber mapping is positional on purpose; Automatic mapping is
+            // header/content-matched and must re-match a changed layout.
+            settings.rules.column_mode == ColumnMode::Automatic
+                && settings
+                    .rules
+                    .columns
+                    .0
+                    .iter()
+                    .filter_map(|c| c.index(side))
+                    .any(|i| {
+                        i >= sheet.column_count() || old.column_name(i) != sheet.column_name(i)
+                    })
+        };
+        *target.borrow_mut() = sheet;
+        let (left_columns, right_columns) = (
+            self.left.borrow().column_count(),
+            self.right.borrow().column_count(),
+        );
+        let mut settings = self.settings.borrow_mut();
+        if rematch
+            || settings
+                .rules
+                .validate(left_columns, right_columns)
+                .is_err()
+        {
+            settings.rules.columns.0.clear();
+            settings.rules.keys = crate::rules::KeySelection::Automatic {
+                columns: Vec::new(),
+                score: 0.0,
+            };
+        }
+        settings.overrides = AlignmentOverrides::default();
+        settings.anchors_generation += 1;
+    }
     pub fn is_stale(&self) -> bool {
         let state = self.state.borrow();
         let settings = self.settings.borrow();
@@ -353,17 +475,34 @@ impl TableMap {
             || state.overrides != settings.overrides
     }
     pub fn set_alignment(&self, output: TableAlignOutput) -> Result<()> {
-        let settings = self.settings.borrow();
-        if output.revisions
-            != (
-                self.left.borrow().revision(),
-                self.right.borrow().revision(),
-            )
-            || !same_comparison(&output.rules, &settings.rules)
-            || output.overrides != settings.overrides
-        {
-            return Err(invalid("stale table alignment result"));
-        }
+        // Resolve the request rules into a local candidate and validate
+        // everything before publishing: a rejected stale result must leave
+        // rules/keys/overrides/state completely untouched. An empty mapping is
+        // an unresolved automatic request that adopts the worker-resolved
+        // columns/keys exactly as prepare_rules produced them.
+        let mut candidate = {
+            let settings = self.settings.borrow();
+            let mut candidate = settings.rules.clone();
+            if candidate.columns.0.is_empty() && !output.rules.columns.0.is_empty() {
+                candidate.columns = output.rules.columns.clone();
+            }
+            if matches!(&candidate.keys, KeySelection::Automatic { columns, .. } if columns.is_empty())
+            {
+                candidate.keys = output.rules.keys.clone();
+            }
+            if output.revisions
+                != (
+                    self.left.borrow().revision(),
+                    self.right.borrow().revision(),
+                )
+                || !same_comparison(&output.rules, &candidate)
+                || output.overrides != settings.overrides
+            {
+                return Err(invalid("stale table alignment result"));
+            }
+            candidate
+        };
+        self.settings.borrow_mut().rules = std::mem::take(&mut candidate);
         *self.state.borrow_mut() = output;
         Ok(())
     }
@@ -538,6 +677,8 @@ impl TableMap {
             target,
             state: self.state.clone(),
             settings: self.settings.clone(),
+            orientation: self.orientation.clone(),
+            captured_orientation: self.orientation.get(),
             before,
             after,
             before_state,
@@ -574,6 +715,8 @@ struct TableEdit {
     target: SharedSheet,
     state: Rc<RefCell<TableAlignOutput>>,
     settings: Rc<RefCell<Settings>>,
+    orientation: Rc<Parity<bool>>,
+    captured_orientation: bool,
     before: Sheet,
     after: Sheet,
     before_state: TableAlignOutput,
@@ -585,22 +728,59 @@ struct TableEdit {
     side: Side,
 }
 impl TableEdit {
+    /// Snapshots were captured in the map's orientation at edit time; a later
+    /// Swap Sides flips that orientation, so restoring across it must first
+    /// transpose the captured rules/state/anchors into the current orientation.
     fn restore(&self, sheet: &Sheet, state: &TableAlignOutput, settings: &Settings, aligned: bool) {
+        let flipped = self.orientation.get() != self.captured_orientation;
+        let side = if flipped {
+            self.side.other()
+        } else {
+            self.side
+        };
+        let transposed_state;
+        let state = if flipped {
+            transposed_state = state.transpose();
+            &transposed_state
+        } else {
+            state
+        };
+        let transposed_settings;
+        let settings = if flipped {
+            transposed_settings = settings.transpose();
+            &transposed_settings
+        } else {
+            settings
+        };
         let mut sheet = sheet.clone();
         sheet.fresh_revision();
         let revision = if aligned { sheet.revision() } else { 0 };
         *self.target.borrow_mut() = sheet;
         let mut state = state.clone();
-        match self.side {
+        match side {
             Side::Left => state.revisions.0 = revision,
             Side::Right => state.revisions.1 = revision,
         }
         *self.state.borrow_mut() = state;
-        let projection = {
+        let (projection, current_rules, current_generation) = {
             let s = self.settings.borrow();
-            (s.rules.layers, s.rules.ignore_unimportant)
+            (
+                (s.rules.layers, s.rules.ignore_unimportant),
+                s.rules.clone(),
+                s.anchors_generation,
+            )
         };
-        *self.settings.borrow_mut() = settings.clone();
+        let mut restored = settings.clone();
+        if restored.anchors_generation != current_generation {
+            // A side was replaced since this edit was captured: anchors and the
+            // resolved mapping address the replaced content. Restore only the
+            // sheet content; the session rules in force stay in force and are
+            // never clobbered by an undo across the boundary.
+            restored.overrides = AlignmentOverrides::default();
+            restored.anchors_generation = current_generation;
+            restored.rules = current_rules;
+        }
+        *self.settings.borrow_mut() = restored;
         let mut s = self.settings.borrow_mut();
         s.rules.layers = projection.0;
         s.rules.ignore_unimportant = projection.1;

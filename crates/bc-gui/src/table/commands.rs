@@ -1,19 +1,20 @@
 use super::{
     find::Action,
     grid::{self, Cursor, GridAction},
-    view::{CellEditor, FileMode, PathDialog, Pending, TableAction, TableCompareView},
+    view::{CellEditor, FileMode, PathDialog, Pending, Staged, TableAction, TableCompareView},
+    worker::{LoadJob, Loaded, Worker},
 };
-use bc_core::{align::AlignmentOverrides, cancel::NeverCancel, CoreError};
+use bc_core::{cancel::NeverCancel, edit::EditStack, CoreError};
 use bc_engine_table::{
     columns::{ComparisonColumn, Side},
     source::{export_csv, read_text, save_as, ReadOptions},
     summary::SummaryFormat,
-    Cell,
+    Cell, Sheet,
 };
 use bc_session::prefs::Prefs;
 use eframe::egui;
 use std::{io::Cursor as IoCursor, path::Path};
-fn side(n: usize) -> Side {
+pub(super) fn side(n: usize) -> Side {
     if n == 0 {
         Side::Left
     } else {
@@ -48,9 +49,20 @@ impl TableCompareView {
             .ok_or_else(|| invalid("Column is a gap"))?;
         Ok((self.source_row(s, cursor.row)?, column))
     }
+    /// A source sheet is pending while a staged load runs or the active pair's
+    /// replacement side sheet has not been published; writes into it (and into
+    /// its paired sheet, whose revision the in-flight install checks) are
+    /// refused. A merely stale comparison (pending_side None) stays editable.
+    pub(super) fn source_pending(&self) -> bool {
+        self.staged.is_some() || self.pair.as_ref().is_some_and(|p| p.pending_side.is_some())
+    }
     pub(super) fn begin_edit(&mut self, s: usize, cursor: Cursor, replacement: Option<String>) {
         if self.files[s].readonly {
             self.message = "Editing disabled".into();
+            return;
+        }
+        if self.source_pending() {
+            self.message = "Wait for the load to finish before editing".into();
             return;
         }
         if self.editor.is_some() {
@@ -387,6 +399,10 @@ impl TableCompareView {
             self.message = "Editing disabled".into();
             return;
         }
+        if self.source_pending() {
+            self.message = "Wait for the load to finish before deleting".into();
+            return;
+        }
         let cells = self.selected_cells();
         if cells.is_empty() {
             return;
@@ -409,6 +425,9 @@ impl TableCompareView {
         let s = self.grid.active;
         if self.files[s].readonly {
             return Err(invalid("Editing disabled"));
+        }
+        if self.source_pending() {
+            return Err(invalid("Wait for the load to finish before pasting"));
         }
         let (r, c) = self.source_position(s, self.grid.cursor).or_else(|_| {
             let p = self
@@ -801,11 +820,15 @@ impl TableCompareView {
         match action {
             Action::Next | Action::Previous => {
                 let backwards = matches!(action, Action::Previous);
-                let previous = self
-                    .find
-                    .last
-                    .as_ref()
-                    .map(|(r, c, span)| (*r, *c, span.start));
+                // Hit positions are side-local: switching sides restarts from the boundary.
+                let previous = if self.find.last_side == s {
+                    self.find
+                        .last
+                        .as_ref()
+                        .map(|(r, c, span)| (*r, *c, span.start))
+                } else {
+                    None
+                };
                 let hit = if backwards {
                     hits.iter()
                         .rev()
@@ -816,6 +839,7 @@ impl TableCompareView {
                 };
                 if let Some(hit) = hit {
                     self.find.last = Some((hit.0, hit.1, hit.2.clone()));
+                    self.find.last_side = s;
                     self.grid.active = s;
                     self.goto_cell(Cursor {
                         row: hit.0,
@@ -833,7 +857,8 @@ impl TableCompareView {
                 let mut replacements = std::collections::BTreeMap::new();
                 for hit in hits {
                     if matches!(action, Action::Replace)
-                        && self.find.last.as_ref() != Some(&(hit.0, hit.1, hit.2.clone()))
+                        && (self.find.last_side != s
+                            || self.find.last.as_ref() != Some(&(hit.0, hit.1, hit.2.clone())))
                     {
                         continue;
                     }
@@ -842,7 +867,14 @@ impl TableCompareView {
                         self.find.accepts(&hit.5, r.clone())
                             && (matches!(action, Action::All) || r == span)
                     });
-                    replacements.insert((hit.3, hit.4), text);
+                    // Replacing a value with itself is not an edit.
+                    if text != hit.5 {
+                        replacements.insert((hit.3, hit.4), text);
+                    }
+                }
+                if replacements.is_empty() {
+                    self.message = "Replaced 0 cell(s)".into();
+                    return Ok(());
                 }
                 let p = self.pair.as_mut().unwrap();
                 let count = replacements.len();
@@ -855,6 +887,9 @@ impl TableCompareView {
                         Ok(())
                     })?;
                 p.history[s].push(e);
+                // Route the next Undo/Redo to the side the edits landed on.
+                self.grid.active = s;
+                self.focus_grid = Some(s);
                 self.edited();
                 self.message = format!("Replaced {count} cell(s)");
             }
@@ -981,10 +1016,37 @@ impl TableCompareView {
         prefs: &Prefs,
         export: bool,
     ) -> Result<(), CoreError> {
+        // Never write a placeholder: while the target side is still loading
+        // (staged load or an unpublished pending pair sheet), refuse and keep
+        // the load running instead of cancelling it and saving empty content.
+        if self.staged.is_some() {
+            return Err(invalid("Wait for the load to finish before saving"));
+        }
+        if self.pair.as_ref().is_some_and(|p| p.pending_side.is_some()) {
+            return Err(invalid(
+                "A sheet is still loading; saving now could write placeholder content",
+            ));
+        }
         if self.editor.as_ref().is_some_and(|e| e.side == s) {
             self.commit_edit()?;
         }
-        self.cancel();
+        // A save cancels only a pending comparison worker, never the sheet
+        // scan; whether the write succeeds or fails, a stale map re-arms its
+        // background realignment so the view cannot wedge in stale state.
+        self.cancel_comparison();
+        let result = self.write_side(s, path, prefs, export);
+        if self.pair.as_ref().is_some_and(|p| p.map.is_stale()) {
+            self.edited_at = Some(std::time::Instant::now());
+        }
+        result
+    }
+    fn write_side(
+        &mut self,
+        s: usize,
+        path: &Path,
+        prefs: &Prefs,
+        export: bool,
+    ) -> Result<(), CoreError> {
         let p = self
             .pair
             .as_mut()
@@ -1043,9 +1105,6 @@ impl TableCompareView {
             self.files[s].target = Some(path.into());
         }
         drop(sheet);
-        if p.map.is_stale() {
-            self.edited_at = Some(std::time::Instant::now());
-        }
         self.message = format!("Saved {}", path.display());
         Ok(())
     }
@@ -1066,22 +1125,168 @@ impl TableCompareView {
         }
     }
     pub(super) fn request(&mut self, p: Pending) {
-        let destroys = match &p {
+        let needs_confirm = match &p {
+            // Single-side replacement preserves the untouched side's edits and
+            // history (cached pairs are re-hung, not dropped); only edits on the
+            // REPLACED side — active or cached — plus an orphan placeholder
+            // side or an open draft can lose data and therefore need confirmation.
+            Pending::Open(s, _) | Pending::Clipboard(s, _) => {
+                let s = *s;
+                // An orphan tab's placeholder side can still hold pasted edits.
+                let orphan_other_dirty =
+                    self.pairs.0.get(self.active_pair).is_some_and(|pair| {
+                        (if s == 0 { pair.right } else { pair.left }).is_none()
+                    }) && self
+                        .pair
+                        .as_ref()
+                        .is_some_and(|p| p.history[1 - s].is_dirty());
+                self.files[s].clipboard_dirty
+                    || self.pair.as_ref().is_some_and(|p| p.history[s].is_dirty())
+                    || self.cached.values().any(|p| p.history[s].is_dirty())
+                    || orphan_other_dirty
+                    || self.editor.as_ref().is_some_and(CellEditor::changed)
+            }
             Pending::Settings(d) => {
-                d.options != self.options
+                let destroys = d.options != self.options
                     || d.pairs != self.pairs
                     || d.paths
                         != self
                             .paths()
                             .map(|p| p.map_or(String::new(), |p| p.display().to_string()))
-                    || d.left_source != self.left_source
+                    || d.left_source != self.left_source;
+                // An open changed draft is dirty state too: a rules-only Apply
+                // must not silently discard it.
+                (destroys || self.editor.as_ref().is_some_and(CellEditor::changed))
+                    && self.is_dirty()
             }
-            _ => true,
+            _ => self.is_dirty(),
         };
-        if (destroys || self.editor.as_ref().is_some_and(CellEditor::changed)) && self.is_dirty() {
+        if needs_confirm {
             self.pending = Some(p);
         } else {
             self.perform(p);
+        }
+    }
+    /// Commit a staged single-side Open File: swap in the freshly loaded sheet,
+    /// clear the replaced side's own undo stack, and re-hang every in-memory
+    /// pair of the untouched side onto the new pairing by sheet index so its
+    /// edits and history survive. Pairs whose replacement sheet has not loaded
+    /// yet get an empty placeholder plus a pending fetch on next visit.
+    pub(super) fn commit_open_side(
+        &mut self,
+        s: usize,
+        path: std::path::PathBuf,
+        preserve: bool,
+        options: ReadOptions,
+        loaded: Loaded,
+    ) {
+        let other = 1 - s;
+        let other_index_of = |pair: &bc_engine_table::sheets::SheetPair| {
+            if other == 0 {
+                pair.left
+            } else {
+                pair.right
+            }
+        };
+        // Collect the running session's in-memory pairs keyed by the untouched
+        // side's sheet index. The active orphan placeholder side carries nothing.
+        let mut old: Vec<(usize, super::view::Pair)> = Vec::new();
+        if let Some(p) = self.pair.take() {
+            if let Some(oj) = self.pairs.0.get(self.active_pair).and_then(other_index_of) {
+                old.push((oj, p));
+            }
+        }
+        for (i, p) in std::mem::take(&mut self.cached) {
+            if let Some(oj) = self.pairs.0.get(i).and_then(other_index_of) {
+                old.push((oj, p));
+            }
+        }
+        self.names = loaded.names.clone();
+        self.pairs = loaded.pairs.clone();
+        self.states = vec![None; self.pairs.0.len()];
+        self.summaries = vec![None; self.pairs.0.len()];
+        self.grid.scroll = egui::Vec2::ZERO;
+        let side_index_of = |pair: &bc_engine_table::sheets::SheetPair| {
+            if s == 0 {
+                pair.left
+            } else {
+                pair.right
+            }
+        };
+        for (oj, mut pair) in old {
+            let Some(k) = self
+                .pairs
+                .0
+                .iter()
+                .position(|np| other_index_of(np) == Some(oj))
+            else {
+                continue;
+            };
+            pair.history[s] = EditStack::new();
+            if preserve && k == loaded.active {
+                // The worker compared the new side against this very in-memory
+                // sheet; finish the surgical install below.
+                pair.pending_side = None;
+                self.pair = Some(pair);
+            } else {
+                // Park it: show an honest empty placeholder until its own
+                // replacement sheet loads on the next visit.
+                pair.map.replace_sheet(side(s), Sheet::default());
+                pair.pending_side = side_index_of(&self.pairs.0[k]).map(|idx| (s, idx));
+                self.cached.insert(k, pair);
+            }
+        }
+        self.files[s].path = Some(path.clone());
+        self.files[s].target = None;
+        self.files[s].clipboard_dirty = false;
+        self.files[s].readonly = std::fs::metadata(&path)
+            .map(|m| m.permissions().readonly())
+            .unwrap_or(false);
+        self.files[s].byte_len = loaded.bytes[s];
+        self.files[s].load_time = loaded.times[s];
+        self.options[s] = options;
+        self.active_pair = loaded.active.min(self.pairs.0.len().saturating_sub(1));
+        self.default_rules.columns.0.clear();
+        let super::worker::Prepared {
+            left,
+            right,
+            output,
+            cache,
+        } = loaded.prepared;
+        let result = if self.pair.is_some() {
+            let p = self.pair.as_mut().unwrap();
+            p.map
+                .replace_sheet(side(s), if s == 0 { left } else { right });
+            // The worker aligned against the preserved in-memory sheet; if the
+            // active pair was re-hung from another sheet (edited elsewhere),
+            // realign in the background instead of installing a mismatch.
+            let other_revision = if other == 0 {
+                p.map.left.borrow().revision()
+            } else {
+                p.map.right.borrow().revision()
+            };
+            let prepared_revision = if other == 0 {
+                output.revisions.0
+            } else {
+                output.revisions.1
+            };
+            if other_revision == prepared_revision {
+                self.install_aligned(output, cache)
+            } else {
+                drop(cache);
+                self.recompare();
+                Ok(())
+            }
+        } else {
+            self.install(super::worker::Prepared {
+                left,
+                right,
+                output,
+                cache,
+            })
+        };
+        if let Err(e) = result {
+            self.message = e.to_string();
         }
     }
     pub(super) fn perform(&mut self, p: Pending) {
@@ -1096,30 +1301,192 @@ impl TableCompareView {
                 self.action = Some(TableAction::Exit);
             }
             Pending::Reload => {
-                self.names = [Vec::new(), Vec::new()];
                 self.reload();
             }
             Pending::Open(s, path) => {
-                self.files[s].path = Some(path);
-                self.files[s].target = None;
-                self.names = [Vec::new(), Vec::new()];
-                self.reload();
+                // Route the new source through the format registry: a different
+                // file type gets its matching table options instead of
+                // inheriting the previous file's parse settings.
+                let new_options = match super::formats::load_registry()
+                    .and_then(|r| super::formats::options(&path, &r))
+                {
+                    Ok(o) => o,
+                    Err(e) => {
+                        self.message = e.to_string();
+                        return;
+                    }
+                };
+                // Stage the load: the running session (including the other
+                // side's edits) survives a failure; commit happens in poll().
+                let other = 1 - s;
+                let mut memory = [None, None];
+                // Only a live two-sided pair has an in-memory other sheet worth
+                // preserving; an orphan tab's placeholder side reloads fresh.
+                let preserve = self.pair.is_some()
+                    && self
+                        .pairs
+                        .0
+                        .get(self.active_pair)
+                        .and_then(|pair| if other == 0 { pair.left } else { pair.right })
+                        .is_some();
+                if preserve {
+                    let p = self.pair.as_ref().unwrap();
+                    let sheet = if other == 0 {
+                        p.map.left.borrow().clone()
+                    } else {
+                        p.map.right.borrow().clone()
+                    };
+                    let index = self
+                        .pairs
+                        .0
+                        .get(self.active_pair)
+                        .and_then(|pair| if other == 0 { pair.left } else { pair.right })
+                        .unwrap_or(0);
+                    memory[other] = Some(super::worker::MemorySheet {
+                        sheet,
+                        names: self.names[other].clone(),
+                        index,
+                    });
+                }
+                self.cancel();
+                let mut rules = self.default_rules.clone();
+                rules.columns.0.clear();
+                let mut paths = self.paths();
+                paths[s] = Some(path.clone());
+                let mut options = self.options.clone();
+                options[s] = new_options.clone();
+                self.staged = Some(Staged::Open(s, path, preserve, new_options));
+                self.worker = Some(Worker::spawn(Box::new(LoadJob {
+                    paths,
+                    options,
+                    rules,
+                    pair: None,
+                    left_source: self.left_source,
+                    memory,
+                    fixed_pairs: None,
+                })));
+                self.message = "Opening file in background\u{2026}".into();
             }
             Pending::Clipboard(s, text) => {
-                let parsed = read_text(IoCursor::new(text), &self.options[s], &NeverCancel);
+                let byte_len = text.len() as u64;
+                // A workbook side carries no meaningful text delimiters; detect
+                // the actual delimiter of the clipboard text instead of
+                // squeezing a TSV paste into one comma column.
+                let mut options = self.options[s].clone();
+                let workbook_side = self.files[s].path.as_ref().is_some_and(|p| {
+                    p.extension().is_some_and(|e| {
+                        matches!(e.to_string_lossy().to_lowercase().as_str(), "xlsx" | "xlsm")
+                    })
+                });
+                if workbook_side {
+                    options.format.detect_delimiter = true;
+                }
+                let parsed = read_text(IoCursor::new(text), &options, &NeverCancel);
                 match parsed {
+                    Err(e) => self.message = e.to_string(),
+                    Ok(parsed) if self.pair.is_some() => {
+                        // Single-side replacement that keeps the untouched side's
+                        // sheets: every in-memory pair (active or cached) is
+                        // re-hung onto the new pairing by that side's sheet
+                        // index, with edits and undo history intact.
+                        self.cancel();
+                        let other = 1 - s;
+                        let sheet_name = parsed.sheet.name.clone();
+                        let other_of = |pair: &bc_engine_table::sheets::SheetPair| {
+                            if other == 0 {
+                                pair.left
+                            } else {
+                                pair.right
+                            }
+                        };
+                        let prev_other = self.pairs.0.get(self.active_pair).and_then(other_of);
+                        let mut old: Vec<(usize, super::view::Pair)> = Vec::new();
+                        if let Some(p) = self.pair.take() {
+                            if let Some(oj) = prev_other {
+                                old.push((oj, p));
+                            }
+                        }
+                        for (i, p) in std::mem::take(&mut self.cached) {
+                            if let Some(oj) = self.pairs.0.get(i).and_then(other_of) {
+                                old.push((oj, p));
+                            }
+                        }
+                        self.names[s] = vec![sheet_name];
+                        let (pairs, active) = super::worker::pair_for_replacement(
+                            &self.names[s].clone(),
+                            &self.names[other].clone(),
+                            s,
+                            prev_other.unwrap_or(0),
+                            self.left_source,
+                        );
+                        self.pairs = pairs;
+                        self.states = vec![None; self.pairs.0.len()];
+                        self.summaries = vec![None; self.pairs.0.len()];
+                        self.grid.scroll = egui::Vec2::ZERO;
+                        let mut active_pair = None;
+                        for (oj, mut pair) in old {
+                            let Some(k) =
+                                self.pairs.0.iter().position(|np| other_of(np) == Some(oj))
+                            else {
+                                continue;
+                            };
+                            pair.history[s] = EditStack::new();
+                            if k == active {
+                                // replace_sheet keeps the other side's sheet
+                                // object and history valid, drops anchors into
+                                // replaced content and re-matches the mapping
+                                // when the layout changed.
+                                pair.pending_side = None;
+                                active_pair = Some(pair);
+                            } else {
+                                // The clipboard has exactly one sheet: every
+                                // other tab becomes a placeholder-side orphan.
+                                pair.map.replace_sheet(side(s), Sheet::default());
+                                pair.pending_side = None;
+                                self.cached.insert(k, pair);
+                            }
+                        }
+                        self.files[s].path = None;
+                        self.files[s].target = None;
+                        self.files[s].readonly = false;
+                        self.files[s].clipboard_dirty = true;
+                        self.files[s].byte_len = byte_len;
+                        self.files[s].load_time = std::time::Duration::ZERO;
+                        self.active_pair = active;
+                        match active_pair {
+                            Some(pair) => {
+                                pair.map.replace_sheet(side(s), parsed.sheet);
+                                self.pair = Some(pair);
+                                self.recompare();
+                            }
+                            None => {
+                                // The active target's other sheet was never in
+                                // memory: load it in the background against the
+                                // clipboard sheet held by the worker.
+                                let mut memory = [None, None];
+                                memory[s] = Some(super::worker::MemorySheet {
+                                    sheet: parsed.sheet,
+                                    names: self.names[s].clone(),
+                                    index: 0,
+                                });
+                                let mut rules = self.default_rules.clone();
+                                rules.columns.0.clear();
+                                self.staged = Some(Staged::PairSide(other));
+                                self.worker = Some(Worker::spawn(Box::new(LoadJob {
+                                    paths: self.paths(),
+                                    options: self.options.clone(),
+                                    rules,
+                                    pair: self.pairs.0.get(active).cloned(),
+                                    left_source: self.left_source,
+                                    memory,
+                                    fixed_pairs: Some(self.pairs.clone()),
+                                })));
+                            }
+                        }
+                        self.message = "Clipboard loaded; use Save As to write it".into();
+                    }
                     Ok(parsed) => {
-                        let other = self
-                            .pair
-                            .as_ref()
-                            .map(|p| {
-                                if s == 0 {
-                                    p.map.right.borrow().clone()
-                                } else {
-                                    p.map.left.borrow().clone()
-                                }
-                            })
-                            .unwrap_or_default();
+                        let other = Sheet::default();
                         self.cancel();
                         let files = self.files.clone();
                         let options = self.options.clone();
@@ -1134,9 +1501,9 @@ impl TableCompareView {
                         self.files[s].path = None;
                         self.files[s].target = None;
                         self.files[s].clipboard_dirty = true;
+                        self.files[s].byte_len = byte_len;
                         self.message = "Clipboard loaded; use Save As to write it".into();
                     }
-                    Err(e) => self.message = e.to_string(),
                 }
             }
             Pending::Text => {
@@ -1155,40 +1522,48 @@ impl TableCompareView {
                             .map(|p| p.map_or(String::new(), |p| p.display().to_string()))
                     || draft.pairs != self.pairs
                     || draft.left_source != self.left_source;
-                if draft.paths
-                    != self
-                        .paths()
-                        .map(|p| p.map_or(String::new(), |p| p.display().to_string()))
-                {
-                    self.names = [Vec::new(), Vec::new()];
-                }
-                self.default_rules = draft.rules.clone();
-                self.default_rules.left_is_source = draft.left_source;
-                self.options = draft.options;
-                self.left_source = draft.left_source;
-                for s in 0..2 {
-                    self.files[s].readonly = draft.readonly[s];
-                    self.files[s].path =
-                        (!draft.paths[s].is_empty()).then(|| draft.paths[s].clone().into());
-                }
                 if reload {
+                    // Stage the reload: paths/options/rules/pairs commit only
+                    // after the worker succeeds; a failure keeps the session.
                     self.cancel();
-                    self.cached.clear();
-                    self.pair = None;
-                    self.pairs = draft.pairs;
-                    self.states = vec![None; self.pairs.0.len()];
-                    self.summaries = vec![None; self.pairs.0.len()];
-                    self.active_pair = self.active_pair.min(self.pairs.0.len().saturating_sub(1));
-                    self.worker = Some(super::worker::Worker::spawn(Box::new(
-                        super::worker::LoadJob {
-                            paths: self.paths(),
-                            options: self.options.clone(),
-                            rules: self.default_rules.clone(),
-                            pair: self.pairs.0.get(self.active_pair).cloned(),
-                            left_source: self.left_source,
+                    let paths = draft
+                        .paths
+                        .iter()
+                        .map(|p| (!p.is_empty()).then(|| std::path::PathBuf::from(p)))
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap_or([None, None]);
+                    let active = self.active_pair.min(draft.pairs.0.len().saturating_sub(1));
+                    // Manual sheet pairings index into the CURRENT sources; a
+                    // changed path invalidates them, so new sources are re-paired
+                    // by name and the active tab comes from the loaded result.
+                    let paths_changed = draft.paths
+                        != self
+                            .paths()
+                            .map(|p| p.map_or(String::new(), |p| p.display().to_string()));
+                    let job = LoadJob {
+                        paths,
+                        options: draft.options.clone(),
+                        rules: draft.rules.clone(),
+                        pair: if paths_changed {
+                            None
+                        } else {
+                            draft.pairs.0.get(active).cloned()
                         },
-                    )));
+                        left_source: draft.left_source,
+                        memory: [None, None],
+                        fixed_pairs: if paths_changed {
+                            None
+                        } else {
+                            Some(draft.pairs.clone())
+                        },
+                    };
+                    self.staged = Some(Staged::Settings(draft));
+                    self.worker = Some(Worker::spawn(Box::new(job)));
+                    self.message = "Reloading with new session settings\u{2026}".into();
                 } else if let Some(p) = &self.pair {
+                    // Rules-only change: validate before touching anything so a
+                    // rejected draft cannot pollute the map or the defaults.
                     let valid = if draft.rules.columns.0.is_empty() {
                         Ok(())
                     } else {
@@ -1199,7 +1574,12 @@ impl TableCompareView {
                     };
                     match valid {
                         Ok(()) => {
-                            *p.map.rules_mut() = draft.rules;
+                            *p.map.rules_mut() = draft.rules.clone();
+                            self.default_rules = draft.rules.clone();
+                            self.default_rules.left_is_source = draft.left_source;
+                            for s in 0..2 {
+                                self.files[s].readonly = draft.readonly[s];
+                            }
                             self.recompare();
                         }
                         Err(e) => self.message = e.to_string(),
@@ -1217,19 +1597,44 @@ impl TableCompareView {
             std::mem::swap(&mut pair.left, &mut pair.right);
         }
         for p in self.pair.iter_mut().chain(self.cached.values_mut()) {
-            std::mem::swap(&mut p.map.left, &mut p.map.right);
+            // Mirrors sheets/rules/anchors/state; captured edits restore across
+            // the swap through the shared orientation parity.
+            p.map.swap_sides();
             p.history.swap(0, 1);
-            for c in &mut p.map.rules_mut().columns.0 {
-                std::mem::swap(&mut c.left, &mut c.right);
+            // A pending replacement sheet now belongs to the other side; the
+            // sheet index stays valid because the name lists swapped in place.
+            if let Some((side, _)) = &mut p.pending_side {
+                *side = 1 - *side;
             }
-            let mut anchors = AlignmentOverrides::default();
-            for &(l, r) in p.map.overrides().pairs() {
-                let _ = anchors.insert(r, l);
-            }
-            p.map.set_overrides(anchors);
         }
+        self.default_rules.transpose();
+        // Per-pair summaries mention left/right-only counts; mirror them so the
+        // sheet dots and Table Compare Info stay correct without rescanning.
+        for summary in self.summaries.iter_mut().flatten() {
+            for s in summary.iter_mut() {
+                std::mem::swap(&mut s.left_only, &mut s.right_only);
+            }
+        }
+        // An uncommitted cell draft keeps its source coordinates into the same
+        // physical sheet, which now lives on the other side.
+        if let Some(e) = &mut self.editor {
+            e.side = 1 - e.side;
+        }
+        // Find hits are side-local; the sides' contents just exchanged.
+        self.find.last = None;
         self.grid.active = 1 - self.grid.active;
-        self.recompare();
+        if self.pair.as_ref().is_some_and(|p| p.pending_side.is_some()) {
+            // The active pair is a placeholder: load the pending side for the
+            // new orientation instead of comparing the placeholder.
+            self.load_pending_pair();
+        } else if self.pair.is_some() {
+            // The transposed snapshot is the mirrored comparison, not stale;
+            // only the derived cache (statistics, bins) needs a rebuild.
+            self.project();
+            self.message = "Swapped sides".into();
+        } else {
+            self.reload();
+        }
     }
     pub(super) fn dialogs(&mut self, ctx: &egui::Context, prefs: &Prefs) {
         let mut commit = false;
@@ -1367,10 +1772,31 @@ impl TableCompareView {
                         }
                     }
                 }
-                if self
-                    .cached
-                    .values()
-                    .any(|p| p.history.iter().any(bc_core::edit::EditStack::is_dirty))
+                // Cached sheet pairs are dropped only by full replacements
+                // (Home/Exit/Reload/Settings/Text); single-side Open/Clipboard
+                // re-hang and preserve them — but their REPLACED-side edits
+                // would be discarded, and workbook sheets cannot be written
+                // back, so never pretend a save succeeded for those.
+                let drops_cached = matches!(
+                    self.pending,
+                    Some(Pending::Home)
+                        | Some(Pending::Exit)
+                        | Some(Pending::Reload)
+                        | Some(Pending::Settings(_))
+                        | Some(Pending::Text)
+                );
+                let replaced_side_cached_dirty = match &self.pending {
+                    Some(Pending::Open(s, _)) | Some(Pending::Clipboard(s, _)) => {
+                        self.cached.values().any(|p| p.history[*s].is_dirty())
+                    }
+                    _ => false,
+                };
+                if (drops_cached
+                    && self
+                        .cached
+                        .values()
+                        .any(|p| p.history.iter().any(bc_core::edit::EditStack::is_dirty)))
+                    || replaced_side_cached_dirty
                 {
                     self.message="Other edited workbook sheets cannot be written back; export each as CSV or cancel/discard".into();
                     saved = false;
