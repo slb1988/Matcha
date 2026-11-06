@@ -148,53 +148,71 @@ pub fn normalized_name(name: &str) -> String {
 
 /// Canonical exact value bytes, length-delimited by the caller for composite keys.
 pub(crate) fn value_bytes(cell: Option<&Cell>, handling: &ColumnHandling) -> Vec<u8> {
-    let Some(cell) = cell else {
-        return vec![0];
-    };
     let mut bytes = Vec::new();
-    if handling.column_type == crate::rules::ColumnType::Text {
-        bytes.push(1);
-        bytes.extend(handling.normalize_text(&cell.display()).as_bytes());
-        return bytes;
-    }
-    match &cell.value {
-        CellValue::Empty => bytes.push(0),
-        CellValue::Text(s) => {
-            bytes.push(1);
-            bytes.extend(handling.normalize_text(s).as_bytes());
-        }
-        CellValue::Number(n) => {
-            bytes.push(2);
-            bytes.extend(if *n == 0.0 { 0.0f64 } else { *n }.to_bits().to_le_bytes());
-        }
-        CellValue::Bool(b) => {
-            bytes.push(3);
-            bytes.push(u8::from(*b));
-        }
-        CellValue::Date(d) => {
-            bytes.push(4);
-            bytes.extend(d.to_le_bytes());
-        }
-        CellValue::Error(e) => {
-            bytes.push(5);
-            bytes.extend(e.as_bytes());
-        }
-    }
+    value_bytes_write(cell, handling, &mut bytes);
     bytes
 }
-pub(crate) fn row_hash(
+fn value_bytes_write(cell: Option<&Cell>, handling: &ColumnHandling, out: &mut Vec<u8>) {
+    let Some(cell) = cell else {
+        out.push(0);
+        return;
+    };
+    if handling.column_type == crate::rules::ColumnType::Text {
+        out.push(1);
+        out.extend(handling.normalize_text(&cell.display()).as_bytes());
+        return;
+    }
+    match &cell.value {
+        CellValue::Empty => out.push(0),
+        CellValue::Text(s) => {
+            out.push(1);
+            if !handling.ignore_case && !handling.ignore_whitespace {
+                // Identity normalization: copy without the String round-trip.
+                out.extend(s.as_bytes());
+            } else {
+                out.extend(handling.normalize_text(s).as_bytes());
+            }
+        }
+        CellValue::Number(n) => {
+            out.push(2);
+            out.extend(if *n == 0.0 { 0.0f64 } else { *n }.to_bits().to_le_bytes());
+        }
+        CellValue::Bool(b) => {
+            out.push(3);
+            out.push(u8::from(*b));
+        }
+        CellValue::Date(d) => {
+            out.push(4);
+            out.extend(d.to_le_bytes());
+        }
+        CellValue::Error(e) => {
+            out.push(5);
+            out.extend(e.as_bytes());
+        }
+    }
+}
+/// Same hash as the historical allocating `row_hash`, reusing caller scratch
+/// instead of allocating per row. Hot for full-column key inference over
+/// large sheets.
+pub(crate) fn row_hash_into(
     sheet: &Sheet,
     row: usize,
     columns: &[usize],
     handling: &[ColumnHandling],
-) -> ContentHash {
-    let mut bytes = Vec::new();
+    bytes: &mut Vec<u8>,
+) {
+    bytes.clear();
     for (&column, handling) in columns.iter().zip(handling) {
-        let field = value_bytes(sheet.cell(row, column), handling);
-        bytes.extend((field.len() as u64).to_le_bytes());
-        bytes.extend(field);
+        let start = bytes.len();
+        bytes.extend([0; 8]);
+        value_bytes_write(sheet.cell(row, column), handling, bytes);
+        let len = (bytes.len() - start - 8) as u64;
+        bytes[start..start + 8].copy_from_slice(&len.to_le_bytes());
     }
-    LineHasher::default().hash_line(&bytes)
+}
+/// Hash of a scratch-filled row encoding produced by `row_hash_into`.
+pub(crate) fn finish_row_hash(bytes: &[u8]) -> ContentHash {
+    LineHasher::default().hash_line(bytes)
 }
 fn column_sample(sheet: &Sheet, column: usize) -> (HashSet<ContentHash>, [usize; 6]) {
     let mut set = HashSet::new();

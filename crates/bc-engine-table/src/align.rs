@@ -12,7 +12,7 @@ use bc_core::{
     },
     cancel::CancelCheck,
     diff::{DiffOp, PatienceDiff},
-    hash::{ContentHash, LineHasher},
+    hash::{ContentHash, LineHasher, U64KeyBuild},
     line::LineList,
     DiffKind,
 };
@@ -68,8 +68,9 @@ fn hash_row(
     rules: &TableRules,
     keys: &[(usize, ColumnHandling)],
     exact_only: bool,
+    bytes: &mut Vec<u8>,
 ) -> ContentHash {
-    let mut bytes = Vec::new();
+    bytes.clear();
     for (column, handling) in keys {
         if exact_only && (handling.numeric_tolerance > 0.0 || handling.date_tolerance.0 > 0) {
             continue;
@@ -78,11 +79,11 @@ fn hash_row(
         let value = normalized_value(sheet, row, column, handling);
         let start = bytes.len();
         bytes.extend([0; 8]);
-        atom_bytes(&value, &mut bytes);
+        atom_bytes(&value, bytes);
         let len = (bytes.len() - start - 8) as u64;
         bytes[start..start + 8].copy_from_slice(&len.to_le_bytes());
     }
-    LineHasher::default().hash_line(&bytes)
+    LineHasher::default().hash_line(bytes)
 }
 fn keys_equal(
     left: &Sheet,
@@ -158,14 +159,15 @@ fn hashes(
     keys: &[(usize, ColumnHandling)],
     cancel: &dyn CancelCheck,
 ) -> Result<(Vec<ContentHash>, usize)> {
-    let mut counts = HashMap::new();
+    let mut counts: HashMap<ContentHash, u64, U64KeyBuild> = HashMap::default();
     let mut duplicates = 0;
     let mut result = Vec::with_capacity(order.len());
+    let mut scratch = Vec::new();
     for (i, &row) in order.iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
         }
-        let hash = hash_row(sheet, row, side, rules, keys, false);
+        let hash = hash_row(sheet, row, side, rules, keys, false, &mut scratch);
         let count = counts.entry(hash).or_insert(0u64);
         if *count > 0 {
             duplicates += 1;
@@ -221,13 +223,14 @@ fn tolerant_tokens(
         .find(|(_, h)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
         .unwrap();
     let mut index: HashMap<(ContentHash, i64), BTreeSet<usize>> = HashMap::new();
+    let mut scratch = Vec::new();
     for (i, &row) in ro.iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
         }
         index
             .entry((
-                hash_row(right, row, Side::Right, rules, keys, true),
+                hash_row(right, row, Side::Right, rules, keys, true, &mut scratch),
                 bucket(right, row, Side::Right, rules, first),
             ))
             .or_default()
@@ -239,7 +242,7 @@ fn tolerant_tokens(
         if i.is_multiple_of(1024) {
             cancel.check()?;
         }
-        let hash = hash_row(left, row, Side::Left, rules, keys, true);
+        let hash = hash_row(left, row, Side::Left, rules, keys, true, &mut scratch);
         let b = bucket(left, row, Side::Left, rules, first);
         let mut best = None;
         for candidate_bucket in [b.saturating_sub(1), b, b.saturating_add(1)] {
@@ -268,7 +271,8 @@ fn tolerant_tokens(
     Ok((lt, rt))
 }
 fn row_text(sheet: &Sheet, order: &[usize], cancel: &dyn CancelCheck) -> Result<LineList> {
-    let mut text = Vec::new();
+    let mut text = Vec::with_capacity(order.len() * 32);
+    let mut cell_buf = String::new();
     for (i, &row) in order.iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
@@ -278,7 +282,9 @@ fn row_text(sheet: &Sheet, order: &[usize], cancel: &dyn CancelCheck) -> Result<
             if column > 0 {
                 text.push(b'\t');
             }
-            for c in sheet.cell(row, column).unwrap().display().chars() {
+            cell_buf.clear();
+            sheet.cell(row, column).unwrap().display_into(&mut cell_buf);
+            for c in cell_buf.chars() {
                 if count >= 256 {
                     break;
                 }
@@ -369,10 +375,14 @@ impl KeyAlign {
             .into_iter()
             .map(|c| (c, rules.handling(c)))
             .collect();
+        let t = std::time::Instant::now();
         let lo = order(left, Side::Left, rules, &keys, cancel)?;
         let ro = order(right, Side::Right, rules, &keys, cancel)?;
+        crate::perf::span("key-align:order", t);
+        let t = std::time::Instant::now();
         let (mut lh, ld) = hashes(left, &lo, Side::Left, rules, &keys, cancel)?;
         let (mut rh, rd) = hashes(right, &ro, Side::Right, rules, &keys, cancel)?;
+        crate::perf::span("key-align:hashes", t);
         if keys
             .iter()
             .any(|(_, h)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
@@ -408,11 +418,13 @@ impl KeyAlign {
                 anchors.insert(l, r)?;
             }
         }
+        let t = std::time::Instant::now();
         let text = if rules.strategy == AlignStrategy::Smart && rules.use_closeness {
             Some((row_text(left, &lo, cancel)?, row_text(right, &ro, cancel)?))
         } else {
             None
         };
+        crate::perf::span("key-align:row-text", t);
         let l = AlignInput {
             hashes: &lh,
             lines: text.as_ref().map(|t| &t.0),
@@ -423,6 +435,7 @@ impl KeyAlign {
             lines: text.as_ref().map(|t| &t.1),
             ..Default::default()
         };
+        let t = std::time::Instant::now();
         let map = match rules.strategy {
             AlignStrategy::Quick => {
                 QuickAlign.align2_unpaired_cancellable(l, r, &anchors, cancel)?
@@ -443,6 +456,8 @@ impl KeyAlign {
                 map
             }
         };
+        crate::perf::span("key-align:strategy-align", t);
+        let t = std::time::Instant::now();
         let mut filtered = Vec::with_capacity(map.len());
         for (i, row) in map.into_rows().into_iter().enumerate() {
             if i.is_multiple_of(1024) {
@@ -469,6 +484,7 @@ impl KeyAlign {
             }
             filtered.push(row);
         }
+        crate::perf::span("key-align:verify-filter", t);
         Ok(KeyAlignment {
             map: AlignMap::from_rows_cancellable(filtered, cancel)?,
             left_order: lo,

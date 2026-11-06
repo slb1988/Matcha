@@ -5,6 +5,28 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContentHash(pub u64);
 
+/// Multiply-mix `Hasher` for maps keyed by `ContentHash`/u64. Keys are xxh64
+/// outputs (already well distributed), so SipHash's cost buys nothing here.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct U64KeyHasher(u64);
+impl std::hash::Hasher for U64KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x1000_0000_01b3);
+        }
+    }
+    fn write_u64(&mut self, v: u64) {
+        let mut x = v.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        x ^= x >> 29;
+        self.0 = x;
+    }
+}
+/// `BuildHasherDefault<U64KeyHasher>` shorthand for map type aliases.
+pub type U64KeyBuild = std::hash::BuildHasherDefault<U64KeyHasher>;
+
 /// Strategy for hashing line content prior to alignment.
 ///
 /// Normalisation flags correspond to the text-session comparison options

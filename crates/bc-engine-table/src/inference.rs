@@ -1,10 +1,15 @@
 use crate::{
-    columns::{row_hash, Side},
+    columns::{finish_row_hash, row_hash_into, Side},
     rules::KeySelection,
     Result, Sheet, TableRules,
 };
-use bc_core::{cancel::CancelCheck, hash::ContentHash};
+use bc_core::{
+    cancel::CancelCheck,
+    hash::{ContentHash, U64KeyBuild},
+};
 use std::collections::HashMap;
+
+type KeyMap = HashMap<ContentHash, usize, U64KeyBuild>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyCandidate {
@@ -21,37 +26,54 @@ pub struct KeySuggestion {
     pub selection: KeySelection,
     pub candidates: Vec<KeyCandidate>,
 }
-fn values(
+fn values_into(
     sheet: &Sheet,
     columns: &[usize],
     rules: &TableRules,
     side: Side,
+    set: &mut KeyMap,
     cancel: &dyn CancelCheck,
-) -> Result<HashMap<ContentHash, usize>> {
+) -> Result<()> {
     let mapped: Vec<_> = columns
         .iter()
         .map(|&c| rules.columns.0[c].index(side).unwrap())
         .collect();
     let handling: Vec<_> = columns.iter().map(|&c| rules.handling(c)).collect();
-    let mut set = HashMap::with_capacity(sheet.row_count());
+    set.clear();
+    let mut bytes = Vec::new();
     for row in 0..sheet.row_count() {
         if row.is_multiple_of(4096) {
             cancel.check()?;
         }
-        set.entry(row_hash(sheet, row, &mapped, &handling))
-            .or_insert(row);
+        row_hash_into(sheet, row, &mapped, &handling, &mut bytes);
+        set.entry(finish_row_hash(&bytes)).or_insert(row);
     }
-    Ok(set)
+    Ok(())
+}
+struct ScoreScratch {
+    l: KeyMap,
+    r: KeyMap,
+}
+impl ScoreScratch {
+    fn new(left: &Sheet, right: &Sheet) -> Self {
+        Self {
+            l: KeyMap::with_capacity_and_hasher(left.row_count(), Default::default()),
+            r: KeyMap::with_capacity_and_hasher(right.row_count(), Default::default()),
+        }
+    }
 }
 fn score(
     left: &Sheet,
     right: &Sheet,
     rules: &TableRules,
     columns: Vec<usize>,
+    scratch: &mut ScoreScratch,
     cancel: &dyn CancelCheck,
 ) -> Result<KeyCandidate> {
-    let l = values(left, &columns, rules, Side::Left, cancel)?;
-    let r = values(right, &columns, rules, Side::Right, cancel)?;
+    values_into(left, &columns, rules, Side::Left, &mut scratch.l, cancel)?;
+    values_into(right, &columns, rules, Side::Right, &mut scratch.r, cancel)?;
+    let l = &scratch.l;
+    let r = &scratch.r;
     let ul = l.len() as f64 / left.row_count().max(1) as f64;
     let ur = r.len() as f64 / right.row_count().max(1) as f64;
     let mut matches = 0;
@@ -102,9 +124,10 @@ pub fn infer_keys(
         .filter(|(_, c)| c.left.is_some() && c.right.is_some())
         .map(|(i, _)| i)
         .collect();
+    let mut scratch = ScoreScratch::new(left, right);
     let mut candidates = Vec::new();
     for &c in &usable {
-        candidates.push(score(left, right, rules, vec![c], cancel)?);
+        candidates.push(score(left, right, rules, vec![c], &mut scratch, cancel)?);
     }
     fn best(candidates: &[KeyCandidate]) -> Option<&KeyCandidate> {
         candidates
@@ -119,7 +142,7 @@ pub fn infer_keys(
     if best(&candidates).is_none() {
         for pair in usable.windows(2) {
             if pair[1] == pair[0] + 1 {
-                candidates.push(score(left, right, rules, pair.to_vec(), cancel)?);
+                candidates.push(score(left, right, rules, pair.to_vec(), &mut scratch, cancel)?);
             }
         }
     }

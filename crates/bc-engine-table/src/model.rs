@@ -52,12 +52,21 @@ impl Cell {
         Self::new(CellValue::Number(value))
     }
     pub fn display(&self) -> String {
+        let mut out = String::new();
+        self.display_into(&mut out);
+        out
+    }
+    /// `display` without the per-call allocation: appends the same text.
+    pub fn display_into(&self, out: &mut String) {
         match &self.value {
-            CellValue::Empty => String::new(),
-            CellValue::Text(s) | CellValue::Error(s) => s.to_string(),
-            CellValue::Number(n) => n.to_string(),
-            CellValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
-            CellValue::Date(ms) => crate::regional::format_date(*ms),
+            CellValue::Empty => {}
+            CellValue::Text(s) | CellValue::Error(s) => out.push_str(s),
+            CellValue::Number(n) => {
+                use std::fmt::Write;
+                let _ = write!(out, "{n}");
+            }
+            CellValue::Bool(b) => out.push_str(if *b { "TRUE" } else { "FALSE" }),
+            CellValue::Date(ms) => out.push_str(&crate::regional::format_date(*ms)),
         }
     }
 }
