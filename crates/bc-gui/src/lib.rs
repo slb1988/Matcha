@@ -14,6 +14,7 @@
 pub mod app;
 pub mod bench;
 pub mod home;
+pub mod table;
 pub mod text;
 
 use std::path::PathBuf;
@@ -25,6 +26,8 @@ pub struct LaunchOptions {
     pub right: Option<PathBuf>,
     /// Run the scroll benchmark and exit.
     pub bench: Option<bench::BenchOptions>,
+    /// Run the 600-frame two-dimensional table benchmark.
+    pub bench_table: bool,
     /// Capture this application's own framebuffer as BMP, even on a locked desktop.
     pub screenshot: Option<PathBuf>,
 }

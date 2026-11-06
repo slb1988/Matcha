@@ -17,7 +17,10 @@ fn main() -> ExitCode {
     let mut positional: Vec<PathBuf> = Vec::new();
 
     for arg in std::env::args().skip(1) {
-        if let Some(rest) = arg.strip_prefix("--bench") {
+        if arg == "--bench-table" {
+            options.bench_table = true;
+            options.bench = Some(bc_gui::bench::BenchOptions::default());
+        } else if let Some(rest) = arg.strip_prefix("--bench") {
             let mut bench = bc_gui::bench::BenchOptions::default();
             if let Some(n) = rest.strip_prefix('=') {
                 match n.parse::<usize>() {
@@ -32,7 +35,7 @@ fn main() -> ExitCode {
         } else if let Some(path) = arg.strip_prefix("--screenshot=") {
             options.screenshot = Some(PathBuf::from(path));
         } else if arg == "--help" || arg == "/?" || arg == "-h" {
-            println!("usage: matcha [<left> <right>] [--bench[=<frames>]] [--screenshot=<file.bmp>]");
+            println!("usage: matcha [<left> <right>] [--bench[=<frames>]] [--bench-table] [--screenshot=<file.bmp>]");
             println!("(full switch set: see bc-script::cli; not wired yet)");
             return ExitCode::SUCCESS;
         } else {

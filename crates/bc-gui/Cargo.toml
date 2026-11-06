@@ -12,6 +12,7 @@ bc-formats = { workspace = true }
 bc-vfs = { workspace = true }
 bc-jobs = { workspace = true }
 bc-engine-text = { workspace = true }
+bc-engine-table = { workspace = true }
 bc-engine-dir = { workspace = true }
 bc-session = { workspace = true }
 eframe = { workspace = true }

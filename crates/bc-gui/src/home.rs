@@ -4,6 +4,24 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HomeAction {
     OpenTextCompare { left: PathBuf, right: PathBuf },
+    OpenTableCompare { left: PathBuf, right: PathBuf },
+}
+pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
+    [left, right].iter().any(|p| {
+        p.extension().is_some_and(|e| {
+            matches!(
+                e.to_string_lossy().to_lowercase().as_str(),
+                "csv" | "tsv" | "xlsx" | "xlsm"
+            )
+        })
+    })
+}
+fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
+    if table_paths(&left, &right) {
+        HomeAction::OpenTableCompare { left, right }
+    } else {
+        HomeAction::OpenTextCompare { left, right }
+    }
 }
 #[derive(Debug, Default)]
 pub struct HomeView {
@@ -54,10 +72,7 @@ impl HomeView {
                 .collect::<Vec<_>>()
         });
         if dropped.len() >= 2 {
-            action = Some(HomeAction::OpenTextCompare {
-                left: dropped[0].clone(),
-                right: dropped[1].clone(),
-            });
+            action = Some(routed(dropped[0].clone(), dropped[1].clone()));
         } else if let Some(path) = dropped.first() {
             if self.left.is_empty() {
                 self.left = path.display().to_string();
@@ -78,7 +93,19 @@ impl HomeView {
                 if self.left.trim().is_empty() || self.right.trim().is_empty() {
                     self.error = Some("Both paths are required".into());
                 } else {
-                    action = Some(HomeAction::OpenTextCompare {
+                    action = Some(routed(
+                        PathBuf::from(self.left.trim()),
+                        PathBuf::from(self.right.trim()),
+                    ));
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Table Compare · CSV / TSV / XLSX").clicked() {
+                if self.left.trim().is_empty() || self.right.trim().is_empty() {
+                    self.error = Some("Both paths are required".into());
+                } else {
+                    action = Some(HomeAction::OpenTableCompare {
                         left: PathBuf::from(self.left.trim()),
                         right: PathBuf::from(self.right.trim()),
                     });
@@ -95,10 +122,7 @@ impl HomeView {
                 .button(format!("{}  ↔  {}", left.display(), right.display()))
                 .clicked()
             {
-                action = Some(HomeAction::OpenTextCompare {
-                    left: left.clone(),
-                    right: right.clone(),
-                });
+                action = Some(routed(left.clone(), right.clone()));
             }
         }
         action
