@@ -19,7 +19,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReadOptions {
     pub format: TableOptions,
     pub encoding: Option<Encoding>,
@@ -664,7 +664,10 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
         .to_string();
     let ending = source.map_or("\r\n", |s| s.default_ending.as_ref());
     if let Some(headers) = &sheet.headers {
-        let text = if let Some(raw) = source.and_then(|s| s.header.as_ref()) {
+        let text = if let Some(raw) = source
+            .and_then(|s| s.header.as_ref())
+            .filter(|_| sheet.source_column_map.is_none())
+        {
             format!("{}{}", raw.text, raw.ending)
         } else {
             format!(
@@ -683,7 +686,7 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
         let mut text = String::new();
         if let Some(raw) = source
             .and_then(|s| s.rows.get(row))
-            .filter(|r| !r.fields.is_empty())
+            .filter(|r| !r.fields.is_empty() && sheet.source_column_map.is_none())
         {
             let mut offset = 0;
             for (col, &(start, end)) in raw.fields.iter().enumerate() {
@@ -721,7 +724,12 @@ pub fn write_delimited(sheet: &Sheet, mut writer: impl Write) -> Result<()> {
                     options,
                 )?);
             }
-            text.push_str(ending);
+            text.push_str(
+                source
+                    .and_then(|s| s.rows.get(row))
+                    .filter(|r| !r.fields.is_empty())
+                    .map_or(ending, |r| r.ending.as_ref()),
+            );
         }
         writer.write_all(&encoding::encode(&text, encoding, BomPolicy::Never, false)?)?;
     }

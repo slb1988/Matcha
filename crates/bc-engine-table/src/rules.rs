@@ -119,6 +119,7 @@ pub struct TableRules {
     pub columns: crate::columns::ColumnMapping,
     pub default_handling: ColumnHandling,
     pub column_mode: ColumnMode,
+    pub left_is_source: bool,
     pub keys: KeySelection,
     pub sort_by_key: bool,
     #[serde(with = "strategy_serde")]
@@ -135,6 +136,7 @@ impl Default for TableRules {
             columns: Default::default(),
             default_handling: Default::default(),
             column_mode: Default::default(),
+            left_is_source: true,
             keys: KeySelection::Automatic {
                 columns: Vec::new(),
                 score: 0.0,

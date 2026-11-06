@@ -41,9 +41,48 @@ pub struct ComparedData {
     pub(crate) rows: Vec<CompactRow>,
     pub(crate) states: PackedStates,
     pub(crate) columns: usize,
+    column_states: Vec<CellDiff>,
+    summary: CellDiff,
     pub duplicates: DuplicateKeys,
 }
 impl ComparedData {
+    pub fn row(&self, index: usize, layers: Layers, ignore: bool) -> Option<TableMapRow> {
+        let row = *self.rows.get(index)?;
+        let importance = CellDiff::unpack(row.aggregate).importance(layers, ignore);
+        let kind = match (row.left(), row.right()) {
+            (Some(_), Some(_)) => {
+                if importance == Importance::Same {
+                    DiffKind::Same
+                } else {
+                    DiffKind::Changed
+                }
+            }
+            (Some(_), None) => DiffKind::LeftOnly,
+            _ => DiffKind::RightOnly,
+        };
+        Some(TableMapRow {
+            left: row.left(),
+            right: row.right(),
+            kind,
+            importance,
+            edited: row.edited,
+        })
+    }
+    pub fn cell_diff(&self, row: usize, col: usize) -> Option<CellDiff> {
+        if col >= self.columns || row >= self.rows.len() {
+            return None;
+        }
+        self.states.get(row * self.columns + col)
+    }
+    pub fn column_diff(&self, col: usize) -> Option<CellDiff> {
+        self.column_states.get(col).copied()
+    }
+    pub fn column_count(&self) -> usize {
+        self.columns
+    }
+    pub fn importance(&self, layers: Layers, ignore: bool) -> Importance {
+        self.summary.importance(layers, ignore)
+    }
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
@@ -101,10 +140,22 @@ pub fn compare_alignment(
         .filter(|n| n.checked_mul(6).is_some())
         .ok_or_else(|| invalid("cell state size overflow"))?;
     let mut states = PackedStates::new(cells);
+    let mut column_states = vec![CellDiff::default(); columns];
+    let mut summary = CellDiff::default();
     let mut rows = Vec::with_capacity(alignment.map.len());
     let handling: Vec<_> = (0..columns).map(|c| rules.handling(c)).collect();
-    let le: HashSet<_> = left.changed.iter().map(|&(r, _)| r).collect();
-    let re: HashSet<_> = right.changed.iter().map(|&(r, _)| r).collect();
+    let le: HashSet<_> = left
+        .changed
+        .iter()
+        .map(|&(r, _)| r)
+        .chain(left.row_edit_marks.iter().copied())
+        .collect();
+    let re: HashSet<_> = right
+        .changed
+        .iter()
+        .map(|&(r, _)| r)
+        .chain(right.row_edit_marks.iter().copied())
+        .collect();
     for (i, row) in alignment.map.into_rows().into_iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
@@ -120,11 +171,13 @@ pub fn compare_alignment(
             }
             .compare(left, right, (l, r), (col.left, col.right));
             aggregate = aggregate.merge(diff);
+            column_states[c] = column_states[c].merge(diff);
             states.set(i * columns + c, diff);
         }
         if l.is_none() || r.is_none() {
             aggregate.value = Importance::Important;
         }
+        summary = summary.merge(aggregate);
         rows.push(CompactRow {
             left: l.map_or(GAP, |r| r as u32),
             right: r.map_or(GAP, |r| r as u32),
@@ -138,6 +191,8 @@ pub fn compare_alignment(
             rows,
             states,
             columns,
+            column_states,
+            summary,
             duplicates: alignment.duplicates,
         }),
         revisions: (left.revision(), right.revision()),
@@ -201,6 +256,7 @@ pub struct TableMap {
     pub right: SharedSheet,
     pub(crate) settings: Rc<RefCell<Settings>>,
     pub(crate) state: Rc<RefCell<TableAlignOutput>>,
+    deferred_edits: bool,
 }
 pub(crate) fn prepare_rules(
     left: &Sheet,
@@ -213,7 +269,7 @@ pub(crate) fn prepare_rules(
         rules.columns = if rules.column_mode == ColumnMode::Automatic
             && !matches!(rules.keys, KeySelection::ByColumnNumber)
         {
-            align_columns(left, right, true, cancel)?
+            align_columns(left, right, rules.left_is_source, cancel)?
         } else {
             ColumnMapping::by_number(left.column_count(), right.column_count())
         };
@@ -252,6 +308,25 @@ impl TableMap {
             right: Rc::new(RefCell::new(right)),
             settings: Rc::new(RefCell::new(Settings { rules, overrides })),
             state: Rc::new(RefCell::new(output)),
+            deferred_edits: false,
+        })
+    }
+    /// GUI edit commands never synchronously align. Keep stale state until a
+    /// revision-matching TableRealignJob has been installed.
+    pub fn set_deferred_edits(&mut self, enabled: bool) {
+        self.deferred_edits = enabled;
+    }
+    pub fn output(&self) -> TableAlignOutput {
+        self.state.borrow().clone()
+    }
+    pub fn edit_sheet(
+        &self,
+        side: Side,
+        description: &str,
+        edit: impl FnOnce(&mut Sheet, &mut TableRules, &mut AlignmentOverrides) -> Result<()>,
+    ) -> Result<Box<dyn EditItem>> {
+        self.apply_edit(side, description, |sheet, settings| {
+            edit(sheet, &mut settings.rules, &mut settings.overrides)
         })
     }
     pub fn rules(&self) -> Ref<'_, TableRules> {
@@ -434,7 +509,8 @@ impl TableMap {
         description: &str,
         edit: impl FnOnce(&mut Sheet, &mut Settings) -> Result<()>,
     ) -> Result<Box<dyn EditItem>> {
-        if self.is_stale() {
+        let before_aligned = !self.is_stale();
+        if !before_aligned && !self.deferred_edits {
             return Err(invalid("recompare before editing through table map"));
         }
         let target = self.target(side);
@@ -442,7 +518,13 @@ impl TableMap {
         let before_state = self.state.borrow().clone();
         let before_settings = self.settings.borrow().clone();
         let result = edit(&mut target.borrow_mut(), &mut self.settings.borrow_mut());
-        let result = result.and_then(|_| self.recompare(&NeverCancel));
+        let result = result.and_then(|_| {
+            if self.deferred_edits {
+                Ok(())
+            } else {
+                self.recompare(&NeverCancel)
+            }
+        });
         if let Err(error) = result {
             *target.borrow_mut() = before;
             *self.settings.borrow_mut() = before_settings;
@@ -462,6 +544,8 @@ impl TableMap {
             after_state,
             before_settings,
             after_settings,
+            before_aligned,
+            after_aligned: !self.deferred_edits,
             side,
         }))
     }
@@ -615,13 +699,15 @@ struct TableEdit {
     after_state: TableAlignOutput,
     before_settings: Settings,
     after_settings: Settings,
+    before_aligned: bool,
+    after_aligned: bool,
     side: Side,
 }
 impl TableEdit {
-    fn restore(&self, sheet: &Sheet, state: &TableAlignOutput, settings: &Settings) {
+    fn restore(&self, sheet: &Sheet, state: &TableAlignOutput, settings: &Settings, aligned: bool) {
         let mut sheet = sheet.clone();
         sheet.fresh_revision();
-        let revision = sheet.revision();
+        let revision = if aligned { sheet.revision() } else { 0 };
         *self.target.borrow_mut() = sheet;
         let mut state = state.clone();
         match self.side {
@@ -629,7 +715,14 @@ impl TableEdit {
             Side::Right => state.revisions.1 = revision,
         }
         *self.state.borrow_mut() = state;
+        let projection = {
+            let s = self.settings.borrow();
+            (s.rules.layers, s.rules.ignore_unimportant)
+        };
         *self.settings.borrow_mut() = settings.clone();
+        let mut s = self.settings.borrow_mut();
+        s.rules.layers = projection.0;
+        s.rules.ignore_unimportant = projection.1;
     }
 }
 impl EditItem for TableEdit {
@@ -637,9 +730,19 @@ impl EditItem for TableEdit {
         self.description.clone()
     }
     fn undo(&mut self) {
-        self.restore(&self.before, &self.before_state, &self.before_settings);
+        self.restore(
+            &self.before,
+            &self.before_state,
+            &self.before_settings,
+            self.before_aligned,
+        );
     }
     fn redo(&mut self) {
-        self.restore(&self.after, &self.after_state, &self.after_settings);
+        self.restore(
+            &self.after,
+            &self.after_state,
+            &self.after_settings,
+            self.after_aligned,
+        );
     }
 }

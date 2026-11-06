@@ -105,6 +105,8 @@ pub struct Sheet {
     pub(crate) text_source: Option<TextSource>,
     pub(crate) changed: HashSet<(usize, usize)>,
     pub(crate) display_overrides: HashMap<(usize, usize), Arc<str>>,
+    pub(crate) source_column_map: Option<Vec<Option<usize>>>,
+    pub(crate) row_edit_marks: HashSet<usize>,
     pub(crate) revision: u64,
 }
 impl Default for Sheet {
@@ -126,6 +128,8 @@ impl Sheet {
             text_source: None,
             changed: HashSet::new(),
             display_overrides: HashMap::new(),
+            source_column_map: None,
+            row_edit_marks: HashSet::new(),
             revision: revision(),
         }
     }
@@ -214,6 +218,11 @@ impl Sheet {
             .iter()
             .map(|(&(row, col), text)| ((if row >= at { row + 1 } else { row }, col), text.clone()))
             .collect();
+        self.row_edit_marks = self
+            .row_edit_marks
+            .iter()
+            .map(|&row| if row >= at { row + 1 } else { row })
+            .collect();
         for column in 0..self.columns.len() {
             self.changed.insert((at, column));
         }
@@ -231,9 +240,10 @@ impl Sheet {
         Ok(())
     }
     pub fn is_edited(&self, row: usize) -> bool {
-        self.changed.iter().any(|&(r, _)| r == row)
+        self.row_edit_marks.contains(&row) || self.changed.iter().any(|&(r, _)| r == row)
     }
-    pub(crate) fn take_header(&mut self) {
+    /// Source-loading header promotion, before creating an edit history.
+    pub fn take_header(&mut self) {
         if self.row_count == 0 {
             return;
         }
@@ -256,7 +266,13 @@ impl Sheet {
         if !self.changed.contains(&(row, column)) {
             if let Some(source) = &self.text_source {
                 if let Some(raw) = source.rows.get(row) {
-                    if let Some(&(start, end)) = raw.fields.get(column) {
+                    let original = self
+                        .source_column_map
+                        .as_ref()
+                        .and_then(|m| m.get(column))
+                        .copied()
+                        .unwrap_or(Some(column));
+                    if let Some(&(start, end)) = original.and_then(|c| raw.fields.get(c)) {
                         return Some(crate::source::field_text(
                             &raw.text[start as usize..end as usize],
                             &source.options,
@@ -266,6 +282,20 @@ impl Sheet {
             }
         }
         Some(cell.display())
+    }
+    /// Bounded rendering preview without cloning an entire large textual cell.
+    pub fn preview(&self, row: usize, column: usize, start: usize, limit: usize) -> Option<String> {
+        if let Some(text) = self.display_overrides.get(&(row, column)) {
+            return Some(text.chars().skip(start).take(limit).collect());
+        }
+        match &self.cell(row, column)?.value {
+            CellValue::Text(text) | CellValue::Error(text) => {
+                Some(text.chars().skip(start).take(limit).collect())
+            }
+            _ => self
+                .display_at(row, column)
+                .map(|text| text.chars().skip(start).take(limit).collect()),
+        }
     }
     pub(crate) fn ensure_size(&mut self, rows: usize, columns: usize) {
         while self.columns.len() < columns {

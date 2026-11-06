@@ -9,6 +9,7 @@ pub use model::{Cell, CellValue, MergedRange, Sheet, Style, StyleId, TableModel}
 
 pub mod align;
 pub mod compare;
+pub mod editing;
 pub mod jobs;
 pub mod map;
 pub use align::KeyAlign;

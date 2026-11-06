@@ -123,10 +123,20 @@ impl CellComparator<'_> {
         } else {
             Importance::Important
         };
-        let exact_handling=ColumnHandling{ignore_case:false,ignore_whitespace:false,numeric_tolerance:0.0,date_tolerance:Default::default(),..self.handling.clone()};
+        let exact_handling = ColumnHandling {
+            ignore_case: false,
+            ignore_whitespace: false,
+            numeric_tolerance: 0.0,
+            date_tolerance: Default::default(),
+            ..self.handling.clone()
+        };
         let value = if lc.is_some() != rc.is_some() {
             changed
-        } else if equal_values(&normalized_value(left,l,columns.0,&exact_handling),&normalized_value(right,r,columns.1,&exact_handling),&exact_handling) {
+        } else if equal_values(
+            &normalized_value(left, l, columns.0, &exact_handling),
+            &normalized_value(right, r, columns.1, &exact_handling),
+            &exact_handling,
+        ) {
             Importance::Same
         } else if equal_values(
             &normalized_value(left, l, columns.0, self.handling),
