@@ -2,7 +2,7 @@
 
 ## 范围与证据口径
 
-本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.5 三档回归已完成，4.1–4.4 和最终集成仍须按任务验收。本轮代码测试使用 egui RawInput/tessellation，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
+本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.1–4.3、4.5 已完成对应回归，4.4 和最终集成仍须按任务验收。本轮代码测试使用 egui RawInput/tessellation，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
 
 - `commandstable.html` 含 **77 个 p_Command 段落**，其中包含菜单分组和拆开的子项，不等于 77 个独立可执行命令。
 - 下表逐段保留原顺序与名称，包括两个重复的 `Open With >` 和隐藏标记 `*`，避免菜单组被去重后漏项。
@@ -28,7 +28,7 @@
 | C09 | `Table Compare Report` | 按 D9 后置 | 按 D9 后置 hex-and-reports；当前结构化摘要不等于 HTML/打印报告。 |
 | C10 | `Table Compare Info` | 已有实现、待专项验收 | 缓存当前及其他 sheet 三态/孤儿/列数；未扫描结果标 pending，不伪装为 Same。 |
 | C11 | `Compare Files Using` | 部分 | 仅接线 Text Compare；需已有文件路径，其他会话类型未接线。 |
-| C12 | `Compare Parent Folders` | 已批准后置 | 等待文件夹线合并，明确禁用；尚未产生文件夹子会话。 |
+| C12 | `Compare Parent Folders` | 待接线 | 文件夹线已合入 master，表格入口仍禁用；尚未接通表格父文件夹/子会话联动，不能把前置合并视为命令完成。 |
 
 ### File
 
@@ -53,67 +53,67 @@
 
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
-| C27 | `Undo` | 已实现、部分回归 | 目的侧 EditStack + 后台重算；TextEdit 草稿使用本地历史，已提交编辑生成新 revision 防 ABA。 |
-| C28 | `Redo` | 已实现、部分回归 | 目的侧 EditStack + 后台重算；TextEdit 草稿使用本地历史，已提交编辑生成新 revision 防 ABA。 |
-| C29 | `Align With` | 已有实现、待专项验收 | 先选源行再点对侧，锚点作为 EditItem；清除入口存在，完整输入回归仍待 4.3。 |
+| C27 | `Undo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 均有一次撤销回归；Swap 与历史组合仍归 4.4。 |
+| C28 | `Redo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 的重做已验证；无变化排序保留 Redo。Swap 组合仍归 4.4。 |
+| C29 | `Align With` | 已回归 | RawInput 选源行、点对侧强制配对、清除及键盘 Undo/Redo；目的侧历史/焦点已修正，内容变化或重载取消陈旧待配对状态。 |
 | C30 | `Copy to Right / Copy to Left *` | 能力合并 | 方向别名并入 Copy to Other Side，按活动侧选择目的侧。 |
-| C31 | `Copy to Other Side` | 批量原子性已补 | 先按可见行列规划一次 EditItem；非法坐标或单元格空隙拒绝整批，无部分写入。过滤/隐藏列、Show None、Undo/Redo 已回归；完整性能/交互矩阵仍属 4.3。 |
+| C31 | `Copy to Other Side` | 已回归 | 按可见投影规划整批 EditItem；无部分写入，单元格空隙明确拒绝，过滤/隐藏列/Show None/Undo/Redo 已验证。未宣称百万级批量复制耗时。 |
 | C32 | `Copy Row to Right / Copy Row to Left *` | 能力合并 | 方向别名并入 Copy Row to Other Side。 |
-| C33 | `Copy Row to Other Side` | 批量原子性已补 | 基于原始目的源索引规划插入，支持排序/过滤视图、连续空隙、缺列/空侧、样式/拼写和一次撤销；大规模结构插入性能仍待专项验收。 |
-| C34 | `Cut / Copy / Paste / Delete` | 安全路径已补、完整矩阵待补 | edit_tests.rs 验证 TSV 引号/tab/CRLF/空字段往返、Find 焦点隔离与菜单粘贴；完整 IME/批量矩阵待 4.3。 |
+| C33 | `Copy Row to Other Side` | 已回归 | 按原目的源索引规划整行复制/插入；覆盖排序/过滤、连续空隙、缺列/空侧及一次撤销重做。未宣称百万级连续结构插入性能。 |
+| C34 | `Cut / Copy / Paste / Delete` | 已回归 | TSV 转义往返、Find 焦点隔离、菜单 Paste、RawInput Cut/Delete、只读保护和内嵌 IME 草稿/Commit 已验证；原生候选窗按 ADR 202 留人工验收。 |
 | C35 | `Delete Row` | 多选已补 | 可见投影映射到源行集合，一次重建删除；过滤选区与撤销已有回归。 |
 | C36 | `Delete Column` | 多选已补 | 按比较列映射到源列，降序删除并修正映射；错序源列的多选删除/撤销已有回归。 |
-| C37 | `Insert Row Before` | 已有实现、部分回归 | 以当前行确定前/后插入位置，返回一个 EditItem；空表、边界、完整 redo 矩阵待 4.3。 |
-| C38 | `Insert Row After` | 已有实现、部分回归 | 以当前行确定前/后插入位置，返回一个 EditItem；空表、边界、完整 redo 矩阵待 4.3。 |
-| C39 | `Insert Column Before` | 已有实现、部分回归 | 新增列并调整该侧映射，另一侧内容不改；完整交互矩阵待 4.3。 |
-| C40 | `Insert Column After` | 已有实现、部分回归 | 新增列并调整该侧映射，另一侧内容不改；完整交互矩阵待 4.3。 |
+| C37 | `Insert Row Before` | 已回归 | RawInput 插入前/后及一次 Undo/Redo；空表可从行列建立，空隙采用下一个源行位置，陈旧或不可见目标明确拒绝。 |
+| C38 | `Insert Row After` | 已回归 | RawInput 插入前/后及一次 Undo/Redo；空隙不再误插到文件开头，连续结构命令须等待最新比较。 |
+| C39 | `Insert Column Before` | 已回归 | 源列和比较列的前/后位置均核对，另一侧不改，一次 Undo/Redo 还原结构。 |
+| C40 | `Insert Column After` | 已回归 | 已修正 After 仍插在比较列前方的问题；源列/比较列位置和 Undo/Redo 均回归。 |
 | C41 | `Modify` | 已改为单元格内编辑 | 编辑浮层锚定单元格；Ctrl+Enter 提交、Escape 取消。草稿纳入 Home/Exit/保存确认，失败保留草稿，等待中的对齐结果不移动编辑坐标。 |
 | C42 | `Sort` | 已按确认方案补齐并回归 | 所选可见比较列顺序决定稳定多键优先级；跨行仅重排选中的可见源行并回填原位置，否则整侧排序。General/Text、列映射、升降序等键稳定性、过滤、空隙/只读/陈旧保护、一次撤销/重做和无变化不建历史均有回归；不切换键推断或排序后对齐设置。百万行排序耗时仍待专项测量。 |
-| C43 | `Select All` | 部分 | 生成边界选区后按可见投影执行数据命令；空表/陈旧缓存边界仍需 4.3 验证。 |
+| C43 | `Select All` | 已回归 | 按当前模型建立选区并恢复网格焦点；菜单 Select All 后 RawInput Cut/Delete 可用，过滤/隐藏/空表的数据命令边界已有回归。 |
 
 ### Search
 
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
-| C44 | `Next Difference Cell` | 已有实现、部分回归 | commands.rs::navigate：行优先、列次序，Ignore Unimportant 生效，跳转滚入视野。 |
-| C45 | `Previous Difference Cell` | 已有实现、矩阵待补 | 反向、不循环；完整首尾/过滤/隐藏列组合待 4.2。 |
-| C46 | `Next Difference Row` | 已有实现、矩阵待补 | 基于差异行缓存，不逐帧扫描表；反向及首尾组合待 4.2。 |
-| C47 | `Previous Difference Row` | 已有实现、矩阵待补 | 基于差异行缓存，不逐帧扫描表；反向及首尾组合待 4.2。 |
+| C44 | `Next Difference Cell` | 已回归 | 行优先列次序、Ignore、空隙、双轴滚入视野和末端提示；1000×40 表格实际定位到第 901 行第 36 列。 |
+| C45 | `Previous Difference Cell` | 已回归 | 反向严格按行优先顺序，不循环；起点提示、Ignore 切换及空表无虚假目标已验证。 |
+| C46 | `Next Difference Row` | 已回归 | 差异行缓存导航，覆盖 U/I/左右孤儿、首尾提示及隐藏目标自动显露。 |
+| C47 | `Previous Difference Row` | 已回归 | 反向差异行、首端提示和原始行索引保持均有菜单输入回归。 |
 | C48 | `Next Difference Files` | 按 D9 后置 | 按 D9 后置文件夹父/子会话；Copy Row 不是文件级复制并打开下一项。 |
 | C49 | `Previous Difference Files` | 按 D9 后置 | 按 D9 后置文件夹父/子会话；Copy Row 不是文件级复制并打开下一项。 |
 | C50 | `Copy File to Right and Open Next Difference` | 按 D9 后置 | 按 D9 后置文件夹父/子会话；Copy Row 不是文件级复制并打开下一项。 |
 | C51 | `Copy File to Left and Open Next Difference` | 按 D9 后置 | 按 D9 后置文件夹父/子会话；Copy Row 不是文件级复制并打开下一项。 |
-| C52 | `Next Edit` | 已有实现、矩阵待补 | 按编辑行标记定位；完整输入矩阵和首尾提示验证仍待 4.2。 |
-| C53 | `Previous Edit` | 已有实现、矩阵待补 | 按编辑行标记定位；完整输入矩阵和首尾提示验证仍待 4.2。 |
+| C52 | `Next Edit` | 已回归 | 编辑行即使已变 Same 也能定位；Differences 过滤隐藏目标时自动 Show All，Undo/Redo 后标记同步。 |
+| C53 | `Previous Edit` | 已回归 | 反向编辑导航、首尾提示、一次撤销/重做后的目标集合均验证。 |
 | C54 | `Find` | 已有实现、部分回归 | 字面/正则、大小写/全词、指定侧，命中定位到单元格；已有控制器回归。 |
 | C55 | `Replace` | 已有实现、矩阵待补 | 当前命中/全部替换使用 Pattern 捕获；零宽与方向组合仍待 4.4。 |
 | C56 | `Find Next` | 已有实现、部分回归 | 正向/反向、不循环；当前实现扫描命中，不宣称后台搜索已经实现。 |
 | C57 | `Find Previous` | 已有实现、矩阵待补 | 正向/反向、不循环；当前实现扫描命中，不宣称后台搜索已经实现。 |
-| C58 | `Go To` | 已有实现、矩阵待补 | 比较行/比较列的 1-based 定位并钳制边界；与过滤、隐藏列的组合仍待验。 |
+| C58 | `Go To` | 已回归 | 1-based 比较行列、边界钳制并回显；隐藏行/列显露、兼容过滤不重置、空表/陈旧保护均有 Go 按钮回归。 |
 
 ### View
 
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
-| C59 | `Show All` | 已有实现 | Projection 全行视图，不改来源编号或内容。 |
-| C60 | `Show Differences` | 已有实现、部分回归 | 仅差异投影；Ignore Unimportant 生效，过滤后的删除不触及隐藏行。 |
-| C61 | `Show Same` | 已有实现、矩阵待补 | 差异区间的补集；完整切换组合待 4.2。 |
-| C62 | `Show None *` | 已有实现、矩阵待补 | 投影为空、模型/统计保留；隐藏状态下的数据命令边界待专项验收。 |
-| C63 | `Ignore Unimportant Differences` | 已有实现、部分回归 | 仅将 U 投影为 S，保留原三态；三档/数字格式及缓存 sheet 过滤往返已有真实输入回归。显示层切换保留后台全层汇总扫描；完整导航矩阵仍待 4.2。 |
-| C64 | `Hide Same Columns` | 已有实现、矩阵待补 | 按列汇总隐藏无差异列；隐藏计数提示与组合场景仍待 4.1。 |
-| C65 | `Resize Columns to Fit` | 已有实现、矩阵待补 | 初始有界采样；显式命令由 worker 扫描全部已加载内容，长字段输入回归待补。 |
-| C66 | `Visible Whitespace` | 已有实现、矩阵待补 | 空格/tab/换行可视符号仅用于绘制，不写入文件。 |
-| C67 | `Row Numbers` | 已有实现、矩阵待补 | 显示源行编号和空隙；开关的完整输入回归待 4.1。 |
+| C59 | `Show All` | 已回归 | 四种过滤的显示行集合均核对，来源编号与原始模型不变。 |
+| C60 | `Show Differences` | 已回归 | Differences 和 Ignore 的组合、孤儿保留、过滤选区数据操作均已验证。 |
+| C61 | `Show Same` | 已回归 | 显示差异集合的补集；Ignore 开关前后的精确行集合已回归。 |
+| C62 | `Show None *` | 已回归 | 投影为空、模型和统计保留；复制/排序不误写，Go To 或导航可显露有效目标，空表不制造虚假单元格。 |
+| C63 | `Ignore Unimportant Differences` | 已回归 | U 仅投影为 S；导航/过滤/计数/三档和缓存 sheet 往返已验证，原始状态保留，显示层切换不取消全层扫描。 |
+| C64 | `Hide Same Columns` | 已回归 | 按列状态隐藏无差异列，两侧表头显示隐藏数量；显式定位隐藏列会恢复其显示。 |
+| C65 | `Resize Columns to Fit` | 已回归 | 后台全量扫描已加载内容；第 151 行超出初始采样的长字段实际影响列宽，不创建编辑历史。 |
+| C66 | `Visible Whitespace` | 已回归 | 菜单切换实际检查空格/tab/换行绘制符号，模型文字不变。 |
+| C67 | `Row Numbers` | 已回归 | 菜单切换并检查网格 gutter 行号是否绘制，不混淆工具栏 Go To 数值。 |
 | C68 | `Display Font *` | 按 D9 后置 | D9 后置全局偏好；系统 CJK fallback 不是这些命令的实现。 |
 | C69 | `Increase Display Font Size *` | 按 D9 后置 | D9 后置全局偏好；系统 CJK fallback 不是这些命令的实现。 |
 | C70 | `Decrease Display Font Size *` | 按 D9 后置 | D9 后置全局偏好；系统 CJK fallback 不是这些命令的实现。 |
 | C71 | `Reset Display Font Size *` | 按 D9 后置 | D9 后置全局偏好；系统 CJK fallback 不是这些命令的实现。 |
-| C72 | `Side-by-Side Layout` | 已有实现、部分回归 | 共享 x/y 偏移的左右/上下网格；已有二维虚拟化、几何与 tessellation 回归。 |
-| C73 | `Over-Under Layout` | 已有实现、部分回归 | 共享 x/y 偏移的左右/上下网格；已有二维虚拟化、几何与 tessellation 回归。 |
-| C74 | `Thumbnail` | 已有实现、矩阵待补 | 固定 512 桶和可视范围，点击定位入口已有；过滤组合的输入矩阵待 4.1。 |
+| C72 | `Side-by-Side Layout` | 已回归 | 左右/上下两布局、左右各侧真实双轴滚轮输入、稳定后双方绘制源单元格一致，保留二维可见区渲染。 |
+| C73 | `Over-Under Layout` | 已回归 | 上下布局及双轴联动已做几何、滚轮输入与 tessellation 验证。 |
+| C74 | `Thumbnail` | 已回归 | 固定 512 桶、可视范围与点击定位；点击约 70% 返回对应比较行。 |
 | C75 | `Text Details` | 三档及公式详情回归通过 | 两侧完整逻辑值、公式和数字格式；真实点击三档并校验两侧公式文本、原始三态保留，不计算公式。 |
-| C76 | `File Info` | 已有实现、矩阵待补 | 路径/字节/只读/修改提示已有；编码诊断、缓存 sheet 和保存目标展示待核验。 |
-| C77 | `Toolbar` | 待补齐 | 命令栏常驻，完整隐藏/恢复入口尚未实现，保留为 4.1 缺口。 |
+| C76 | `File Info` | 显示开关已回归 | 路径/字节/编辑保护/修改提示及开关已接线；多 sheet 缓存、保存目标及失败路径信息仍随 4.4 验收。 |
+| C77 | `Toolbar` | 已回归 | 快捷工具栏可隐藏/恢复，Session/File/Edit/Search/View 菜单保留，恢复入口不会随工具栏消失。 |
 
 ## 会话设置主题
 
@@ -133,7 +133,7 @@
 
 | 选项 | 当前实现 / 边界 |
 |---|---|
-| Detected / 文件格式掩码 | Home 目前只按 csv/tsv/xlsx/xlsm 后缀；任意用户格式掩码的路由/选择尚未完整连接，不声称已完成 4.1。 |
+| Detected / 文件格式掩码 | Home/CLI 按有序 FormatRegistry（内置 + Matcha 用户定义）路由，加载时采用匹配的 TableOptions；自定义固定宽度掩码的持久化/打开已验证。XLSX/XLSM 原生读取，xls/ods 和外部转换仍明确拒绝。会话显式覆盖完整矩阵属 4.4。 |
 | 左/右格式选择 | 现有 table 内置预设和逐侧 Type/Regional 选项；更改需重新读取。 |
 | Encoding overrides / None | 自动检测、UTF-8/16、1252/936 等 UI 项；引擎支持其明示代码页集合，失败不静默吞掉。 |
 | 覆盖优先级 | ReadOptions 承载当前会话解析设置，完整格式默认/会话覆盖切换场景仍待 4.4。 |
@@ -189,7 +189,7 @@ General / Conversion / Type / Regional 为参考分类。当前 TableOptions 承
 
 ### `formattablegeneral.html`
 
-- Mask、Description：bc-formats 模型/注册表存在；表格 GUI 对任意自定义 mask 的应用未完整接线。
+- Mask、Description：复用 bc-formats 有序注册表，表格入口与读取选项已按匹配掩码接通；不执行 XML 中的外部转换命令。
 - 内置预设保持只读来源语义；不能把修改会话选项说成改写了内置资源。
 
 ### `formattableconversion.html`
@@ -228,7 +228,7 @@ Use system / Decimal separator / Thousands separator / Date order / Date separat
 
 - 双网格按比较列/比较行组织，不以源文件列号直接假设一一对应；仅键相等配对，排序/手动锚点按明确规则。
 - 红/蓝/无色表示 I/U/S，行首摘要不受水平可见列限制；数据状态不在绘制帧重新计算。
-- 行列二维可见区绘制已存在，历史原生基准与边界见 Wave 2 报告；本清单不是本轮新性能测量。
+- 行列二维可见区绘制、视图控件与 600 帧百万行原生基准已在 Wave 6 复测（update p99 1.314 ms）；测试/截图和证据边界见对应报告。
 
 ### `table_working_with_multiple.html`
 
