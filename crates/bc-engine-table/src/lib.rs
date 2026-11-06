@@ -1,6 +1,7 @@
 //! Typed, GUI-independent table comparison. All worker inputs are immutable snapshots.
 #![forbid(unsafe_code)]
 pub mod model;
+mod perf;
 pub mod regional;
 pub mod source;
 pub mod workbook;

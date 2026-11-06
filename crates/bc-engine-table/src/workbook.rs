@@ -53,11 +53,13 @@ impl Workbook<File> {
 impl<R: Read + Seek> Workbook<R> {
     pub fn from_reader(reader: R, cancel: Arc<dyn CancelCheck>) -> Result<Self> {
         cancel.check()?;
+        let t_open = std::time::Instant::now();
         let reader = Xlsx::new(CheckedReader {
             inner: reader,
             cancel: cancel.clone(),
         })
         .map_err(|e| mapped(e, &*cancel))?;
+        crate::perf::span("workbook:open(xlsx meta+shared strings)", t_open);
         let names = reader.sheet_names();
         Ok(Self {
             reader,
@@ -75,6 +77,7 @@ impl<R: Read + Seek> Workbook<R> {
         let mut sheet = Sheet::new(name);
         sheet.source = SheetSource::Workbook;
         let mut pool = StringPool::default();
+        let t_values = std::time::Instant::now();
         {
             let mut cells = self
                 .reader
@@ -144,8 +147,10 @@ impl<R: Read + Seek> Workbook<R> {
                 );
             }
         }
+        crate::perf::span("workbook:values-pass", t_values);
         // Formula iterator expands shared formulas and polls between cells,
         // avoiding an additional dense Range<String> allocation.
+        let t_formulas = std::time::Instant::now();
         {
             let mut formulas = self
                 .reader
@@ -168,6 +173,8 @@ impl<R: Read + Seek> Workbook<R> {
                 }
             }
         }
+        crate::perf::span("workbook:formulas-pass", t_formulas);
+        let t_merges = std::time::Instant::now();
         sheet.merged_ranges = self
             .reader
             .merge_cells_by_sheet_name(name)
@@ -178,6 +185,7 @@ impl<R: Read + Seek> Workbook<R> {
                 end: (r.end.0 as usize, r.end.1 as usize),
             })
             .collect();
+        crate::perf::span("workbook:merges", t_merges);
         self.cancel.check()?;
         sheet.fresh_revision();
         Ok(sheet)

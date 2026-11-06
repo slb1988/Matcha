@@ -305,6 +305,7 @@ impl TableCompareView {
             fixed_pairs: None,
         })));
         self.message = "Loading and comparing in background…".into();
+        crate::perf::mark("view:reload-spawned");
     }
     pub(super) fn install(&mut self, prepared: Prepared) -> Result<(), CoreError> {
         let Prepared {
@@ -316,9 +317,13 @@ impl TableCompareView {
         if self.pair.is_some() {
             self.install_aligned(output, cache)
         } else {
+            let t = std::time::Instant::now();
             let mut map = TableMap::from_output(left, right, output)?;
             map.set_deferred_edits(true);
+            crate::perf::span("view:install-from-output", t);
+            let t = std::time::Instant::now();
             let projection = cache.project(self.filter);
+            crate::perf::span("view:install-project", t);
             self.pair = Some(Pair {
                 map,
                 history: [EditStack::new(), EditStack::new()],
@@ -326,7 +331,9 @@ impl TableCompareView {
                 projection,
                 pending_side: None,
             });
+            let t = std::time::Instant::now();
             self.finish_install();
+            crate::perf::span("view:finish-install", t);
             Ok(())
         }
     }
@@ -408,6 +415,7 @@ impl TableCompareView {
             if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
                 self.worker = None;
                 self.held_output = Some(result);
+                crate::perf::mark("view:worker-finished");
             }
         }
         let result = if self.editor.is_none() {

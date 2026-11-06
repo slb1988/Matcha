@@ -30,15 +30,18 @@ pub struct MatchaApp {
     exit_confirmed: bool,
     screenshot: Option<std::path::PathBuf>,
     capture_requested: bool,
+    table_perf_reported: bool,
 }
 impl MatchaApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: LaunchOptions) -> Self {
+        crate::perf::mark("app:new-enter");
         cc.egui_ctx.all_styles_mut(|style| {
             style
                 .text_styles
                 .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
         });
         install_cjk_font(&cc.egui_ctx);
+        crate::perf::mark("app:fonts-installed");
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
             (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
@@ -79,6 +82,7 @@ impl MatchaApp {
             _ => None,
         };
         let bench_dir = options.bench_dir.then(DirBench::default);
+        crate::perf::mark("app:view-created");
         Self {
             view,
             bench,
@@ -89,6 +93,7 @@ impl MatchaApp {
             exit_confirmed: false,
             screenshot: options.screenshot,
             capture_requested: false,
+            table_perf_reported: false,
         }
     }
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -258,6 +263,20 @@ impl eframe::App for MatchaApp {
             View::FolderCompare(view) => folder_switch = view.ui(ui),
             View::FolderSync(view) => folder_switch = view.ui(ui),
         });
+        // The central panel has just drawn the comparison grid when the view
+        // first reports ready: this is the first interactive frame.
+        if !self.table_perf_reported && crate::perf::enabled() {
+            if let View::TableCompare(v) = &self.view {
+                if v.is_ready() {
+                    self.table_perf_reported = true;
+                    crate::perf::mark("app:first-ready-frame");
+                    if std::env::var_os("MATCHA_TABLE_PERF_EXIT").is_some() {
+                        self.exit_confirmed = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+        }
         if let View::FolderCompare(view) = &mut self.view {
             if view.take_exit_request() {
                 self.exit_confirmed = true;

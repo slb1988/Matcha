@@ -16,6 +16,7 @@
 pub mod app;
 pub mod bench;
 pub mod home;
+pub mod perf;
 pub mod table;
 pub mod text;
 pub mod dir_view;
@@ -45,6 +46,7 @@ pub struct LaunchOptions {
 
 /// Start the native window. Blocks until the window closes.
 pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
+    perf::mark("run:enter");
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 900.0])

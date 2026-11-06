@@ -137,11 +137,15 @@ pub fn prepare(
     right: Sheet,
     ctx: &JobContext,
 ) -> Result<Prepared, JobError> {
+    let t = Instant::now();
     let output = *job
         .run(ctx)?
         .downcast::<TableAlignOutput>()
         .map_err(|_| JobError::Failed("unexpected table result".into()))?;
+    crate::perf::span("worker:table-align-job", t);
+    let t = Instant::now();
     let cache = Cache::build(&output, &left, &right, &ctx.cancel).map_err(error)?;
+    crate::perf::span("worker:cache-build", t);
     Ok(Prepared {
         left,
         right,
@@ -209,13 +213,18 @@ fn load(
         .extension()
         .is_some_and(|e| matches!(e.to_string_lossy().to_lowercase().as_str(), "xlsx" | "xlsm"));
     if workbook {
+        let t = Instant::now();
         let mut book = Workbook::open(path, Arc::new(ctx.cancel.clone())).map_err(error)?;
         let names = book.sheet_names().to_vec();
+        crate::perf::span("worker:workbook-open", t);
+        let t = Instant::now();
         let mut sheet = if let Some(name) = index.and_then(|i| names.get(i)) {
             book.load_sheet(name).map_err(error)?
         } else {
             Sheet::default()
         };
+        crate::perf::span("worker:load-sheet", t);
+        let t = Instant::now();
         sheet.regional = if options.format.regional.use_system {
             options.system_regional.clone()
         } else {
@@ -225,6 +234,7 @@ fn load(
         if header == HeaderMode::Names || (header == HeaderMode::Auto && detect_header(&sheet)) {
             sheet.take_header();
         }
+        crate::perf::span("worker:header-detect", t);
         Ok((sheet, names))
     } else {
         let output = read_path(path, options, &ctx.cancel).map_err(error)?;
@@ -274,6 +284,7 @@ impl Job for LoadJob {
             let start = Instant::now();
             let (sheet, n) = load(&self.paths[s], &self.options[s], indices[s], ctx)?;
             times[s] = start.elapsed();
+            crate::perf::span(&format!("worker:load-side-{s}"), start);
             sheets[s] = Some(sheet);
             if self.memory[s].is_none() {
                 names[s] = n;
@@ -330,6 +341,7 @@ impl Job for LoadJob {
                 let start = Instant::now();
                 let (sheet, _) = load(&self.paths[s], &self.options[s], want, ctx)?;
                 times[s] += start.elapsed();
+                crate::perf::span(&format!("worker:reload-side-{s}"), start);
                 sheets[s] = Some(sheet);
             }
         }

@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    bc_gui::perf::t0();
+    bc_gui::perf::mark("main:enter");
     let mut options = bc_gui::LaunchOptions::default();
     let mut positional: Vec<PathBuf> = Vec::new();
 

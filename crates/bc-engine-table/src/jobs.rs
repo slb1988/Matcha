@@ -23,16 +23,23 @@ impl TableAlignJob {
     }
     pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<TableAlignOutput> {
         let mut rules = self.rules.clone();
+        let t = std::time::Instant::now();
         crate::map::prepare_rules(&self.left, &self.right, &mut rules, cancel)?;
+        crate::perf::span("align:prepare-rules", t);
+        let t = std::time::Instant::now();
         let alignment = KeyAlign.align(&self.left, &self.right, &rules, &self.overrides, cancel)?;
-        compare_alignment(
+        crate::perf::span("align:key-align", t);
+        let t = std::time::Instant::now();
+        let output = compare_alignment(
             &self.left,
             &self.right,
             &rules,
             &self.overrides,
             alignment,
             cancel,
-        )
+        );
+        crate::perf::span("align:compare-alignment", t);
+        output
     }
 }
 fn error(e: CoreError) -> bc_jobs::JobError {
