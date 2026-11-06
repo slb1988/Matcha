@@ -1,0 +1,5 @@
+<Case name="without-extension" criteria="size" filter="&quot;*.&quot;" knownDiff="" flatten="false">
+  <File side="left" path="Makefile" modified="1767225600" attrs="" />
+  <File side="right" path="Makefile" modified="1767225600" attrs="" />
+  <File side="left" path="other.c" modified="1767225600" attrs="" />
+</Case>

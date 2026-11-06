@@ -1,10 +1,11 @@
-//! Home：路径框、最近文件对，以及拖放两文件直接打开。
+//! Home：路径框、最近文件对，以及拖放两文件/两文件夹直接打开。
 use eframe::egui;
 use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HomeAction {
     OpenTextCompare { left: PathBuf, right: PathBuf },
     OpenTableCompare { left: PathBuf, right: PathBuf },
+    OpenFolderCompare { left: PathBuf, right: PathBuf },
 }
 pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
     [left, right].iter().any(|p| {
@@ -17,7 +18,9 @@ pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
     })
 }
 fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
-    if table_paths(&left, &right) {
+    if left.is_dir() && right.is_dir() {
+        HomeAction::OpenFolderCompare { left, right }
+    } else if table_paths(&left, &right) {
         HomeAction::OpenTableCompare { left, right }
     } else {
         HomeAction::OpenTextCompare { left, right }
@@ -63,7 +66,7 @@ impl HomeView {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<HomeAction> {
         let mut action = None;
         ui.heading("Matcha");
-        ui.label("Text comparison — drop two files here or enter their paths.");
+        ui.label("Drop two files or two folders here, or enter their paths.");
         let dropped = ui.input(|i| {
             i.raw
                 .dropped_files
@@ -115,6 +118,21 @@ impl HomeView {
         if let Some(error) = &self.error {
             ui.colored_label(egui::Color32::RED, error);
         }
+        ui.separator();
+        ui.group(|ui| {
+            ui.heading("Folder Compare");
+            ui.label("Enter two folder paths above, or drop two folders here.");
+            if ui.button("Compare folders").clicked() {
+                if self.left.trim().is_empty() || self.right.trim().is_empty() {
+                    self.error = Some("Both paths are required".into());
+                } else {
+                    action = Some(HomeAction::OpenFolderCompare {
+                        left: PathBuf::from(self.left.trim()),
+                        right: PathBuf::from(self.right.trim()),
+                    });
+                }
+            }
+        });
         ui.separator();
         ui.heading("Recent comparisons");
         for (left, right) in &self.recent {

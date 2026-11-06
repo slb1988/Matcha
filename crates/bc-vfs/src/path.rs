@@ -1,68 +1,126 @@
-//! VFS path – scheme + provider-specific path string.
-//!
-//! BC stores remote locations as `vfs://` style URLs in session specs and plain paths for
-//! local files. `VfsPath` keeps both representations behind one type.
-
+//! Provider paths retain their original display spelling; local I/O uses std::path.
+use crate::{VfsError, VfsResult};
 use std::path::{Path, PathBuf};
 
-/// A location inside some file-system provider.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VfsPath {
     scheme: String,
-    /// Scheme-specific remainder (local: an OS path; ftp: `user@host:port/dir`).
     path: String,
+    explicit_scheme: bool,
 }
 
 impl VfsPath {
-    /// Local file-system path (`file` scheme).
     pub fn local(path: &Path) -> Self {
-        Self { scheme: "file".into(), path: path.to_string_lossy().into_owned() }
+        Self {
+            scheme: "file".into(),
+            path: path.to_string_lossy().into_owned(),
+            explicit_scheme: false,
+        }
     }
 
-    /// Parse either a bare local path or a `scheme://…` URL.
-    pub fn parse(spec: &str) -> Self {
-        todo!("bc-vfs::path: parse spec (local path vs scheme URL, UNC, drive letters)")
+    pub fn parse(spec: &str) -> VfsResult<Self> {
+        if spec.is_empty() || spec.contains('\0') || spec.contains(['\r', '\n']) {
+            return Err(VfsError::Other(
+                "empty path or control character in path".into(),
+            ));
+        }
+        if let Some((scheme, path)) = spec.split_once("://") {
+            if scheme.is_empty()
+                || !scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                || !scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+                || path.is_empty()
+            {
+                return Err(VfsError::Other("invalid provider URL".into()));
+            }
+            Ok(Self {
+                scheme: scheme.into(),
+                path: path.into(),
+                explicit_scheme: true,
+            })
+        } else {
+            Ok(Self::local(Path::new(spec)))
+        }
     }
 
     pub fn scheme(&self) -> &str {
         &self.scheme
     }
-
-    /// Raw scheme-specific path.
     pub fn as_str(&self) -> &str {
         &self.path
     }
-
     pub fn is_local(&self) -> bool {
-        self.scheme == "file"
+        self.scheme.eq_ignore_ascii_case("file")
     }
 
-    /// Local `PathBuf` when this is a `file` path.
     pub fn to_local_path(&self) -> Option<PathBuf> {
-        self.is_local().then(|| PathBuf::from(&self.path))
+        if !self.is_local() {
+            return None;
+        }
+        let p = &self.path;
+        if !self.explicit_scheme {
+            return Some(PathBuf::from(p));
+        }
+        #[cfg(windows)]
+        {
+            if p.starts_with('/') && p.as_bytes().get(2) == Some(&b':') {
+                return Some(PathBuf::from(&p[1..]));
+            }
+            if !p.starts_with('/') && p.as_bytes().get(1) != Some(&b':') && !p.starts_with("\\\\") {
+                return Some(PathBuf::from(format!("\\\\{}", p.replace('/', "\\"))));
+            }
+        }
+        Some(PathBuf::from(p))
     }
 
-    /// Append a child name.
-    pub fn join(&self, name: &str) -> VfsPath {
-        todo!("bc-vfs::path: join with provider separator rules")
-    }
-
-    /// Parent location, if any.
-    pub fn parent(&self) -> Option<VfsPath> {
-        todo!("bc-vfs::path: parent")
-    }
-
-    /// Final path component.
-    pub fn file_name(&self) -> Option<&str> {
-        todo!("bc-vfs::path: file name")
-    }
-
-    /// Display form used in session specs (`C:\dir` or `ftp://host/dir`).
-    pub fn to_spec_string(&self) -> String {
-        if self.is_local() {
-            self.path.clone()
+    pub fn join(&self, name: &str) -> Self {
+        let separator = if self.path.contains('\\') { '\\' } else { '/' };
+        let path = if self.path.ends_with(['/', '\\']) {
+            format!("{}{name}", self.path)
         } else {
+            format!("{}{separator}{name}", self.path)
+        };
+        Self {
+            path,
+            ..self.clone()
+        }
+    }
+
+    pub fn parent(&self) -> Option<Self> {
+        let p = self.path.trim_end_matches(['/', '\\']);
+        let i = p.rfind(['/', '\\'])?;
+        let end = if i == 0 || (i == 2 && p.as_bytes().get(1) == Some(&b':')) {
+            i + 1
+        } else {
+            i
+        };
+        // Do not ascend above an UNC share or a URL authority.
+        if p.starts_with("\\\\") && p[2..].split('\\').count() <= 2 {
+            return None;
+        }
+        if end == p.len() {
+            return None;
+        }
+        Some(Self {
+            path: p[..end].into(),
+            ..self.clone()
+        })
+    }
+
+    pub fn file_name(&self) -> Option<&str> {
+        let p = self.path.trim_end_matches(['/', '\\']);
+        if p.is_empty() || (p.len() == 2 && p.ends_with(':')) {
+            return None;
+        }
+        p.rsplit(['/', '\\']).next()
+    }
+
+    pub fn to_spec_string(&self) -> String {
+        if self.explicit_scheme {
             format!("{}://{}", self.scheme, self.path)
+        } else {
+            self.path.clone()
         }
     }
 }

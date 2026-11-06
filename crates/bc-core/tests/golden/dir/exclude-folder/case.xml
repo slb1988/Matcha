@@ -1,0 +1,6 @@
+<Case name="exclude-folder" criteria="size" filter="&quot;-Backup\&quot;" knownDiff="" flatten="false">
+  <File side="left" path="Backup/skip.txt" modified="1767225600" attrs="" />
+  <File side="right" path="Backup/skip.txt" modified="1767225600" attrs="" />
+  <File side="left" path="keep.txt" modified="1767225600" attrs="" />
+  <File side="right" path="keep.txt" modified="1767225600" attrs="" />
+</Case>

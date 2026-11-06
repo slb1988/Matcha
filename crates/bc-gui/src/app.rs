@@ -1,7 +1,10 @@
-//! 应用接线集中于 View 和两个 action 分支，便于合并文件夹视图。
+//! 应用接线集中于 View 和 action 分支：文本、表格、文件夹比较与文件夹同步。
 use crate::{
     bench::{BenchState, Step},
+    bench_dir::DirBench,
+    dir_view::DirCompareView,
     home::{HomeAction, HomeView},
+    sync_view::SyncView,
     table::{TableAction, TableCompareView},
     text::{TextCompareView, ViewAction},
     LaunchOptions,
@@ -14,10 +17,13 @@ pub enum View {
     Home(HomeView),
     TextCompare(Box<TextCompareView>),
     TableCompare(Box<TableCompareView>),
+    FolderCompare(Box<DirCompareView>),
+    FolderSync(Box<SyncView>),
 }
 pub struct MatchaApp {
     view: View,
     bench: Option<BenchState>,
+    bench_dir: Option<DirBench>,
     prefs: Prefs,
     last_update_ms: f64,
     frame_cpu_ms: Option<f64>,
@@ -35,6 +41,9 @@ impl MatchaApp {
         install_cjk_font(&cc.egui_ctx);
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
+            (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
+                DirCompareView::open(&cc.egui_ctx, l, r, false, options.bench_dir),
+            )),
             (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
                 match TableCompareView::open(l, r) {
                     Ok(v) => {
@@ -69,9 +78,11 @@ impl MatchaApp {
             }
             _ => None,
         };
+        let bench_dir = options.bench_dir.then(DirBench::default);
         Self {
             view,
             bench,
+            bench_dir,
             prefs: Prefs::default(),
             last_update_ms: 0.0,
             frame_cpu_ms: None,
@@ -87,6 +98,12 @@ impl MatchaApp {
                     match &mut self.view {
                         View::TextCompare(v) => v.request_home(),
                         View::TableCompare(v) => v.request_home(),
+                        View::FolderCompare(v) => {
+                            if !v.request_text_close(false) {
+                                self.view = View::Home(HomeView::default());
+                            }
+                        }
+                        View::FolderSync(_) => self.view = View::Home(HomeView::default()),
                         View::Home(_) => {}
                     }
                 }
@@ -95,6 +112,8 @@ impl MatchaApp {
                     View::Home(_) => "Home",
                     View::TextCompare(_) => "Text Compare",
                     View::TableCompare(_) => "Table Compare",
+                    View::FolderCompare(_) => "Folder Compare",
+                    View::FolderSync(_) => "Folder Sync",
                 });
             });
         });
@@ -145,6 +164,14 @@ impl eframe::App for MatchaApp {
                 }
             }
         }
+        if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
+            if let View::FolderCompare(v) = &mut self.view {
+                // Edited text opened from the folder view gets the same save prompt.
+                if v.request_text_close(true) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                }
+            }
+        }
         if let View::TextCompare(v) = &mut self.view {
             v.poll();
         }
@@ -181,6 +208,10 @@ impl eframe::App for MatchaApp {
                 });
                 self.capture_requested = true;
             }
+        }
+        if let (Some(bench), View::FolderCompare(view)) = (&mut self.bench_dir, &mut self.view) {
+            view.poll(&ctx);
+            bench.drive(view, &ctx);
         }
         self.top_bar(ui);
         egui::Panel::bottom("performance_status").show(ui, |ui| {
@@ -219,11 +250,20 @@ impl eframe::App for MatchaApp {
         let mut home_action = None;
         let mut view_action = None;
         let mut table_action = None;
+        let mut folder_switch = None;
         egui::CentralPanel::default().show(ui, |ui| match &mut self.view {
             View::Home(home) => home_action = home.ui(ui),
             View::TextCompare(view) => view_action = view.ui(ui, &mut self.prefs),
             View::TableCompare(view) => table_action = view.ui(ui, &mut self.prefs),
+            View::FolderCompare(view) => folder_switch = view.ui(ui),
+            View::FolderSync(view) => folder_switch = view.ui(ui),
         });
+        if let View::FolderCompare(view) = &mut self.view {
+            if view.take_exit_request() {
+                self.exit_confirmed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
         if let Some(HomeAction::OpenTextCompare { left, right }) = home_action {
             match TextCompareView::open(&left, &right) {
                 Ok(v) => {
@@ -236,6 +276,10 @@ impl eframe::App for MatchaApp {
                     }
                 }
             }
+        } else if let Some(HomeAction::OpenFolderCompare { left, right }) = &home_action {
+            self.view = View::FolderCompare(Box::new(DirCompareView::open(
+                &ctx, left, right, false, false,
+            )));
         } else if let Some(HomeAction::OpenTableCompare { left, right }) = home_action {
             match TableCompareView::open(&left, &right) {
                 Ok(v) => {
@@ -283,10 +327,38 @@ impl eframe::App for MatchaApp {
                     self.exit_confirmed = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
-                ViewAction::CompareParentFolders { .. } => {} // folder-compare-sync 在此接入；当前命令禁用。
+                ViewAction::CompareParentFolders { left, right } => {
+                    self.view = View::FolderCompare(Box::new(DirCompareView::open(
+                        &ctx, &left, &right, false, false,
+                    )));
+                    self.bench = None;
+                }
             }
         }
+        if let Some((sync, paths)) = folder_switch {
+            self.view = if sync {
+                View::FolderSync(Box::new(SyncView::open(&ctx, &paths[0], &paths[1])))
+            } else {
+                View::FolderCompare(Box::new(DirCompareView::open(
+                    &ctx, &paths[0], &paths[1], false, false,
+                )))
+            };
+        }
         self.last_update_ms = started.elapsed().as_secs_f64() * 1e3;
+        let mut dir_done = false;
+        if let (Some(bench), View::FolderCompare(view)) = (&mut self.bench_dir, &self.view) {
+            if bench.record(started.elapsed(), view) {
+                println!("{}", bench.summary(view));
+                self.exit_confirmed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                dir_done = true;
+            } else {
+                ctx.request_repaint();
+            }
+        }
+        if dir_done {
+            self.bench_dir = None;
+        }
         let mut finished = false;
         if benchmark_ready {
             if let (Some(bench), View::TextCompare(view)) = (&mut self.bench, &self.view) {

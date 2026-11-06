@@ -145,6 +145,7 @@ name = "bc-engine-dir"
 version = "0.1.0"
 dependencies = [
  "bc-core",
+ "bc-engine-bin",
  "bc-engine-text",
  "bc-formats",
  "bc-jobs",
@@ -252,6 +253,10 @@ dependencies = [
 [[package]]
 name = "bc-vfs"
 version = "0.1.0"
+dependencies = [
+ "bc-core",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "bcomp"

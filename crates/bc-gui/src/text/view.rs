@@ -232,6 +232,14 @@ impl TextCompareView {
     pub fn paths(&self) -> [Option<PathBuf>; 2] {
         [self.files[0].path.clone(), self.files[1].path.clone()]
     }
+    /// Folders holding both source files, for Compare Parent Folders.
+    pub fn parent_folders(&self) -> Option<[PathBuf; 2]> {
+        let parent = |s: usize| {
+            let path = std::path::absolute(self.files[s].path.as_ref()?).ok()?;
+            Some(path.parent()?.to_path_buf())
+        };
+        Some([parent(0)?, parent(1)?])
+    }
     pub fn index_bytes(&self) -> usize {
         (self.map.left.lines.borrow().len() + self.map.right.lines.borrow().len())
             * std::mem::size_of::<bc_core::line::Line>()
@@ -917,10 +925,18 @@ impl TextCompareView {
                         self.recompare();
                         ui.close();
                     }
-                    ui.add_enabled(
-                        false,
-                        egui::Button::new("Compare Parent Folders (not available)"),
-                    );
+                    // Switching views drops this one, so unsaved edits keep it disabled.
+                    let parents = self.parent_folders().filter(|_| !self.is_dirty());
+                    if ui
+                        .add_enabled(parents.is_some(), egui::Button::new("Compare Parent Folders"))
+                        .on_disabled_hover_text("Needs two saved files on disk")
+                        .clicked()
+                    {
+                        if let Some([left, right]) = parents {
+                            self.action = Some(ViewAction::CompareParentFolders { left, right });
+                        }
+                        ui.close();
+                    }
                 });
                 ui.label("Go to");
                 ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));

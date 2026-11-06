@@ -2,11 +2,28 @@
 //! `TDirTreeContentCompareJob` (content criteria, FR-D5), `TDirTreeContentSearchJob`
 //! (find in folders), `TOpMoveBothJob` (file operations).
 
-use crate::criteria::ContentCompare;
-use crate::ops::DirOp;
+use crate::{
+    op_exec::{ConfirmPolicy, OpLog},
+    ops::OpPlan,
+};
 use bc_jobs::{Job, JobContext, JobResult, Priority};
 use bc_vfs::VfsPath;
 use std::sync::Arc;
+
+pub use crate::content::ContentResult;
+
+#[derive(Debug)]
+pub struct DirectoryListing {
+    pub side: usize,
+    pub relative: String,
+    pub entries: Vec<bc_vfs::VfsEntry>,
+}
+fn job_error(error: bc_vfs::VfsError) -> bc_jobs::JobError {
+    match error {
+        bc_vfs::VfsError::Cancelled => bc_jobs::JobError::Cancelled,
+        other => bc_jobs::JobError::Failed(other.to_string()),
+    }
+}
 
 /// List one directory on one side.
 pub struct LoadDirJob {
@@ -27,7 +44,44 @@ impl Job for LoadDirJob {
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: list directory (recursive when requested)")
+        let mut result = Vec::new();
+        let mut pending = vec![(self.dir.clone(), self.relative.clone())];
+        let mut visited = std::collections::HashSet::new();
+        while let Some((path, relative)) = pending.pop() {
+            ctx.cancel.check()?;
+            if let Some(local) = path.to_local_path() {
+                let canonical = std::fs::canonicalize(local)?;
+                if !visited.insert(canonical) {
+                    continue;
+                }
+            }
+            let entries = self.vfs.list(&path).map_err(job_error)?;
+            if self.recursive {
+                for entry in &entries {
+                    if entry.kind == bc_vfs::EntryKind::Dir && entry.error.is_none() {
+                        pending.push((
+                            path.join(&entry.name),
+                            if relative.is_empty() {
+                                entry.name.clone()
+                            } else {
+                                format!("{relative}/{}", entry.name)
+                            },
+                        ));
+                    }
+                }
+            }
+            result.push(DirectoryListing {
+                side: self.side,
+                relative,
+                entries,
+            });
+            ctx.report(bc_jobs::Progress {
+                current: result.len() as u64,
+                total: None,
+                message: path.to_string(),
+            });
+        }
+        Ok(Box::new(result))
     }
 }
 
@@ -37,11 +91,10 @@ pub struct ContentCompareJob {
     pub vfs: Arc<bc_vfs::VfsManager>,
     pub left: VfsPath,
     pub right: VfsPath,
-    pub mode: ContentCompare,
-    /// For rules-based compare: text rules + format registry.
-    pub text_rules: Option<bc_engine_text::TextRules>,
-    pub formats: Option<Arc<bc_formats::registry::FormatRegistry>>,
-    pub ignore_unimportant: bool,
+    pub criteria: crate::Criteria,
+    pub quick_status: crate::CompareStatus,
+    pub node: crate::tree::NodeId,
+    pub revision: u64,
 }
 
 impl Job for ContentCompareJob {
@@ -50,8 +103,62 @@ impl Job for ContentCompareJob {
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: size/CRC/binary (chunked, early exit) or rules-based via bc-engine-text")
+        let result = self.compare(&ctx.cancel).map_err(job_error)?;
+        ctx.report(bc_jobs::Progress {
+            current: result.bytes_read.iter().sum(),
+            total: None,
+            message: "Content comparison complete".into(),
+        });
+        Ok(Box::new(result))
     }
+}
+
+/// Optional column details, computed off the UI thread with the shared cancellation contract.
+pub fn read_entry_details(
+    manager: &bc_vfs::VfsManager,
+    path: &VfsPath,
+    crc: bool,
+    version: bool,
+    cancel: &dyn bc_core::cancel::CancelCheck,
+) -> bc_vfs::VfsResult<(Option<u32>, Option<String>)> {
+    use std::io::Read;
+    let check = || {
+        if cancel.is_cancelled() {
+            Err(bc_vfs::VfsError::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
+    check()?;
+    let checksum = if crc {
+        let mut reader = manager.resolve(path)?.open_read(path)?;
+        let mut buffer = vec![0; 64 * 1024];
+        let mut hash = bc_core::hash::Crc32::new();
+        loop {
+            check()?;
+            let n = reader.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buffer[..n]);
+        }
+        Some(hash.finish())
+    } else {
+        None
+    };
+    let version = if version {
+        let local = path
+            .to_local_path()
+            .ok_or(bc_vfs::VfsError::Unsupported("remote version metadata"))?;
+        bc_engine_bin::ver::read_version_info(&local)?
+            .into_iter()
+            .find(|tag| tag.name == "FileVersion")
+            .map(|tag| tag.value)
+    } else {
+        None
+    };
+    check()?;
+    Ok((checksum, version))
 }
 
 /// Find text inside files of the comparison – `TDirTreeContentSearchJob`.
@@ -66,7 +173,7 @@ impl Job for ContentSearchJob {
         "Searching".into()
     }
 
-    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
         todo!("bc-engine-dir::jobs: content search")
     }
 }
@@ -74,17 +181,23 @@ impl Job for ContentSearchJob {
 /// Execute a file operation over a selection – `TOpMoveBothJob` and friends.
 pub struct FileOpJob {
     pub vfs: Arc<bc_vfs::VfsManager>,
-    pub op: DirOp,
-    /// Relative paths selected, with their per-side absolute locations.
-    pub items: Vec<(String, [Option<VfsPath>; 3])>,
+    pub plan: OpPlan,
+    pub confirmation: ConfirmPolicy,
+    pub log: OpLog,
 }
 
 impl Job for FileOpJob {
     fn name(&self) -> String {
-        format!("{:?}", self.op)
+        format!("File operations ({})", self.plan.items.len())
     }
 
     fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
-        todo!("bc-engine-dir::jobs: perform op with confirmations via ctx.interaction")
+        Ok(Box::new(crate::op_exec::execute(
+            &self.plan,
+            &self.vfs,
+            ctx,
+            self.confirmation,
+            &self.log,
+        )))
     }
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 7:48:33 AM">
+	<foldercomp>
+		<ltpath>LEFT_ROOT</ltpath>
+		<rtpath>RIGHT_ROOT</rtpath>
+		<filecomp status="same">
+			<lt>
+				<name>a.txt</name>
+				<size>4</size>
+				<modified>1/1/2026 8:00:15 AM</modified>
+			</lt>
+			<rt>
+				<name>a.txt</name>
+				<size>4</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</rt>
+		</filecomp>
+	</foldercomp>
+</bcreport>

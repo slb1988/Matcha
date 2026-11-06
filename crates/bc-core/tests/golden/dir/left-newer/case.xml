@@ -1,0 +1,4 @@
+<Case name="left-newer" criteria="timestamp:2sec size" filter="" knownDiff="" flatten="false">
+  <File side="left" path="a.txt" modified="1767225605" attrs="" />
+  <File side="right" path="a.txt" modified="1767225600" attrs="" />
+</Case>

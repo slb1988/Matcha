@@ -1,0 +1,4 @@
+<Case name="archive-default" criteria="size" filter="" knownDiff="" flatten="false">
+  <File side="left" path="a.txt" modified="1767225600" attrs="a" />
+  <File side="right" path="a.txt" modified="1767225600" attrs="" />
+</Case>

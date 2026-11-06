@@ -1,0 +1,4 @@
+<Case name="rules-comments" criteria="rules-based" filter="" knownDiff="rules-unavailable" flatten="false">
+  <File side="left" path="example.cpp" modified="1767225600" attrs="" />
+  <File side="right" path="example.cpp" modified="1767225600" attrs="" />
+</Case>

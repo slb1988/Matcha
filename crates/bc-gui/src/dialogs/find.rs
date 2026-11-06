@@ -1,0 +1,79 @@
+use crate::egui;
+use bc_core::pattern::Pattern;
+#[derive(Default)]
+pub struct FindDialog {
+    pub open: bool,
+    pub text: String,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+    pub regex: bool,
+    pub wrap: bool,
+    pub backwards: bool,
+    pub side: usize,
+    pub error: Option<String>,
+}
+impl FindDialog {
+    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+        let mut search = false;
+        egui::Window::new("Find filename")
+            .open(&mut self.open)
+            .show(ctx, |ui| {
+                ui.text_edit_singleline(&mut self.text);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.case_sensitive, "Case");
+                    ui.checkbox(&mut self.whole_word, "Whole word");
+                    ui.checkbox(&mut self.regex, "Regex");
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.wrap, "Wrap");
+                    ui.checkbox(&mut self.backwards, "Up");
+                });
+                egui::ComboBox::from_id_salt("find_side")
+                    .selected_text(["Left", "Right", "Either"][self.side])
+                    .show_ui(ui, |ui| {
+                        for (s, label) in ["Left", "Right", "Either"].iter().enumerate() {
+                            ui.selectable_value(&mut self.side, s, *label);
+                        }
+                    });
+                search = ui.button("Find").clicked();
+                if let Some(error) = &self.error {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                }
+            });
+        search
+    }
+    pub fn pattern(&self) -> Result<Pattern, String> {
+        if self.regex {
+            Pattern::new(&self.text, self.case_sensitive)
+        } else {
+            Pattern::literal(&self.text, self.case_sensitive)
+        }
+        .map_err(|e| e.to_string())
+    }
+    pub fn matches(&self, pattern: &Pattern, name: &str) -> bool {
+        let mut at = 0;
+        while let Some(found) = pattern.find_at(name, at) {
+            if !self.whole_word {
+                return true;
+            }
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            let before = name[..found.span.start]
+                .chars()
+                .next_back()
+                .is_some_and(word);
+            let after = name[found.span.end..].chars().next().is_some_and(word);
+            if !before && !after {
+                return true;
+            }
+            if found.span.end == name.len() {
+                break;
+            }
+            at = found.span.start
+                + name[found.span.start..]
+                    .chars()
+                    .next()
+                    .map_or(1, char::len_utf8);
+        }
+        false
+    }
+}

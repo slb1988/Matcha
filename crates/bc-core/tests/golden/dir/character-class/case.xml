@@ -1,0 +1,5 @@
+<Case name="character-class" criteria="size" filter="&quot;[a-c]*.txt&quot;" knownDiff="" flatten="false">
+  <File side="left" path="apple.txt" modified="1767225600" attrs="" />
+  <File side="right" path="cat.txt" modified="1767225600" attrs="" />
+  <File side="left" path="dog.txt" modified="1767225600" attrs="" />
+</Case>

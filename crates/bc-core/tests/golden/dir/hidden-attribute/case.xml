@@ -1,0 +1,4 @@
+<Case name="hidden-attribute" criteria="attrib:h size" filter="" knownDiff="" flatten="false">
+  <File side="left" path="a.txt" modified="1767225600" attrs="h" />
+  <File side="right" path="a.txt" modified="1767225600" attrs="" />
+</Case>

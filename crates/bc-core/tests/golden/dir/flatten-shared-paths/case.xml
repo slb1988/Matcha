@@ -1,0 +1,7 @@
+<Case name="flatten-shared-paths" criteria="size" filter="" knownDiff="" flatten="true">
+  <File side="left" path="a/same.txt" modified="1767225600" attrs="" />
+  <File side="left" path="b/same.txt" modified="1767225600" attrs="" />
+  <File side="left" path="c/same.txt" modified="1767225600" attrs="" />
+  <File side="right" path="b/same.txt" modified="1767225600" attrs="" />
+  <File side="right" path="c/same.txt" modified="1767225600" attrs="" />
+</Case>

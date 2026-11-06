@@ -1,0 +1,6 @@
+<Case name="include-masks" criteria="size" filter="&quot;*.c;*.h;-*.bak&quot;" knownDiff="" flatten="false">
+  <File side="left" path="a.c" modified="1767225600" attrs="" />
+  <File side="right" path="a.c" modified="1767225600" attrs="" />
+  <File side="left" path="skip.bak" modified="1767225600" attrs="" />
+  <File side="right" path="extra.txt" modified="1767225600" attrs="" />
+</Case>
