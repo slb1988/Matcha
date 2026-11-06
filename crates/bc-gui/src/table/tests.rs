@@ -23,6 +23,8 @@ mod copying;
 mod editing;
 #[path = "projection_tests.rs"]
 mod projections;
+#[path = "sort_tests.rs"]
+mod sorting;
 
 fn sheet(text: &str) -> Sheet {
     read_text(IoCursor::new(text), &ReadOptions::default(), &NeverCancel)

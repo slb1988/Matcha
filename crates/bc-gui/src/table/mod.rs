@@ -9,6 +9,7 @@ mod regional;
 mod selection;
 mod settings_panel;
 mod sheet_tabs;
+mod sorting;
 pub mod view;
 mod worker;
 pub use view::{TableAction, TableCompareView};

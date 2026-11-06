@@ -1,5 +1,8 @@
 //! Reversible structural edits are wrapped by TableMap::edit_sheet / EditStack.
-use crate::{invalid, model::RawRow, Cell, Result, Sheet};
+use crate::{
+    align::value_cmp, compare::normalized_value, invalid, model::RawRow, rules::ColumnHandling,
+    Cell, Result, Sheet,
+};
 use std::{collections::HashSet, sync::Arc};
 impl Sheet {
     pub fn remove_rows(&mut self, range: std::ops::Range<usize>) -> Result<()> {
@@ -35,12 +38,69 @@ impl Sheet {
         }
         Ok(())
     }
+    /// Plan a stable lexicographic sort into the selected source-row slots.
+    /// Keys are resolved source columns/Handling in comparison-column priority.
+    /// Unselected rows do not move; equal keys keep source-file order in either
+    /// direction. Tolerances are not ordering relations. None means no change.
+    pub fn sorted_row_order(
+        &self,
+        rows: &[usize],
+        keys: &[(usize, ColumnHandling)],
+        descending: bool,
+    ) -> Result<Option<Vec<usize>>> {
+        if rows.iter().any(|&r| r >= self.row_count) {
+            return Err(invalid("sort row out of bounds"));
+        }
+        if keys.iter().any(|(c, _)| *c >= self.column_count()) {
+            return Err(invalid("sort column out of bounds"));
+        }
+        let mut slots = rows.to_vec();
+        slots.sort_unstable();
+        slots.dedup();
+        if slots.len() < 2 || keys.is_empty() {
+            return Ok(None);
+        }
+        // Normalize each selected key once, not inside every comparator call.
+        // Reuse the key-alignment total order for General/Text and mixed types.
+        let values = keys
+            .iter()
+            .map(|(column, handling)| {
+                slots
+                    .iter()
+                    .map(|&row| normalized_value(self, row, Some(*column), handling))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let mut sorted = (0..slots.len()).collect::<Vec<_>>();
+        sorted.sort_by(|&a, &b| {
+            for column in &values {
+                let cmp = value_cmp(&column[a], &column[b]);
+                if !cmp.is_eq() {
+                    return if descending { cmp.reverse() } else { cmp };
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+        if sorted.iter().enumerate().all(|(i, &r)| i == r) {
+            return Ok(None);
+        }
+        let mut order = (0..self.row_count).collect::<Vec<_>>();
+        for (&slot, from) in slots.iter().zip(sorted) {
+            order[slot] = slots[from];
+        }
+        Ok(Some(order))
+    }
     pub fn reorder_rows(&mut self, order: &[usize]) -> Result<()> {
         if order.len() != self.row_count {
             return Err(invalid("row permutation length mismatch"));
         }
+        let moved = order
+            .iter()
+            .enumerate()
+            .filter_map(|(row, &old)| (row != old).then_some(row))
+            .collect::<Vec<_>>();
         self.retain_rows(order)?;
-        self.row_edit_marks.extend(0..self.row_count);
+        self.row_edit_marks.extend(moved);
         Ok(())
     }
     fn retain_rows(&mut self, order: &[usize]) -> Result<()> {

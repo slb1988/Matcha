@@ -100,7 +100,7 @@ fn keys_equal(
         )
     })
 }
-fn value_cmp(l: &CellValue, r: &CellValue) -> Ordering {
+pub(crate) fn value_cmp(l: &CellValue, r: &CellValue) -> Ordering {
     fn rank(v: &CellValue) -> u8 {
         match v {
             CellValue::Empty => 0,

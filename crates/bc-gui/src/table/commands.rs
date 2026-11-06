@@ -443,6 +443,9 @@ impl TableCompareView {
         Ok(())
     }
     pub(super) fn structure(&mut self, operation: u8) -> Result<(), CoreError> {
+        if matches!(operation, 6 | 7) {
+            return self.sort_selection(operation == 6);
+        }
         let s = self.grid.active;
         if self.files[s].readonly {
             return Err(invalid("Editing disabled"));
@@ -464,7 +467,6 @@ impl TableCompareView {
             .pair
             .as_mut()
             .ok_or_else(|| invalid("Table is loading"))?;
-        let descending = operation == 6;
         let e = p.map.edit_sheet(
             side(s),
             "Change table structure",
@@ -509,25 +511,7 @@ impl TableCompareView {
                         }
                         rules.columns.tidy();
                     }
-                    _ => {
-                        let mut order = (0..sheet.row_count()).collect::<Vec<_>>();
-                        let values = order
-                            .iter()
-                            .map(|&r| sheet.display_at(r, col).unwrap_or_default())
-                            .collect::<Vec<_>>();
-                        order.sort_by(|&a, &b| {
-                            let cmp = match (values[a].parse::<f64>(), values[b].parse::<f64>()) {
-                                (Ok(a), Ok(b)) => a.total_cmp(&b),
-                                _ => values[a].cmp(&values[b]),
-                            };
-                            if descending {
-                                cmp.reverse()
-                            } else {
-                                cmp
-                            }
-                        });
-                        sheet.reorder_rows(&order)?;
-                    }
+                    _ => return Err(invalid("unknown table structure command")),
                 }
                 anchors.clear();
                 let keys = rules
@@ -602,7 +586,13 @@ impl TableCompareView {
                 ("Sort descending", 6),
                 ("Sort ascending", 7),
             ] {
-                if ui.button(name).clicked() {
+                let response = ui.button(name);
+                let response = if matches!(op, 6 | 7) {
+                    response.on_hover_text("Stable sort by selected visible columns. Multi-row selection: selected visible rows only; otherwise: whole active table.")
+                } else {
+                    response
+                };
+                if response.clicked() {
                     if let Err(e) = self.structure(op) {
                         self.message = e.to_string();
                     }
