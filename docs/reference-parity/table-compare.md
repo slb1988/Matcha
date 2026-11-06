@@ -2,11 +2,11 @@
 
 ## 范围与证据口径
 
-本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.1–4.3、4.5 已完成对应回归，4.4 和最终集成仍须按任务验收。本轮代码测试使用 egui RawInput/tessellation，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
+本清单对应 `table-compare-xlsx` 的 D9 与任务 5.3，来源是指定 CHM 的只读解包主题。**清单覆盖完整，不表示 GUI 功能全部完成**；4.1–4.5 与 4.4（会话/文件/多 sheet 交互）已完成对应回归与专项验收，6.1 最终集成于 Wave 7 由同轮 A/B 基准与全量门禁验收通过（仍不为本清单宣称全部 77 项原生功能）。本轮代码测试使用 egui RawInput/tessellation 与控制器级调用，不冒称锁定桌面上的物理鼠标或原生 IME 候选窗已验收。
 
 - `commandstable.html` 含 **77 个 p_Command 段落**，其中包含菜单分组和拆开的子项，不等于 77 个独立可执行命令。
 - 下表逐段保留原顺序与名称，包括两个重复的 `Open With >` 和隐藏标记 `*`，避免菜单组被去重后漏项。
-- “已有实现”仅指代码路径存在；“部分/待专项验收/矩阵待补”明确不能作为任务完成证据。
+- “已有实现”仅指代码路径存在；“部分/待专项验收/矩阵待补”明确不能作为任务完成证据。Wave 7 后 4.4 项升级见各行证据。
 - 已批准后置：会话持久化、父文件夹联动、外部程序、独立报告、全局字体；依据 [ADR 202](../decisions/202-table-view-and-golden.md) 及 design D9。
 - 目前唯一正式黄金差异为 Unaligned 报告路径，见 [KNOWN_DIFFS](../../crates/bc-core/tests/golden/table/KNOWN_DIFFS.md)。不把该路径推断为参考 GUI 全部行为。
 - 实施/回归入口：`bc-gui/src/table/{view,commands,grid,header,details,sheet_tabs,settings_panel,find,worker,cache,selection}.rs`，`tests.rs`、`edit_tests.rs`；算法与模型由 `bc-engine-table` 负责。
@@ -19,14 +19,14 @@
 |---|---|---|---|
 | C01 | `Save Session` | 已批准后置 | session-and-cli 统一会话持久化；菜单明确禁用，不发明过渡文件格式。 |
 | C02 | `Save Session As` | 已批准后置 | session-and-cli 统一会话持久化；菜单明确禁用，不发明过渡文件格式。 |
-| C03 | `Session Settings` | 已有实现、矩阵待补 | settings_panel.rs：五个内存设置页；当前比较可应用，完整场景矩阵仍属 4.4。 |
+| C03 | `Session Settings` | 已回归 | settings_panel.rs 五页（Specs/Format/Columns/Alignment/Sheets）：Apply/取消/非法映射拒绝不污染默认值、换格式真实重解析、换源重配对、手动配对保留、失败原子恢复；RawInput 窗口点击 + 控制器矩阵回归（wave7）。 |
 | C04 | `Locked` | 未接线 | 会话锁定尚未实现；Specs 的 Disable editing 不等价于锁定会话。 |
 | C05 | `Clear Session` | 未接线 | Home 有离开确认，但不是清空为新 Table Session；尚待统一会话命令评审。 |
-| C06 | `Swap Sides` | 已有实现、待专项验收 | commands.rs::swap：交换路径、格式、模型、历史、映射和锚点后后台比较；多 sheet 缓存边界待验。 |
-| C07 | `Reload Files` | 已有实现、待专项验收 | commands.rs::request/perform：脏数据确认后读取来源；失败及双侧编辑边界待 4.4。 |
+| C06 | `Swap Sides` | 已回归 | 引擎 TableMap::swap_sides 镜像转置（映射/注释方向/锚点/状态/摘要左右孤儿），编辑历史经方向奇偶跨 Swap 正确 Undo/Redo；未提交草稿随物理侧转置；pending 缓存对翻转；不再整表重比。引擎+GUI 双层回归（wave7）。 |
+| C07 | `Reload Files` | 已回归 | staged 加载：成功才替换会话，失败保留旧比较并报错；脏确认、双侧编辑边界与恢复均有回归（wave7）。 |
 | C08 | `Recompare Files` | 已有实现 | view.rs::recompare/worker.rs：快照 Job、旧 revision 拒绝；保留历史，不在 update 同步对齐。 |
 | C09 | `Table Compare Report` | 按 D9 后置 | 按 D9 后置 hex-and-reports；当前结构化摘要不等于 HTML/打印报告。 |
-| C10 | `Table Compare Info` | 已有实现、待专项验收 | 缓存当前及其他 sheet 三态/孤儿/列数；未扫描结果标 pending，不伪装为 Same。 |
+| C10 | `Table Compare Info` | 已回归 | 真实菜单点击打开，逐 sheet 相同/不重要/重要/仅左/仅右/列数与重复键；未扫描/失败标 pending 不伪装 Same（wave7）。 |
 | C11 | `Compare Files Using` | 部分 | 仅接线 Text Compare；需已有文件路径，其他会话类型未接线。 |
 | C12 | `Compare Parent Folders` | 待接线 | 文件夹线已合入 master，表格入口仍禁用；尚未接通表格父文件夹/子会话联动，不能把前置合并视为命令完成。 |
 
@@ -34,17 +34,17 @@
 
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
-| C13 | `Open File` | 已有实现、待专项验收 | 本地路径框、Home 和拖放；格式覆盖和已有脏数据交互待 4.4。 |
+| C13 | `Open File` | 已回归 | 单侧 staged 替换：成功才提交、失败保留整会话；新来源按掩码重路由格式选项；对侧（含缓存 sheet）编辑/历史按源索引重新挂接保留；孤儿 tab 不冒认。RawInput 确认框 + 控制器回归（wave7）。 |
 | C14 | `Open File on File System *` | 能力合并 | 本地能力与 Open File 合并；路径框代替原生文件选择器，无单独隐藏别名按钮。 |
 | C15 | `Open File Using Profile *` | 范围外 | 远端/VFS profile 选择与写入不在当前本地来源适配中，未连接。 |
-| C16 | `Open Clipboard` | 已有实现、待专项验收 | 请求 Paste 载荷加载指定侧并设 clipboard_dirty；跨侧缓存与保存完整回归待 4.4。 |
+| C16 | `Open Clipboard` | 已回归 | 外科单侧替换：对侧 sheet 对象/编辑/Undo 保留，缓存 sheet 重新挂接；workbook 侧剪贴板强制分隔符探测；替换侧历史清空。回归见 wave7。 |
 | C17 | `Open With` | 按 D9 后置 | 按 D9 留 session-and-cli/外部工具处理；未调用关联程序或系统文件管理器。 |
 | C18 | `Open With >` | 菜单分组 | 原帮助的菜单前缀段落；重复保留两个编号，不作为新增可执行命令。 |
 | C19 | `Associated Application` | 按 D9 后置 | 按 D9 留 session-and-cli/外部工具处理；未调用关联程序或系统文件管理器。 |
 | C20 | `Open With >` | 菜单分组 | 原帮助的菜单前缀段落；重复保留两个编号，不作为新增可执行命令。 |
 | C21 | `Text Edit` | 未接线 | 独立 Text Edit 尚未连接；不能把双文件 Text Compare 当成此项。 |
-| C22 | `Save File` | 已实现、部分回归 | 独立目的侧保存点、暂存+rename；先提交该侧草稿，xlsx 原格式禁用并提示 CSV 出口。 |
-| C23 | `Save File As` | 已实现、部分回归 | 本地路径框选择目标，另一侧仍保持 dirty；备份/失败的完整矩阵待 4.4。 |
+| C22 | `Save File` | 已回归 | 独立目的侧保存、暂存+rename、先提交草稿；staged/pending 占位期间拒绝保存且不取消加载；失败重排程重比不卡死；保存不取消 sheet 扫描。xlsx 只读提示不变。大表前台写盘耗时未测。 |
+| C23 | `Save File As` | 已回归 | 路径框目标更新仅该侧 target/dirty，另一侧独立；失败路径已回归。备份开关沿用既有偏好逻辑，本轮未对其做完整矩阵回归。 |
 | C24 | `Save File on File System As *` | 能力合并 | 与本地 Save File As 共用能力，没有重复隐藏按钮。 |
 | C25 | `Save File Using Profile As *` | 范围外 | 远端/VFS profile 选择与写入不在当前本地来源适配中，未连接。 |
 | C26 | `Explorer` | 按 D9 后置 | 按 D9 留 session-and-cli/外部工具处理；未调用关联程序或系统文件管理器。 |
@@ -53,8 +53,8 @@
 
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
-| C27 | `Undo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 均有一次撤销回归；Swap 与历史组合仍归 4.4。 |
-| C28 | `Redo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 的重做已验证；无变化排序保留 Redo。Swap 组合仍归 4.4。 |
+| C27 | `Undo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 均有一次撤销回归；Swap 与历史组合（跨 Swap Undo 方向正确）随 wave7 引擎+GUI 回归。 |
+| C28 | `Redo` | 已回归 | 基础编辑、复制、排序、结构命令及 Align With 的重做已验证；无变化排序保留 Redo。Swap 组合（跨 Swap Redo）随 wave7 回归。 |
 | C29 | `Align With` | 已回归 | RawInput 选源行、点对侧强制配对、清除及键盘 Undo/Redo；目的侧历史/焦点已修正，内容变化或重载取消陈旧待配对状态。 |
 | C30 | `Copy to Right / Copy to Left *` | 能力合并 | 方向别名并入 Copy to Other Side，按活动侧选择目的侧。 |
 | C31 | `Copy to Other Side` | 已回归 | 按可见投影规划整批 EditItem；无部分写入，单元格空隙明确拒绝，过滤/隐藏列/Show None/Undo/Redo 已验证。未宣称百万级批量复制耗时。 |
@@ -85,10 +85,10 @@
 | C51 | `Copy File to Left and Open Next Difference` | 按 D9 后置 | 按 D9 后置文件夹父/子会话；Copy Row 不是文件级复制并打开下一项。 |
 | C52 | `Next Edit` | 已回归 | 编辑行即使已变 Same 也能定位；Differences 过滤隐藏目标时自动 Show All，Undo/Redo 后标记同步。 |
 | C53 | `Previous Edit` | 已回归 | 反向编辑导航、首尾提示、一次撤销/重做后的目标集合均验证。 |
-| C54 | `Find` | 已有实现、部分回归 | 字面/正则、大小写/全词、指定侧，命中定位到单元格；已有控制器回归。 |
-| C55 | `Replace` | 已有实现、矩阵待补 | 当前命中/全部替换使用 Pattern 捕获；零宽与方向组合仍待 4.4。 |
-| C56 | `Find Next` | 已有实现、部分回归 | 正向/反向、不循环；当前实现扫描命中，不宣称后台搜索已经实现。 |
-| C57 | `Find Previous` | 已有实现、矩阵待补 | 正向/反向、不循环；当前实现扫描命中，不宣称后台搜索已经实现。 |
+| C54 | `Find` | 已回归 | 字面/正则、大小写/全词、指定侧，命中定位到单元格并滚入视野；Ctrl+F 面板与 F3 入口。控制器回归 12 项 + 1 项 RawInput 面板按钮流（wave7 search）。 |
+| C55 | `Replace` | 已回归 | 当前命中/全部替换；无命中或同值不制造无变化历史，换侧/换词重置位置；只读侧拒写；撤销单次成组。控制器回归为主（wave7 search）。 |
+| C56 | `Find Next` | 已回归 | 正向不循环、隐藏行列目标自动显露；前台扫描实现，大表搜索耗时未测（wave7 search）。 |
+| C57 | `Find Previous` | 已回归 | 反向不循环；同上为前台扫描（wave7 search）。 |
 | C58 | `Go To` | 已回归 | 1-based 比较行列、边界钳制并回显；隐藏行/列显露、兼容过滤不重置、空表/陈旧保护均有 Go 按钮回归。 |
 
 ### View
@@ -112,14 +112,14 @@
 | C73 | `Over-Under Layout` | 已回归 | 上下布局及双轴联动已做几何、滚轮输入与 tessellation 验证。 |
 | C74 | `Thumbnail` | 已回归 | 固定 512 桶、可视范围与点击定位；点击约 70% 返回对应比较行。 |
 | C75 | `Text Details` | 三档及公式详情回归通过 | 两侧完整逻辑值、公式和数字格式；真实点击三档并校验两侧公式文本、原始三态保留，不计算公式。 |
-| C76 | `File Info` | 显示开关已回归 | 路径/字节/编辑保护/修改提示及开关已接线；多 sheet 缓存、保存目标及失败路径信息仍随 4.4 验收。 |
+| C76 | `File Info` | 已回归 | 路径/字节/编辑保护/修改提示及开关；多 sheet 缓存切换、Save As 目标、单侧替换与失败恢复后的信息正确性随 wave7 回归。 |
 | C77 | `Toolbar` | 已回归 | 快捷工具栏可隐藏/恢复，Session/File/Edit/Search/View 菜单保留，恢复入口不会随工具栏消失。 |
 
 ## 会话设置主题
 
 ### `sessiontable.html`
 
-五页入口 Specs / Format / Columns / Alignment / Sheets 已有内存草稿、Apply 和验证路径。并非持久化会话；完整 Apply/取消、跨页、脏编辑与重载失败矩阵仍在 4.4。
+五页入口 Specs / Format / Columns / Alignment / Sheets 已有内存草稿、Apply 和验证路径。并非持久化会话（ADR 202 后置）；Apply/取消/脏草稿确认/重载失败原子恢复矩阵已在 wave7 回归。
 
 ### `sessiontablespecs.html`
 
@@ -133,10 +133,10 @@
 
 | 选项 | 当前实现 / 边界 |
 |---|---|
-| Detected / 文件格式掩码 | Home/CLI 按有序 FormatRegistry（内置 + Matcha 用户定义）路由，加载时采用匹配的 TableOptions；自定义固定宽度掩码的持久化/打开已验证。XLSX/XLSM 原生读取，xls/ods 和外部转换仍明确拒绝。会话显式覆盖完整矩阵属 4.4。 |
+| Detected / 文件格式掩码 | Home/CLI 按有序 FormatRegistry（内置 + Matcha 用户定义）路由，加载时采用匹配的 TableOptions；自定义固定宽度掩码的持久化/打开已验证。XLSX/XLSM 原生读取，xls/ods 和外部转换仍明确拒绝。Format 页选项与会话共享同一 ReadOptions 应用路径；wave7 实际回归的是分隔符改动经 Apply 重解析生效，其余 Type/编码/区域组合由引擎既有单测覆盖，未做逐项 UI 组合回归。 |
 | 左/右格式选择 | 现有 table 内置预设和逐侧 Type/Regional 选项；更改需重新读取。 |
 | Encoding overrides / None | 自动检测、UTF-8/16、1252/936 等 UI 项；引擎支持其明示代码页集合，失败不静默吞掉。 |
-| 覆盖优先级 | ReadOptions 承载当前会话解析设置，完整格式默认/会话覆盖切换场景仍待 4.4。 |
+| 覆盖优先级 | ReadOptions 承载当前会话解析设置；会话覆盖 Apply 后按新选项重读已回归。Open File 换源按新来源掩码重路由选项（不继承旧文件设置），该语义为 wave7 明确决策。 |
 
 ### `sessiontablecolumns.html`
 
@@ -144,12 +144,12 @@
 |---|---|
 | 比较列、左/右列号 | ColumnMapping，允许不同源列或 gap；界面 0 表示空映射，展示列号 1-based。 |
 | 样本数据 / Handling 摘要 | 当前列表主要显示列号和结构标记，尚非完整原生样本/摘要布局。 |
-| Move Up / Move Down 单侧 | 左或右的源列顺序移动；接口/往返有引擎测试，完整 GUI 矩阵待补。 |
+| Move Up / Move Down 单侧 | 左或右的源列顺序移动；接口/往返有引擎映射测试；wave7 的 GUI 证据是设置窗口里选中列 Handling 经 Apply 生效与 Accept structure，**未对 Move 按钮逐一做 RawInput 专项回归**。 |
 | 移动整条比较列 | 同时移动映射和 Handling。 |
 | Tidy | 删除双侧都为空的映射。 |
 | Key 与优先级 | 比较列次序决定复合键优先级；无显式键使用全部列。 |
 | Edit Default | 默认 Handling 草稿；Use Default 列继承，键标记仍逐列。 |
-| 超出项 | 自动键建议带“自动”标注并可手动锁定；结构检测/Accept 与按列号兼容预设已有，交互矩阵待补。 |
+| 超出项 | 自动键建议带“自动”标注（状态区与 Columns 页均显示解析后键列名，如 `id（自动）`）并可手动锁定；结构检测/Accept 与按列号兼容预设已有，Accept structure 经真实窗口点击回归（wave7）。 |
 
 ### `dlgtablecolhandling.html`
 
@@ -162,7 +162,7 @@
 | Whitespace | 同上，前后与词间数量变化按规则处理。 |
 | Numeric tolerance | 容差内差异为 U；原本相同的值仍 S。 |
 | Date tolerance | 内部毫秒，GUI 小时输入（24 = 一天）；引擎有天/小时构造。 |
-| 格式重要性 | 数字格式默认 U、引擎可配重要性；默认数字格式的三档/Ignore 往返已验证，重要性 GUI 配置仍待 4.4。 |
+| 格式重要性 | 数字格式默认 U；Session Settings → Columns 页 "Format differences are important" 复选框已接入会话规则并经 U→I→Ignore→Values 档输入回归（wave7）。字体/填充格式仍按 D2 后置。 |
 
 ### `sessiontablealignment.html`
 
@@ -174,12 +174,12 @@
 | Patience | core Patience，保留取消和手动锚点。 |
 | Unaligned | 项目规格为 n↔n；原生报告 024 的例外完整锁定在 KNOWN_DIFFS。 |
 | Use closeness matching | 可关闭，策略选择仍为 Standard；GUI 名称与文本线一致。 |
-| Left file is source | 列/Sheet 名称配对顺序；底层已支持，完整界面重排验收待 4.4。 |
+| Left file is source | 列/Sheet 名称配对顺序；Alignment 页开关翻转配对顺序已用异序 sheet 夹具回归（wave7）。 |
 | 中间结果 | 原子发布最终快照；已有内容可在重比期间显示，不宣称复刻原生分段增量对齐输出。 |
 
 ### `sessiontablesheets.html`
 
-按归一化名称配对，单侧 Sheet 保留；Move Up/Down 重排一侧以手动改变配对。实现有引擎测试，GUI 跨标签缓存、脏编辑保留和手动配对仍需 4.4 的完整回归。
+按归一化名称配对，单侧 Sheet 保留；Move Up/Down 重排一侧以手动改变配对。GUI 跨标签缓存、脏编辑保留（含单侧替换后的重新挂接）与手动配对（fixed_pairs 不被按名推导覆盖）均已回归（wave7）。
 
 ## 文件格式主题
 
@@ -220,7 +220,7 @@ General / Conversion / Type / Regional 为参考分类。当前 TableOptions 承
 
 ### `formattableregional.html`
 
-Use system / Decimal separator / Thousands separator / Date order / Date separator 均有模型与内存设置。Windows GUI 由加载 worker 只读解析系统区域并缓存，不修改系统/进程 locale；无法取得时使用文档化 invariant 回退。显式设置优先，严格解析失败保留文本。完整原生 GUI 交互和所有区域组合仍待 4.4，不把单元测试推定为全平台 locale 覆盖。
+Use system / Decimal separator / Thousands separator / Date order / Date separator 均有模型与内存设置。Windows GUI 由加载 worker 只读解析系统区域并缓存，不修改系统/进程 locale；无法取得时使用文档化 invariant 回退。显式设置优先，严格解析失败保留文本。**长期限制**：未做全平台 locale 组合回归，不把单元测试推定为各平台 locale 覆盖。
 
 ## 总览与多 Sheet
 
@@ -233,9 +233,9 @@ Use system / Decimal separator / Thousands separator / Date order / Date separat
 ### `table_working_with_multiple.html`
 
 - Sheet 标签用于切换当前比较；后台可逐 Sheet 计算色点/统计，未计算使用 pending 状态。
-- 同文件两侧可以通过 Sheets 重排比较不同 Sheet；底层配对有测试，完整 GUI 情况仍待 4.4。
+- 同文件两侧可以通过 Sheets 重排比较不同 Sheet；GUI 交叉配对与切换已回归（wave7）。
 - HTML tables 按 design 非目标，不接入转换器伪装实现。
-- 显示层切换不再取消全层汇总扫描，三档/Ignore 与缓存 sheet 切换/过滤已回归；设置或重载取消后的恢复及缓存编辑路径仍需 4.4 专项验收。
+- 显示层切换不再取消全层汇总扫描，三档/Ignore 与缓存 sheet 切换/过滤已回归；设置/重载取消与失败后的恢复、staged 事务期间不启动扫描、失败扫描不忙重试、缓存编辑保留均已专项验收（wave7）。
 
 ## 额外协议与校准
 

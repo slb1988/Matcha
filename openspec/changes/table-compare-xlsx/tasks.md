@@ -30,7 +30,7 @@
 - [x] 4.1 实现 `bc-gui/src/table/` 双网格（只渲染可见行列、同步滚动、行状态色点、表头、缩略图、Text Details、File Info、Side-by-Side/Over-Under、行号、可见空白、Resize Columns、Hide Same Columns），`app.rs` 加 `View::TableCompare`、`home.rs` 加表格卡片与按掩码路由；验证手动 + egui 输入注入回归：百万行网格滚动 update p99 < 4 ms（`--bench-table`）
 - [x] 4.2 实现导航与显示过滤（Next/Previous Difference Cell/Row、Next/Previous Edit、Go To、Show All/Differences/Same/None、Ignore Unimportant）；验证输入注入回归对照 table-compare-view 场景
 - [x] 4.3 实现编辑（Modify、剪贴板、插入/删除行列、Sort、Copy to Other Side、Copy Row、Select All、Align With、撤销重做）与键改变重对齐；验证输入注入回归：复制单元格到对侧后相同、修改键后重新配对
-- [ ] 4.4 实现查找/替换、Go To、会话设置面板（Specs/Format/Columns/Alignment/Sheets，含键推断标注与列结构变化接受/改写）、Table Compare Info、Swap/Reload/Recompare、两侧独立保存与 xlsx 只读提示、sheet 标签色点与切换、差异摘要导出入口；验证输入注入回归对照规格
+- [x] 4.4 实现查找/替换、Go To、会话设置面板（Specs/Format/Columns/Alignment/Sheets，含键推断标注与列结构变化接受/改写）、Table Compare Info、Swap/Reload/Recompare、两侧独立保存与 xlsx 只读提示、sheet 标签色点与切换、差异摘要导出入口；验证输入注入回归对照规格
 - [x] 4.5 三层档位切换（只看值 / 值+公式 / 值+公式+格式）与 Text Details 显示两侧公式；验证回归：值同公式不同用例
 
 ## 5. 黄金语料与对照
@@ -41,7 +41,7 @@
 
 ## 6. 集成
 
-- [ ] 6.1 全量回归（clippy `-D warnings`、`cargo test --workspace`、黄金一致率、`--bench-table`、文本线 `--bench` 不退化）并写报告 `docs/worker-reports/table-compare-xlsx-*.md`
+- [x] 6.1 全量回归（clippy `-D warnings`、`cargo test --workspace`、黄金一致率、`--bench-table`、文本线 `--bench` 不退化）并写报告 `docs/worker-reports/table-compare-xlsx-*.md`
 
 ## Workflow follow-up
 
@@ -50,3 +50,4 @@
 - Wave 4 补齐 4.5 的三档实际输入/公式详情/数字格式回归，并修复批量复制与显示层切换的扫描取消问题；累计 18/23。当时多列排序的范围决策待确认，证据与限制见 `docs/worker-reports/table-compare-xlsx-wave4.md`。
 - Wave 5 按用户确认实现稳定多键排序及跨行选区范围，补升降序、映射、过滤和撤销/重做回归；当时仍为 18/23，详见 `docs/worker-reports/table-compare-xlsx-wave5.md`。
 - Wave 6 在先 commit/push 既有成果后，完成并分别 push 4.2、4.3、4.1，累计 **21/23**；新增 19 项回归，workspace 303 passed，原生百万行 600 帧 update p99 1.314 ms。4.4 和 6.1 仍未完成；证据与边界见 `docs/worker-reports/table-compare-xlsx-wave6.md`，不提前归档。
+- Wave 7 完成 **4.4**（查找/替换、会话设置五页、Swap/Reload/Recompare、单侧 Open File/Open Clipboard 替换保留对侧与缓存 sheet、独立保存/xlsx 只读、sheet 配对/色点/Info、摘要导出、format_important 接入 GUI），实施侧检查点：表格 GUI 111 项、workspace 372 passed/0 failed/3 ignored、clippy 零警告；Swap 引擎转置与编辑历史奇偶、staged 加载提交、pending_side 状态机与扫描守卫等均先反例后修复。累计 **23/23**。6.1 由独立 validation worker 同轮 A/B 验收通过：表格百万行 update p99 median 1.075 ms（<4）、CPU p99 2.664 ms（<8）；文本线 B/A update p99 −1.2%、mean −0.8%、CPU +1.6%（区间重叠非完全相等），未发现退化；黄金行 81/83=97.59%、格 236/242=97.52%。证据见 `docs/worker-reports/table-compare-xlsx-wave7-validation.md`（A/B 原始轮次在 `target/table-wave7/audit/`）。**change 不归档**（评审通过后另行归档）。
