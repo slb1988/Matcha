@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 7:48:36 AM">
+	<foldercomp>
+		<ltpath>LEFT_ROOT</ltpath>
+		<rtpath>RIGHT_ROOT</rtpath>
+		<filters>[a-c]*.txt</filters>
+		<filecomp status="ltonly">
+			<lt>
+				<name>apple.txt</name>
+				<size>1</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</lt>
+		</filecomp>
+		<filecomp status="rtonly">
+			<rt>
+				<name>cat.txt</name>
+				<size>1</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</rt>
+		</filecomp>
+	</foldercomp>
+</bcreport>

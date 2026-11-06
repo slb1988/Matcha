@@ -1,0 +1,4 @@
+<Case name="crc-same" criteria="CRC" filter="" knownDiff="" flatten="false">
+  <File side="left" path="a.bin" modified="1767225600" attrs="" />
+  <File side="right" path="a.bin" modified="1767225600" attrs="" />
+</Case>

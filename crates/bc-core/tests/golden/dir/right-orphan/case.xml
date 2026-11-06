@@ -1,0 +1,3 @@
+<Case name="right-orphan" criteria="timestamp:2sec size" filter="" knownDiff="" flatten="false">
+  <File side="right" path="only.txt" modified="1767225600" attrs="" />
+</Case>

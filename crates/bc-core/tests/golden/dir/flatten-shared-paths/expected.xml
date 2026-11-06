@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 7:48:36 AM">
+	<foldercomp>
+		<ltpath>LEFT_ROOT</ltpath>
+		<rtpath>RIGHT_ROOT</rtpath>
+		<filecomp status="ltonly">
+			<lt>
+				<name>same.txt</name>
+				<path>.\c\</path>
+				<size>3</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</lt>
+		</filecomp>
+		<filecomp status="diff">
+			<lt>
+				<name>same.txt</name>
+				<path>.\b\</path>
+				<size>2</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</lt>
+			<rt>
+				<name>same.txt</name>
+				<path>.\c\</path>
+				<size>3</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</rt>
+		</filecomp>
+		<filecomp status="diff">
+			<lt>
+				<name>same.txt</name>
+				<path>.\a\</path>
+				<size>1</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</lt>
+			<rt>
+				<name>same.txt</name>
+				<path>.\b\</path>
+				<size>2</size>
+				<modified>1/1/2026 8:00:00 AM</modified>
+			</rt>
+		</filecomp>
+	</foldercomp>
+</bcreport>

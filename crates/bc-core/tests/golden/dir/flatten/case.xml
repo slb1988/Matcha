@@ -1,0 +1,4 @@
+<Case name="flatten" criteria="size" filter="" knownDiff="" flatten="true">
+  <File side="left" path="alpha/same.txt" modified="1767225600" attrs="" />
+  <File side="right" path="beta/same.txt" modified="1767225600" attrs="" />
+</Case>

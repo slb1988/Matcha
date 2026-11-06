@@ -1,0 +1,4 @@
+<Case name="any-depth" criteria="size" filter="&quot;...\Windows\*.txt&quot;" knownDiff="" flatten="false">
+  <File side="left" path="Windows/a.txt" modified="1767225600" attrs="" />
+  <File side="right" path="deep/Windows/b.txt" modified="1767225600" attrs="" />
+</Case>

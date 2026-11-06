@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/6/2026 7:48:35 AM">
+	<foldercomp>
+		<ltpath>LEFT_ROOT</ltpath>
+		<rtpath>RIGHT_ROOT</rtpath>
+		<filters>...\Windows\*.txt</filters>
+		<foldercomp>
+			<rt>
+				<name>deep</name>
+				<size>1</size>
+				<modified>11/6/2026 7:48:35 AM</modified>
+			</rt>
+			<foldercomp>
+				<rt>
+					<name>Windows</name>
+					<size>1</size>
+					<modified>11/6/2026 7:48:35 AM</modified>
+				</rt>
+				<filecomp status="rtonly">
+					<rt>
+						<name>b.txt</name>
+						<size>1</size>
+						<modified>1/1/2026 8:00:00 AM</modified>
+					</rt>
+				</filecomp>
+			</foldercomp>
+		</foldercomp>
+		<foldercomp>
+			<lt>
+				<name>Windows</name>
+				<size>1</size>
+				<modified>11/6/2026 7:48:35 AM</modified>
+			</lt>
+			<filecomp status="ltonly">
+				<lt>
+					<name>a.txt</name>
+					<size>1</size>
+					<modified>1/1/2026 8:00:00 AM</modified>
+				</lt>
+			</filecomp>
+		</foldercomp>
+	</foldercomp>
+</bcreport>

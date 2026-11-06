@@ -1,0 +1,5 @@
+<Case name="root-relative" criteria="size" filter="&quot;.\Windows\*.txt&quot;" knownDiff="" flatten="false">
+  <File side="left" path="Windows/a.txt" modified="1767225600" attrs="" />
+  <File side="right" path="Windows/a.txt" modified="1767225600" attrs="" />
+  <File side="left" path="deep/Windows/a.txt" modified="1767225600" attrs="" />
+</Case>

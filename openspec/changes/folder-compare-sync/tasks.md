@@ -51,9 +51,9 @@
 
 ## 7. 黄金语料与对照
 
-- [ ] 7.1 编写 `tools/golden/gen_dir_expected.ps1`：生成 ≥ 20 个目录对用例（孤儿、较新、容差内/外、DST、属性、CRC 不同、规则比较仅注释、过滤掩码、相对掩码、扁平化），用参考工具脚本 `load/criteria/filter/expand all/folder-report layout:xml` 产出期望并入库；验证脚本在本机跑通
-- [ ] 7.2 编写期望解析与回归测试 `bc-engine-dir/tests/golden_dir.rs`（语料为空时跳过）；验证状态逐行一致率 100%，不一致写 `tests/golden/dir/KNOWN_DIFFS.md`
-- [ ] 7.3 编写 `docs/reference-parity/folder-compare.md` 与 `folder-sync.md`：按 D10 逐条命令/选项记录已实现/未采纳(理由)/后置；验证覆盖帮助主题中的每一条命令
+- [x] 7.1 编写 `tools/golden/gen_dir_expected.ps1`：生成 ≥ 20 个目录对用例（孤儿、较新、容差内/外、DST、属性、CRC 不同、规则比较仅注释、过滤掩码、相对掩码、扁平化），用参考工具脚本 `load/criteria/filter/expand all/folder-report layout:xml` 产出期望并入库；验证脚本在本机跑通
+- [x] 7.2 编写期望解析与回归测试 `bc-engine-dir/tests/golden_dir.rs`（语料为空时跳过）；验证状态逐行一致率 100%，不一致写 `tests/golden/dir/KNOWN_DIFFS.md`
+- [x] 7.3 编写 `docs/reference-parity/folder-compare.md` 与 `folder-sync.md`：按 D10 逐条命令/选项记录已实现/未采纳(理由)/后置；验证覆盖帮助主题中的每一条命令
 
 ## 8. 集成
 

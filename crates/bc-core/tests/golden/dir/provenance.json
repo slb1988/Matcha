@@ -1,0 +1,8 @@
+{
+    "captured_utc":  "2026-11-05T23:48:37.8219986Z",
+    "reference_sha256":  "75ea69772796c909a6659f23037f779de3399eccaa2332969f6dcc28c7bf9826",
+    "reference_version":  "5.0.6.30713",
+    "invocation":  "solo + silent script; original reports normalized only for base paths",
+    "captured_cases":  28,
+    "generator_sha256":  "09272edd860c173496a2ca3f97bef630503b77c983354e48ad663bf813f2b8a9"
+}
