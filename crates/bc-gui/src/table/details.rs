@@ -25,7 +25,7 @@ pub fn ui(ui: &mut egui::Ui, map: &TableMap, cursor: Cursor) {
                             c.right
                         }
                     });
-                    let cell = r.and_then(|r| c.and_then(|c| sheet.cell(r, c)));
+                    let cell = r.and_then(|r| c.and_then(|c| sheet.cell_snapshot(r, c)));
                     let text = r
                         .and_then(|r| c.and_then(|c| sheet.display_at(r, c)))
                         .unwrap_or_default();
@@ -35,12 +35,12 @@ pub fn ui(ui: &mut egui::Ui, map: &TableMap, cursor: Cursor) {
                         .show(ui, |ui| {
                             ui.label(text);
                             ui.monospace(
-                                cell.and_then(|c| c.formula.as_deref())
+                                cell.as_ref().and_then(|c| c.formula.as_deref())
                                     .unwrap_or("(no formula)"),
                             );
                             ui.label(
                                 sheet
-                                    .style(cell.and_then(|c| c.style))
+                                    .style(cell.as_ref().and_then(|c| c.style))
                                     .and_then(|s| s.number_format.as_deref())
                                     .unwrap_or("(no number format)"),
                             );

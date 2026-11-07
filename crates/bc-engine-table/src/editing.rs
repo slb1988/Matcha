@@ -242,3 +242,53 @@ impl Sheet {
                 .map_or(0, |s| s.rows.len() * std::mem::size_of::<RawRow>())
     }
 }
+/// Generic read-only sort planning over `TableData` (demand storage support);
+/// `Sheet::sorted_row_order` and the store façade both delegate here.
+pub(crate) fn sorted_row_order_data<S: crate::data::TableData + ?Sized>(
+    sheet: &S,
+    rows: &[usize],
+    keys: &[(usize, ColumnHandling)],
+    descending: bool,
+) -> Result<Option<Vec<usize>>> {
+    if rows.iter().any(|&r| r >= sheet.row_count()) {
+        return Err(invalid("sort row out of bounds"));
+    }
+    if keys.iter().any(|(c, _)| *c >= sheet.column_count()) {
+        return Err(invalid("sort column out of bounds"));
+    }
+    let mut slots = rows.to_vec();
+    slots.sort_unstable();
+    slots.dedup();
+    if slots.len() < 2 || keys.is_empty() {
+        return Ok(None);
+    }
+    // Normalize each selected key once, not inside every comparator call.
+    // Reuse the key-alignment total order for General/Text and mixed types.
+    let values = keys
+        .iter()
+        .map(|(column, handling)| {
+            slots
+                .iter()
+                .map(|&row| normalized_value(sheet, row, Some(*column), handling))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let mut sorted = (0..slots.len()).collect::<Vec<_>>();
+    sorted.sort_by(|&a, &b| {
+        for column in &values {
+            let cmp = value_cmp(&column[a], &column[b]);
+            if !cmp.is_eq() {
+                return if descending { cmp.reverse() } else { cmp };
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+    if sorted.iter().enumerate().all(|(i, &r)| i == r) {
+        return Ok(None);
+    }
+    let mut order = (0..sheet.row_count()).collect::<Vec<_>>();
+    for (&slot, from) in slots.iter().zip(sorted) {
+        order[slot] = slots[from];
+    }
+    Ok(Some(order))
+}

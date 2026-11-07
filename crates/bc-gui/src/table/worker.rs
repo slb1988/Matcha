@@ -1,24 +1,32 @@
 use super::cache::Cache;
 use bc_core::{align::AlignmentOverrides, cancel::CancelCheck, CoreError};
 use bc_engine_table::{
+    demand::{DemandError, DemandSheet},
     jobs::TableAlignJob,
     map::TableAlignOutput,
     sheets::{SheetPair, SheetPairs},
     source::{detect_header, read_path, ReadOptions},
     workbook::Workbook,
-    Sheet, TableRules,
+    Sheet, SheetStore, TableRules,
 };
 use bc_formats::model::HeaderMode;
 use bc_jobs::{CancelToken, Job, JobContext, JobError, JobId, JobResult, Progress, ProgressSink};
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+/// Controlled experimental entry (default off): bind delimited text sources to
+/// on-demand storage instead of dense materialization. XLSX never takes this
+/// path; unsupported sources fall back to the dense load with a visible log.
+fn demand_csv_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("MATCHA_TABLE_CSV_LAZY").is_some())
+}
 pub struct Prepared {
-    pub left: Sheet,
-    pub right: Sheet,
+    pub left: SheetStore,
+    pub right: SheetStore,
     pub output: TableAlignOutput,
     pub cache: Cache,
 }
@@ -33,7 +41,7 @@ pub struct Loaded {
 /// A side that must be served from memory (unedited in-memory sheet with its
 /// sheet list), e.g. the untouched side of a single-side Open File.
 pub struct MemorySheet {
-    pub sheet: Sheet,
+    pub sheet: SheetStore,
     pub names: Vec<String>,
     pub index: usize,
 }
@@ -125,7 +133,7 @@ pub enum Output {
     Projected(Box<Cache>, (u64, u64), TableRules, bool),
     Scanned(Vec<[bc_engine_table::map::TableStatistics; 3]>),
 }
-type SideLoad = (Result<(Sheet, Vec<String>), JobError>, Duration);
+type SideLoad = (Result<(SheetStore, Vec<String>), JobError>, Duration);
 fn error(e: CoreError) -> JobError {
     match e {
         CoreError::Cancelled => JobError::Cancelled,
@@ -134,8 +142,8 @@ fn error(e: CoreError) -> JobError {
 }
 pub fn prepare(
     job: Box<dyn Job>,
-    left: Sheet,
-    right: Sheet,
+    left: SheetStore,
+    right: SheetStore,
     ctx: &JobContext,
 ) -> Result<Prepared, JobError> {
     let t = Instant::now();
@@ -156,8 +164,8 @@ pub fn prepare(
 }
 pub struct AlignJob {
     pub job: Box<dyn Job>,
-    pub left: Sheet,
-    pub right: Sheet,
+    pub left: SheetStore,
+    pub right: SheetStore,
 }
 impl Job for AlignJob {
     fn name(&self) -> String {
@@ -172,8 +180,8 @@ impl Job for AlignJob {
 pub struct ProjectJob {
     pub fit_all: bool,
     pub output: TableAlignOutput,
-    pub left: Sheet,
-    pub right: Sheet,
+    pub left: SheetStore,
+    pub right: SheetStore,
 }
 impl Job for ProjectJob {
     fn name(&self) -> String {
@@ -200,9 +208,9 @@ fn load(
     options: &ReadOptions,
     index: Option<usize>,
     ctx: &JobContext,
-) -> Result<(Sheet, Vec<String>), JobError> {
+) -> Result<(SheetStore, Vec<String>), JobError> {
     let Some(path) = path else {
-        return Ok((Sheet::default(), vec!["Clipboard".into()]));
+        return Ok((SheetStore::default(), vec!["Clipboard".into()]));
     };
     CancelCheck::check(&ctx.cancel).map_err(error)?;
     let mut resolved = options.clone();
@@ -246,15 +254,45 @@ fn load(
             sheet.take_header();
         }
         crate::perf::span("worker:header-detect", t);
-        Ok((sheet, names))
+        Ok((SheetStore::Dense(sheet), names))
     } else {
+        if demand_csv_enabled() {
+            match DemandSheet::open(path, options, &ctx.cancel) {
+                Ok(sheet) => {
+                    // Snapshot copy + mapping are real load costs; surface the
+                    // virtual mapping size (not residency) in perf tracing.
+                    crate::perf::mark(&format!(
+                        "worker:demand-mapped-bytes={}",
+                        sheet.mapped_virtual_bytes()
+                    ));
+                    let name = sheet.name().to_string();
+                    return Ok((
+                        if index.is_some() {
+                            SheetStore::Lazy(sheet)
+                        } else {
+                            SheetStore::default()
+                        },
+                        vec![name],
+                    ));
+                }
+                Err(DemandError::Unsupported(reason)) => {
+                    // Visible fallback log; the dense path below loads the same
+                    // bytes with unchanged semantics.
+                    eprintln!(
+                        "[table] demand storage unsupported for {}: {reason}; dense load applies",
+                        path.display()
+                    );
+                }
+                Err(DemandError::Failed(e)) => return Err(error(e)),
+            }
+        }
         let output = read_path(path, options, &ctx.cancel).map_err(error)?;
         let name = output.sheet.name.clone();
         Ok((
             if index.is_some() {
-                output.sheet
+                SheetStore::Dense(output.sheet)
             } else {
-                Sheet::default()
+                SheetStore::default()
             },
             vec![name],
         ))
@@ -282,7 +320,7 @@ impl Job for LoadJob {
             .as_ref()
             .map(|p| [p.left, p.right])
             .unwrap_or([Some(0), Some(0)]);
-        let mut sheets: [Option<Sheet>; 2] = [None, None];
+        let mut sheets: [Option<SheetStore>; 2] = [None, None];
         let mut names: [Vec<String>; 2] = [Vec::new(), Vec::new()];
         // Initial open reads both files from disk; the two parses are
         // independent, so run them concurrently. A side served from memory

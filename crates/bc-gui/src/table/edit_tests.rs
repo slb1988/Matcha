@@ -151,8 +151,8 @@ fn clean_commit_keeps_formula_style_type_and_commit_error_keeps_the_draft() {
     assert!(!v.is_dirty());
     v.commit_edit().unwrap();
     assert_eq!(
-        v.pair.as_ref().unwrap().map.right.borrow().cell(0, 1),
-        Some(&original)
+        v.pair.as_ref().unwrap().map.right.borrow().cell_snapshot(0, 1),
+        Some(original)
     );
     assert!(!v.pair.as_ref().unwrap().history[1].can_undo());
     v.begin_edit(1, Cursor { row: 0, column: 1 }, Some("7".into()));
@@ -165,7 +165,7 @@ fn clean_commit_keeps_formula_style_type_and_commit_error_keeps_the_draft() {
     ready(&mut v);
     let p = v.pair.as_ref().unwrap();
     let s = p.map.right.borrow();
-    let cell = s.cell(0, 1).unwrap();
+    let cell = s.cell_snapshot(0, 1).unwrap();
     assert_eq!(cell.style, Some(style));
     assert_eq!(cell.formula, None);
 }
@@ -432,7 +432,7 @@ fn empty_paste_is_not_an_edit_and_plain_text_paste_keeps_destination_style() {
             .map
             .right
             .borrow()
-            .cell(0, 1)
+            .cell_snapshot(0, 1)
             .unwrap()
             .style,
         Some(style)

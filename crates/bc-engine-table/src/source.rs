@@ -60,7 +60,9 @@ pub struct ReadOutput {
 #[derive(Debug, Clone)]
 pub struct Record {
     pub fields: Vec<String>,
-    raw: RawRow,
+    /// Lexical spans (byte offsets into `text`) + line ending; crate-internal
+    /// (dense save and the demand store's edited-row splice share this shape).
+    pub(crate) raw: RawRow,
 }
 /// UTF-8 record iterator. Encoding conversion is a separate streaming layer.
 pub struct Records<R> {
@@ -252,7 +254,7 @@ pub(crate) fn field_text(raw: &str, options: &TableOptions) -> String {
 /// Validate all UTF-8 bytes without retaining them, matching core's whole-input
 /// validation rather than guessing from an 8 KiB prefix. A seekable source allows
 /// the actual parse to restart without spooling the file into memory.
-fn detect<R: Read + Seek>(
+pub(crate) fn detect<R: Read + Seek>(
     reader: &mut R,
     options: &ReadOptions,
     cancel: &dyn CancelCheck,
@@ -426,7 +428,7 @@ impl<R: Read> Read for Decoded<R> {
         Ok(n)
     }
 }
-fn delimiter_score(sample: &str, delimiter: char, format: &TableOptions) -> usize {
+pub(crate) fn delimiter_score(sample: &str, delimiter: char, format: &TableOptions) -> usize {
     let mut format = format.clone();
     format.delimiters = vec![delimiter];
     format.detect_delimiter = false;
@@ -579,17 +581,23 @@ pub fn read_text<R: Read + Seek>(
     });
     Ok(ReadOutput { sheet, diagnostics })
 }
+/// Header detection on a materialized sheet (original public entry; behavior unchanged).
 pub fn detect_header(sheet: &Sheet) -> bool {
+    detect_header_data(sheet)
+}
+/// Generic read-only entry over `TableData` (prototype/demand storage support).
+pub fn detect_header_data<S: crate::data::TableData>(sheet: &S) -> bool {
     sheet.row_count() > 1
         && sheet.column_count() > 0
-        && (0..sheet.column_count())
-            .all(|c| matches!(sheet.cell(0, c).map(|c| &c.value), Some(CellValue::Text(_))))
+        && (0..sheet.column_count()).all(|c| {
+            matches!(sheet.cell_info(0, c).map(|i| i.value), Some(crate::data::CellData::Text(_)))
+        })
         && (0..sheet.column_count()).any(|c| {
             (1..sheet.row_count().min(33))
                 .filter(|&r| {
                     !matches!(
-                        sheet.cell(r, c).map(|c| &c.value),
-                        Some(CellValue::Text(_) | CellValue::Empty)
+                        sheet.cell_info(r, c).map(|i| i.value),
+                        Some(crate::data::CellData::Text(_) | crate::data::CellData::Empty)
                     )
                 })
                 .count()

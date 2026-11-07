@@ -1,6 +1,7 @@
 use crate::{
+    data::{CellData, CellInfo, TableData},
     rules::{ColumnHandling, ColumnType, Layers},
-    Cell, CellValue, Sheet,
+    Sheet,
 };
 use std::borrow::Cow;
 
@@ -64,46 +65,49 @@ impl CellDiff {
 /// Both cells hold identical raw text: with equal regional settings and a
 /// non-Text-typed column their normalized comparison values are identical,
 /// so callers may skip normalization entirely.
-pub(crate) fn raw_text_equal(a: Option<&Cell>, b: Option<&Cell>) -> bool {
+pub(crate) fn raw_text_equal(a: Option<&CellInfo>, b: Option<&CellInfo>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => match (&a.value, &b.value) {
-            (CellValue::Text(t), CellValue::Text(u)) => t == u,
+            (CellData::Text(t), CellData::Text(u)) => t == u,
             _ => false,
         },
         _ => false,
     }
 }
-pub(crate) fn normalized_value<'a>(
-    sheet: &'a Sheet,
+pub(crate) fn normalized_value<'a, S: TableData + ?Sized>(
+    sheet: &'a S,
     row: usize,
     column: Option<usize>,
     handling: &ColumnHandling,
-) -> Cow<'a, CellValue> {
-    let cell = column.and_then(|c| sheet.cell(row, c));
+) -> CellData<'a> {
+    let info = column.and_then(|c| sheet.cell_info(row, c));
     if handling.column_type == ColumnType::Text {
         let text = column
-            .and_then(|c| sheet.display_at(row, c))
+            .map(|c| sheet.display_text(row, c))
             .unwrap_or_default();
-        return Cow::Owned(CellValue::Text(handling.normalize_text(&text).into()));
+        return CellData::Text(Cow::Owned(handling.normalize_text(&text)));
     }
-    let value = cell.map_or(&CellValue::Empty, |c| &c.value);
-    if let CellValue::Text(text) = value {
-        let parsed = crate::regional::interpret(text, &sheet.regional);
-        if !matches!(parsed, CellValue::Text(_)) {
-            return Cow::Owned(parsed);
+    let Some(info) = info else {
+        return CellData::Empty;
+    };
+    let value = info.value;
+    if let CellData::Text(text) = &value {
+        let parsed = crate::regional::interpret(text, sheet.regional());
+        if !matches!(parsed, crate::CellValue::Text(_)) {
+            return CellData::from_owned_value(parsed);
         }
         if handling.ignore_case || handling.ignore_whitespace {
-            return Cow::Owned(CellValue::Text(handling.normalize_text(text).into()));
+            return CellData::Text(Cow::Owned(handling.normalize_text(text)));
         }
     }
-    Cow::Borrowed(value)
+    value
 }
-pub(crate) fn equal_values(left: &CellValue, right: &CellValue, handling: &ColumnHandling) -> bool {
+pub(crate) fn equal_values(left: &CellData, right: &CellData, handling: &ColumnHandling) -> bool {
     match (left, right) {
-        (CellValue::Number(l), CellValue::Number(r)) => {
+        (CellData::Number(l), CellData::Number(r)) => {
             l == r || (l - r).abs() <= handling.numeric_tolerance
         }
-        (CellValue::Date(l), CellValue::Date(r)) => {
+        (CellData::Date(l), CellData::Date(r)) => {
             (i128::from(*l) - i128::from(*r)).abs() <= i128::from(handling.date_tolerance.0)
         }
         _ => left == right,
@@ -114,10 +118,21 @@ pub struct CellComparator<'a> {
     pub format_important: bool,
 }
 impl CellComparator<'_> {
+    /// Compare on materialized sheets (original entry; behavior unchanged).
     pub fn compare(
         &self,
         left: &Sheet,
         right: &Sheet,
+        rows: (Option<usize>, Option<usize>),
+        columns: (Option<usize>, Option<usize>),
+    ) -> CellDiff {
+        self.compare_data(left, right, rows, columns)
+    }
+    /// Generic read-only entry over `TableData` (prototype/demand storage support).
+    pub fn compare_data<S: TableData + ?Sized>(
+        &self,
+        left: &S,
+        right: &S,
         rows: (Option<usize>, Option<usize>),
         columns: (Option<usize>, Option<usize>),
     ) -> CellDiff {
@@ -128,8 +143,8 @@ impl CellComparator<'_> {
             };
         }
         let (l, r) = (rows.0.unwrap(), rows.1.unwrap());
-        let lc = columns.0.and_then(|c| left.cell(l, c));
-        let rc = columns.1.and_then(|c| right.cell(r, c));
+        let lc = columns.0.and_then(|c| left.cell_info(l, c));
+        let rc = columns.1.and_then(|c| right.cell_info(r, c));
         let changed = if self.handling.unimportant {
             Importance::Unimportant
         } else {
@@ -147,8 +162,8 @@ impl CellComparator<'_> {
         // text cells benefit, and only when the column is not forced to
         // Text-typed comparison (which reads override-aware display text).
         let raw_text_same = self.handling.column_type != ColumnType::Text
-            && left.regional == right.regional
-            && raw_text_equal(lc, rc);
+            && left.regional() == right.regional()
+            && raw_text_equal(lc.as_ref(), rc.as_ref());
         let value = if lc.is_some() != rc.is_some() {
             changed
         } else if raw_text_same
@@ -171,17 +186,13 @@ impl CellComparator<'_> {
         // Trim only boundary whitespace and the leading '='; formula string
         // literals and significant internal spaces must never be rewritten.
         // Compared as &str: no per-cell String allocation.
-        let formula = if formula_text(lc) == formula_text(rc) {
+        let formula = if formula_text(lc.as_ref()) == formula_text(rc.as_ref()) {
             Importance::Same
         } else {
             changed
         };
-        let ls = left
-            .style(lc.and_then(|c| c.style))
-            .and_then(|s| s.number_format.as_deref());
-        let rs = right
-            .style(rc.and_then(|c| c.style))
-            .and_then(|s| s.number_format.as_deref());
+        let ls = lc.as_ref().and_then(|i| i.number_format);
+        let rs = rc.as_ref().and_then(|i| i.number_format);
         let format = if ls == rs {
             Importance::Same
         } else if self.format_important && !self.handling.unimportant {
@@ -198,8 +209,8 @@ impl CellComparator<'_> {
 }
 
 /// Formula text for comparison: trimmed, without the leading '='.
-fn formula_text(c: Option<&Cell>) -> &str {
-    c.and_then(|c| c.formula.as_deref())
+fn formula_text<'a>(c: Option<&'a CellInfo<'a>>) -> &'a str {
+    c.and_then(|i| i.formula)
         .unwrap_or("")
         .trim()
         .trim_start_matches('=')

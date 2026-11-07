@@ -54,10 +54,10 @@ fn mapped_right_to_left_cell_batch_keeps_types_formulas_styles_spelling_and_one_
     assert_eq!(map.statistics().same, 2);
     {
         let left = map.left.borrow();
-        assert_eq!(left.cell(0, 2).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(left.cell_snapshot(0, 2).unwrap().value, CellValue::Number(1.0));
         assert_eq!(left.display_at(0, 2).unwrap(), "1.00");
         assert_eq!(left.display_at(1, 2).unwrap(), "4.00");
-        let copied = left.cell(0, 1).unwrap();
+        let copied = left.cell_snapshot(0, 1).unwrap();
         assert_eq!(copied.formula.as_deref(), Some("=A1"));
         assert_eq!(
             left.style(copied.style).unwrap().number_format.as_deref(),

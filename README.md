@@ -11,6 +11,10 @@ Status: **scaffold** (2026-11-05). Crate boundaries, traits, data models, the bu
 format library, the exit-code/command/switch tables and an egui prototype are in place;
 every algorithm is a `todo!()`.
 
+Current table-memory work: [session handoff](docs/worker-reports/table-memory-handoff.md)
+and [measurement details](tools/demand_proto.md). The demand-backed GUI path is experimental,
+default-off, and has **not passed the GUI ready-time gate**; the scaffold description above is historical.
+
 ## Project goals and non-goals
 
 - Goal (M1–M3): Text Compare/Merge/Edit, Folder Compare/Sync, Table Compare (CSV), script

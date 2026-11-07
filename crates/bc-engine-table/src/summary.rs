@@ -121,10 +121,10 @@ impl TableMap {
                     .unwrap_or_else(|| (c + 1).to_string());
                 let lc = row
                     .left
-                    .and_then(|r| column.left.and_then(|c| left.cell(r, c)));
+                    .and_then(|r| column.left.and_then(|c| left.cell_snapshot(r, c)));
                 let rc = row
                     .right
-                    .and_then(|r| column.right.and_then(|c| right.cell(r, c)));
+                    .and_then(|r| column.right.and_then(|c| right.cell_snapshot(r, c)));
                 for (layer, importance) in [
                     ("value", diff.value),
                     ("formula", diff.formula),
@@ -138,20 +138,22 @@ impl TableMap {
                     }
                     let (old, new) = match layer {
                         "formula" => (
-                            lc.and_then(|c| c.formula.as_deref())
+                            lc.as_ref()
+                                .and_then(|c| c.formula.as_deref())
                                 .unwrap_or("")
                                 .to_string(),
-                            rc.and_then(|c| c.formula.as_deref())
+                            rc.as_ref()
+                                .and_then(|c| c.formula.as_deref())
                                 .unwrap_or("")
                                 .to_string(),
                         ),
                         "format" => (
-                            left.style(lc.and_then(|c| c.style))
+                            left.style(lc.as_ref().and_then(|c| c.style))
                                 .and_then(|s| s.number_format.as_deref())
                                 .unwrap_or("")
                                 .to_string(),
                             right
-                                .style(rc.and_then(|c| c.style))
+                                .style(rc.as_ref().and_then(|c| c.style))
                                 .and_then(|s| s.number_format.as_deref())
                                 .unwrap_or("")
                                 .to_string(),

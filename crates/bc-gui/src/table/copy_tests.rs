@@ -58,8 +58,8 @@ fn copy_cells_uses_visible_projection_and_does_not_touch_hidden_formulas() {
     assert_eq!(right_values(&v, 1), ["A", "same", "C"]);
     {
         let s = v.pair.as_ref().unwrap().map.right.borrow();
-        assert_eq!(s.cell(1, 1).unwrap().formula.as_deref(), Some("=9"));
-        assert_eq!(s.cell(0, 2).unwrap().formula.as_deref(), Some("=9"));
+        assert_eq!(s.cell_snapshot(1, 1).unwrap().formula.as_deref(), Some("=9"));
+        assert_eq!(s.cell_snapshot(0, 2).unwrap().formula.as_deref(), Some("=9"));
     }
     v.undo(false);
     ready(&mut v);

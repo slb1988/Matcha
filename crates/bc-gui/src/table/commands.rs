@@ -7,7 +7,7 @@ use super::{
 use bc_core::{cancel::NeverCancel, edit::EditStack, CoreError};
 use bc_engine_table::{
     columns::{ComparisonColumn, Side},
-    source::{export_csv, read_text, save_as, ReadOptions},
+    source::{read_text, ReadOptions},
     summary::SummaryFormat,
     Cell, Sheet,
 };
@@ -84,7 +84,7 @@ impl TableCompareView {
                         display: cursor,
                         text: replacement.unwrap_or_else(|| original.clone()),
                         original,
-                        original_cell: sheet.cell(row, col).unwrap().clone(),
+                        original_cell: sheet.cell_snapshot(row, col).expect("cell in range"),
                         focus: true,
                     }
                 };
@@ -125,7 +125,8 @@ impl TableCompareView {
             } else {
                 pair.map.right.borrow()
             };
-            if sheet.cell(editor.source.row, editor.source.column) != Some(&editor.original_cell)
+            if sheet.cell_snapshot(editor.source.row, editor.source.column).as_ref()
+                != Some(&editor.original_cell)
                 || sheet
                     .display_at(editor.source.row, editor.source.column)
                     .as_deref()
@@ -468,7 +469,7 @@ impl TableCompareView {
             .edit_sheet(side(s), "Paste cells", |sheet, rules, anchors| {
                 for (row, cells) in values.iter_mut().enumerate() {
                     for (col, cell) in cells.iter_mut().enumerate() {
-                        cell.style = sheet.cell(r + row, c + col).and_then(|cell| cell.style);
+                        cell.style = sheet.cell_snapshot(r + row, c + col).and_then(|cell| cell.style);
                     }
                 }
                 sheet.paste_cells(r, c, values)?;
@@ -1088,7 +1089,7 @@ impl TableCompareView {
                     .write(true)
                     .create_new(true)
                     .open(&temp)?;
-                export_csv(&sheet, &mut f)?;
+                bc_engine_table::store::export_store(&sheet, &mut f)?;
                 f.sync_all()?;
                 drop(f);
                 std::fs::rename(&temp, path)?;
@@ -1099,7 +1100,7 @@ impl TableCompareView {
             }
             result?;
         } else {
-            save_as(&sheet, path)?;
+            bc_engine_table::store::save_store(&sheet, path)?;
             p.history[s].mark_saved();
             self.files[s].clipboard_dirty = false;
             self.files[s].target = Some(path.into());
@@ -1256,7 +1257,7 @@ impl TableCompareView {
         let result = if self.pair.is_some() {
             let p = self.pair.as_mut().unwrap();
             p.map
-                .replace_sheet(side(s), if s == 0 { left } else { right });
+                .replace_store(side(s), if s == 0 { left } else { right });
             // The worker aligned against the preserved in-memory sheet; if the
             // active pair was re-hung from another sheet (edited elsewhere),
             // realign in the background instead of installing a mismatch.
@@ -1465,7 +1466,7 @@ impl TableCompareView {
                                 // clipboard sheet held by the worker.
                                 let mut memory = [None, None];
                                 memory[s] = Some(super::worker::MemorySheet {
-                                    sheet: parsed.sheet,
+                                    sheet: bc_engine_table::SheetStore::Dense(parsed.sheet),
                                     names: self.names[s].clone(),
                                     index: 0,
                                 });

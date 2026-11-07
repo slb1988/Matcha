@@ -1,20 +1,21 @@
 //! Plan comparison-coordinate copies before applying one reversible edit.
 use crate::{
     columns::{ColumnChange, Side},
-    invalid, Result, Sheet, TableMap,
+    invalid,
+    store::SheetStore,
+    Result, TableMap,
 };
 use bc_core::{align::AlignmentOverrides, edit::EditItem};
 use std::cmp::Reverse;
 
 fn copy_value(
-    source: &Sheet,
+    source: &SheetStore,
     src: (usize, usize),
-    target: &mut Sheet,
+    target: &mut SheetStore,
     dst: (usize, usize),
 ) -> Result<()> {
     let mut cell = source
-        .cell(src.0, src.1)
-        .cloned()
+        .cell_snapshot(src.0, src.1)
         .ok_or_else(|| invalid("source cell out of range"))?;
     cell.style = source
         .style(cell.style)
@@ -24,7 +25,7 @@ fn copy_value(
         .display_at(src.0, src.1)
         .ok_or_else(|| invalid("source cell out of range"))?;
     target.set_cell(dst.0, dst.1, cell)?;
-    target.display_overrides.insert(dst, display.into());
+    target.insert_display_override(dst.0, dst.1, display.into());
     Ok(())
 }
 

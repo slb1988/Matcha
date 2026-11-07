@@ -2,9 +2,10 @@
 use crate::{
     columns::Side,
     compare::{equal_values, normalized_value, raw_text_equal},
+    data::{CellData, TableData},
     invalid,
     rules::ColumnHandling,
-    CellValue, Result, Sheet, TableRules,
+    Result, Sheet, TableRules,
 };
 use bc_core::{
     align::{
@@ -36,33 +37,33 @@ pub struct KeyAlignment {
 }
 #[derive(Debug, Default)]
 pub struct KeyAlign;
-fn atom_bytes(value: &CellValue, out: &mut Vec<u8>) {
+fn atom_bytes(value: &CellData, out: &mut Vec<u8>) {
     match value {
-        CellValue::Empty => out.push(0),
-        CellValue::Text(t) => {
+        CellData::Empty => out.push(0),
+        CellData::Text(t) => {
             out.push(1);
             out.extend(t.as_bytes());
         }
-        CellValue::Number(n) => {
+        CellData::Number(n) => {
             out.push(2);
             out.extend(if *n == 0.0 { 0.0f64 } else { *n }.to_bits().to_le_bytes());
         }
-        CellValue::Bool(b) => {
+        CellData::Bool(b) => {
             out.push(3);
             out.push(u8::from(*b));
         }
-        CellValue::Date(d) => {
+        CellData::Date(d) => {
             out.push(4);
             out.extend(d.to_le_bytes());
         }
-        CellValue::Error(t) => {
+        CellData::Error(t) => {
             out.push(5);
             out.extend(t.as_bytes());
         }
     }
 }
-fn hash_row(
-    sheet: &Sheet,
+fn hash_row<S: TableData>(
+    sheet: &S,
     row: usize,
     side: Side,
     rules: &TableRules,
@@ -85,21 +86,21 @@ fn hash_row(
     }
     LineHasher::default().hash_line(bytes)
 }
-fn keys_equal(
-    left: &Sheet,
-    right: &Sheet,
+fn keys_equal<S: TableData>(
+    left: &S,
+    right: &S,
     l: usize,
     r: usize,
     rules: &TableRules,
     keys: &[(usize, ColumnHandling)],
 ) -> bool {
-    let same_regional = left.regional == right.regional;
+    let same_regional = left.regional() == right.regional();
     keys.iter().all(|(c, h)| {
-        let lc = rules.columns.0[*c].left.and_then(|col| left.cell(l, col));
-        let rc = rules.columns.0[*c].right.and_then(|col| right.cell(r, col));
+        let lc = rules.columns.0[*c].left.and_then(|col| left.cell_info(l, col));
+        let rc = rules.columns.0[*c].right.and_then(|col| right.cell_info(r, col));
         if same_regional
             && h.column_type != crate::rules::ColumnType::Text
-            && raw_text_equal(lc, rc)
+            && raw_text_equal(lc.as_ref(), rc.as_ref())
         {
             return true;
         }
@@ -110,29 +111,29 @@ fn keys_equal(
         )
     })
 }
-pub(crate) fn value_cmp(l: &CellValue, r: &CellValue) -> Ordering {
-    fn rank(v: &CellValue) -> u8 {
+pub(crate) fn value_cmp(l: &CellData, r: &CellData) -> Ordering {
+    fn rank(v: &CellData) -> u8 {
         match v {
-            CellValue::Empty => 0,
-            CellValue::Number(_) => 1,
-            CellValue::Date(_) => 2,
-            CellValue::Bool(_) => 3,
-            CellValue::Text(_) => 4,
-            CellValue::Error(_) => 5,
+            CellData::Empty => 0,
+            CellData::Number(_) => 1,
+            CellData::Date(_) => 2,
+            CellData::Bool(_) => 3,
+            CellData::Text(_) => 4,
+            CellData::Error(_) => 5,
         }
     }
     match (l, r) {
-        (CellValue::Number(l), CellValue::Number(r)) => l.total_cmp(r),
-        (CellValue::Date(l), CellValue::Date(r)) => l.cmp(r),
-        (CellValue::Bool(l), CellValue::Bool(r)) => l.cmp(r),
-        (CellValue::Text(l), CellValue::Text(r)) | (CellValue::Error(l), CellValue::Error(r)) => {
-            l.cmp(r)
+        (CellData::Number(l), CellData::Number(r)) => l.total_cmp(r),
+        (CellData::Date(l), CellData::Date(r)) => l.cmp(r),
+        (CellData::Bool(l), CellData::Bool(r)) => l.cmp(r),
+        (CellData::Text(l), CellData::Text(r)) | (CellData::Error(l), CellData::Error(r)) => {
+            l.as_ref().cmp(r.as_ref())
         }
         _ => rank(l).cmp(&rank(r)),
     }
 }
-fn order(
-    sheet: &Sheet,
+fn order<S: TableData>(
+    sheet: &S,
     side: Side,
     rules: &TableRules,
     keys: &[(usize, ColumnHandling)],
@@ -160,8 +161,8 @@ fn order(
     cancel.check()?;
     Ok(order)
 }
-fn hashes(
-    sheet: &Sheet,
+fn hashes<S: TableData>(
+    sheet: &S,
     order: &[usize],
     side: Side,
     rules: &TableRules,
@@ -189,8 +190,8 @@ fn hashes(
     }
     Ok((result, duplicates))
 }
-fn bucket(
-    sheet: &Sheet,
+fn bucket<S: TableData>(
+    sheet: &S,
     row: usize,
     side: Side,
     rules: &TableRules,
@@ -198,25 +199,25 @@ fn bucket(
 ) -> i64 {
     let (c, h) = first;
     let value = normalized_value(sheet, row, rules.columns.0[*c].index(side), h);
-    match &*value {
-        CellValue::Number(n) if h.numeric_tolerance > 0.0 => {
+    match &value {
+        CellData::Number(n) if h.numeric_tolerance > 0.0 => {
             (*n / h.numeric_tolerance).floor() as i64
         }
-        CellValue::Date(ms) if h.date_tolerance.0 > 0 => ms.div_euclid(h.date_tolerance.0),
+        CellData::Date(ms) if h.date_tolerance.0 > 0 => ms.div_euclid(h.date_tolerance.0),
         _ => i64::MIN,
     }
 }
-struct KeyContext<'a> {
-    left: &'a Sheet,
-    right: &'a Sheet,
+struct KeyContext<'a, S: TableData> {
+    left: &'a S,
+    right: &'a S,
     rules: &'a TableRules,
     keys: &'a [(usize, ColumnHandling)],
 }
 /// Positive tolerances are not transitive, so quantizing alone is incorrect.
 /// Search neighboring buckets and verify every candidate against the actual
 /// tolerance; assign shared pair IDs in stable occurrence order.
-fn tolerant_tokens(
-    ctx: &KeyContext<'_>,
+fn tolerant_tokens<S: TableData>(
+    ctx: &KeyContext<'_, S>,
     orders: (&[usize], &[usize]),
     cancel: &dyn CancelCheck,
 ) -> Result<(Vec<ContentHash>, Vec<ContentHash>)> {
@@ -279,7 +280,7 @@ fn tolerant_tokens(
     }
     Ok((lt, rt))
 }
-fn row_text(sheet: &Sheet, order: &[usize], cancel: &dyn CancelCheck) -> Result<LineList> {
+fn row_text<S: TableData>(sheet: &S, order: &[usize], cancel: &dyn CancelCheck) -> Result<LineList> {
     let mut text = Vec::with_capacity(order.len() * 32);
     let mut cell_buf = String::new();
     for (i, &row) in order.iter().enumerate() {
@@ -292,7 +293,7 @@ fn row_text(sheet: &Sheet, order: &[usize], cancel: &dyn CancelCheck) -> Result<
                 text.push(b'\t');
             }
             cell_buf.clear();
-            sheet.cell(row, column).unwrap().display_into(&mut cell_buf);
+            sheet.display_into(row, column, &mut cell_buf);
             for c in cell_buf.chars() {
                 if count >= 256 {
                     break;
@@ -369,10 +370,22 @@ fn patience(
     Ok(map)
 }
 impl KeyAlign {
+    /// Align materialized sheets (original public entry; behavior unchanged).
     pub fn align(
         &self,
         left: &Sheet,
         right: &Sheet,
+        rules: &TableRules,
+        overrides: &AlignmentOverrides,
+        cancel: &dyn CancelCheck,
+    ) -> Result<KeyAlignment> {
+        self.align_data(left, right, rules, overrides, cancel)
+    }
+    /// Generic read-only entry over `TableData` (prototype/demand storage support).
+    pub fn align_data<S: TableData + Sync>(
+        &self,
+        left: &S,
+        right: &S,
         rules: &TableRules,
         overrides: &AlignmentOverrides,
         cancel: &dyn CancelCheck,
@@ -480,6 +493,9 @@ impl KeyAlign {
                 map
             }
         };
+        // row_text's line buffers are only inputs to the strategy alignment
+        // above; release them before verify-filter instead of at fn return.
+        drop(text);
         crate::perf::span("key-align:strategy-align", t);
         let t = std::time::Instant::now();
         let mut filtered = Vec::with_capacity(map.len());

@@ -257,7 +257,7 @@ fn three_layers_resolve_style_attributes_and_ignore_is_only_projection() {
     let new_style = map.right.borrow_mut().intern_style(Style {
         number_format: Some("0.000".into()),
     });
-    let mut cell = map.right.borrow().cell(0, 1).unwrap().clone();
+    let mut cell = map.right.borrow().cell_snapshot(0, 1).unwrap();
     cell.style = Some(new_style);
     map.right.borrow_mut().set_cell(0, 1, cell).unwrap();
     map.recompare(&NeverCancel).unwrap();

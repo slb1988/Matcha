@@ -36,7 +36,7 @@ fn realign_if_stale(m: &TableMap) {
 
 /// 对当前两侧内容与当前规则/锚点做全新比较，作为统计口径的 ground truth。
 fn fresh_statistics(m: &TableMap) -> bc_engine_table::map::TableStatistics {
-    let fresh = TableMap::new(
+    let fresh = TableMap::new_stores(
         m.left.borrow().clone(),
         m.right.borrow().clone(),
         m.rules().clone(),
@@ -321,7 +321,7 @@ fn replace_sheet_then_other_side_undo_must_not_restore_stale_anchors() {
     );
     m.set_alignment(realigned.unwrap()).unwrap();
     // Ground truth：当前内容、当前规则、无幽灵锚点的全新比较。
-    let fresh = TableMap::new(
+    let fresh = TableMap::new_stores(
         m.left.borrow().clone(),
         m.right.borrow().clone(),
         m.rules().clone(),

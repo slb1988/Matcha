@@ -1,0 +1,18 @@
+{
+  "purpose": "frozen reference from UNMODIFIED production engine (before TableData trait addition)",
+  "revision": "aae14944b8df0e947060fc5cbe5bdfae1f5f5880",
+  "engine_state": "crates/ untouched; only new untracked example demand_proto.rs",
+  "input": {
+    "left":  {"path": "target/table-wave7/audit/inputs/table-left.csv",  "sha256": "1c7f090e6863bc81d4ce3c2802017ced9589363dafaca50be6b259e0410886d7", "bytes": 69258868},
+    "right": {"path": "target/table-wave7/audit/inputs/table-right.csv", "sha256": "53c033e4a8feb2c54eec8636884c690c4c2f1a3635fc461637a846166b479c81", "bytes": 69258868}
+  },
+  "rules": "ColumnMapping::by_number(10,10) + infer_keys -> Automatic{columns:[0]} + default handling/overrides",
+  "result": {
+    "rows": 1000000, "same": 990000, "unimportant": 0, "important": 10000,
+    "left_only": 0, "right_only": 0,
+    "row_stream_digest_fnv1a64": "092d09a4649bbfc5"
+  },
+  "gui_fingerprint_crosscheck": "matches GUI MATCHA_TABLE_PERF fingerprint (rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0)",
+  "phases_ms": {"load_left": 2950.9, "load_right_cum": 6255.7, "infer_keys_cum": 6522.6, "align_cum": 7271.0, "compare_cum": 7475.6, "digest_cum": 7485.0},
+  "note": "prototype reference loads serially; GUI parallelizes side loads (ready median 5530.5ms GUI口径, not comparable as-is)"
+}

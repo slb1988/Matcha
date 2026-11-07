@@ -23,6 +23,8 @@ mod command_matrix;
 mod copying;
 #[path = "edit_tests.rs"]
 mod editing;
+#[path = "lazy_tests.rs"]
+mod lazy;
 #[path = "navigation_tests.rs"]
 mod navigation;
 #[path = "projection_tests.rs"]

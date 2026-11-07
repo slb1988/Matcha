@@ -4,6 +4,7 @@ use crate::{
     compare::{CellComparator, CellDiff, Importance, PackedStates},
     invalid,
     rules::{ColumnMode, KeySelection, Layers},
+    store::SheetStore,
     Cell, Result, Sheet, TableRules,
 };
 use bc_core::{
@@ -14,12 +15,13 @@ use bc_core::{
 };
 use std::{
     cell::{Cell as Parity, Ref, RefCell, RefMut},
-    collections::HashSet,
     rc::Rc,
     sync::Arc,
 };
 
-pub type SharedSheet = Rc<RefCell<Sheet>>;
+/// Live edit target per side. The name predates the storage bridge: it now
+/// holds the `SheetStore` enum (dense default / experimental demand-backed).
+pub type SharedSheet = Rc<RefCell<SheetStore>>;
 const GAP: u32 = u32::MAX;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CompactRow {
@@ -120,9 +122,21 @@ pub struct TableAlignOutput {
     pub overrides: AlignmentOverrides,
 }
 /// Public split phase used by the benchmark: does not repeat alignment.
+/// Compare on materialized sheets (original public entry; behavior unchanged).
 pub fn compare_alignment(
     left: &Sheet,
     right: &Sheet,
+    rules: &TableRules,
+    overrides: &AlignmentOverrides,
+    alignment: KeyAlignment,
+    cancel: &dyn CancelCheck,
+) -> Result<TableAlignOutput> {
+    compare_alignment_data(left, right, rules, overrides, alignment, cancel)
+}
+/// Generic read-only entry over `TableData` (prototype/demand storage support).
+pub fn compare_alignment_data<S: crate::data::TableData>(
+    left: &S,
+    right: &S,
     rules: &TableRules,
     overrides: &AlignmentOverrides,
     alignment: KeyAlignment,
@@ -144,18 +158,12 @@ pub fn compare_alignment(
     let mut summary = CellDiff::default();
     let mut rows = Vec::with_capacity(alignment.map.len());
     let handling: Vec<_> = (0..columns).map(|c| rules.handling(c)).collect();
-    let le: HashSet<_> = left
-        .changed
-        .iter()
-        .map(|&(r, _)| r)
-        .chain(left.row_edit_marks.iter().copied())
-        .collect();
-    let re: HashSet<_> = right
-        .changed
-        .iter()
-        .map(|&(r, _)| r)
-        .chain(right.row_edit_marks.iter().copied())
-        .collect();
+    let mut le = std::collections::HashSet::new();
+    left.collect_edited_rows(&mut le);
+    let mut re = std::collections::HashSet::new();
+    right.collect_edited_rows(&mut re);
+    let le = le;
+    let re = re;
     for (i, row) in alignment.map.into_rows().into_iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
@@ -169,7 +177,7 @@ pub fn compare_alignment(
                 handling,
                 format_important: rules.format_important,
             }
-            .compare(left, right, (l, r), (col.left, col.right));
+            .compare_data(left, right, (l, r), (col.left, col.right));
             aggregate = aggregate.merge(diff);
             column_states[c] = column_states[c].merge(diff);
             states.set(i * columns + c, diff);
@@ -336,6 +344,29 @@ pub(crate) fn prepare_rules(
     }
     rules.validate(left.column_count(), right.column_count())
 }
+/// Generic read-only variant over `TableData` (store-bridged worker path);
+/// identical steps to `prepare_rules`.
+pub(crate) fn prepare_rules_data<S: crate::data::TableData + Sync>(
+    left: &S,
+    right: &S,
+    rules: &mut TableRules,
+    cancel: &dyn CancelCheck,
+) -> Result<()> {
+    cancel.check()?;
+    if rules.columns.0.is_empty() {
+        rules.columns = if rules.column_mode == ColumnMode::Automatic
+            && !matches!(rules.keys, KeySelection::ByColumnNumber)
+        {
+            crate::columns::align_columns_data(left, right, rules.left_is_source, cancel)?
+        } else {
+            ColumnMapping::by_number(left.column_count(), right.column_count())
+        };
+    }
+    if matches!(&rules.keys,KeySelection::Automatic{columns,..} if columns.is_empty()) {
+        rules.keys = crate::inference::infer_keys_data(left, right, rules, cancel)?.selection;
+    }
+    rules.validate(left.column_count(), right.column_count())
+}
 impl TableMap {
     pub fn new(
         left: Sheet,
@@ -351,7 +382,35 @@ impl TableMap {
     }
     /// Install an initial worker result without repeating any heavy work on the UI
     /// thread. The live edit targets are created only here, never sent to workers.
+    /// Dense-sheet entry preserved for existing callers/tests.
     pub fn from_output(left: Sheet, right: Sheet, output: TableAlignOutput) -> Result<Self> {
+        Self::from_stores(
+            SheetStore::Dense(left),
+            SheetStore::Dense(right),
+            output,
+        )
+    }
+    /// Fresh comparison over store-bridged sides (identical chain to `new`,
+    /// generic over `TableData`; dense stores take the same code path whose
+    /// digest-equality the prototype established).
+    pub fn new_stores(
+        left: SheetStore,
+        right: SheetStore,
+        mut rules: TableRules,
+        cancel: &dyn CancelCheck,
+    ) -> Result<Self> {
+        prepare_rules_data(&left, &right, &mut rules, cancel)?;
+        let overrides = AlignmentOverrides::default();
+        let alignment = KeyAlign.align_data(&left, &right, &rules, &overrides, cancel)?;
+        let output = compare_alignment_data(&left, &right, &rules, &overrides, alignment, cancel)?;
+        Self::from_stores(left, right, output)
+    }
+    /// Store-bridged install (dense default / experimental demand-backed sides).
+    pub fn from_stores(
+        left: SheetStore,
+        right: SheetStore,
+        output: TableAlignOutput,
+    ) -> Result<Self> {
         if output.revisions != (left.revision(), right.revision()) {
             return Err(invalid("stale initial table result"));
         }
@@ -385,7 +444,7 @@ impl TableMap {
         &self,
         side: Side,
         description: &str,
-        edit: impl FnOnce(&mut Sheet, &mut TableRules, &mut AlignmentOverrides) -> Result<()>,
+        edit: impl FnOnce(&mut SheetStore, &mut TableRules, &mut AlignmentOverrides) -> Result<()>,
     ) -> Result<Box<dyn EditItem>> {
         self.apply_edit(side, description, |sheet, settings| {
             edit(sheet, &mut settings.rules, &mut settings.overrides)
@@ -415,6 +474,10 @@ impl TableMap {
         let state = self.state.borrow().transpose();
         *self.state.borrow_mut() = state;
     }
+    /// Dense-sheet replacement entry preserved for existing callers/tests.
+    pub fn replace_sheet(&self, side: Side, sheet: Sheet) {
+        self.replace_store(side, SheetStore::Dense(sheet));
+    }
     /// Replace one side's content in place (Open File/Clipboard on one side).
     /// The other side keeps its sheet object, edit history and captured
     /// snapshots; the new sheet's revision marks the map stale for realignment.
@@ -424,7 +487,7 @@ impl TableMap {
     /// fall back to automatic mapping and key inference instead of silently
     /// comparing the wrong columns. Manual anchors bind row pairs across both
     /// sides, so they are dropped and the anchor generation bumped.
-    pub fn replace_sheet(&self, side: Side, sheet: Sheet) {
+    pub fn replace_store(&self, side: Side, sheet: SheetStore) {
         let target = self.target(side);
         let rematch = {
             let settings = self.settings.borrow();
@@ -646,7 +709,7 @@ impl TableMap {
         &self,
         side: Side,
         description: &str,
-        edit: impl FnOnce(&mut Sheet, &mut Settings) -> Result<()>,
+        edit: impl FnOnce(&mut SheetStore, &mut Settings) -> Result<()>,
     ) -> Result<Box<dyn EditItem>> {
         let before_aligned = !self.is_stale();
         if !before_aligned && !self.deferred_edits {
@@ -717,8 +780,8 @@ struct TableEdit {
     settings: Rc<RefCell<Settings>>,
     orientation: Rc<Parity<bool>>,
     captured_orientation: bool,
-    before: Sheet,
-    after: Sheet,
+    before: SheetStore,
+    after: SheetStore,
     before_state: TableAlignOutput,
     after_state: TableAlignOutput,
     before_settings: Settings,
@@ -731,7 +794,7 @@ impl TableEdit {
     /// Snapshots were captured in the map's orientation at edit time; a later
     /// Swap Sides flips that orientation, so restoring across it must first
     /// transpose the captured rules/state/anchors into the current orientation.
-    fn restore(&self, sheet: &Sheet, state: &TableAlignOutput, settings: &Settings, aligned: bool) {
+    fn restore(&self, sheet: &SheetStore, state: &TableAlignOutput, settings: &Settings, aligned: bool) {
         let flipped = self.orientation.get() != self.captured_orientation;
         let side = if flipped {
             self.side.other()

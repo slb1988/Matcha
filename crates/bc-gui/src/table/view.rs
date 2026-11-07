@@ -203,8 +203,21 @@ impl TableCompareView {
         Ok(view)
     }
     pub fn from_sheets(left: Sheet, right: Sheet, rules: TableRules) -> Self {
+        Self::from_stores(
+            bc_engine_table::SheetStore::Dense(left),
+            bc_engine_table::SheetStore::Dense(right),
+            rules,
+        )
+    }
+    /// Store-bridged constructor: dense default path, or the experimental
+    /// demand-backed stores when MATCHA_TABLE_CSV_LAZY loaded the sources.
+    pub fn from_stores(
+        left: bc_engine_table::SheetStore,
+        right: bc_engine_table::SheetStore,
+        rules: TableRules,
+    ) -> Self {
         let mut view = Self::blank();
-        view.names = [vec![left.name.clone()], vec![right.name.clone()]];
+        view.names = [vec![left.name()], vec![right.name()]];
         view.pairs = SheetPairs(vec![bc_engine_table::sheets::SheetPair {
             left: Some(0),
             right: Some(0),
@@ -322,7 +335,7 @@ impl TableCompareView {
             self.install_aligned(output, cache)
         } else {
             let t = std::time::Instant::now();
-            let mut map = TableMap::from_output(left, right, output)?;
+            let mut map = TableMap::from_stores(left, right, output)?;
             map.set_deferred_edits(true);
             crate::perf::span("view:install-from-output", t);
             let t = std::time::Instant::now();
@@ -458,7 +471,7 @@ impl TableCompareView {
                             if self.pair.is_some() {
                                 {
                                     let p = self.pair.as_mut().unwrap();
-                                    p.map.replace_sheet(
+                                    p.map.replace_store(
                                         super::commands::side(s),
                                         if s == 0 { left } else { right },
                                     );

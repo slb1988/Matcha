@@ -1,4 +1,7 @@
-use crate::{invalid, rules::ColumnHandling, Cell, CellValue, Result, Sheet};
+use crate::{
+    data::{CellData, CellInfo, TableData},
+    invalid, rules::ColumnHandling, Result, Sheet,
+};
 use bc_core::{
     cancel::CancelCheck,
     hash::{ContentHash, LineHasher},
@@ -147,24 +150,26 @@ pub fn normalized_name(name: &str) -> String {
 }
 
 /// Canonical exact value bytes, length-delimited by the caller for composite keys.
-pub(crate) fn value_bytes(cell: Option<&Cell>, handling: &ColumnHandling) -> Vec<u8> {
+pub(crate) fn value_bytes(cell: Option<&CellInfo>, handling: &ColumnHandling) -> Vec<u8> {
     let mut bytes = Vec::new();
     value_bytes_write(cell, handling, &mut bytes);
     bytes
 }
-fn value_bytes_write(cell: Option<&Cell>, handling: &ColumnHandling, out: &mut Vec<u8>) {
+fn value_bytes_write(cell: Option<&CellInfo>, handling: &ColumnHandling, out: &mut Vec<u8>) {
     let Some(cell) = cell else {
         out.push(0);
         return;
     };
     if handling.column_type == crate::rules::ColumnType::Text {
         out.push(1);
-        out.extend(handling.normalize_text(&cell.display()).as_bytes());
+        let mut text = String::new();
+        cell.value.display_into(&mut text);
+        out.extend(handling.normalize_text(&text).as_bytes());
         return;
     }
     match &cell.value {
-        CellValue::Empty => out.push(0),
-        CellValue::Text(s) => {
+        CellData::Empty => out.push(0),
+        CellData::Text(s) => {
             out.push(1);
             if !handling.ignore_case && !handling.ignore_whitespace {
                 // Identity normalization: copy without the String round-trip.
@@ -173,19 +178,19 @@ fn value_bytes_write(cell: Option<&Cell>, handling: &ColumnHandling, out: &mut V
                 out.extend(handling.normalize_text(s).as_bytes());
             }
         }
-        CellValue::Number(n) => {
+        CellData::Number(n) => {
             out.push(2);
             out.extend(if *n == 0.0 { 0.0f64 } else { *n }.to_bits().to_le_bytes());
         }
-        CellValue::Bool(b) => {
+        CellData::Bool(b) => {
             out.push(3);
             out.push(u8::from(*b));
         }
-        CellValue::Date(d) => {
+        CellData::Date(d) => {
             out.push(4);
             out.extend(d.to_le_bytes());
         }
-        CellValue::Error(e) => {
+        CellData::Error(e) => {
             out.push(5);
             out.extend(e.as_bytes());
         }
@@ -194,8 +199,8 @@ fn value_bytes_write(cell: Option<&Cell>, handling: &ColumnHandling, out: &mut V
 /// Same hash as the historical allocating `row_hash`, reusing caller scratch
 /// instead of allocating per row. Hot for full-column key inference over
 /// large sheets.
-pub(crate) fn row_hash_into(
-    sheet: &Sheet,
+pub(crate) fn row_hash_into<S: TableData>(
+    sheet: &S,
     row: usize,
     columns: &[usize],
     handling: &[ColumnHandling],
@@ -205,7 +210,8 @@ pub(crate) fn row_hash_into(
     for (&column, handling) in columns.iter().zip(handling) {
         let start = bytes.len();
         bytes.extend([0; 8]);
-        value_bytes_write(sheet.cell(row, column), handling, bytes);
+        let info = sheet.cell_info(row, column);
+        value_bytes_write(info.as_ref(), handling, bytes);
         let len = (bytes.len() - start - 8) as u64;
         bytes[start..start + 8].copy_from_slice(&len.to_le_bytes());
     }
@@ -214,38 +220,48 @@ pub(crate) fn row_hash_into(
 pub(crate) fn finish_row_hash(bytes: &[u8]) -> ContentHash {
     LineHasher::default().hash_line(bytes)
 }
-fn column_sample(sheet: &Sheet, column: usize) -> (HashSet<ContentHash>, [usize; 6]) {
+fn column_sample<S: TableData>(sheet: &S, column: usize) -> (HashSet<ContentHash>, [usize; 6]) {
     let mut set = HashSet::new();
     let mut types = [0; 6];
     for i in 0..sheet.row_count().min(1000) {
         let row = i * sheet.row_count() / sheet.row_count().clamp(1, 1000);
-        let cell = sheet.cell(row, column).unwrap();
-        let kind = match cell.value {
-            CellValue::Empty => 0,
-            CellValue::Text(_) => 1,
-            CellValue::Number(_) => 2,
-            CellValue::Bool(_) => 3,
-            CellValue::Date(_) => 4,
-            CellValue::Error(_) => 5,
+        let info = sheet.cell_info(row, column).unwrap();
+        let kind = match info.value {
+            CellData::Empty => 0,
+            CellData::Text(_) => 1,
+            CellData::Number(_) => 2,
+            CellData::Bool(_) => 3,
+            CellData::Date(_) => 4,
+            CellData::Error(_) => 5,
         };
         types[kind] += 1;
         set.insert(
-            LineHasher::default().hash_line(&value_bytes(Some(cell), &ColumnHandling::default())),
+            LineHasher::default().hash_line(&value_bytes(Some(&info), &ColumnHandling::default())),
         );
     }
     (set, types)
 }
 /// Header-first matching, then deterministic greedy maximum similarity among
 /// unmatched columns (1000 uniformly sampled values, threshold 0.9).
+/// Align columns of materialized sheets (original public entry; behavior unchanged).
 pub fn align_columns(
     left: &Sheet,
     right: &Sheet,
     left_is_source: bool,
     cancel: &dyn CancelCheck,
 ) -> Result<ColumnMapping> {
+    align_columns_data(left, right, left_is_source, cancel)
+}
+/// Generic read-only entry over `TableData` (prototype/demand storage support).
+pub fn align_columns_data<S: TableData>(
+    left: &S,
+    right: &S,
+    left_is_source: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<ColumnMapping> {
     let mut pairs = vec![None; left.column_count()];
     let mut used = HashSet::new();
-    if let (Some(lh), Some(rh)) = (&left.headers, &right.headers) {
+    if let (Some(lh), Some(rh)) = (left.headers(), right.headers()) {
         for (l, name) in lh.iter().enumerate().take(left.column_count()) {
             cancel.check()?;
             let name = normalized_name(name);
@@ -301,7 +317,7 @@ pub fn align_columns(
         match r {
             None => c.changes.push(ColumnChange::Deleted),
             Some(r) => {
-                if let (Some(lh), Some(rh)) = (&left.headers, &right.headers) {
+                if let (Some(lh), Some(rh)) = (left.headers(), right.headers()) {
                     if normalized_name(&lh[l]) != normalized_name(&rh[r]) {
                         c.changes.push(ColumnChange::Renamed);
                     } else if l != r {

@@ -1,5 +1,6 @@
 use crate::{
     columns::{finish_row_hash, row_hash_into, Side},
+    data::TableData,
     invalid,
     rules::KeySelection,
     Result, Sheet, TableRules,
@@ -27,8 +28,8 @@ pub struct KeySuggestion {
     pub selection: KeySelection,
     pub candidates: Vec<KeyCandidate>,
 }
-fn values_into(
-    sheet: &Sheet,
+fn values_into<S: TableData>(
+    sheet: &S,
     columns: &[usize],
     rules: &TableRules,
     side: Side,
@@ -56,7 +57,7 @@ struct ScoreScratch {
     r: KeyMap,
 }
 impl ScoreScratch {
-    fn new(left: &Sheet, right: &Sheet) -> Self {
+    fn new<L: TableData, R: TableData>(left: &L, right: &R) -> Self {
         Self {
             l: KeyMap::with_capacity_and_hasher(left.row_count(), Default::default()),
             r: KeyMap::with_capacity_and_hasher(right.row_count(), Default::default()),
@@ -67,9 +68,9 @@ impl ScoreScratch {
 /// order-preserving chunks (each thread gets its own preallocated scratch
 /// maps); results concatenate in candidate order so the `best()` tie-break
 /// observes exactly the sequential candidate sequence.
-fn score_wave(
-    left: &Sheet,
-    right: &Sheet,
+fn score_wave<S: TableData + Sync>(
+    left: &S,
+    right: &S,
     rules: &TableRules,
     columns_list: &[Vec<usize>],
     cancel: &dyn CancelCheck,
@@ -108,9 +109,9 @@ fn score_wave(
     }
     Ok(out)
 }
-fn score(
-    left: &Sheet,
-    right: &Sheet,
+fn score<S: TableData>(
+    left: &S,
+    right: &S,
     rules: &TableRules,
     columns: Vec<usize>,
     scratch: &mut ScoreScratch,
@@ -155,9 +156,19 @@ fn score(
 }
 /// Full-column uniqueness, Jaccard, relative position stability, left-position
 /// prior; adjacent pairs only when no unique single column passes 0.8.
+/// Infer keys on materialized sheets (original public entry; behavior unchanged).
 pub fn infer_keys(
     left: &Sheet,
     right: &Sheet,
+    rules: &TableRules,
+    cancel: &dyn CancelCheck,
+) -> Result<KeySuggestion> {
+    infer_keys_data(left, right, rules, cancel)
+}
+/// Generic read-only entry over `TableData` (prototype/demand storage support).
+pub fn infer_keys_data<S: TableData + Sync>(
+    left: &S,
+    right: &S,
     rules: &TableRules,
     cancel: &dyn CancelCheck,
 ) -> Result<KeySuggestion> {

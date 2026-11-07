@@ -28,6 +28,7 @@ pub mod edit;
 pub mod encoding;
 pub mod hash;
 pub mod line;
+pub mod mmap;
 pub mod pattern;
 pub mod persist;
 

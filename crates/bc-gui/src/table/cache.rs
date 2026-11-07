@@ -3,7 +3,7 @@ use bc_core::cancel::CancelCheck;
 use bc_engine_table::{
     compare::Importance,
     map::{TableAlignOutput, TableStatistics},
-    Result, Sheet,
+    Result, SheetStore,
 };
 use std::ops::Range;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -29,8 +29,8 @@ pub struct Cache {
 impl Cache {
     pub fn build(
         output: &TableAlignOutput,
-        left: &Sheet,
-        right: &Sheet,
+        left: &SheetStore,
+        right: &SheetStore,
         cancel: &dyn CancelCheck,
     ) -> Result<Self> {
         let data = &output.data;
@@ -107,8 +107,8 @@ impl Cache {
     pub fn fit_all(
         &mut self,
         output: &TableAlignOutput,
-        left: &Sheet,
-        right: &Sheet,
+        left: &SheetStore,
+        right: &SheetStore,
         cancel: &dyn CancelCheck,
     ) -> Result<()> {
         for (c, column) in output.rules.columns.0.iter().enumerate() {

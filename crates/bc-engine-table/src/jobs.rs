@@ -1,14 +1,17 @@
 use crate::{
     align::KeyAlign,
-    map::{compare_alignment, TableAlignOutput, TableMap},
-    Result, Sheet, TableRules,
+    map::{compare_alignment_data, TableAlignOutput, TableMap},
+    store::SheetStore,
+    Result, TableRules,
 };
 use bc_core::{align::AlignmentOverrides, cancel::CancelCheck, CoreError};
 use bc_jobs::{Job, JobContext, JobResult, Progress};
 #[derive(Debug, Clone)]
 pub struct TableAlignJob {
-    pub left: Sheet,
-    pub right: Sheet,
+    /// Immutable store snapshots (arc-shared with the live map; edits during
+    /// the job copy-on-write, so the worker always sees a consistent version).
+    pub left: SheetStore,
+    pub right: SheetStore,
     pub rules: TableRules,
     pub overrides: AlignmentOverrides,
 }
@@ -24,13 +27,20 @@ impl TableAlignJob {
     pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<TableAlignOutput> {
         let mut rules = self.rules.clone();
         let t = std::time::Instant::now();
-        crate::map::prepare_rules(&self.left, &self.right, &mut rules, cancel)?;
+        crate::map::prepare_rules_data(&self.left, &self.right, &mut rules, cancel)?;
         crate::perf::span("align:prepare-rules", t);
         let t = std::time::Instant::now();
-        let alignment = KeyAlign.align(&self.left, &self.right, &rules, &self.overrides, cancel)?;
+        let alignment =
+            KeyAlign.align_data(&self.left, &self.right, &rules, &self.overrides, cancel)?;
         crate::perf::span("align:key-align", t);
         let t = std::time::Instant::now();
-        let output = compare_alignment(
+        // Compare phase on demand storage supplies raw field text (prototype
+        // fast path); the comparator's raw-text guard and normalization keep
+        // typed semantics. Per-snapshot flag: the interactive store's typed
+        // display is unaffected. Dense snapshots ignore the flag.
+        self.left.set_compare_raw_supply(true);
+        self.right.set_compare_raw_supply(true);
+        let output = compare_alignment_data(
             &self.left,
             &self.right,
             &rules,
@@ -38,6 +48,8 @@ impl TableAlignJob {
             alignment,
             cancel,
         );
+        self.left.set_compare_raw_supply(false);
+        self.right.set_compare_raw_supply(false);
         crate::perf::span("align:compare-alignment", t);
         output
     }

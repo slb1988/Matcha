@@ -162,8 +162,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Immutable snapshots only; never send TableMap's Rc/RefCell edit targets.
     let job = TableAlignJob {
-        left: left.clone(),
-        right: right.clone(),
+        left: bc_engine_table::SheetStore::Dense(left.clone()),
+        right: bc_engine_table::SheetStore::Dense(right.clone()),
         rules,
         overrides,
     };

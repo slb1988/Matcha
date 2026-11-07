@@ -5,7 +5,7 @@ use bc_engine_table::{
     jobs::{TableAlignJob, TableRealignJob},
     map::ShowRows,
     rules::{ColumnType, KeySelection},
-    source::{read_text, write_delimited, ReadOptions},
+    source::{read_text, ReadOptions},
     summary::SummaryFormat,
     Cell, Sheet, TableMap, TableRules,
 };
@@ -70,7 +70,7 @@ fn copying_orphan_inserts_in_display_position_and_preserves_save_and_undo() {
     edits.push(m.copy_row(1, Side::Left).unwrap());
     assert_eq!(m.statistics().same, 3);
     let mut out = Vec::new();
-    write_delimited(&m.right.borrow(), &mut out).unwrap();
+    bc_engine_table::store::write_store_delimited(&m.right.borrow(), &mut out).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
         "id,name,price\n1,a,1.0\n2,b,2.0\n3,c,3.0"
@@ -118,8 +118,8 @@ fn initial_job_resolves_defaults_and_installs_without_synchronous_recompare() {
     let left = csv("id,name,price\n7,a,1.0\n8,b,2.0\n");
     let right = csv("id,name,price\n7,a,1.1\n8,b,2.0\n");
     let job = TableAlignJob {
-        left: left.clone(),
-        right: right.clone(),
+        left: bc_engine_table::SheetStore::Dense(left.clone()),
+        right: bc_engine_table::SheetStore::Dense(right.clone()),
         rules: TableRules::default(),
         overrides: Default::default(),
     };
@@ -204,6 +204,6 @@ fn text_type_keeps_numeric_spelling_in_comparison_and_key_hashes() {
     let _edit = m.copy_cell(0, 2, Side::Left).unwrap();
     assert_eq!(m.cell_diff(0, 2).unwrap().value, Importance::Same);
     let mut out = Vec::new();
-    write_delimited(&m.right.borrow(), &mut out).unwrap();
+    bc_engine_table::store::write_store_delimited(&m.right.borrow(), &mut out).unwrap();
     assert_eq!(String::from_utf8(out).unwrap(), "id,name,price\n7,a,1.0\n");
 }
