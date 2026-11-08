@@ -2,13 +2,14 @@
 
 ## 先读这段
 
-**状态：真实 GUI 实验接入已完成；稳定内存明显下降；ready 性能门未过，实验入口默认关闭。不要把当前代码当作已完成验收。**
+**状态：真实 GUI ready 性能门已通过（2026-11-08，batch-20261108-102043，lazy ×0.857 vs dense）；稳定内存达标；实验入口仍默认关闭。切默认需用户明确决定，峰值项仍未达标，见下。**
 
 - 工作目录：`D:\Github\Matcha`，分支：`master`。
-- 本轮改动基于 `aae14944b8df0e947060fc5cbe5bdfae1f5f5880`；代码、测试、工具和本交接文档随同一次交付提交。用 `git log -1 -- docs/worker-reports/table-memory-handoff.md` 查询交付提交，**不要 reset 到旧基线**。
+- 本轮交付分两笔提交：`883deab`（测量工具修正：fingerprint CR 剥离 + 采样后端 CIM→Get-Process/性能计数器；A+C 切口证伪回退的记录）与紧随其后的三相位分块并行提交（align.rs/map.rs/perf.rs + 测量记录）。用 `git log --oneline -3` 确认。
+- 迭代史：① A+C（demand.rs 空覆盖层短路 + TLS 行跨度暂存）经正式批 ×1.4552 未过门、受控探针证伪（A 中性、C 净负），已全回退，demand.rs 回 HEAD；② 引擎链三相位分块并行（row-text/verify-filter/compare，保序拼接，dense 同码受益）过门。两条教训：取值路径微优化对本行形（~70B/10列短行）无效；相位级并行有效。
 - 基准数据中的 `revision=aae1494...`、`dirty=true` 是测量当时的事实，不能改成后来提交的 SHA。
-- 当前用户要求是整理交接并 commit，**没有授权本轮继续优化、切默认或 push**。下一 session 先确认下一最小优化切口，再实施。
-- 阅读顺序：本文 → `tools/demand_proto.md` 的 **GUI 接入验证阶段** → 最新 GUI 基线与所需代码。不要先回放全部旧会话/重做 BC 逆向。
+- 当前用户已批准引擎侧共享代码的性能改动（迭代 2 已实施；迭代 3 = infer_keys/interpret 方向进行中）；切默认、push 仍需逐项授权。
+- 阅读顺序：本文 → `tools/demand_proto.md` 末尾两个最新批次（A+C 证伪批 + 三相位并行过门批）→ 最新 GUI 基线与所需代码。
 - 根 README 的 scaffold 描述是早期快照，不能据此判断当前表格功能尚未实现。
 
 ## 用户已确认的目标与执行边界
@@ -22,7 +23,13 @@
 7. 默认 Dense 路径保持，实验开关不自动启用；XLSX 不做专属解析优化。未请求独立代码评审，不默认开启评审流程。
 8. 用户允许必要时参考 `https://github.com/pascalkuthe/imara-diff.git`；**本轮未读取、未引入**。若后续实际参考，记录版本/相关文件并核实许可证，不盲换差异算法。
 
-## 权威 GUI 结果：未通过性能验收
+## 最新权威 GUI 结果：ready 门已通过（batch-20261108-102043）
+
+来源：`tools/demand_gui_baseline.json` 末批，原始目录 `target/memory-audit/gui/batch-20261108-102043/`；三相位分块并行后 3 轮中位：ready dense 5451.1 vs lazy 4671.7 ms（**×0.857，过 ≤1.10 门**）；稳定 lazy PB 161.3 / PWS 100.0 / WS 266.0 MiB 均 <300；OS WS 峰值 523.8 MiB >300 仍为未达标项；加载观测 PB 峰值受采样器首样本 ~1-1.5s 盲窗限制（口径注记见 demand_proto.md）。6 轮 fingerprint 全等冻结统计。exe `8ce6e4af5868…`。剩余最大相位：prepare-rules（infer_keys 全列扫描）。
+
+## 旧批结果：A+C 批未过门（batch-20261108-004948，已回退）与原始接入批（batch-20261107-161551）
+
+A+C 批：ready ×1.4552 未过门；受控探针证伪该切口（A 中性、C 全相位净负），代码已全回退。细节见 demand_proto.md。以下为最初接入批的原始记录：
 
 来源：`tools/demand_gui_baseline.json`，原始目录：
 `target/memory-audit/gui/batch-20261107-161551/`。
@@ -136,17 +143,15 @@ cargo test --release -p bc-gui lazy_tests
 
 ## 下一 Session 的第一步
 
-1. `git status --short`、`git log -1 -- docs/worker-reports/table-memory-handoff.md`，确认本交付与新产生的改动；不 reset/clean。
-2. 读本文和GUI结果，核实输入仍在，再根据相位定位最窄代码。不要从所有模块重新调查。
-3. 向用户/协调session确认下一最小切口与额外内存预算。候选：有界解析结果缓存、字段定位、分块访问；共享链并行/合并仅作另一候选，未批准直接大改。
-4. 下一改动同时守住正确性、稳定预算和ready≤同轮Dense×1.10；峰值继续单独跟踪。未达标不能启用默认，不能自行接受45%退化。
+1. `git status --short`、`git log --oneline -3`，确认交付与新改动；不 reset/clean。
+2. 读本文和 `tools/demand_proto.md` 末尾最新批次，核实输入仍在，再按相位定位最窄代码。不要从所有模块重新调查。
+3. ready 门已过；剩余优化目标（用户批准中）：prepare-rules（infer_keys 全列扫描，lazy 链 delta 主体）。再往下候选：interpret 快拒；切默认是独立决定，需用户明确授权且须先处理峰值与未验证项清单。
+4. 任何改动同时守住正确性（四摘要/fingerprint 恒定）、稳定内存 <300MiB 与 ready≤同轮 Dense×1.10；峰值继续单独跟踪，不允许为压峰值引入语义变化。
 5. 参考软件研究只取得部分运行行为证据，未还原完整存储/索引布局；不要复述“必然mmap/绝非懒加载/每格3.4字节”等已撤销推断。
 
 ## Orca／协调记录（按需读取，不是当前执行授权）
 
 - 本次编排任务均已结算；GUI主任务性能验收 `failed`，工具修正任务成功。没有需要新session继续等待的本任务。
-- 最近Run：`run_68d3238fb8c0`；GUI Task：`task_e335ed96e8db`，有效实施Dispatch：`ctx_27120ff79b01`。
-- 最后保留终端：`term_8510dfd6-bffb-4d9e-8b14-6786237b8dd1`（k3.1-pro）。文档整理时投影为retained、存活不可验证；**不要假设仍可写**。旧终端 `term_ea573404-8fb4-4a23-a2fc-b55dc1321891` 曾明确已关闭。
-- 新session先按当前Orca版本指南核实；可新建run/worker冷启动读取本交接。若复用终端先验证idle/模型，只用新注入的Task/Dispatch能力，不把这些历史ID当授权。
-- 协调主计划：`D:/Github/ObsidianVault/.claude/plans/Matcha表格比较内存优化.md`（仅需历史时读）。
-- 最近usage工具误将注入失败的 `ctx_44a1029a3fea` 与重试分段重复计费；校正版：`C:/Users/admin/.orca-coordinator/bills/run_68d3238fb8c0.corrected.json`。工具/原趋势未修，不用原始重复总额。该工具问题不是当前GUI性能任务的前置工作。
+- 最近Run：`run_6c3bfcd20045`（迭代 1 A+C 证伪回退 + 迭代 2 三相位并行过门）；有效实施 Dispatch：`ctx_339beba2ce85`（A+C）、`ctx_cc4efe216a84`（三相位并行，`task_2d9fc2e40d94`）；另有三个 dispatch_input 失败的重复 Task/Dispatch 已标 failed 并注明 duplicate。保留终端：`term_0e8e9892-7821-437e-b19e-6e597294eced`（pi/k3.1-pro，迭代期 retain）。
+- 更早一轮（GUI 接入）：Run `run_68d3238fb8c0`；Task `task_e335ed96e8db`，Dispatch `ctx_27120ff79b01`；其终端均不可假设存活。
+- usage 工具会把注入失败的 dispatch 与重试 session 重复计费；校正版账单：`C:/Users/admin/.orca-coordinator/bills/run_6c3bfcd20045.corrected.json`（合计 $51.50），原始账单与 bills.jsonl 趋势未修，不用原始重复总额。该工具问题不是当前性能任务的前置工作。

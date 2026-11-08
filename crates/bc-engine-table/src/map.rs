@@ -3,12 +3,12 @@ use crate::{
     columns::{align_columns, ColumnMapping, Side},
     compare::{CellComparator, CellDiff, Importance, PackedStates},
     invalid,
-    rules::{ColumnMode, KeySelection, Layers},
+    rules::{ColumnHandling, ColumnMode, KeySelection, Layers},
     store::SheetStore,
     Cell, Result, Sheet, TableRules,
 };
 use bc_core::{
-    align::AlignmentOverrides,
+    align::{AlignRow, AlignmentOverrides},
     cancel::{CancelCheck, NeverCancel},
     edit::EditItem,
     DiffKind,
@@ -114,6 +114,65 @@ impl ComparedData {
         stats
     }
 }
+/// One compare chunk's output: packed per-cell states and per-row aggregates
+/// in aligned-row order, plus the chunk-local column/summary folds.
+/// `CellDiff::merge` is per-field max (associative and commutative), so the
+/// sequential assembly reproduces the historical single-loop totals exactly.
+#[derive(Debug)]
+struct CompareChunk {
+    /// `CellDiff::packed()` per compared cell, row-major over the chunk.
+    cells: Vec<u8>,
+    /// Per-row packed aggregate (after the structural Important override).
+    aggregates: Vec<u8>,
+    column_states: Vec<CellDiff>,
+    summary: CellDiff,
+}
+/// Compare one contiguous range of aligned rows (cancel cadence no coarser
+/// than the historical 1024-row step). Both sheets, the rules and the visit
+/// orders are read-only shares.
+fn compare_rows_chunk<S: crate::data::TableData>(
+    rows: &[AlignRow],
+    left: &S,
+    right: &S,
+    orders: (&[usize], &[usize]),
+    rules: &TableRules,
+    handling: &[ColumnHandling],
+    cancel: &dyn CancelCheck,
+) -> Result<CompareChunk> {
+    let (left_order, right_order) = orders;
+    let columns = handling.len();
+    let mut chunk = CompareChunk {
+        cells: Vec::with_capacity(rows.len() * columns),
+        aggregates: Vec::with_capacity(rows.len()),
+        column_states: vec![CellDiff::default(); columns],
+        summary: CellDiff::default(),
+    };
+    for (i, row) in rows.iter().enumerate() {
+        if i.is_multiple_of(1024) {
+            cancel.check()?;
+        }
+        let l = row.left.map(|r| left_order[r]);
+        let r = row.right.map(|r| right_order[r]);
+        let mut aggregate = CellDiff::default();
+        for (c, handling) in handling.iter().enumerate() {
+            let col = &rules.columns.0[c];
+            let diff = CellComparator {
+                handling,
+                format_important: rules.format_important,
+            }
+            .compare_data(left, right, (l, r), (col.left, col.right));
+            aggregate = aggregate.merge(diff);
+            chunk.column_states[c] = chunk.column_states[c].merge(diff);
+            chunk.cells.push(diff.packed());
+        }
+        if l.is_none() || r.is_none() {
+            aggregate.value = Importance::Important;
+        }
+        chunk.summary = chunk.summary.merge(aggregate);
+        chunk.aggregates.push(aggregate.packed());
+    }
+    Ok(chunk)
+}
 #[derive(Debug, Clone)]
 pub struct TableAlignOutput {
     pub data: Arc<ComparedData>,
@@ -134,7 +193,7 @@ pub fn compare_alignment(
     compare_alignment_data(left, right, rules, overrides, alignment, cancel)
 }
 /// Generic read-only entry over `TableData` (prototype/demand storage support).
-pub fn compare_alignment_data<S: crate::data::TableData>(
+pub fn compare_alignment_data<S: crate::data::TableData + Sync>(
     left: &S,
     right: &S,
     rules: &TableRules,
@@ -164,34 +223,74 @@ pub fn compare_alignment_data<S: crate::data::TableData>(
     right.collect_edited_rows(&mut re);
     let le = le;
     let re = re;
-    for (i, row) in alignment.map.into_rows().into_iter().enumerate() {
-        if i.is_multiple_of(1024) {
-            cancel.check()?;
-        }
-        let l = row.left.map(|r| alignment.left_order[r]);
-        let r = row.right.map(|r| alignment.right_order[r]);
-        let mut aggregate = CellDiff::default();
-        for (c, handling) in handling.iter().enumerate() {
-            let col = &rules.columns.0[c];
-            let diff = CellComparator {
-                handling,
-                format_important: rules.format_important,
+    let map_rows = alignment.map.into_rows();
+    // Compare each aligned-row range on scoped workers; staging is position-
+    // indexed packed bytes, so results never depend on scheduling.
+    let threads = crate::perf::phase_threads(map_rows.len());
+    let chunks = if threads < 2 {
+        vec![compare_rows_chunk(
+            &map_rows,
+            left,
+            right,
+            (&alignment.left_order, &alignment.right_order),
+            rules,
+            &handling,
+            cancel,
+        )?]
+    } else {
+        let chunk = map_rows.len().div_ceil(threads).max(1);
+        let results = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for slice in map_rows.chunks(chunk) {
+                handles.push(scope.spawn(|| {
+                    compare_rows_chunk(
+                        slice,
+                        left,
+                        right,
+                        (&alignment.left_order, &alignment.right_order),
+                        rules,
+                        &handling,
+                        cancel,
+                    )
+                }));
             }
-            .compare_data(left, right, (l, r), (col.left, col.right));
-            aggregate = aggregate.merge(diff);
-            column_states[c] = column_states[c].merge(diff);
-            states.set(i * columns + c, diff);
-        }
-        if l.is_none() || r.is_none() {
-            aggregate.value = Importance::Important;
-        }
-        summary = summary.merge(aggregate);
-        rows.push(CompactRow {
-            left: l.map_or(GAP, |r| r as u32),
-            right: r.map_or(GAP, |r| r as u32),
-            aggregate: aggregate.packed(),
-            edited: l.is_some_and(|r| le.contains(&r)) || r.is_some_and(|r| re.contains(&r)),
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_else(|_| Err(invalid("compare panicked"))))
+                .collect::<Vec<_>>()
         });
+        let mut chunks = Vec::with_capacity(results.len());
+        for result in results {
+            chunks.push(result?);
+        }
+        chunks
+    };
+    // Sequential assembly in aligned-row order: PackedStates/rows stay
+    // position-exact; column_states/summary folds are per-field max
+    // (associative and commutative), so chunk order cannot change them.
+    let mut base_row = 0usize;
+    for chunk in chunks {
+        for (c, state) in chunk.column_states.iter().enumerate() {
+            column_states[c] = column_states[c].merge(*state);
+        }
+        summary = summary.merge(chunk.summary);
+        for (r, &aggregate) in chunk.aggregates.iter().enumerate() {
+            let row = map_rows[base_row + r];
+            let l = row.left.map(|i| alignment.left_order[i]);
+            let rr = row.right.map(|i| alignment.right_order[i]);
+            let first = (base_row + r) * columns;
+            for (c, &packed) in chunk.cells[r * columns..(r + 1) * columns].iter().enumerate() {
+                states.set(first + c, CellDiff::unpack(packed));
+            }
+            rows.push(CompactRow {
+                left: l.map_or(GAP, |r| r as u32),
+                right: rr.map_or(GAP, |r| r as u32),
+                aggregate,
+                edited: l.is_some_and(|r| le.contains(&r))
+                    || rr.is_some_and(|r| re.contains(&r)),
+            });
+        }
+        base_row += chunk.aggregates.len();
     }
     cancel.check()?;
     Ok(TableAlignOutput {

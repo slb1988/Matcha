@@ -18,3 +18,13 @@ pub fn span(label: &str, start: Instant) {
         );
     }
 }
+
+/// Conservative worker count for the chunked engine phases (row-text build,
+/// verify filter, compare): one 4096-row quantum per worker, capped at 8 and
+/// at the machine's parallelism, so the GUI and the OS keep cores. All users
+/// employ scoped threads (no pool, no new dependency); outputs are assembled
+/// in chunk order, so the count never affects results.
+pub(crate) fn phase_threads(rows: usize) -> usize {
+    let available = std::thread::available_parallelism().map_or(1, |n| n.get());
+    (rows / 4096).clamp(1, available.min(8))
+}

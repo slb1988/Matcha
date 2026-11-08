@@ -280,35 +280,123 @@ fn tolerant_tokens<S: TableData>(
     }
     Ok((lt, rt))
 }
-fn row_text<S: TableData>(sheet: &S, order: &[usize], cancel: &dyn CancelCheck) -> Result<LineList> {
-    let mut text = Vec::with_capacity(order.len() * 32);
-    let mut cell_buf = String::new();
-    for (i, &row) in order.iter().enumerate() {
-        if i.is_multiple_of(1024) {
-            cancel.check()?;
+/// One row's tab-joined display bytes: per-cell typed display, 256-character
+/// cap, CR/LF flattened to spaces, '\n' terminator. Shared by the sequential
+/// and chunked row-text paths so both emit byte-identical lines.
+fn row_text_row<S: TableData>(sheet: &S, row: usize, cell_buf: &mut String, text: &mut Vec<u8>) {
+    let mut count = 0;
+    for column in 0..sheet.column_count() {
+        if column > 0 {
+            text.push(b'\t');
         }
-        let mut count = 0;
-        for column in 0..sheet.column_count() {
-            if column > 0 {
-                text.push(b'\t');
-            }
-            cell_buf.clear();
-            sheet.display_into(row, column, &mut cell_buf);
-            for c in cell_buf.chars() {
-                if count >= 256 {
-                    break;
-                }
-                let c = if matches!(c, '\r' | '\n') { ' ' } else { c };
-                text.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-                count += 1;
-            }
+        cell_buf.clear();
+        sheet.display_into(row, column, cell_buf);
+        for c in cell_buf.chars() {
             if count >= 256 {
                 break;
             }
+            let c = if matches!(c, '\r' | '\n') { ' ' } else { c };
+            text.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
+            count += 1;
         }
-        text.push(b'\n');
+        if count >= 256 {
+            break;
+        }
+    }
+    text.push(b'\n');
+}
+/// Row text for a contiguous range of the visit order (cancel cadence no
+/// coarser than the historical 1024-row step).
+fn row_text_chunk<S: TableData>(
+    sheet: &S,
+    rows: &[usize],
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<u8>> {
+    let mut text = Vec::with_capacity(rows.len() * 32);
+    let mut cell_buf = String::new();
+    for (i, &row) in rows.iter().enumerate() {
+        if i.is_multiple_of(1024) {
+            cancel.check()?;
+        }
+        row_text_row(sheet, row, &mut cell_buf, &mut text);
+    }
+    Ok(text)
+}
+/// Line text of one side: row-range chunks on scoped workers, concatenated in
+/// chunk order — byte-identical to the historical single-buffer build.
+fn row_text<S: TableData + Sync>(sheet: &S, order: &[usize], cancel: &dyn CancelCheck) -> Result<LineList> {
+    let threads = crate::perf::phase_threads(order.len());
+    if threads < 2 {
+        return Ok(LineList::from_bytes(row_text_chunk(sheet, order, cancel)?));
+    }
+    let chunk = order.len().div_ceil(threads).max(1);
+    let results = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for rows in order.chunks(chunk) {
+            handles.push(scope.spawn(|| row_text_chunk(sheet, rows, cancel)));
+        }
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err(invalid("row text panicked"))))
+            .collect::<Vec<_>>()
+    });
+    let mut total = 0;
+    for result in &results {
+        total += result.as_ref().map_or(0, Vec::len);
+    }
+    let mut text = Vec::with_capacity(total);
+    for result in results {
+        // Each chunk buffer is dropped right after its copy, keeping the peak
+        // at final-text plus the not-yet-assembled chunks.
+        text.extend_from_slice(&result?);
     }
     Ok(LineList::from_bytes(text))
+}
+/// Verify-filter one contiguous range of aligned rows: unforced pairs whose
+/// hashes or keys disagree split into a left/right-only pair, everything else
+/// passes through. Concatenating chunk outputs in row order reproduces the
+/// historical sequential filter exactly; `keys_equal`/`anchors` are read-only
+/// shares, so the result never depends on scheduling.
+#[allow(clippy::too_many_arguments)]
+fn verify_filter_chunk<S: TableData>(
+    rows: &[AlignRow],
+    left: &S,
+    right: &S,
+    orders: (&[usize], &[usize]),
+    rules: &TableRules,
+    keys: &[(usize, ColumnHandling)],
+    hashes: (&[ContentHash], &[ContentHash]),
+    anchors: &AlignmentOverrides,
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<AlignRow>> {
+    let (lo, ro) = orders;
+    let (lh, rh) = hashes;
+    let mut out = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().copied().enumerate() {
+        if i.is_multiple_of(1024) {
+            cancel.check()?;
+        }
+        if let (Some(l), Some(r)) = (row.left, row.right) {
+            let forced = rules.strategy == AlignStrategy::None
+                || anchors.pairs().binary_search(&(l, r)).is_ok();
+            if !forced && (lh[l] != rh[r] || !keys_equal(left, right, lo[l], ro[r], rules, keys))
+            {
+                out.push(AlignRow {
+                    left: Some(l),
+                    kind: DiffKind::LeftOnly,
+                    ..Default::default()
+                });
+                out.push(AlignRow {
+                    right: Some(r),
+                    kind: DiffKind::RightOnly,
+                    ..Default::default()
+                });
+                continue;
+            }
+        }
+        out.push(row);
+    }
+    Ok(out)
 }
 fn patience(
     l: AlignInput<'_>,
@@ -450,14 +538,9 @@ impl KeyAlign {
         }
         let t = std::time::Instant::now();
         let text = if rules.strategy == AlignStrategy::Smart && rules.use_closeness {
-            Some(std::thread::scope(|scope| {
-                let right = scope.spawn(|| row_text(right, &ro, cancel));
-                let left = row_text(left, &lo, cancel);
-                let right = right
-                    .join()
-                    .unwrap_or_else(|_| Err(invalid("right row text panicked")));
-                Ok::<_, bc_core::CoreError>((left?, right?))
-            })?)
+            // The sides chunk internally under the shared phase budget; built
+            // one side at a time so their staging buffers never overlap.
+            Some((row_text(left, &lo, cancel)?, row_text(right, &ro, cancel)?))
         } else {
             None
         };
@@ -498,31 +581,48 @@ impl KeyAlign {
         drop(text);
         crate::perf::span("key-align:strategy-align", t);
         let t = std::time::Instant::now();
-        let mut filtered = Vec::with_capacity(map.len());
-        for (i, row) in map.into_rows().into_iter().enumerate() {
-            if i.is_multiple_of(1024) {
-                cancel.check()?;
-            }
-            if let (Some(l), Some(r)) = (row.left, row.right) {
-                let forced = rules.strategy == AlignStrategy::None
-                    || anchors.pairs().binary_search(&(l, r)).is_ok();
-                if !forced
-                    && (lh[l] != rh[r] || !keys_equal(left, right, lo[l], ro[r], rules, &keys))
-                {
-                    filtered.push(AlignRow {
-                        left: Some(l),
-                        kind: DiffKind::LeftOnly,
-                        ..Default::default()
-                    });
-                    filtered.push(AlignRow {
-                        right: Some(r),
-                        kind: DiffKind::RightOnly,
-                        ..Default::default()
-                    });
-                    continue;
+        let map_rows = map.into_rows();
+        let threads = crate::perf::phase_threads(map_rows.len());
+        let mut filtered = Vec::with_capacity(map_rows.len());
+        if threads < 2 {
+            filtered.extend(verify_filter_chunk(
+                &map_rows,
+                left,
+                right,
+                (&lo, &ro),
+                rules,
+                &keys,
+                (&lh, &rh),
+                &anchors,
+                cancel,
+            )?);
+        } else {
+            let chunk = map_rows.len().div_ceil(threads).max(1);
+            let results = std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for slice in map_rows.chunks(chunk) {
+                    handles.push(scope.spawn(|| {
+                        verify_filter_chunk(
+                            slice,
+                            left,
+                            right,
+                            (&lo, &ro),
+                            rules,
+                            &keys,
+                            (&lh, &rh),
+                            &anchors,
+                            cancel,
+                        )
+                    }));
                 }
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap_or_else(|_| Err(invalid("verify filter panicked"))))
+                    .collect::<Vec<_>>()
+            });
+            for result in results {
+                filtered.extend(result?);
             }
-            filtered.push(row);
         }
         crate::perf::span("key-align:verify-filter", t);
         Ok(KeyAlignment {

@@ -168,3 +168,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 - 下一步未决：受控 A/B 隔离（-NoBaseline 旧新交错）确认 C 的净符号、回退 C 保留 A、或改走引擎侧相位融合/常驻字段索引，均需主 session 与用户批准；本切口代码现状保留未 commit。
 
 探针归因与回退（同日晚间，协调者批准的受控隔离；8 个 `-Runs 1 -NoBaseline` 探针批，raw 在 `target/memory-audit/gui/probe-<态>-<轮>-*` 标注非正式，未写历史）：四态（S0=HEAD 旧、S1=仅 A、S2=仅 C、S3=A+C）交错 2 轮，lazy ready/相位（2 样本均值，ms）：S0 ready 7223（prepare 1228 / hashes 262 / row-text 2112 / verify 510 / compare 1269）；S1 7234（1251/271/2164/495/1211）；S2 8022（1652/384/2185/678/1361）；S3 8259（1696/364/2250/707/1390）；同探针 dense ready 负载指数 S0 5220 / S1 5032 / S2 5279 / S3 5625。**结论：A 净中性（全相位差在 ±60ms 噪声内），C 全相位一致净负（ready +799~+1036ms，列主序相位尤甚）**——「空覆盖层 60M 次哈希查找 + 40M 次行首重扫是热点」的本轮假设在本行形（~70B/10 列短行）下被实测证伪：列主序相位（infer_keys/verify 逐列扫全行）使按记录暂存每格失效，反把 O(k) 部分扫描变每格强制全行拆分+TLS HashMap 开销；行主序相位中短行部分重扫已低于 TLS 开销。据此 A、C 均已回退，`demand.rs` 回 HEAD（git diff 干净），正式批 batch-20261108-004948 的 A+C 测量作为已证伪切口的证据保留；上述两处测量工具修正（TrimEnd、采样后端）保留。引擎侧相位融合/常驻字段索引等方向需另行批准。
+
+### 引擎链三相位分块并行批次（batch-20261108-102043，ready 门通过）
+
+切口（经协调者批准，用户已批准动共享引擎代码；不改 demand.rs、不切默认、不 commit）：把三个可保序并行的链相位从 1-2 线程扩为分块并行，dense 同码受益，语义逐字节不变。① `align.rs::row_text`：按行区间分块（每侧 min(8, available_parallelism, 行数/4096) 个 scope 线程），逐格 display、256 字符截断、\r\n→空格逻辑抽为共享 per-row 函数，输出按块序拼接（先算总长一次分配，逐块 extend 后即释放，峰值不高于原单缓冲增长瞬态）；两侧改为先后串行各用满相位预算（原为两侧各 1 线程并发），staging 不叠加。② `map.rs::compare_alignment_data` 主循环：按对齐行区间分块并行算 `compare_data`，产出按位置索引的 packed 字节（每格 u8 + 每行 aggregate u8）与块级 column_states/summary 局部 merge；`PackedStates`/`rows` 装配在并行段之后单线程按块序完成，`column_states`/`summary` 为逐字段 max 语义与顺序无关；泛型 bound 加 `Sync`（`Sheet`/`DemandSheet`/`SheetStore` 均满足）。③ `align.rs` verify-filter 循环：按行区间分块并行过滤，`keys_equal`/`anchors` 只读共享，`filtered` 按块序拼接。三相位 cancel 检查均保持每 1024 行粒度；线程上界助手 `phase_threads` 加在 `perf.rs`（min(8, available_parallelism, 行数/4096)，<8192 行保持原单线程路径）；scope 线程，无新依赖，无常驻结构。
+
+结果（exe `8ce6e4af58684116e332327b60abf56bd053658762f162502fc61d4d502d85ad`，rev 883deab dirty，3 轮中位，MiB）：
+
+| 路径 | ready 中位 | 稳定PB | 稳定WS | 稳定PWS | 加载观测PB峰值 | 观测PB峰值 | OS WS峰值 |
+|---|---|---|---|---|---|---|---|
+| dense | 5451.1 ms | 1798.2 | 1706.0 | 1672.2 | 1797.9 | 1797.9 | 1963.6 |
+| lazy | 4671.7 ms（**×0.8570，过 ≤1.10 门**） | 161.3 | 266.0 | 100.0 | 161.0（采样盲窗，同前批口径） | 161.0 | 523.8（>300 未达标项，累计计数器口径） |
+
+- 正确性门禁：6 轮 fingerprint 全等冻结统计（rows=1,000,000 same=990,000 important=10,000，余为 0）；输入 SHA256 同前；exit=0、`ClosedByMainWindow` 全部成立；历史已追加 `tools/demand_gui_baseline.json`；raw 在 `target/memory-audit/gui/batch-20261108-102043/`。
+- 相位（lazy 本批中位 vs 上批探针 S0，ms）：prepare-rules 1269.2 vs 1228（本轮未动）；hashes 315.0 vs 262；row-text 868.3 vs 2112（~2.4×）；verify-filter 106.2 vs 510（~4.8×）；compare 248.6 vs 1269（~5.1×）。同批 dense 相位（中位）：prepare 373.2 / hashes 185.9 / row-text 257.2 / verify 42.5 / compare 313.8 —— dense 同码受益且语义不变。第 3 轮两路径均有系统性偏慢（lazy verify/compare 322.2/712.5，dense row-text 912.0，ready 同向抬高），中位数不受影响。
+- worker 口径（中位）：table-align-job lazy 2838.6 vs dense 1258.6 ms（链 delta 由 ~+4.0s 降至 ~+1.6s，主体剩余为 prepare-rules 的 infer_keys 全列扫描）；load-side 两側并行 lazy ~1595 vs dense ~3949 ms，加载净省 ~2.35s 覆盖剩余链 delta，故 ready 比值 <1。
+- 引擎链四摘要离线复核（demand_proto 示例，1M 行真实输入，reference/demand 两模式）：rows 092d09a4649bbfc5 / cells 612baef10de64f25 / values 41bbcbeeca0830a5 / columns 5513a3fb0a7609e5 均与冻结值一致。
+- 内存验收口径：稳定三项（PB 161.3 / WS 266.0 / PWS 100.0 MiB）<300 维持达成；加载观测 PB 峰值受采样器首样本 ~1-1.5s 盲窗限制等于稳定值（沿用前批注记，不表示加载峰值真实下降）；OS WS 峰值 523.8 MiB >300 仍为如实记录的未达标项。
+- 测试：`cargo test --release -p bc-engine-table` 全绿；`cargo test --release -p bc-gui lazy`（3 项 lazy_tests）全绿；`tools/demand_measure_tests.ps1` 全 PASS。
+- 未做（按本轮边界）：infer_keys 融合/剪枝（prepare-rules 1269ms 是剩余最大相位，下一轮候选）、regional interpret 快拒、demand.rs 改动、默认开关切换、imara-diff；未 commit。
