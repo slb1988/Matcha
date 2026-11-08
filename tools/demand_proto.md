@@ -278,3 +278,38 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 **框架限制记录**：egui 0.37 滚轮平滑参数硬编码（源码标 TODO 待参数化）、`set_focus_lock_filter` 无法预置——两者均不可经框架配置消除，故在视口层绕过（非 hack 框架内部）；若升级 egui 且上游开放平滑开关，可回退本拦截。
 - 测试：bc-gui 147 全绿（含 lazy 3 项 + 新增 3 项 wheel/key 测试）；bc-engine-table 15 套件全绿（未动，回归确认）；demand_measure_tests 全 PASS。exe SHA256 `f8c7ada0d5092faabc8d920e3dd7e8c3e12844292c0759a853c33680e0c413f3`（rev 10aff0e dirty）。
 - 未做：details/查找面板等小型 ScrollArea 仍走 egui 平滑路径（内容小、无感；如需可同法推广）；Home/End 键、触屏拖拽手势未动；未 commit。
+
+### 切默认评估批（迭代 7：逐项补证；无行为代码改动，未切默认）
+
+**性质**：纯补证。新增测试：引擎 `tests/mixed_store.rs` 3 项（混合/区域/10 万行）；GUI `table/eval_tests.rs` 4 项（find 等价 30K 行常驻 + 3 项 `MATCHA_EVAL_LARGE=1` 门控的 1M 实测项）。bc-gui 151 全绿、bc-engine-table 16 套件全绿。exe 未变（`f8c7ada0d5092faabc8d920e3dd7e8c3e12844292c0759a853c33680e0c413f3`，test-only 改动，`mod tests` 为 `#[cfg(test)]`）。真实输入路径 `target/table-wave7/audit/inputs/`。
+
+**逐项结果（pass/fail/unknown + 证据）**：
+
+| # | 项 | 结论 | 证据 |
+|---|---|---|---|
+| 1 | XLSX×lazy CSV 混合 | **pass** | `mixed_store.rs`：合成 xlsx(2K 行)×lazy CSV 统计与逐格 diff 同 dense×dense 全等（双向镜像同）；10 万行混合 align+compare 63.6ms 无异常（xlsx 构建+解析 652ms、lazy open 12ms）。GUI 路由代码证据：`worker.rs::load` 对 xlsx/xlsm 恒走 Workbook→Dense，CSV 才进 lazy（`formats.rs` 同证） |
+| 2 | find 对话框 lazy 端到端 | **pass（正确性）+ 已知时延缺口** | 30K 行视图链：Next×3/Previous 落点与 dense 逐项相等、Replace-all 计数相等；1M 实测 find-next 每次约 dense 1.06-1.13s / lazy 1.46-1.50s（同一命中 row 812345）——**find 每次按键全表重扫**（两条路径同构，非 lazy 特有回归），见缺口 #a |
+| 3 | 会话持久化 | **unknown（功能缺席，非 lazy 回归）** | 「Save Session/Save Session As」按钮在表格视图恒 `add_enabled(false)`；`bc-session::Session::new`/`infer_kind` 为 `todo!()`——保存功能 dense 亦不存在。`SessionSpecs` 存 VfsPath 路径非内容；若未来实现，恢复即重新加载、存储后端由恢复时环境变量决定，无 lazy 特殊风险 |
+| 4 | regional/格式面板 × lazy | **pass** | `regional_settings_on_lazy_match_dense`：';' 分隔 + ',' 小数 + '.' 日期 DMY 下 lazy 与 dense 统计全等（含重要差异计数）；设置面板改动触发整侧重载（`Pending::Settings`），lazy 打开时采用 `format.regional`（worker.rs:217/247 两路径同式） |
+| 5 | 1M 结构操作时延（视图链实测，op+realign） | **pass（可用，数字如实）** | dense / lazy：插行 1.42/1.58s、删行 1.27/1.60s、粘贴 1000 行 1.39/1.69s、整列排序 1.67/3.42s、撤销排序 0.92/1.62s、重做 0.89/1.61s。lazy 各项慢 0.2-1.8s（重比较链取值成本），均为一次性编辑操作、非连续交互阻塞；判断：可用但排序有明显可感知停顿 |
+| 6 | fit-all 列宽全量扫描 | **pass（有界，实测 1.6s）** | 1M 行 fit_all：dense 1.642s / lazy 1.539s（cache build 26/19ms 另计）；触发路径=「Resize Columns to Fit」显式点击（view_menu），不在滚动/导航路径上 |
+| 7 | 真实窗口人工编辑/保存 | **unknown（需人工）** | 人工核对清单见下节；已由视图链覆盖：值编辑/撤销重做/另存字节相等/结构插删排序/复制导出（lazy_tests 3 项 + demand_access 链） |
+| 8 | 快照临时文件生命周期 | **pass** | 实测：运行前 0 个；运行中 `%TEMP%\matcha-demand-<pid>-{0,1}.csv` 各 69,258,868 B（=输入大小）；正常关闭（CloseMainWindow/exit 0）后 0 个自删；强杀（kill）后残留复现——与既有注记一致，属已知边界 |
+| 9 | OS WS 峰值 523.5 MiB 构成 | **分析（实测+估算分列）** | 见下节拆解 |
+
+**OS WS 峰值拆解**（523.5 MiB，batch-20261108-154405 raw；实测标注实测，其余为估算不伪造精度）：
+- 实测：GUI lazy 稳定 WS 266.6 MiB；映射虚拟 138.5MB（两份 69MB 快照）；无 GUI 的 proto 链（demand 模式）峰值 WS 438.6 MiB（本批外采样，覆盖 infer+align+compare 完成后读数）。
+- 估算（proto 链 438.6 内）：稳态 ≈180MB（映射触碰页 138 + 跨度索引 16 + version 向量 8 + 视口缓存 16 + 零碎）；prepare 相位暂态 ≈+250MB（融合数组 160MB + 计分 map 组 ~90-360MB 区间，常驻重叠程度未逐页实测）——相位峰值的设定者；row-text 暂态 ~160MB 顺序两侧（在 verify 前释放）不高于 prepare；GUI 增量 ≈+85MB（egui 字体图集/纹理/窗口与视图结构）。
+- 结论性事实：峰值高水位由 prepare 相位（infer 融合数组+计分 map）设定；若 300 门槛未来覆盖 OS WS 峰值口径，下一轮候选=计分 map 线程数/数组分块压缩（须重新评估等价性）。裁决权在用户。
+
+**人工核对清单（≤2 分钟，项 7 用）**：① 打开两份 1M CSV（设 `MATCHA_TABLE_CSV_LAZY=1`）→ 等就绪，滚动/远跳顺畅；② 双击任意普通格改成新值→Ctrl+Z→Ctrl+Y→状态栏统计随之减增；③ Ctrl+S 另存为新文件→用 dense 模式重开该副本与另一侧比较，统计应为全 same（或仅剩预期差异）；④ 插一行→输入两格→删除该行→撤销两次→重做两次，视图与统计一致；⑤ 关闭窗口，检查 %TEMP% 无 matcha-demand-* 残留。预期：全部通过且无卡顿回归。
+
+**发现的其他覆盖缺口（只记录，不修）**：
+- #a find 每次 Next/Previous/Replace 按键全表重扫（1M 行 dense ~1.1s / lazy ~1.5s）——两条路径同构的 UX 时延缺口，非 lazy 回归；修复候选（后续）：命中索引增量维护或按行游标续扫。
+- #b `Cache::fit_all` 假定 `widths` 已由 `Cache::build` 填充（直接对 default Cache 调用会越界 panic）；生产路径恒先 build 后 fit_all，属 API 脆弱性注记非现行 bug。
+- #c 强杀进程泄漏 %TEMP% 快照（每侧 69MB）——已知注记，本轮复现确认仍存在；正常退出自删正常。
+
+**切默认 go/no-go 输入清单（事实，不做决定）**：
+- 已过门：ready ×0.5417（lazy 2394.8 vs dense 4420.9ms）；稳定 PB/PWS/WS 161/100/267 MiB <300；fingerprint 与四摘要 6+ 轮冻结全等；编辑/撤销/结构/保存/复制/导出视图链对等；混合 XLSX×lazy 正确；regional 面板等价；find 正确性等价。
+- 未达标/缺口：OS WS 峰值 523.5 MiB >300（口径是否纳入 300 由用户裁决；构成如上，峰值设定者=prepare 暂态）；真实窗口人工编辑/保存未经人工确认（清单已备）；会话持久化功能本身未实现（非 lazy 回归）；find 全表扫描时延两路径同构 ~1.1/1.5s；1M 排序 lazy 3.4s 停顿可感知。
+- 运维注记：强杀泄漏快照文件；XLSX 恒 dense（lazy 仅 CSV）。
