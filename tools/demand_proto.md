@@ -149,3 +149,22 @@ D:\Github\Matcha\target\release\matcha.exe target\table-wave7\audit\inputs\table
 # 测量（3轮×两路径串行，raw独立目录+历史追加）：
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 ```
+
+### A+C 取值热点削减批次（batch-20261108-004948，ready 门未过）
+
+切口（只改 `crates/bc-engine-table/src/demand.rs`，经协调者批准）：A=空覆盖层短路（`overlay()` 访问器先判 `edits.is_empty()`；`display_text_at`/`preview` 对 `display_overrides` 判空；`cached_row_displays` 的 `keys().any` 前判空）；C=`SPAN_SCRATCH`（TLS 按表 id 键控 (record 序号, 免引号拆分的字段跨度 Vec<(u32,u32)>，相对 strip_ending 后 body；表 id 数≥4 清空，同 ROW_SCRATCH 约束），`raw_field_phys` 快路径同 record 连续列复用一次拆分，含限定符行仍回退 `parsed_field`）。未动共享引擎代码、未切默认开关、未 commit。
+
+测量工具修正（本批前置，协调者逐项批准；门禁严格性不变）：①fingerprint 捕获串 `TrimEnd('\r')`——drain 用 `AppendLine` 重建 CRLF 行而正则 `.*` 吃掉 `\r`，冻结串精确比对在 Windows 上恒败（工具重写后首次跑完整批才发现）；②采样后端由 CIM `Win32_PerfRawData_PerfProc_Process`（本机实测 330–410ms/次、枚举全机 ~690 进程行，+300ms sleep ≈700ms/迭代，12s 窗仅 17 样本 < 20 门，两个中间批 batch-20261108-003632/004234 因此在 dense run1 中止，raw 保留未入历史）换为 Get-Process(`PrivateMemorySize64`/`WorkingSet64`/`PeakWorkingSet64`) + 按实例 `PerformanceCounter(Process\Working Set - Private)`；PID→实例名每轮启动时经 `ID Process` 计数器解析一次，映射不到/多义立即整批失败；三项指标定义、300ms 节拍、12s 窗、stable_n≥20 等阈值全部不变，raw 与聚合 JSON 均记录 `sampler_backend` 溯源。**已知限制**：实例解析在采样开始前（首样本延迟 ~1–1.5s），加载观测 PB 峰值的采样覆盖窗变窄（本批 lazy 加载观测峰值=稳定值，低于旧批 418.4 部分归因于此，不表示加载峰值真实下降）；OS WS 峰值为累计计数器口径不受影响。`tools/demand_proto_measure.ps1` 的同款 CIM 采样器本轮未动，存在同样的超节拍风险。
+
+结果（exe `e235ad7cdf6db19f819ea3191094428d20b6dd1185c74591b93c73a9ed459a11`，3 轮中位，MiB）：
+
+| 路径 | ready 中位 | 稳定PB | 稳定WS | 稳定PWS | 加载观测PB峰值 | 观测PB峰值 | OS WS峰值 |
+|---|---|---|---|---|---|---|---|
+| dense | 5859.9 ms | 1798.6 | 1712.6 | 1673.3 | 1801.8 | 1801.8 | 1969.9 |
+| lazy | 8527.4 ms（**×1.4552，未过 ≤1.10 门**） | 166.9 | 277.0 | 105.5 | 166.9（采样盲窗，见上） | 166.9 | 532.0（>300 未达标项） |
+
+- 正确性门禁：6 轮 fingerprint 全等冻结统计（rows=1,000,000 same=990,000 important=10,000，余为 0）；输入 SHA256 同前；exit=0、`ClosedByMainWindow` 正常关闭全部成立；历史已追加 `tools/demand_gui_baseline.json`。
+- 相位证据（lazy 本批 vs 旧批，ms）：prepare-rules 1696–1756 vs 1170–1191；row-text 2287–2502 vs 1995–2013；verify-filter 691–703 vs 487–498；compare 1363–1392 vs 1227–1239；load-side 持平（~1505–1590）；同批 dense 各相位仅 +2–12%。比值与旧批 +45.4% 几乎相同 → **A+C 对 ready 无净改善**。初步判断（非结论）：~70 字节/10 列短行下每格 TLS HashMap 开销≈省下的部分重扫，列主序相位（infer_keys 逐列扫全行）使按记录暂存每格失效，反把 O(k) 部分扫描变每格强制全行拆分。环境无存压（空闲 ~28GB、pages/sec ~40）。
+- 下一步未决：受控 A/B 隔离（-NoBaseline 旧新交错）确认 C 的净符号、回退 C 保留 A、或改走引擎侧相位融合/常驻字段索引，均需主 session 与用户批准；本切口代码现状保留未 commit。
+
+探针归因与回退（同日晚间，协调者批准的受控隔离；8 个 `-Runs 1 -NoBaseline` 探针批，raw 在 `target/memory-audit/gui/probe-<态>-<轮>-*` 标注非正式，未写历史）：四态（S0=HEAD 旧、S1=仅 A、S2=仅 C、S3=A+C）交错 2 轮，lazy ready/相位（2 样本均值，ms）：S0 ready 7223（prepare 1228 / hashes 262 / row-text 2112 / verify 510 / compare 1269）；S1 7234（1251/271/2164/495/1211）；S2 8022（1652/384/2185/678/1361）；S3 8259（1696/364/2250/707/1390）；同探针 dense ready 负载指数 S0 5220 / S1 5032 / S2 5279 / S3 5625。**结论：A 净中性（全相位差在 ±60ms 噪声内），C 全相位一致净负（ready +799~+1036ms，列主序相位尤甚）**——「空覆盖层 60M 次哈希查找 + 40M 次行首重扫是热点」的本轮假设在本行形（~70B/10 列短行）下被实测证伪：列主序相位（infer_keys/verify 逐列扫全行）使按记录暂存每格失效，反把 O(k) 部分扫描变每格强制全行拆分+TLS HashMap 开销；行主序相位中短行部分重扫已低于 TLS 开销。据此 A、C 均已回退，`demand.rs` 回 HEAD（git diff 干净），正式批 batch-20261108-004948 的 A+C 测量作为已证伪切口的证据保留；上述两处测量工具修正（TrimEnd、采样后端）保留。引擎侧相位融合/常驻字段索引等方向需另行批准。

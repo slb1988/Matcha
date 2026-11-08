@@ -1,129 +1,256 @@
-{
-  "batches": [
-    {
-      "batch_at": "2026-11-07T16:18:10.5343710+08:00",
-      "timing_basis": "app:first-ready-frame (real GUI ready stage; no auto-exit)",
-      "raw_dir": "target/memory-audit/gui/batch-20261107-161551",
-      "revision": "aae14944b8df0e947060fc5cbe5bdfae1f5f5880",
-      "dirty": true,
-      "exe_sha256": "c1ad58263d7cee4a145abf78be45169381a37c270b57246916810b89f40814b2",
-      "input_left_sha256": "1c7f090e6863bc81d4ce3c2802017ced9589363dafaca50be6b259e0410886d7",
-      "input_right_sha256": "53c033e4a8feb2c54eec8636884c690c4c2f1a3635fc461637a846166b479c81",
-      "input_preread": "both inputs fully read for SHA256 immediately before batch",
-      "entry": "matcha.exe <left> <right> (+MATCHA_TABLE_CSV_LAZY=1 for lazy); MATCHA_TABLE_PERF=1 both",
-      "stable_seconds": 12,
-      "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0",
-      "ready_ms_dense_median": 4879.8,
-      "ready_ms_lazy_median": 7093.1,
-      "runs": [
-        {
-          "mode": "dense",
-          "run": 1,
-          "pid": 9652,
-          "ready_ms": 4839.1,
-          "stable_private_bytes": 1879453696,
-          "stable_working_set": 1783144448,
-          "stable_working_set_private": 1747533824,
-          "load_observed_peak_private_bytes": 1929240576,
-          "observed_peak_private_bytes": 2199355392,
-          "os_working_set_peak": 2053193728,
-          "mapped_virtual_bytes": "0",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        },
-        {
-          "mode": "dense",
-          "run": 2,
-          "pid": 33272,
-          "ready_ms": 4965.8,
-          "stable_private_bytes": 1880489984,
-          "stable_working_set": 1784520704,
-          "stable_working_set_private": 1748897792,
-          "load_observed_peak_private_bytes": 2072817664,
-          "observed_peak_private_bytes": 2072817664,
-          "os_working_set_peak": 2053984256,
-          "mapped_virtual_bytes": "0",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        },
-        {
-          "mode": "dense",
-          "run": 3,
-          "pid": 47852,
-          "ready_ms": 4879.8,
-          "stable_private_bytes": 1881972736,
-          "stable_working_set": 1785090048,
-          "stable_working_set_private": 1749471232,
-          "load_observed_peak_private_bytes": 1932541952,
-          "observed_peak_private_bytes": 2202427392,
-          "os_working_set_peak": 2054414336,
-          "mapped_virtual_bytes": "0",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        },
-        {
-          "mode": "lazy",
-          "run": 1,
-          "pid": 41792,
-          "ready_ms": 7112.1,
-          "stable_private_bytes": 172851200,
-          "stable_working_set": 282157056,
-          "stable_working_set_private": 107929600,
-          "load_observed_peak_private_bytes": 438218752,
-          "observed_peak_private_bytes": 438218752,
-          "os_working_set_peak": 549023744,
-          "mapped_virtual_bytes": "138517736",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        },
-        {
-          "mode": "lazy",
-          "run": 2,
-          "pid": 4784,
-          "ready_ms": 7093.1,
-          "stable_private_bytes": 170729472,
-          "stable_working_set": 279863296,
-          "stable_working_set_private": 105631744,
-          "load_observed_peak_private_bytes": 439033856,
-          "observed_peak_private_bytes": 439033856,
-          "os_working_set_peak": 550019072,
-          "mapped_virtual_bytes": "138517736",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        },
-        {
-          "mode": "lazy",
-          "run": 3,
-          "pid": 41468,
-          "ready_ms": 7079.3,
-          "stable_private_bytes": 172793856,
-          "stable_working_set": 281690112,
-          "stable_working_set_private": 107470848,
-          "load_observed_peak_private_bytes": 438751232,
-          "observed_peak_private_bytes": 438751232,
-          "os_working_set_peak": 549150720,
-          "mapped_virtual_bytes": "138517736",
-          "fingerprint": "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
-        }
-      ],
-      "ready_regression_ratio": 0.453564,
-      "corrections": [
-        {
-          "at": "2026-11-07T17:25:39.880720+08:00",
-          "kind": "aggregation/unit fix (traceable; not a new measurement batch)",
-          "raw_dir": "target/memory-audit/gui/batch-20261107-161551",
-          "items": [
-            {
-              "field": "ready_ms_dense_median",
-              "was": 4965800,
-              "now": 4879.8,
-              "reason": "was written as ms*1000 (unit error) AND Get-Med v1 [int](n/2) rounding selected the maximum (4965.8) instead of the median for 3 values; recomputed from per-run ready_ms in raw_dir with floor-index median"
-            },
-            {
-              "field": "ready_ms_lazy_median",
-              "was": 7112100,
-              "now": 7093.1,
-              "reason": "was written as ms*1000 (unit error) AND Get-Med v1 [int](n/2) rounding selected the maximum (7112.1) instead of the median (7093.1) for 3 values; recomputed from per-run ready_ms in raw_dir with floor-index median"
-            }
-          ],
-          "note": "memory aggregates in this batch were recomputed by the main session from the raw samples and match the recorded values; old batch predates the safe-close protocol: it used PID+path+StartTime<60s identity and Stop-Process -Force, recorded no exit_code/shutdown_method/exact ticks, and is NOT retroactively claimed to satisfy the new safety gates"
-        }
-      ]
-    }
-  ]
+﻿{
+    "batches":  [
+                    {
+                        "batch_at":  "2026-11-07T16:18:10.5343710+08:00",
+                        "timing_basis":  "app:first-ready-frame (real GUI ready stage; no auto-exit)",
+                        "raw_dir":  "target/memory-audit/gui/batch-20261107-161551",
+                        "revision":  "aae14944b8df0e947060fc5cbe5bdfae1f5f5880",
+                        "dirty":  true,
+                        "exe_sha256":  "c1ad58263d7cee4a145abf78be45169381a37c270b57246916810b89f40814b2",
+                        "input_left_sha256":  "1c7f090e6863bc81d4ce3c2802017ced9589363dafaca50be6b259e0410886d7",
+                        "input_right_sha256":  "53c033e4a8feb2c54eec8636884c690c4c2f1a3635fc461637a846166b479c81",
+                        "input_preread":  "both inputs fully read for SHA256 immediately before batch",
+                        "entry":  "matcha.exe \u003cleft\u003e \u003cright\u003e (+MATCHA_TABLE_CSV_LAZY=1 for lazy); MATCHA_TABLE_PERF=1 both",
+                        "stable_seconds":  12,
+                        "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0",
+                        "ready_ms_dense_median":  4879.8,
+                        "ready_ms_lazy_median":  7093.1,
+                        "runs":  [
+                                     {
+                                         "mode":  "dense",
+                                         "run":  1,
+                                         "pid":  9652,
+                                         "ready_ms":  4839.1,
+                                         "stable_private_bytes":  1879453696,
+                                         "stable_working_set":  1783144448,
+                                         "stable_working_set_private":  1747533824,
+                                         "load_observed_peak_private_bytes":  1929240576,
+                                         "observed_peak_private_bytes":  2199355392,
+                                         "os_working_set_peak":  2053193728,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  2,
+                                         "pid":  33272,
+                                         "ready_ms":  4965.8,
+                                         "stable_private_bytes":  1880489984,
+                                         "stable_working_set":  1784520704,
+                                         "stable_working_set_private":  1748897792,
+                                         "load_observed_peak_private_bytes":  2072817664,
+                                         "observed_peak_private_bytes":  2072817664,
+                                         "os_working_set_peak":  2053984256,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  3,
+                                         "pid":  47852,
+                                         "ready_ms":  4879.8,
+                                         "stable_private_bytes":  1881972736,
+                                         "stable_working_set":  1785090048,
+                                         "stable_working_set_private":  1749471232,
+                                         "load_observed_peak_private_bytes":  1932541952,
+                                         "observed_peak_private_bytes":  2202427392,
+                                         "os_working_set_peak":  2054414336,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  1,
+                                         "pid":  41792,
+                                         "ready_ms":  7112.1,
+                                         "stable_private_bytes":  172851200,
+                                         "stable_working_set":  282157056,
+                                         "stable_working_set_private":  107929600,
+                                         "load_observed_peak_private_bytes":  438218752,
+                                         "observed_peak_private_bytes":  438218752,
+                                         "os_working_set_peak":  549023744,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  2,
+                                         "pid":  4784,
+                                         "ready_ms":  7093.1,
+                                         "stable_private_bytes":  170729472,
+                                         "stable_working_set":  279863296,
+                                         "stable_working_set_private":  105631744,
+                                         "load_observed_peak_private_bytes":  439033856,
+                                         "observed_peak_private_bytes":  439033856,
+                                         "os_working_set_peak":  550019072,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  3,
+                                         "pid":  41468,
+                                         "ready_ms":  7079.3,
+                                         "stable_private_bytes":  172793856,
+                                         "stable_working_set":  281690112,
+                                         "stable_working_set_private":  107470848,
+                                         "load_observed_peak_private_bytes":  438751232,
+                                         "observed_peak_private_bytes":  438751232,
+                                         "os_working_set_peak":  549150720,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     }
+                                 ],
+                        "ready_regression_ratio":  0.453564,
+                        "corrections":  [
+                                            {
+                                                "at":  "2026-11-07T17:25:39.880720+08:00",
+                                                "kind":  "aggregation/unit fix (traceable; not a new measurement batch)",
+                                                "raw_dir":  "target/memory-audit/gui/batch-20261107-161551",
+                                                "items":  [
+                                                              {
+                                                                  "field":  "ready_ms_dense_median",
+                                                                  "was":  4965800,
+                                                                  "now":  4879.8,
+                                                                  "reason":  "was written as ms*1000 (unit error) AND Get-Med v1 [int](n/2) rounding selected the maximum (4965.8) instead of the median for 3 values; recomputed from per-run ready_ms in raw_dir with floor-index median"
+                                                              },
+                                                              {
+                                                                  "field":  "ready_ms_lazy_median",
+                                                                  "was":  7112100,
+                                                                  "now":  7093.1,
+                                                                  "reason":  "was written as ms*1000 (unit error) AND Get-Med v1 [int](n/2) rounding selected the maximum (7112.1) instead of the median (7093.1) for 3 values; recomputed from per-run ready_ms in raw_dir with floor-index median"
+                                                              }
+                                                          ],
+                                                "note":  "memory aggregates in this batch were recomputed by the main session from the raw samples and match the recorded values; old batch predates the safe-close protocol: it used PID+path+StartTime\u003c60s identity and Stop-Process -Force, recorded no exit_code/shutdown_method/exact ticks, and is NOT retroactively claimed to satisfy the new safety gates"
+                                            }
+                                        ]
+                    },
+                    {
+                        "batch_at":  "2026-11-08T00:53:38.1268526+08:00",
+                        "timing_basis":  "ready_ms = app:first-ready-frame mark (app clock); stable window = sampler clock from ready detection (+StableSeconds); normal close, no auto-exit",
+                        "sampler_backend":  "Get-Process(PrivateMemorySize64/WorkingSet64/PeakWorkingSet64)+PerformanceCounter(Process/Working Set - Private, per-PID instance); replaces CIM Win32_PerfRawData_PerfProc_Process (~350-410ms/query overran the 300ms cadence on this host); same OS counters, gates unchanged",
+                        "aggregator":  "Get-Med v2: numeric sort; odd -\u003e floor-indexed middle; even -\u003e mean of middle two; decimal-preserving; ready medians in ms",
+                        "raw_dir":  "target/memory-audit/gui/batch-20261108-004948",
+                        "revision":  "8ec0ebecfbf459e109734303df40420b289fac7a",
+                        "dirty":  true,
+                        "exe_sha256":  "e235ad7cdf6db19f819ea3191094428d20b6dd1185c74591b93c73a9ed459a11",
+                        "input_left_sha256":  "1c7f090e6863bc81d4ce3c2802017ced9589363dafaca50be6b259e0410886d7",
+                        "input_right_sha256":  "53c033e4a8feb2c54eec8636884c690c4c2f1a3635fc461637a846166b479c81",
+                        "input_preread":  "both inputs fully read for SHA256 immediately before batch",
+                        "entry":  "matcha.exe \u003cleft\u003e \u003cright\u003e (+MATCHA_TABLE_CSV_LAZY=1 for lazy); MATCHA_TABLE_PERF=1 both",
+                        "stable_seconds":  12,
+                        "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0",
+                        "ready_ms_dense_median":  5859.9,
+                        "ready_ms_lazy_median":  8527.4,
+                        "exit_codes":  [
+                                           0,
+                                           0,
+                                           0,
+                                           0,
+                                           0,
+                                           0
+                                       ],
+                        "shutdown_methods":  [
+                                                 "ClosedByMainWindow"
+                                             ],
+                        "runs":  [
+                                     {
+                                         "mode":  "dense",
+                                         "run":  1,
+                                         "pid":  52332,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  5926.9,
+                                         "stable_private_bytes":  1889275904,
+                                         "stable_working_set":  1797079040,
+                                         "stable_working_set_private":  1755901952,
+                                         "load_observed_peak_private_bytes":  1889316864,
+                                         "observed_peak_private_bytes":  1889316864,
+                                         "os_working_set_peak":  2066472960,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  2,
+                                         "pid":  52512,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  5413.2,
+                                         "stable_private_bytes":  1885696000,
+                                         "stable_working_set":  1795760128,
+                                         "stable_working_set_private":  1754599424,
+                                         "load_observed_peak_private_bytes":  1885696000,
+                                         "observed_peak_private_bytes":  1885696000,
+                                         "os_working_set_peak":  2064699392,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  3,
+                                         "pid":  50256,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  5859.9,
+                                         "stable_private_bytes":  1886015488,
+                                         "stable_working_set":  1795674112,
+                                         "stable_working_set_private":  1754505216,
+                                         "load_observed_peak_private_bytes":  1886015488,
+                                         "observed_peak_private_bytes":  1886015488,
+                                         "os_working_set_peak":  2065600512,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  1,
+                                         "pid":  50456,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  8368,
+                                         "stable_private_bytes":  175034368,
+                                         "stable_working_set":  291041280,
+                                         "stable_working_set_private":  111239168,
+                                         "load_observed_peak_private_bytes":  175034368,
+                                         "observed_peak_private_bytes":  175034368,
+                                         "os_working_set_peak":  557805568,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  2,
+                                         "pid":  2524,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  8527.4,
+                                         "stable_private_bytes":  175120384,
+                                         "stable_working_set":  290041856,
+                                         "stable_working_set_private":  110235648,
+                                         "load_observed_peak_private_bytes":  175120384,
+                                         "observed_peak_private_bytes":  175120384,
+                                         "os_working_set_peak":  557801472,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  3,
+                                         "pid":  30740,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  8638,
+                                         "stable_private_bytes":  174821376,
+                                         "stable_working_set":  290410496,
+                                         "stable_working_set_private":  110612480,
+                                         "load_observed_peak_private_bytes":  174821376,
+                                         "observed_peak_private_bytes":  174821376,
+                                         "os_working_set_peak":  557031424,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     }
+                                 ]
+                    }
+                ]
 }

@@ -1,5 +1,6 @@
 # Real-GUI demand-storage measurement: N serial runs per path (dense / lazy),
-# per-PID WMI sampling (~300ms target). The window is NOT auto-closed after
+# per-PID sampling (~300ms target; backend documented at Get-MemSample).
+# The window is NOT auto-closed after
 # ready: sampling continues through a fixed post-ready stable window with the
 # live bounded cache, then the window is closed normally (CloseMainWindow,
 # bounded wait; no force-kill by default).
@@ -57,17 +58,50 @@ if ($ActualLeftHash -ne $ExpectedLeftHash -or $ActualRightHash -ne $ExpectedRigh
 }
 if (-not (Test-Path $Exe)) { Write-Host "missing $Exe (cargo build --release --bin matcha)"; exit 1 }
 
-function Get-MemSample([int]$TargetPid, [double]$T0Ms) {
-    $s = Get-CimInstance Win32_PerfRawData_PerfProc_Process -Filter "IDProcess=$TargetPid" -ErrorAction SilentlyContinue
-    if ($null -eq $s) { return $null }
-    $now = [Diagnostics.Stopwatch]::GetTimestamp() / ([Diagnostics.Stopwatch]::Frequency / 1000.0)
-    [pscustomobject]@{
-        t_ms              = [math]::Round($now - $T0Ms, 1)
-        PrivateBytes      = [int64]$s.PrivateBytes
-        WorkingSet        = [int64]$s.WorkingSet
-        WorkingSetPrivate = [int64]$s.WorkingSetPrivate
-        WorkingSetPeak    = [int64]$s.WorkingSetPeak
+# Sampler backend (2026-11-08, coordinator-approved): PB/WS/WS-peak read from
+# the retained Get-Process object (PrivateMemorySize64/WorkingSet64/
+# PeakWorkingSet64), PWS from the per-instance performance counter
+# '\Process(<instance>)\Working Set - Private'. The PID->instance mapping is
+# resolved ONCE per run at launch via the 'ID Process' counter; zero or
+# multiple matches fail the whole batch (no guessing). The previous CIM
+# Win32_PerfRawData_PerfProc_Process query enumerates every process row on
+# the host (~350-410ms/call here, ~690 rows), overruning the 300ms cadence
+# and starving the 12s stable window below its minimum-sample gate. Metric
+# definitions, cadence, window and all gates are unchanged; these are the
+# same OS counters the CIM provider exposes.
+function Resolve-PwsCounter {
+    param([int]$TargetPid)
+    $category = [System.Diagnostics.PerformanceCounterCategory]::new('Process')
+    $found = @()
+    foreach ($instance in $category.GetInstanceNames()) {
+        if ($instance -eq '_Total' -or $instance -eq 'Idle') { continue }
+        try {
+            $idCounter = [System.Diagnostics.PerformanceCounter]::new('Process', 'ID Process', $instance, $true)
+            $id = [int]$idCounter.NextValue()
+            $idCounter.Dispose()
+            if ($id -eq $TargetPid) { $found += $instance }
+        } catch { }
     }
+    $found = @($found | Sort-Object -Unique)
+    if ($found.Count -ne 1) { return $null }
+    $counter = [System.Diagnostics.PerformanceCounter]::new('Process', 'Working Set - Private', $found[0], $true)
+    [void]$counter.NextValue()  # prime; first read can be stale
+    [pscustomobject]@{ Instance = $found[0]; Counter = $counter }
+}
+function Get-MemSample([System.Diagnostics.Process]$Proc, $Pws, [double]$T0Ms) {
+    try {
+        $Proc.Refresh()
+        if ($Proc.HasExited) { return $null }
+        $pwsValue = $Pws.Counter.NextValue()
+        $now = [Diagnostics.Stopwatch]::GetTimestamp() / ([Diagnostics.Stopwatch]::Frequency / 1000.0)
+        [pscustomobject]@{
+            t_ms              = [math]::Round($now - $T0Ms, 1)
+            PrivateBytes      = [int64]$Proc.PrivateMemorySize64
+            WorkingSet        = [int64]$Proc.WorkingSet64
+            WorkingSetPrivate = [int64]$pwsValue
+            WorkingSetPeak    = [int64]$Proc.PeakWorkingSet64
+        }
+    } catch { return $null }
 }
 # Median: numeric sort; odd count -> floor-indexed middle element; even count
 # -> mean of the two middle elements. Decimal-preserving (no integer cast).
@@ -222,11 +256,24 @@ foreach ($mode in @('dense', 'lazy')) {
         Write-Host "$mode run $i pid=$pid_"
         $runFailed = $false
 
+        # Resolve the PID -> Process perf-counter instance ONCE at launch
+        # (bounded wait for counter registration); unresolved or ambiguous
+        # mapping fails the whole batch, no guessing.
+        $pwsCounter = $null
+        for ($k = 0; $k -lt 20 -and $null -eq $pwsCounter; $k++) {
+            $pwsCounter = Resolve-PwsCounter $pid_
+            if ($null -eq $pwsCounter) { Start-Sleep -Milliseconds 250 }
+        }
+        if ($null -eq $pwsCounter) {
+            $failures += "${mode} run${i}: no unique Process perf-counter instance for pid=$pid_"
+            $runFailed = $true
+        }
+
         # Phase 1: wait for the real ready mark (first-ready-frame in stderr).
         $readyDetectedTms = $null
         $samples = @()
-        while (-not $app.HasExited -and $null -eq $readyDetectedTms) {
-            $s = Get-MemSample $pid_ $t0
+        while (-not $runFailed -and -not $app.HasExited -and $null -eq $readyDetectedTms) {
+            $s = Get-MemSample $app $pwsCounter $t0
             if ($null -ne $s) { $samples += $s }
             if ((Read-LineDrain $errDrain) -match 'first-ready-frame') {
                 $readyDetectedTms = [Diagnostics.Stopwatch]::GetTimestamp() / ([Diagnostics.Stopwatch]::Frequency / 1000.0) - $t0
@@ -234,13 +281,15 @@ foreach ($mode in @('dense', 'lazy')) {
             Start-Sleep -Milliseconds 300
             if ((([Diagnostics.Stopwatch]::GetTimestamp() / ([Diagnostics.Stopwatch]::Frequency / 1000.0)) - $t0) -gt 180000) { break }
         }
-        if ($app.HasExited -and $null -eq $readyDetectedTms) {
-            $earlyExit = try { $p.ExitCode } catch { 'unknown' }
-            $failures += "${mode} run${i}: early exit before ready (pid=$pid_, exit=$earlyExit)"
-            $runFailed = $true
-        } elseif ($null -eq $readyDetectedTms) {
-            $failures += "${mode} run${i}: no first-ready-frame within 180s (pid=$pid_)"
-            $runFailed = $true
+        if (-not $runFailed) {
+            if ($app.HasExited -and $null -eq $readyDetectedTms) {
+                $earlyExit = try { $p.ExitCode } catch { 'unknown' }
+                $failures += "${mode} run${i}: early exit before ready (pid=$pid_, exit=$earlyExit)"
+                $runFailed = $true
+            } elseif ($null -eq $readyDetectedTms) {
+                $failures += "${mode} run${i}: no first-ready-frame within 180s (pid=$pid_)"
+                $runFailed = $true
+            }
         }
 
         # Phase 2: stable window, sampler clock only; window open, cache live.
@@ -250,7 +299,7 @@ foreach ($mode in @('dense', 'lazy')) {
             $windowEndTms = $readyDetectedTms + ($StableSeconds * 1000)
             while ((([Diagnostics.Stopwatch]::GetTimestamp() / ([Diagnostics.Stopwatch]::Frequency / 1000.0)) - $t0) -lt $windowEndTms) {
                 if ($app.HasExited) { break }
-                $s = Get-MemSample $pid_ $t0
+                $s = Get-MemSample $app $pwsCounter $t0
                 if ($null -ne $s) { $samples += $s }
                 Read-LineDrain $errDrain | Out-Null
                 Read-LineDrain $outDrain | Out-Null
@@ -294,6 +343,7 @@ foreach ($mode in @('dense', 'lazy')) {
             $runFailed = $true
         }
         Complete-LineDrains $errDrain $outDrain
+        if ($null -ne $pwsCounter) { $pwsCounter.Counter.Dispose() }
         $stderr = $errDrain.Text.ToString()
         $stdout = $outDrain.Text.ToString()
         [IO.File]::WriteAllText($errFile, $stderr)
@@ -301,7 +351,7 @@ foreach ($mode in @('dense', 'lazy')) {
 
         $marks = @([regex]::Matches($stderr, '\[table-perf\] t=\s*([0-9.]+)ms (\S+)') | ForEach-Object { @{ t_ms = [double]$_.Groups[1].Value; mark = $_.Groups[2].Value } })
         $readyMs = Get-Mark $marks 'app:first-ready-frame'
-        $fingerprint = ([regex]::Match($stderr, '\[table-perf\] fingerprint .*')).Value
+        $fingerprint = ([regex]::Match($stderr, '\[table-perf\] fingerprint .*')).Value.TrimEnd("`r")
         $mappedBytes = [string]([regex]::Matches($stderr, 'demand-mapped-bytes=(\d+)') | ForEach-Object { $_.Groups[1].Value } | Measure-Object -Sum).Sum
         $stable = if ($null -ne $readyDetectedTms -and $null -ne $windowEndTms) {
             Get-StableWindowSamples $samples $readyDetectedTms $windowEndTms
@@ -328,6 +378,8 @@ foreach ($mode in @('dense', 'lazy')) {
             stable_window_end_t_ms = $windowEndTms
             stable_window_completed = $windowCompleted
             fingerprint = $fingerprint
+            sampler_backend = 'Get-Process(PrivateMemorySize64/WorkingSet64/PeakWorkingSet64)+PerformanceCounter(Process/Working Set - Private); PID->instance resolved once at launch via ID Process counter'
+            sampler_instance = if ($null -ne $pwsCounter) { $pwsCounter.Instance } else { $null }
             mapped_virtual_bytes = $mappedBytes
             marks = $marks
             sample_interval_ms_target = 300
@@ -380,6 +432,7 @@ $lazy  = @($batch | Where-Object { $_.mode -eq 'lazy' })
 $history = [ordered]@{
     batch_at = (Get-Date).ToString('o')
     timing_basis = 'ready_ms = app:first-ready-frame mark (app clock); stable window = sampler clock from ready detection (+StableSeconds); normal close, no auto-exit'
+    sampler_backend = 'Get-Process(PrivateMemorySize64/WorkingSet64/PeakWorkingSet64)+PerformanceCounter(Process/Working Set - Private, per-PID instance); replaces CIM Win32_PerfRawData_PerfProc_Process (~350-410ms/query overran the 300ms cadence on this host); same OS counters, gates unchanged'
     aggregator = 'Get-Med v2: numeric sort; odd -> floor-indexed middle; even -> mean of middle two; decimal-preserving; ready medians in ms'
     raw_dir = "target/memory-audit/gui/batch-$batchId"
     revision = (git -C $Root rev-parse HEAD)
