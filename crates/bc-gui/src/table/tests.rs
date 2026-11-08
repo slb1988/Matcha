@@ -399,3 +399,216 @@ fn home_masks_and_unsaved_cancel_do_not_discard() {
     assert!(v.action.is_none());
     let _ = GridState::default();
 }
+
+fn tall_view() -> TableCompareView {
+    let mut left = String::from("id,name,code,note,tag
+");
+    for i in 0..5000 {
+        left.push_str(&format!(
+            "{i},item-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,code-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,note-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,tag-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz
+"
+        ));
+    }
+    let right = left.clone();
+    let mut v = TableCompareView::from_sheets(
+        sheet(&left),
+        sheet(&right),
+        TableRules {
+            keys: KeySelection::Manual(vec![0]),
+            strategy: AlignStrategy::Quick,
+            ..Default::default()
+        },
+    );
+    ready(&mut v);
+    v
+}
+fn wheel(lines: Vec2, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: lines,
+        modifiers,
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
+    }
+}
+use egui::Vec2;
+
+/// The grid consumes raw Line/Page wheel deltas 1:1 in the frame they
+/// arrive (egui's exponential wheel smoothing is bypassed on the grid).
+#[test]
+fn wheel_scroll_tracks_input_immediately() {
+    let mut v = tall_view();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let pane0 = v.grid.pane_rects[0];
+    let pos = egui::pos2(pane0.left() + 100.0, pane0.top() + 100.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+    assert_eq!(v.grid.scroll.y, 0.0);
+    // 10 wheel-down notches of 3 lines in one frame: fully applied at once.
+    let mut events = vec![egui::Event::PointerMoved(pos)];
+    for _ in 0..10 {
+        events.push(wheel(egui::vec2(0.0, -3.0), egui::Modifiers::default()));
+    }
+    frame(&ctx, &mut v, events);
+    let target = 10.0 * 3.0 * 40.0;
+    assert_eq!(v.grid.scroll.y, target, "full delta applies in the same frame");
+    // No residual motion afterwards (no smoothing backlog).
+    for _ in 0..10 {
+        frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+        assert_eq!(v.grid.scroll.y, target);
+    }
+    // Wheel up past the top clamps at zero.
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            wheel(egui::vec2(0.0, 500.0), egui::Modifiers::default()),
+        ],
+    );
+    assert_eq!(v.grid.scroll.y, 0.0);
+}
+
+#[test]
+fn wheel_scroll_modifiers_and_hover_gating() {
+    let mut v = tall_view();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let pane0 = v.grid.pane_rects[0];
+    let pos = egui::pos2(pane0.left() + 100.0, pane0.top() + 100.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+    // Ctrl+wheel is zoom in egui semantics: the grid does not scroll.
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            wheel(egui::vec2(0.0, -3.0), egui::Modifiers::COMMAND),
+        ],
+    );
+    assert_eq!(v.grid.scroll.y, 0.0);
+    // Shift+wheel scrolls horizontally.
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            wheel(egui::vec2(0.0, -3.0), egui::Modifiers::SHIFT),
+        ],
+    );
+    assert_eq!(v.grid.scroll.y, 0.0);
+    assert_eq!(v.grid.scroll.x, 120.0);
+    // Pointer outside the grid panes: no grid scrolling.
+    let outside = egui::pos2(5.0, 5.0);
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(outside),
+            wheel(egui::vec2(0.0, -3.0), egui::Modifiers::default()),
+        ],
+    );
+    assert_eq!(v.grid.scroll.x, 120.0);
+    assert_eq!(v.grid.scroll.y, 0.0);
+    // Page units convert through the viewport height.
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Page,
+                delta: egui::vec2(0.0, -1.0),
+                modifiers: egui::Modifiers::default(),
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Wheel,
+            },
+        ],
+    );
+    assert_eq!(v.grid.scroll.y, 900.0);
+}
+
+/// Keyboard navigation: arrows/PageUp/PageDown keep acting on the grid
+/// (focus stays locked on the pane) and scroll the view so the cursor row
+/// stays visible.
+#[test]
+fn arrow_keys_keep_focus_and_track_cursor_into_view() {
+    let mut v = tall_view();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let pane0 = v.grid.pane_rects[0];
+    let pos = egui::pos2(pane0.left() + 100.0, pane0.top() + 100.0);
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ],
+    );
+    let start = v.grid.cursor.row;
+    let mut events = vec![];
+    for _ in 0..60 {
+        events.push(egui::Event::Key {
+            key: egui::Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+            repeat: false,
+        });
+    }
+    frame(&ctx, &mut v, events);
+    assert_eq!(v.grid.cursor.row, start + 60, "every arrow press moves the cursor");
+    assert!(
+        v.key_focus,
+        "grid keeps the keyboard across arrow keys (egui focus may still roam)"
+    );
+    assert!(
+        v.grid.visible.contains(&v.grid.cursor.row),
+        "cursor row {:?} visible in {:?}",
+        v.grid.cursor,
+        v.grid.visible
+    );
+    assert!(v.grid.scroll.y > 0.0, "view scrolled to follow the cursor");
+    // ArrowUp back above the top scrolls up.
+    let mut events = vec![];
+    for _ in 0..100 {
+        events.push(egui::Event::Key {
+            key: egui::Key::ArrowUp,
+            physical_key: None,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+            repeat: false,
+        });
+    }
+    frame(&ctx, &mut v, events);
+    assert_eq!(v.grid.cursor.row, 0);
+    assert_eq!(v.grid.scroll.y, 0.0);
+    // PageDown jumps by a page and lands in view.
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::Key {
+            key: egui::Key::PageDown,
+            physical_key: None,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+            repeat: false,
+        }],
+    );
+    let row = v.grid.cursor.row;
+    assert!(row >= 10, "PageDown moved a page, got row {row}");
+    assert!(v.grid.visible.contains(&row));
+}

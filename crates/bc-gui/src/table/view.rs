@@ -134,6 +134,12 @@ pub struct TableCompareView {
     pub(super) clipboard_side: Option<usize>,
     pub(super) paste_requested: bool,
     pub(super) focus_grid: Option<usize>,
+    /// Sticky "grid owns the keyboard" intent: set on grid clicks, cleared by
+    /// clicks outside the panes, Escape, or opening Find. egui's own focus
+    /// cannot carry this: its arrow-key focus navigation would move focus off
+    /// the pane after one press (and `set_focus_lock_filter` cannot be armed
+    /// before the first frame of focus), freezing arrow navigation.
+    pub(super) key_focus: bool,
 }
 impl TableCompareView {
     pub(super) fn blank() -> Self {
@@ -179,6 +185,7 @@ impl TableCompareView {
             clipboard_side: None,
             paste_requested: false,
             focus_grid: None,
+            key_focus: false,
         }
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -969,6 +976,14 @@ impl TableCompareView {
         self.grid.cells_drawn = 0;
         self.grid.edit_target = self.editor.as_ref().map(|e| (e.side, e.display));
         self.grid.edit_rect = None;
+        // Mouse wheel over the grid scrolls immediately (egui's wheel
+        // smoothing reads as lag on Windows Line-unit notches); gated like
+        // `keyboard` on modal/editor state.
+        grid::wheel(
+            &ctx,
+            &mut self.grid,
+            self.editor.is_none() && self.pending.is_none() && self.dialog.is_none(),
+        );
         let mut grid_action = None;
         let mut nav_target = None;
         if let Some(p) = &self.pair {
@@ -1063,6 +1078,9 @@ impl TableCompareView {
         if self.editor.is_none() && self.pending.is_none() && self.dialog.is_none() {
             if let Some(side) = self.focus_grid.take() {
                 ctx.memory_mut(|m| m.request_focus(egui::Id::unique(("table_grid_focus", side))));
+                // Every "focus the grid" flow (go-to, navigate, sort, edit
+                // commit/cancel, ...) also hands it the keyboard.
+                self.key_focus = true;
             }
         }
     }

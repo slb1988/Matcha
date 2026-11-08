@@ -255,3 +255,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 - 离线复核（demand_proto 两模式）：四摘要全等冻结值；demand 模式 index 每侧 ~1.28s → ~0.22s。
 - 测试：bc-engine-table 全绿（含 ① 两项差分测试：合成语料 31×5 + 真实输入逐 span）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
 - 未做（按边界）：dense 加载路径、compare/fused-pass 取值微优化、候选裁剪、默认开关、测量脚本门禁、imara-diff；未 commit。剩余 lazy-only 相位差（对 dense）：fused-pass +420 / row-text +380 / compare +148 / hashes +35ms。
+
+### GUI 滚动卡顿定位与修复批次（无测量批次号；渲染/输入层改动，bench + 单轮 PERF 复核）
+
+用户报告「GUI 移动 CSV 内容的时候特别卡」。先测量定位，再动手。原始证据目录：无新测量批（渲染层改动按任务规则以 bench-table + 单轮 PERF 抽查代替正式批，理由见下「口径选择」）。
+
+**定位过程（按嫌疑点逐项排除/确认）**：
+- 既有 `--bench-table`（600 帧，3 平滑+1 远跳，直连 scroll_to_row）两路径实测：dense update p50 0.634ms / p99 1.172 / max 1.656；lazy p50 0.598 / p99 0.997 / max 2.860；每帧 ~60 行 × 406 格。**渲染路径本身亚毫秒，排除逐格工作/重绘策略/fit_all/cache/header/show_rows 全部嫌疑**（fit_all 仅在「Resize Columns to Fit」显式点击触发，已核代码路径；bench 的 fps_overall 系 load 计入 wall 的口径噪音，不代表滚动帧率）。
+- 但 bench 直连 scroll 位置，**从未经过真实输入通路**。转向真实事件通路（测试 harness 经 egui Context 全 pass 注入真实 wheel/key 事件）后发现两个确认的输入层根因：
+
+**根因 1（主）：egui 0.37 滚轮平滑**。`WheelState::after_events` 对 Line/Page 滚轮增量做指数平滑（`exponential_smooth_factor(0.90, 0.1, dt)`，每帧 ~32% 渗出 + 渐近长尾；Windows 鼠标滚轮为 Line 单位，必走积压路径）。实测轨迹（测试 `wheel_scroll_trajectory_probe` 修复前运行，真实 pass）：10 次滚轮 notch × 3 行 × 40pt = 目标 1200pt，显示位移 [382, 643, 820, 941, 1024, 1080, 1118, 1144, …] —— 输入停止后内容继续滑行 ~0.3s 才渐近到位；连续快滚时显示始终落后输入 ~2/3 行程。**这就是「移动内容特别卡」的滚轮手感**。
+**根因 2：方向键焦点逃逸**。egui 0.37 对未被 widget 消费的 Tab/方向键执行焦点迁移（`Memory::begin_pass` 扫事件 → `end_pass` 移动焦点）；窗格 `set_focus_lock_filter` 只能在获得焦点的下一帧才生效（`had_focus_last_frame` 门槛），bootstrap 缝隙无法消除。实测：点击网格后按第一次 ↓ 光标动一格，焦点随即离开窗格，后续按键全部丢失——**方向键连续导航事实上卡死**（且光标移出可视区时视图不跟随）。
+
+**修复（渲染/视口层，显示内容逐字节不变；不动引擎存储）**：
+- `grid.rs`：两个网格 ScrollArea 改 `scroll_source(mouse_wheel: false)`（滚动条/触摸拖拽保留框架行为），新增 `grid::wheel`：指针在任一窗格内时直接消费原始 Line/Page/Point 滚轮增量、当帧 1:1 应用（换算与 egui 原生默认一致：40pt/行、Page=视口高、Shift=横向、Alt=纵向、Ctrl=缩放留给 egui 不滚动；上界由 pane 既有钳制当帧收敛）。Point（触控板）同源 1:1 应用——细粒度高频增量本就适合直接跟踪。因网格 ScrollArea 不再消费 egui 平滑增量，无双计风险（积压无人读取自然作废）。
+- `grid.rs` 窗格加 `set_focus_lock_filter`（tab/方向键锁定，防御性保留）；`view.rs` 新增 `key_focus` 粘性标志（点击网格置位；点击窗格外/Escape/打开查找面板复位；`restore_grid_focus` 统一随 `focus_grid` 置位，覆盖 goto/导航/排序/编辑提交取消等全部回流），`commands.rs::keyboard` 的焦点门改为该标志——彻底脱离 egui 焦点迁移。
+- 方向键导航新增光标跟随滚动（`ensure_cursor_visible`，立即无动画；横向沿用 goto_cell 左对齐约定）并补齐 PageUp/PageDown（按可视页长移动）。
+
+**修复后证据**：`wheel_scroll_tracks_input_immediately`：同帧全额到位（轨迹 [1200.0 × 21 帧]，零残余滑动）；`wheel_scroll_modifiers_and_hover_gating`：Ctrl 不滚动 / Shift 横向 120pt / 指针在窗外不滚动 / Page=900pt；`arrow_keys_keep_focus_and_track_cursor_into_view`：60 次 ↓ 全部生效、光标保持可视、视图跟随滚动、↑ 回顶归零、PageDown 翻页落在可视区。既有 `raw_scroll_on_either_pane...`（Point 单位同步滚动）等 147 项 bc-gui 测试全绿。
+**bench-table 前后对照（渲染成本证明无回归）**：dense update p50 0.634→0.614 / p99 1.172→1.169 / max 1.656→1.640 ms；lazy p50 0.598→0.605 / p99 0.997→1.125 / max 2.860→1.486 ms——输入通路修复不改变渲染成本（本就亚毫秒）。单轮 PERF 抽查：两路径 fingerprint 全等冻结统计，ready dense 3940.0 / lazy 2346.3 ms 与上批中位一致。
+**口径选择**：本批仅动 GUI 输入/视口层（grid.rs/view.rs/commands.rs + bc-gui 测试），引擎存储与比较链零改动，按任务规则以 bench-table + 单轮 PERF 抽查代替 demand_gui_measure 正式批；稳定内存与峰值不受影响（无新增常驻结构）。
+**框架限制记录**：egui 0.37 滚轮平滑参数硬编码（源码标 TODO 待参数化）、`set_focus_lock_filter` 无法预置——两者均不可经框架配置消除，故在视口层绕过（非 hack 框架内部）；若升级 egui 且上游开放平滑开关，可回退本拦截。
+- 测试：bc-gui 147 全绿（含 lazy 3 项 + 新增 3 项 wheel/key 测试）；bc-engine-table 15 套件全绿（未动，回归确认）；demand_measure_tests 全 PASS。exe SHA256 `f8c7ada0d5092faabc8d920e3dd7e8c3e12844292c0759a853c33680e0c413f3`（rev 10aff0e dirty）。
+- 未做：details/查找面板等小型 ScrollArea 仍走 egui 平滑路径（内容小、无感；如需可同法推广）；Home/End 键、触屏拖拽手势未动；未 commit。

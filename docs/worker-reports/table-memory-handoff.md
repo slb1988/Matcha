@@ -25,7 +25,7 @@
 
 ## 最新权威 GUI 结果：ready 门已通过（batch-20261108-102043）
 
-来源：`tools/demand_gui_baseline.json` 末批，原始目录 `target/memory-audit/gui/batch-20261108-154405/`；历经三相位并行（迭代2）+ interpret 快拒/融合扫描（迭代3）+ 分配消除/计分并行（迭代4）+ 加载跨度索引快速扫描（迭代5）后 3 轮中位：ready dense 4420.9 vs lazy 2394.8 ms（**×0.5417，≤1.10 回归门保持**）；稳定 lazy PB 161.4 / PWS 100.4 / WS 266.6 MiB 均 <300；OS WS 峰值 523.5 MiB >300 仍为未达标项；加载观测 PB 峰值受采样器首样本盲窗限制（口径注记见 demand_proto.md）。6 轮 fingerprint 全等冻结统计。exe `a0bfbbd3ff6f…`。迭代历程与相位明细见 demand_proto.md 末尾各批。已知新问题（用户反馈，优先級高于继续性能迭代）：GUI 移动/滚动 CSV 内容卡顿。
+来源：`tools/demand_gui_baseline.json` 末批，原始目录 `target/memory-audit/gui/batch-20261108-154405/`；历经三相位并行（迭代2）+ interpret 快拒/融合扫描（迭代3）+ 分配消除/计分并行（迭代4）+ 加载跨度索引快速扫描（迭代5）后 3 轮中位：ready dense 4420.9 vs lazy 2394.8 ms（**×0.5417，≤1.10 回归门保持**）；稳定 lazy PB 161.4 / PWS 100.4 / WS 266.6 MiB 均 <300；OS WS 峰值 523.5 MiB >300 仍为未达标项；加载观测 PB 峰值受采样器首样本盲窗限制（口径注记见 demand_proto.md）。6 轮 fingerprint 全等冻结统计。exe `a0bfbbd3ff6f…`。迭代历程与相位明细见 demand_proto.md 末尾各批。GUI 滚动/方向键卡顿已在迭代 6 修复（输入层：egui 滚轮指数平滑改原始增量当帧 1:1、方向键焦点逃逸加粘性焦点门；渲染层实测无罪，两路径帧耗亚毫秒）。
 
 ## 旧批结果：A+C 批未过门（batch-20261108-004948，已回退）与原始接入批（batch-20261107-161551）
 

@@ -110,6 +110,7 @@ impl TableCompareView {
         if !editor.changed() {
             self.editor = None;
             self.focus_grid = Some(side_index);
+            self.key_focus = true;
             return Ok(());
         }
         if self.files[side_index].readonly {
@@ -150,6 +151,7 @@ impl TableCompareView {
         self.editor = None;
         self.grid.active = side_index;
         self.focus_grid = Some(side_index);
+        self.key_focus = true;
         self.edited();
         Ok(())
     }
@@ -198,6 +200,7 @@ impl TableCompareView {
         }
         self.grid.active = s;
         self.grid.cursor = cursor;
+        self.key_focus = true;
         if edit {
             self.begin_edit(s, cursor, None);
         }
@@ -905,8 +908,21 @@ impl TableCompareView {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        let focused =
-            ctx.memory(|m| m.has_focus(egui::Id::unique(("table_grid_focus", self.grid.active))));
+        // A click outside the grid panes hands the keyboard to whatever was
+        // clicked (find box, toolbar, settings, thumbnail...).
+        for event in &events {
+            if let egui::Event::PointerButton {
+                pos,
+                pressed: true,
+                ..
+            } = event
+            {
+                if !self.grid.pane_rects.iter().any(|r| r.contains(*pos)) {
+                    self.key_focus = false;
+                }
+            }
+        }
+        let focused = self.key_focus;
         if self.paste_requested && !focused {
             self.paste_requested = false;
         }
@@ -921,7 +937,10 @@ impl TableCompareView {
                     pressed: true,
                     modifiers,
                     ..
-                } if modifiers.command => self.find.open = true,
+                } if modifiers.command => {
+                    self.find.open = true;
+                    self.key_focus = false;
+                }
                 egui::Event::Key {
                     key: egui::Key::S,
                     pressed: true,
@@ -969,8 +988,12 @@ impl TableCompareView {
                         self.begin_edit(self.grid.active, self.grid.cursor, None)
                     }
                     egui::Key::Delete | egui::Key::Backspace => self.clear_selected(),
+                    egui::Key::Escape => {
+                        self.key_focus = false;
+                    }
                     egui::Key::F3 => {
                         self.find.open = true;
+                        self.key_focus = false;
                         let a = if modifiers.shift {
                             Action::Previous
                         } else {
@@ -984,6 +1007,8 @@ impl TableCompareView {
                     | egui::Key::ArrowUp
                     | egui::Key::ArrowLeft
                     | egui::Key::ArrowRight
+                    | egui::Key::PageDown
+                    | egui::Key::PageUp
                     | egui::Key::Tab => {
                         let old = self.grid.cursor;
                         if modifiers.shift {
@@ -991,11 +1016,16 @@ impl TableCompareView {
                         } else {
                             self.grid.anchor = None;
                         }
+                        let page = (self.grid.pane_rects[self.grid.active].height()
+                            / super::grid::ROW_HEIGHT)
+                            .max(1.0) as usize;
                         let mut c = old;
                         match key {
                             egui::Key::ArrowDown => c.row += 1,
                             egui::Key::ArrowUp => c.row = c.row.saturating_sub(1),
                             egui::Key::ArrowLeft => c.column = c.column.saturating_sub(1),
+                            egui::Key::PageDown => c.row += page,
+                            egui::Key::PageUp => c.row = c.row.saturating_sub(page),
                             _ => c.column += 1,
                         }
                         if let Some(p) = &self.pair {
@@ -1003,10 +1033,42 @@ impl TableCompareView {
                             c.column = c.column.min(p.map.column_count().saturating_sub(1));
                         }
                         self.grid.cursor = c;
+                        self.ensure_cursor_visible();
                     }
                     _ => {}
                 },
                 _ => {}
+            }
+        }
+    }
+    /// Scroll the active pane so the grid cursor stays visible after keyboard
+    /// navigation (immediate, no framework animation; horizontal follows the
+    /// goto_cell left-alignment convention).
+    pub(super) fn ensure_cursor_visible(&mut self) {
+        let Some(p) = &self.pair else { return };
+        let rect = self.grid.pane_rects[self.grid.active];
+        if !rect.is_positive() {
+            return;
+        }
+        let display = p.projection.display_for(self.grid.cursor.row);
+        let row_top = display as f32 * super::grid::ROW_HEIGHT;
+        let row_bottom = row_top + super::grid::ROW_HEIGHT;
+        if row_top < self.grid.scroll.y {
+            self.grid.scroll.y = row_top;
+        } else if row_bottom > self.grid.scroll.y + rect.height() {
+            self.grid.scroll.y = row_bottom - rect.height();
+        }
+        if let Some(d) = self
+            .grid
+            .columns
+            .iter()
+            .position(|&c| c == self.grid.cursor.column)
+        {
+            let left = self.grid.offsets[d];
+            let right = self.grid.offsets[d + 1];
+            let view = (rect.width() - super::grid::GUTTER).max(0.0);
+            if left < self.grid.scroll.x || right > self.grid.scroll.x + view {
+                self.grid.scroll.x = left;
             }
         }
     }
@@ -1678,6 +1740,7 @@ impl TableCompareView {
         } else if cancel {
             if let Some(editor) = self.editor.take() {
                 self.focus_grid = Some(editor.side);
+                self.key_focus = true;
             }
         }
         let mut execute = None;
