@@ -187,3 +187,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 - 内存验收口径：稳定三项（PB 161.3 / WS 266.0 / PWS 100.0 MiB）<300 维持达成；加载观测 PB 峰值受采样器首样本 ~1-1.5s 盲窗限制等于稳定值（沿用前批注记，不表示加载峰值真实下降）；OS WS 峰值 523.8 MiB >300 仍为如实记录的未达标项。
 - 测试：`cargo test --release -p bc-engine-table` 全绿；`cargo test --release -p bc-gui lazy`（3 项 lazy_tests）全绿；`tools/demand_measure_tests.ps1` 全 PASS。
 - 未做（按本轮边界）：infer_keys 融合/剪枝（prepare-rules 1269ms 是剩余最大相位，下一轮候选）、regional interpret 快拒、demand.rs 改动、默认开关切换、imara-diff；未 commit。
+
+### interpret 数字门快拒 + infer_keys 融合单列扫描批次（batch-20261108-105650，回归门保持）
+
+两个独立切口（均为引擎共享代码，经批准；不改 demand.rs、不切默认、不 commit）：
+
+- **切口 1：`regional.rs::interpret` 数字门快拒**。`parse_number` 成功要求 normalized 串含至少一个 ASCII 数字（其字符全部来自原文子串；"nan"/"inf" 结构性不可能且 f64 解析有 `is_finite` 过滤），`parse_date` 要求三个 i32 整数字段 ⇒ 不含数字的文本只可能是 Bool/Text。interpret 内以 `bytes().any(is_ascii_digit)` 门包住两次解析调用，数字文本调用顺序不变，Bool/Text 尾部两臂共享。等价性单测 `regional::tests::digit_gate_matches_ungated_interpretation`：以改动前链路为 oracle，对普通文本/含分隔符文本/true-false 各种大小写/空串/数字/日期/混合共 49 条用例 × 默认与欧洲区域（`,` 小数 `.` 千分 `/` 日期 DMY）逐一断言相等，并抽查快拒类落点。
+- **切口 2：`inference.rs` 单列候选融合扫描**。原 score_wave 对 10 个单列候选各做一次全表 pass（每侧 10 pass × 1M 行，4 线程）；改为每侧一次融合 pass：按行分块（`phase_threads` 上界 8，行数/4096），块内每行对每个候选调同一 `row_hash_into`/`finish_row_hash`（逐字节同输入），写入按 (候选, 行) 索引的 `Vec<u64>` 数组（`chunks_mut` 安全切分不相交区间，无 unsafe）；随后**逐候选串行**从数组按行序重建 KeyMap（`or_insert` 首现、ScoreScratch 同容量策略、确定性 `U64KeyBuild`=`BuildHasherDefault<U64KeyHasher>` 固定乘混无随机 seed ⇒ map 布局/迭代序与 values_into 逐位一致，`score_maps` 提取的评分体逐字未改，float 累加顺序不变），每候选评分后数组即释放。pairs 波次保持原 score_wave 不动。candidates 顺序 = 列表顺序，`best()` tie-break 输入逐位不变。等价性证据：两模式四摘要冻结值全等（含 columns_digest 5513a3fb0a7609e5 = key 选择结果一致）。融合暂态 = 2 侧 × 10 候选 × 1M × 8B ≈ 160MB + 评分期一对复用 map ≈ 71MB ≈ 231MB，不高于原 4 线程 × 2 map ≈ 250-285MB 暂态。
+
+结果（exe `96f58ec46066be6011b967359a6f65eb000163de61820dd4b2aee1c05249f944`，rev 896ef66 dirty，3 轮中位，MiB）：
+
+| 路径 | ready 中位 | 稳定PB | 稳定WS | 稳定PWS | 加载观测PB峰值 | 观测PB峰值 | OS WS峰值 |
+|---|---|---|---|---|---|---|---|
+| dense | 4795.3 ms（上批 5451.1） | 1793.7 | 1701.3 | 1673.0 | 1793.7 | 1793.7 | 1964.9 |
+| lazy | 4610.1 ms（上批 4671.7；**×0.9614，≤1.10 回归门保持**） | 161.1 | 266.7 | 100.5 | 161.1（采样盲窗，同前口径） | 161.1 | **523.8（与上批 523.8 持平，未变差**；>300 未达标项口径不变） |
+
+- 正确性门禁：6 轮 fingerprint 全等冻结统计；输入 SHA256 同前；exit=0、ClosedByMainWindow 全部成立；raw 在 `target/memory-audit/gui/batch-20261108-105650/`。
+- 相位（lazy 本批中位 vs 上批，ms）：**prepare-rules 815.4 vs 1269.2（−454ms，切口 2 主效）**；hashes 377.9 vs 315.0（三轮 412.8/377.9/279.7，噪声内）；row-text 829.9 vs 868.3；verify-filter 109.4 vs 106.2；compare 260.4 vs 248.6。dense 同批：**prepare 189.0 vs 373.2（−49%）**，hashes 195.9 / row-text 255.2 / verify 28.9 / compare 106.2（上批 compare 中位 313.8 为噪声抬高，本批三轮 102-109 一致）。
+- worker 口径（中位）：table-align-job lazy 2472.8 vs dense 869.3 ms（上批 2838.6 vs 1258.6）；load-side 两側并行 lazy ~1678 vs dense ~3583 ms。
+- 切口归因（未做 -NoBaseline 探针分离，非强制）：prepare-rules 的 −454/−184ms 与融合扫描直接对应；interpret 数字门在本行形（数字为主）各相位移动均在噪声内——其价值在文本主导输入跳过两次解析尝试，本输入不可见，等价性由单测与四摘要保证。
+- 离线复核（demand_proto 两模式，1M 行真实输入）：rows 092d09a4649bbfc5 / cells 612baef10de64f25 / values 41bbcbeeca0830a5 / columns 5513a3fb0a7609e5 全等冻结值；示例内 infer_keys 阶段 demand 模式 ~1545ms → ~809ms。
+- 测试：bc-engine-table 全绿（含新 regional 等价性单测）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
+- 未做（按边界）：demand.rs、候选裁剪/提前退出、默认开关、测量脚本、imara-diff；未 commit。剩余 lazy 链 delta（align-job +1.6s）主体转为各相位逐格取值成本（row-text +575ms / prepare +626ms / hashes +182ms vs dense），已过回归门，后续是否继续由主 session 决定。

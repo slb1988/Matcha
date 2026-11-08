@@ -25,7 +25,7 @@
 
 ## 最新权威 GUI 结果：ready 门已通过（batch-20261108-102043）
 
-来源：`tools/demand_gui_baseline.json` 末批，原始目录 `target/memory-audit/gui/batch-20261108-102043/`；三相位分块并行后 3 轮中位：ready dense 5451.1 vs lazy 4671.7 ms（**×0.857，过 ≤1.10 门**）；稳定 lazy PB 161.3 / PWS 100.0 / WS 266.0 MiB 均 <300；OS WS 峰值 523.8 MiB >300 仍为未达标项；加载观测 PB 峰值受采样器首样本 ~1-1.5s 盲窗限制（口径注记见 demand_proto.md）。6 轮 fingerprint 全等冻结统计。exe `8ce6e4af5868…`。剩余最大相位：prepare-rules（infer_keys 全列扫描）。
+来源：`tools/demand_gui_baseline.json` 末批，原始目录 `target/memory-audit/gui/batch-20261108-105650/`；三相位分块并行 + interpret 数字门快拒 + infer 单列融合扫描后 3 轮中位：ready dense 4795.3 vs lazy 4610.1 ms（**×0.9614，≤1.10 回归门保持**）；稳定 lazy PB 161.1 / PWS 100.5 / WS 266.7 MiB 均 <300；OS WS 峰值 523.8 MiB >300 仍为未达标项（与上批持平）；加载观测 PB 峰值受采样器首样本 ~1-1.5s 盲窗限制（口径注记见 demand_proto.md）。6 轮 fingerprint 全等冻结统计。exe `96f58ec46066…`。prepare-rules 经融合扫描已从 1269 降至 815 ms（lazy），仍为链 delta 主体；迭代历程详见 demand_proto.md 末尾各批。
 
 ## 旧批结果：A+C 批未过门（batch-20261108-004948，已回退）与原始接入批（batch-20261107-161551）
 

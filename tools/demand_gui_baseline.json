@@ -378,6 +378,133 @@
                                          "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
                                      }
                                  ]
+                    },
+                    {
+                        "batch_at":  "2026-11-08T11:02:48.0852971+08:00",
+                        "timing_basis":  "ready_ms = app:first-ready-frame mark (app clock); stable window = sampler clock from ready detection (+StableSeconds); normal close, no auto-exit",
+                        "sampler_backend":  "Get-Process(PrivateMemorySize64/WorkingSet64/PeakWorkingSet64)+PerformanceCounter(Process/Working Set - Private, per-PID instance); replaces CIM Win32_PerfRawData_PerfProc_Process (~350-410ms/query overran the 300ms cadence on this host); same OS counters, gates unchanged",
+                        "aggregator":  "Get-Med v2: numeric sort; odd -\u003e floor-indexed middle; even -\u003e mean of middle two; decimal-preserving; ready medians in ms",
+                        "raw_dir":  "target/memory-audit/gui/batch-20261108-105650",
+                        "revision":  "896ef669938c991f4d52f0d3956a3163f87c24f0",
+                        "dirty":  true,
+                        "exe_sha256":  "96f58ec46066be6011b967359a6f65eb000163de61820dd4b2aee1c05249f944",
+                        "input_left_sha256":  "1c7f090e6863bc81d4ce3c2802017ced9589363dafaca50be6b259e0410886d7",
+                        "input_right_sha256":  "53c033e4a8feb2c54eec8636884c690c4c2f1a3635fc461637a846166b479c81",
+                        "input_preread":  "both inputs fully read for SHA256 immediately before batch",
+                        "entry":  "matcha.exe \u003cleft\u003e \u003cright\u003e (+MATCHA_TABLE_CSV_LAZY=1 for lazy); MATCHA_TABLE_PERF=1 both",
+                        "stable_seconds":  12,
+                        "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0",
+                        "ready_ms_dense_median":  4795.3,
+                        "ready_ms_lazy_median":  4610.1,
+                        "exit_codes":  [
+                                           0,
+                                           0,
+                                           0,
+                                           0,
+                                           0,
+                                           0
+                                       ],
+                        "shutdown_methods":  [
+                                                 "ClosedByMainWindow"
+                                             ],
+                        "runs":  [
+                                     {
+                                         "mode":  "dense",
+                                         "run":  1,
+                                         "pid":  7588,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  5381.5,
+                                         "stable_private_bytes":  1887207424,
+                                         "stable_working_set":  1789894656,
+                                         "stable_working_set_private":  1754312704,
+                                         "load_observed_peak_private_bytes":  1887207424,
+                                         "observed_peak_private_bytes":  1887207424,
+                                         "os_working_set_peak":  2060369920,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  2,
+                                         "pid":  21324,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  4709.4,
+                                         "stable_private_bytes":  1880846336,
+                                         "stable_working_set":  1783947264,
+                                         "stable_working_set_private":  1748332544,
+                                         "load_observed_peak_private_bytes":  1880846336,
+                                         "observed_peak_private_bytes":  1880846336,
+                                         "os_working_set_peak":  2053808128,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "dense",
+                                         "run":  3,
+                                         "pid":  58596,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  4795.3,
+                                         "stable_private_bytes":  1895182336,
+                                         "stable_working_set":  1798463488,
+                                         "stable_working_set_private":  1762734080,
+                                         "load_observed_peak_private_bytes":  1895182336,
+                                         "observed_peak_private_bytes":  1895182336,
+                                         "os_working_set_peak":  2061168640,
+                                         "mapped_virtual_bytes":  "0",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  1,
+                                         "pid":  61708,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  4633.4,
+                                         "stable_private_bytes":  170135552,
+                                         "stable_working_set":  279719936,
+                                         "stable_working_set_private":  105525248,
+                                         "load_observed_peak_private_bytes":  170135552,
+                                         "observed_peak_private_bytes":  170135552,
+                                         "os_working_set_peak":  549167104,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  2,
+                                         "pid":  27624,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  4610.1,
+                                         "stable_private_bytes":  168681472,
+                                         "stable_working_set":  279617536,
+                                         "stable_working_set_private":  105406464,
+                                         "load_observed_peak_private_bytes":  168747008,
+                                         "observed_peak_private_bytes":  168747008,
+                                         "os_working_set_peak":  549232640,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     },
+                                     {
+                                         "mode":  "lazy",
+                                         "run":  3,
+                                         "pid":  62228,
+                                         "exit_code":  0,
+                                         "shutdown_method":  "ClosedByMainWindow",
+                                         "ready_ms":  4073.9,
+                                         "stable_private_bytes":  168898560,
+                                         "stable_working_set":  279003136,
+                                         "stable_working_set_private":  104796160,
+                                         "load_observed_peak_private_bytes":  168898560,
+                                         "observed_peak_private_bytes":  168898560,
+                                         "os_working_set_peak":  549597184,
+                                         "mapped_virtual_bytes":  "138517736",
+                                         "fingerprint":  "[table-perf] fingerprint rows=1000000 same=990000 unimportant=0 important=10000 left_only=0 right_only=0"
+                                     }
+                                 ]
                     }
                 ]
 }

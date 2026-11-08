@@ -153,16 +153,108 @@ pub fn format_date(ms: i64) -> String {
 }
 pub fn interpret(text: &str, regional: &RegionalSettings) -> CellValue {
     if text.is_empty() {
-        CellValue::Empty
-    } else if let Some(n) = parse_number(text, regional) {
-        CellValue::Number(n)
-    } else if let Some(d) = parse_date(text, regional) {
-        CellValue::Date(d)
-    } else if text.eq_ignore_ascii_case("true") {
+        return CellValue::Empty;
+    }
+    // Digit gate: parse_number only succeeds when the mantissa contributes at
+    // least one ASCII digit to the normalized string it parses ("nan"/"inf"
+    // are structurally impossible there and the final f64 parse is
+    // is_finite-filtered), and parse_date requires three i32 integer fields —
+    // so digit-free text can only be Bool/Text, and skipping both parsers
+    // cannot change the outcome. Digit-bearing text runs both parsers in the
+    // original order; the Bool/Text tail is shared by both arms.
+    if text.bytes().any(|b| b.is_ascii_digit()) {
+        if let Some(n) = parse_number(text, regional) {
+            return CellValue::Number(n);
+        }
+        if let Some(d) = parse_date(text, regional) {
+            return CellValue::Date(d);
+        }
+    }
+    if text.eq_ignore_ascii_case("true") {
         CellValue::Bool(true)
     } else if text.eq_ignore_ascii_case("false") {
         CellValue::Bool(false)
     } else {
         CellValue::Text(text.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pre-gate evaluation chain, kept as the equivalence oracle for the
+    /// digit-gate fast reject.
+    fn ungated_interpret(text: &str, regional: &RegionalSettings) -> CellValue {
+        if text.is_empty() {
+            CellValue::Empty
+        } else if let Some(n) = parse_number(text, regional) {
+            CellValue::Number(n)
+        } else if let Some(d) = parse_date(text, regional) {
+            CellValue::Date(d)
+        } else if text.eq_ignore_ascii_case("true") {
+            CellValue::Bool(true)
+        } else if text.eq_ignore_ascii_case("false") {
+            CellValue::Bool(false)
+        } else {
+            CellValue::Text(text.into())
+        }
+    }
+
+    #[test]
+    fn digit_gate_matches_ungated_interpretation() {
+        let european = RegionalSettings {
+            use_system: false,
+            decimal: ',',
+            thousands: Some('.'),
+            date_order: DateOrder::Dmy,
+            date_separator: '/',
+        };
+        let cases = [
+            // Digit-free fast-reject classes: plain text, separator-bearing
+            // text, bool spellings, empty.
+            "", "true", "false", "TRUE", "False", "abc", "hello world", "N/A",
+            "a,b,c", "ab-cd", "a/b/c", "--", "..", "+", "-", "e", "E", "inf",
+            "nan", "Infinity", "  padded  ", "一列文本", "ünïcode", ".", ",",
+            "true false", "null", "none", "yes",
+            // Digit-bearing: number/date paths must be unchanged.
+            "0", "123", "-45", "+6", "1.5", ".5", "5.", "1,000", "1.000",
+            "1e5", "1E-3", "2e", "e5", "2024-01-15", "2024-13-01",
+            "2024-01-15 10:30", "2024-01-15T10:30:45", "99/02/03", "1:2:3",
+            "0.25", "0.250", "true1", "1true", "abc123", "3.14.15",
+            "1 000", " 42 ", "1,2,3",
+        ];
+        for regional in [RegionalSettings::default(), european] {
+            for text in cases {
+                assert_eq!(
+                    interpret(text, &regional),
+                    ungated_interpret(text, &regional),
+                    "input {text:?} under {regional:?}"
+                );
+            }
+        }
+        // Spot-check the fast-rejected classes land exactly where the ungated
+        // chain did (not merely "same as oracle" tautology).
+        let regional = RegionalSettings::default();
+        assert_eq!(interpret("", &regional), CellValue::Empty);
+        assert_eq!(interpret("true", &regional), CellValue::Bool(true));
+        assert_eq!(interpret("FALSE", &regional), CellValue::Bool(false));
+        assert_eq!(
+            interpret("abc", &regional),
+            CellValue::Text("abc".into())
+        );
+        assert_eq!(
+            interpret("a,b,c", &regional),
+            CellValue::Text("a,b,c".into())
+        );
+        assert_eq!(interpret("123", &regional), CellValue::Number(123.0));
+        assert_eq!(
+            interpret("2024-01-15", &regional),
+            ungated_interpret("2024-01-15", &regional)
+        );
+        assert!(matches!(
+            interpret("2024-01-15", &regional),
+            CellValue::Date(_)
+        ));
     }
 }
