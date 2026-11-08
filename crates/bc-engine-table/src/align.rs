@@ -161,7 +161,28 @@ fn order<S: TableData>(
     cancel.check()?;
     Ok(order)
 }
-fn hashes<S: TableData>(
+/// Key hashes of one contiguous visit-order range. `hash_row` is
+/// deterministic, so the concatenation of chunk outputs in visit order is
+/// exactly the single-pass hash sequence.
+fn hashes_chunk<S: TableData>(
+    sheet: &S,
+    rows: &[usize],
+    side: Side,
+    rules: &TableRules,
+    keys: &[(usize, ColumnHandling)],
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<u64>> {
+    let mut out = Vec::with_capacity(rows.len());
+    let mut scratch = Vec::new();
+    for (i, &row) in rows.iter().enumerate() {
+        if i.is_multiple_of(1024) {
+            cancel.check()?;
+        }
+        out.push(hash_row(sheet, row, side, rules, keys, false, &mut scratch).0);
+    }
+    Ok(out)
+}
+fn hashes<S: TableData + Sync>(
     sheet: &S,
     order: &[usize],
     side: Side,
@@ -169,15 +190,38 @@ fn hashes<S: TableData>(
     keys: &[(usize, ColumnHandling)],
     cancel: &dyn CancelCheck,
 ) -> Result<(Vec<ContentHash>, usize)> {
+    // Pass 1: per-row key hashes, chunked across scoped workers.
+    let threads = crate::perf::phase_threads(order.len());
+    let hashes: Vec<u64> = if threads < 2 {
+        hashes_chunk(sheet, order, side, rules, keys, cancel)?
+    } else {
+        let chunk = order.len().div_ceil(threads).max(1);
+        let results = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for rows in order.chunks(chunk) {
+                handles.push(scope.spawn(|| hashes_chunk(sheet, rows, side, rules, keys, cancel)));
+            }
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_else(|_| Err(invalid("hashing panicked"))))
+                .collect::<Vec<_>>()
+        });
+        let mut out = Vec::with_capacity(order.len());
+        for result in results {
+            out.extend(result?);
+        }
+        out
+    };
+    // Pass 2: occurrence numbering and outer hashing, the original sequential
+    // loop verbatim — byte-identical output for the same hash sequence.
     let mut counts: HashMap<ContentHash, u64, U64KeyBuild> = HashMap::default();
     let mut duplicates = 0;
-    let mut result = Vec::with_capacity(order.len());
-    let mut scratch = Vec::new();
-    for (i, &row) in order.iter().enumerate() {
+    let mut result = Vec::with_capacity(hashes.len());
+    for (i, hash) in hashes.into_iter().enumerate() {
         if i.is_multiple_of(1024) {
             cancel.check()?;
         }
-        let hash = hash_row(sheet, row, side, rules, keys, false, &mut scratch);
+        let hash = ContentHash(hash);
         let count = counts.entry(hash).or_insert(0u64);
         if *count > 0 {
             duplicates += 1;
@@ -291,13 +335,26 @@ fn row_text_row<S: TableData>(sheet: &S, row: usize, cell_buf: &mut String, text
         }
         cell_buf.clear();
         sheet.display_into(row, column, cell_buf);
-        for c in cell_buf.chars() {
-            if count >= 256 {
-                break;
+        if cell_buf.is_ascii() {
+            // ASCII fast path: chars are bytes, the 256-char cap counts bytes,
+            // and CR/LF flattening is byte-wise — identical output to the
+            // char loop without decode/encode round-trips.
+            for &b in cell_buf.as_bytes() {
+                if count >= 256 {
+                    break;
+                }
+                text.push(if matches!(b, b'\r' | b'\n') { b' ' } else { b });
+                count += 1;
             }
-            let c = if matches!(c, '\r' | '\n') { ' ' } else { c };
-            text.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-            count += 1;
+        } else {
+            for c in cell_buf.chars() {
+                if count >= 256 {
+                    break;
+                }
+                let c = if matches!(c, '\r' | '\n') { ' ' } else { c };
+                text.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
+                count += 1;
+            }
         }
         if count >= 256 {
             break;
@@ -490,16 +547,10 @@ impl KeyAlign {
         let ro = order(right, Side::Right, rules, &keys, cancel)?;
         crate::perf::span("key-align:order", t);
         let t = std::time::Instant::now();
-        // The two sides hash independently; run them concurrently.
-        let (mut lh, ld, mut rh, rd) = std::thread::scope(|scope| {
-            let right = scope.spawn(|| hashes(right, &ro, Side::Right, rules, &keys, cancel));
-            let left = hashes(left, &lo, Side::Left, rules, &keys, cancel);
-            let right = right
-                .join()
-                .unwrap_or_else(|_| Err(invalid("right hashing panicked")));
-            Ok::<_, bc_core::CoreError>((left?, right?))
-        })
-        .map(|(l, r)| (l.0, l.1, r.0, r.1))?;
+        // Each side chunks internally under the shared phase budget; sides
+        // run one at a time so staging never stacks (row_text pattern).
+        let (mut lh, ld) = hashes(left, &lo, Side::Left, rules, &keys, cancel)?;
+        let (mut rh, rd) = hashes(right, &ro, Side::Right, rules, &keys, cancel)?;
         crate::perf::span("key-align:hashes", t);
         if keys
             .iter()

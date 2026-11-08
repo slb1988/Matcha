@@ -138,6 +138,204 @@ fn ending_of(span: &[u8]) -> &str {
     }
 }
 
+/// Span index products: record spans (absolute offsets), column ceiling and
+/// line-ending vote. Both builders below produce identical triples; the
+/// differential test at the bottom of this module proves it on synthetic and
+/// real inputs.
+type SpanIndex = (Vec<(u32, u32)>, usize, BTreeMap<String, usize>);
+
+/// Build the record span index. The fast scan handles qualifier-free lines;
+/// anything else (non-ASCII delimiter/qualifier alphabets, or a `ctrl_z_eof`
+/// file that actually contains \x1A — pre-scanned, since the parser treats
+/// \x1A as EOF even inside quotes) takes the production `Records` path.
+fn build_span_index(
+    map: &[u8],
+    base: usize,
+    format: &TableOptions,
+    ctrl_z: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<SpanIndex> {
+    let body = &map[base..];
+    if fast_span_eligible(format, ctrl_z, body) {
+        // Same upfront options validation the Records constructor performs.
+        Records::new(&body[..0], format.clone(), ctrl_z)?;
+        fast_span_index(body, base, format, ctrl_z, cancel)
+    } else {
+        records_span_index(map, base, format, ctrl_z, cancel)
+    }
+}
+
+fn fast_span_eligible(format: &TableOptions, ctrl_z: bool, body: &[u8]) -> bool {
+    format.table_type == TableType::Delimited
+        && format.qualifier.map_or(true, |q| q.is_ascii())
+        && format.delimiters.iter().all(|d| d.is_ascii())
+        && !(ctrl_z && body.contains(&0x1A))
+}
+
+/// Production-parser span index (the original open() loop, verbatim).
+fn records_span_index(
+    map: &[u8],
+    base: usize,
+    format: &TableOptions,
+    ctrl_z: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<SpanIndex> {
+    let mut spans = Vec::new();
+    let mut columns = 0usize;
+    let mut endings = BTreeMap::<String, usize>::new();
+    let pos = Rc::new(TCell::new(0usize));
+    let counting = Counting {
+        inner: &map[base..],
+        pos: pos.clone(),
+    };
+    let mut records = Records::new(counting, format.clone(), ctrl_z)?;
+    let mut prev_end = 0usize;
+    while let Some(record) = records.next_record(cancel)? {
+        let end = pos.get();
+        let span = &map[base + prev_end..base + end];
+        *endings.entry(ending_of(span).to_string()).or_default() += 1;
+        if record.fields.len() > columns {
+            columns = record.fields.len();
+        }
+        // Offsets are relative to the post-BOM base.
+        spans.push(((base + prev_end) as u32, (end - prev_end) as u32));
+        prev_end = end;
+    }
+    Ok((spans, columns, endings))
+}
+
+/// Fast span index. A candidate record region without the qualifier byte ends
+/// at its first '\r'/'\n' (the parser never engages quoting there, so the
+/// line is the record); a region containing the qualifier byte re-parses
+/// exactly one logical record with the production `Records` parser from the
+/// record start (covering embedded newlines/delimiters and doubled escapes)
+/// and the scan resumes at the record's logical end — the fallback always
+/// starts on a true record boundary because preceding records were consumed
+/// completely. Field counts replicate the parser's delimiter splitting
+/// (quoting cannot engage without a qualifier byte); column identity is what
+/// the column ceiling needs. Span ends replicate the Records path's reader
+/// consumption: its `read_line` over-reads to the next '\n', so a record's
+/// span end is the smallest just-after-'\n' position >= the record's logical
+/// end (identity for '\n'/'\r\n' endings; the over-read only shows on lone
+/// '\r' endings, mirrored here).
+fn fast_span_index(
+    body: &[u8],
+    base: usize,
+    format: &TableOptions,
+    ctrl_z: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<SpanIndex> {
+    let qualifier = format
+        .qualifier
+        .filter(|q| q.is_ascii())
+        .map(|q| q as u8);
+    let delimiters: Vec<u8> = format.delimiters.iter().map(|&d| d as u8).collect();
+    let consecutive = format.consecutive_delimiters;
+    let mut spans = Vec::new();
+    let mut columns = 0usize;
+    let mut endings = BTreeMap::<String, usize>::new();
+    let mut pos = 0usize; // logical start of the next record
+    let mut span_prev = 0usize; // reader-consumption end of the previous record
+    let len = body.len();
+    while pos < len {
+        cancel.check()?;
+        // Scan the candidate record: terminator position, field count,
+        // whether the qualifier byte appears before the terminator.
+        let mut i = pos;
+        let mut fields = 1usize;
+        let mut has_qualifier = false;
+        let mut term = len;
+        while i < len {
+            if i > pos && (i - pos).is_multiple_of(4096) {
+                cancel.check()?;
+            }
+            let b = body[i];
+            if b == b'\r' || b == b'\n' {
+                term = i;
+                break;
+            }
+            if Some(b) == qualifier {
+                has_qualifier = true;
+                break;
+            }
+            if delimiters.contains(&b) {
+                fields += 1;
+                if consecutive {
+                    // Runs collapse into one separator (parser semantics).
+                    while i + 1 < len && delimiters.contains(&body[i + 1]) {
+                        i += 1;
+                    }
+                }
+            }
+            i += 1;
+        }
+        if has_qualifier {
+            // Exactly one record from the production parser.
+            let consumed = Rc::new(TCell::new(0usize));
+            let counting = Counting {
+                inner: &body[pos..],
+                pos: consumed.clone(),
+            };
+            let mut records = Records::new(counting, format.clone(), ctrl_z)?;
+            let record = records
+                .next_record(cancel)?
+                .ok_or_else(|| invalid("record parse failed at scan position"))?;
+            let rec_end = pos + consumed.get();
+            if record.fields.len() > columns {
+                columns = record.fields.len();
+            }
+            push_span(body, base, &mut spans, &mut endings, span_prev, rec_end);
+            // The next record parses from the logical end; its span starts at
+            // the reader-consumption end (they differ only on over-reads).
+            pos += record.raw.text.len() + record.raw.ending.len();
+            span_prev = rec_end;
+            continue;
+        }
+        // Logical end: past the terminator, consuming the '\n' of '\r\n'.
+        let end = if term == len {
+            len
+        } else if body[term] == b'\r' && term + 1 < len && body[term + 1] == b'\n' {
+            term + 2
+        } else {
+            term + 1
+        };
+        // Records errors on oversized record text (content, sans terminator).
+        if term - pos > u32::MAX as usize {
+            return Err(invalid("record exceeds 4 GiB"));
+        }
+        let rec_end = if end == len || body[end - 1] == b'\n' {
+            end
+        } else {
+            // Lone-'\r' over-read: the parser's read_line consumed through the
+            // next '\n' (or EOF) before the record break was observed.
+            body[end..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .map_or(len, |j| end + j + 1)
+        };
+        if fields > columns {
+            columns = fields;
+        }
+        push_span(body, base, &mut spans, &mut endings, span_prev, rec_end);
+        pos = end;
+        span_prev = rec_end;
+    }
+    Ok((spans, columns, endings))
+}
+
+fn push_span(
+    body: &[u8],
+    base: usize,
+    spans: &mut Vec<(u32, u32)>,
+    endings: &mut BTreeMap<String, usize>,
+    start: usize,
+    end: usize,
+) {
+    let span = &body[start..end];
+    *endings.entry(ending_of(span).to_string()).or_default() += 1;
+    spans.push(((base + start) as u32, (end - start) as u32));
+}
+
 /// Fast-path gate mirroring the prototype evidence: the Records parser only
 /// engages quote handling when the qualifier byte appears, so delimiter
 /// splitting reproduces fields exactly for qualifier-free records.
@@ -390,29 +588,8 @@ impl DemandSheet {
         let map = bc_core::mmap::map_readonly(&snapshot)?;
         drop(snapshot);
         let base = if has_bom { 3 } else { 0 };
-        let mut spans = Vec::new();
-        let mut columns = 0usize;
-        let mut endings = BTreeMap::<String, usize>::new();
-        {
-            let pos = Rc::new(TCell::new(0usize));
-            let counting = Counting {
-                inner: &map[base..],
-                pos: pos.clone(),
-            };
-            let mut records = Records::new(counting, format.clone(), options.ctrl_z_eof)?;
-            let mut prev_end = 0usize;
-            while let Some(record) = records.next_record(cancel)? {
-                let end = pos.get();
-                let span = &map[base + prev_end..base + end];
-                *endings.entry(ending_of(span).to_string()).or_default() += 1;
-                if record.fields.len() > columns {
-                    columns = record.fields.len();
-                }
-                // Offsets are relative to the post-BOM base.
-                spans.push(((base + prev_end) as u32, (end - prev_end) as u32));
-                prev_end = end;
-            }
-        }
+        let (spans, columns, endings) =
+            build_span_index(&map, base, &format, options.ctrl_z_eof, cancel)?;
         let default_ending = endings
             .into_iter()
             .max_by_key(|(ending, count)| {
@@ -1299,5 +1476,133 @@ mod tests {
         let b = sheet.cached_row_displays(0).unwrap();
         assert_eq!(b.as_slice(), ["z".to_string(), "1".to_string()]);
         let _ = std::fs::remove_file(&path);
+    }
+
+    fn assert_index_equal(body: &[u8], format: &TableOptions) {
+        let via_records = records_span_index(body, 0, format, false, &NeverCancel);
+        let eligible = fast_span_eligible(format, false, body);
+        let via_fast = eligible.then(|| fast_span_index(body, 0, format, false, &NeverCancel));
+        match (via_records, via_fast) {
+            (Ok(a), Some(Ok(b))) => assert_eq!(
+                (a.0, a.1, a.2),
+                (b.0, b.1, b.2),
+                "span index divergence on {:?}",
+                String::from_utf8_lossy(body)
+            ),
+            (Err(a), Some(Err(b))) => assert_eq!(
+                a.to_string(),
+                b.to_string(),
+                "error divergence on {:?}",
+                String::from_utf8_lossy(body)
+            ),
+            (expected, None) => {
+                // Ineligible alphabet: fast scan must not run; nothing to compare.
+                drop(expected);
+            }
+            (a, Some(b)) => panic!(
+                "path divergence on {:?}: records={a:?} fast={b:?}",
+                String::from_utf8_lossy(body)
+            ),
+        }
+    }
+
+    #[test]
+    fn fast_span_index_matches_records_parser_on_synthetic_corpus() {
+        let comma = TableOptions::default();
+        let consecutive = TableOptions {
+            consecutive_delimiters: true,
+            ..TableOptions::default()
+        };
+        let multi = TableOptions {
+            delimiters: vec![',', '\t'],
+            ..TableOptions::default()
+        };
+        let no_qualifier = TableOptions {
+            qualifier: None,
+            ..TableOptions::default()
+        };
+        // Legal per Records::new validation: '\r' can never engage quoting
+        // (terminator check runs first), and the scan never falls back on it.
+        let cr_qualifier = TableOptions {
+            qualifier: Some('\r'),
+            ..TableOptions::default()
+        };
+        let formats = [&comma, &consecutive, &multi, &no_qualifier, &cr_qualifier];
+        let corpus = [
+            "a,b,c\r\n1,2,3\r\n",
+            "a,b\n1,2\n",
+            "a,b\r1,2\r",
+            "a,b\r\nc,d\ne,f\rg,h\r\n",
+            "a,\"x\ny\",c\r\n1,2,3\r\n",
+            "a,\"x,y\",c\r\n",
+            "a,\"x\"\"y\",c\r\n",
+            "a,b\"c,d\r\n",
+            "a,b,c\r\n1,2\r\nx\r\n",
+            "a,b\r\n\r\n1,2\r\n",
+            "a,b\r\n1,2",
+            "a,b\r\n\u{1a}1,2\r\n",
+            "a,\"x\n1,2",
+            "a,,b\r\n,,,\r\n",
+            "a\r\"x\ny\"\nb\r",
+            "",
+            "\r\n",
+            "\"\"\r\n",
+            "a,\"x\"y,c\r\n",
+            "\u{1a}",
+            "\n\n\n",
+            "\r\r\r",
+            "a\rb\rc\n",
+            "\"x\"",
+            "a,\"x\r\ny\",b\r\n",
+            "\r\n1,2\r\n",
+            "a,\"x\ny\"\r\n\"p\",2\r\n",
+            "1,000.50,abc\r\n",
+            "a\tb\r\nc\td\r\n",
+            "a,b,c,",
+            ",,,",
+        ];
+        for body in corpus {
+            for format in formats {
+                assert_index_equal(body.as_bytes(), format);
+            }
+        }
+        // Long lines exercise the in-record cancel cadence and 4 KiB steps.
+        let long = format!("a,{}\r\n1,2\r\n", "x".repeat(5000));
+        for format in formats {
+            assert_index_equal(long.as_bytes(), format);
+        }
+        // ctrl-z eligibility: a \x1A byte anywhere forces the full parser path.
+        assert!(!fast_span_eligible(&comma, true, b"a\x1ab"));
+        assert!(fast_span_eligible(&comma, true, b"a,b\r\n"));
+        // With ctrl-z off, \x1A is ordinary content.
+        assert!(fast_span_eligible(&comma, false, b"a\x1ab"));
+        // Non-ASCII alphabets are never eligible.
+        let wide = TableOptions {
+            delimiters: vec!['α'],
+            ..TableOptions::default()
+        };
+        assert!(!fast_span_eligible(&wide, false, "aαb".as_bytes()));
+    }
+
+    #[test]
+    fn fast_span_index_matches_records_parser_on_real_inputs() {
+        let dir = std::path::Path::new("../../target/table-wave7/audit/inputs");
+        if !dir.is_dir() {
+            eprintln!("skipping real-input differential: inputs not present");
+            return;
+        }
+        let format = TableOptions::default();
+        for name in ["table-left.csv", "table-right.csv"] {
+            let bytes = std::fs::read(dir.join(name)).unwrap();
+            assert!(fast_span_eligible(&format, false, &bytes));
+            let expected =
+                records_span_index(&bytes, 0, &format, false, &NeverCancel).unwrap();
+            let fast = fast_span_index(&bytes, 0, &format, false, &NeverCancel).unwrap();
+            assert_eq!(
+                (expected.0, expected.1, expected.2),
+                (fast.0, fast.1, fast.2),
+                "span index divergence on {name}"
+            );
+        }
     }
 }

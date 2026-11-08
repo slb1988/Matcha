@@ -233,3 +233,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 - 测试：bc-engine-table 全绿（含 3 项 regional 等价/锚定测试）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
 - 内存结论：5 worker × 2 map（~36MB/个）+ 160MB 融合数组的计分暂态未抬高 OS WS 峰值（524.0 vs 523.8，噪声内）——峰值不由 infer 相位设定，维持 8 线程预算，未启用 4 线程回退。
 - 未做（按边界）：候选裁剪/提前退出、infer 与 align hash 编码统一、hashes 相位两遍并行化（留作后续候选）、demand.rs、默认开关、测量脚本、imara-diff；未 commit。剩余 lazy-only 相位差：fused-pass +465ms / row-text +460ms / hashes +90ms / compare +159ms（对 dense），均为逐格取值成本，已过回归门。
+
+### 加载期跨度索引快速扫描 + hashes 两遍并行 + row-text ASCII 快路径批次（batch-20261108-154405，回归门保持）
+
+三处改动（经批准；不改 dense 加载、不切默认、不 commit）：
+
+- **① `demand.rs` 加载跨度索引快速扫描（本批最大杠杆）**。`DemandSheet::open` 的「Records 全量逐记录解析建 spans」换为混合扫描：候选行（到首个 `\r`/`\n`）不含限定符字节 ⇒ 该行即逻辑记录（迭代 1 b4 已证免引号拆分与 Records 逐字节等价），跨度直接入索引；含限定符字节 ⇒ 从行首用生产 Records 解析恰好一个逻辑记录（覆盖引号内嵌换行/分隔符/双写转义），消费完从记录逻辑终点恢复主扫描（回退永远始于真实记录边界）。**跨度边界复刻 Records 路径的读者消费模型**：其 read_line 会多读至下一个 `\n`，故记录跨度终点 = ≥记录逻辑终点的最小「恰在 \n 后」位置（`\n`/`\r\n` 结束符下恒等；孤 `\r` 的多读行为在快速扫描中逐位镜像，含连锁退化空跨度）。字段数统计复刻分隔符切分语义（含 consecutive_delimiters 连排折叠）；4 GiB 记录长度检查与 Records 相同；列数上限/header_span/default_ending 计票等派生逻辑零改动复用。ctrl-z 方案：**预扫 `\x1A`，存在则整文件退回 Records 路径**（parser 的 ctrl-z 语义不区分引号内外，预扫不存在时两臂等价；存在时完整走原路径最稳妥）；非 ASCII 分隔符/限定符字母表同样整文件回退。等价性门禁（硬，全绿）：`demand::tests::fast_span_index_matches_records_parser_on_synthetic_corpus`（31 条合成语料 × 5 种 format 变体——默认/连排/多分隔符/无限定符/`\r` 限定符——覆盖引号嵌换行/嵌分隔符/双写转义/三种结束符混合/孤 `\r` 连锁/ragged/空行/EOF 无终止符/`\x1A`/未闭合引号与引号后文字两错误路径/5000 字符长行，逐 (spans, columns, endings) 三元组全等，错误消息亦全等）+ `..._on_real_inputs`（两真实输入各 69MB/1M 行逐 span 全等，实测跑过一次，2.76s 含双路径；文件缺失时跳过）。
+- **② `align.rs::hashes` 两遍分块并行**。pass1 按访问序行区间分块（`phase_threads` 预算 8，scope 线程）并行计算每行键 hash（`hash_row` 确定性 ⇒ 块序拼接 = 单遍 hash 序列）；pass2 为**原顺序循环逐字未动**（出现序号计数 + 外层 hash_line + duplicates），喂入相同 hash 序列 ⇒ 输出 Vec 与 duplicates 逐位不变。注：任务预设的「pass2 重算 hash + 前缀赋序号」全并行方案经评估不优于本结构（全局计数合并的 1M 次 map 操作在任意精确方案中都不可并行消除，前缀快照构建成本 ≈ 顺序循环本身），故 pass2 保持顺序、等价性由构造保证；两侧改为先后串行各用满相位预算（row_text 模式）。
+- **③ `align.rs::row_text_row` ASCII 快路径**。`cell_buf.is_ascii()` 时按字节写（`\r`/`\n`→空格、256 截断对 ASCII 逐字节等价：char==byte）；非 ASCII 走原逐 char 路径。
+
+结果（exe `a0bfbbd3ff6fe2438046f837cb100812378be9a3bae3591c33f5d04311466999`，rev 5b7027c dirty，3 轮中位，MiB）：
+
+| 路径 | ready 中位 | 稳定PB | 稳定WS | 稳定PWS | 加载观测PB峰值 | 观测PB峰值 | OS WS峰值 |
+|---|---|---|---|---|---|---|---|
+| dense | 4420.9 ms（上批 4519.9） | 1798.7 | 1705.9 | 1671.9 | 1798.7 | 1798.7 | 1961.3 |
+| lazy | 2394.8 ms（上批 3761.1；**×0.5417，≤1.10 回归门保持**） | 161.4 | 266.6 | 100.4 | 161.4（采样盲窗，同前口径） | 161.4 | **523.5（对照上批 524.0，未变差**；>300 未达标项口径不变） |
+
+- 正确性门禁：6 轮 fingerprint 全等冻结统计；输入 SHA256 同前；exit=0、ClosedByMainWindow 全部成立；raw 在 `target/memory-audit/gui/batch-20261108-154405/`。
+- 相位（lazy 本批中位 vs 上批，ms）：**load-side ~403 vs ~1595-1678（−1.2s，① 主效，单侧跨度索引 ~1.27s → ~0.21s）**；prepare-rules 562.4 vs 595.1（fused-pass 498.1 / scoring 53.5，平）；**hashes 197.3 vs 276.9（−29%，②）**；**row-text 607.1 vs 693.3（−12%，③）**；verify-filter 73.4；compare 252.7（平）。dense：load-side ~3093（未动）；prepare 171.5（fused 78.1 / scoring 71.2）；hashes 163.8；row-text 229.9；verify 25.0-33.7；compare 104.8。
+- worker 口径（中位）：table-align-job lazy 1762.2 vs dense ~793 ms；lazy ready 的 load+chain 现已双双低于 dense。
+- 离线复核（demand_proto 两模式）：四摘要全等冻结值；demand 模式 index 每侧 ~1.28s → ~0.22s。
+- 测试：bc-engine-table 全绿（含 ① 两项差分测试：合成语料 31×5 + 真实输入逐 span）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
+- 未做（按边界）：dense 加载路径、compare/fused-pass 取值微优化、候选裁剪、默认开关、测量脚本门禁、imara-diff；未 commit。剩余 lazy-only 相位差（对 dense）：fused-pass +420 / row-text +380 / compare +148 / hashes +35ms。
