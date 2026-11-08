@@ -209,3 +209,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/demand_gui_measure.ps1
 - 离线复核（demand_proto 两模式，1M 行真实输入）：rows 092d09a4649bbfc5 / cells 612baef10de64f25 / values 41bbcbeeca0830a5 / columns 5513a3fb0a7609e5 全等冻结值；示例内 infer_keys 阶段 demand 模式 ~1545ms → ~809ms。
 - 测试：bc-engine-table 全绿（含新 regional 等价性单测）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
 - 未做（按边界）：demand.rs、候选裁剪/提前退出、默认开关、测量脚本、imara-diff；未 commit。剩余 lazy 链 delta（align-job +1.6s）主体转为各相位逐格取值成本（row-text +575ms / prepare +626ms / hashes +182ms vs dense），已过回归门，后续是否继续由主 session 决定。
+
+### interpret 分配消除 + infer 计分并行批次（batch-20261108-113915，回归门保持）
+
+两个切口（引擎共享代码，经批准；不改 demand.rs、不切默认、不 commit）：
+
+- **切口 1：`regional.rs` 分配消除（oracle 等价）**。`parse_date` 的 `split().collect::<Vec>`（日期三段 + 时间字段两处）改为迭代器逐项取出——不含分隔符/段数不符时不分配直接 None，接受集与原逐一相同；`parse_number` 的 `String::with_capacity` 移到全部结构性校验（fraction 数字、thousands 分组长度与数字、integer 全数字）通过之后，校验改为无分配迭代器形式，所有失败路径均返回 None 故校验相对顺序不影响结果。针对本输入 5 个含数字文本列（`item0`/`note 0` 等）原每次 interpret 白付 parse_number 结构失败 + parse_date 两次 Vec 分配。等价性证据：`regional::tests` 新增两个测试——`rewritten_parsers_match_originals_exhaustively` 把改动前的 parse_number/parse_date 原样复制为 oracle，对 12 字符结构字母表全长度 ≤4 串（22,621 条）× 两种区域设置逐一断言 parse_number/parse_date/interpret 新旧全等；`allocation_free_parsers_keep_values` 手工值锚定（千分位/指数/符号/边界拒绝/日期+时间，date_ms 未动作为日期 oracle）；`digit_gate_matches_ungated_interpretation` 扩充用例后其 oracle 链路改调原版 parser，同时覆盖两个改动。
+- **切口 2：`inference.rs::score_wave_fused` 计分并行**。原逐候选串行重建 KeyMap 改为候选间并行：scope 线程、预算 `min(phase_threads(行数), 候选数)`（1M 行 → 8 → chunk=2 实取 5 worker），每 worker 自带 ScoreScratch map 对，候选结果按块序拼接 = 列表顺序（`best()` 看到相同序列）；每候选内部仍按行序 or_insert 重建（布局/迭代序/float 累加序逐位不变，论证同迭代 3）。
+- **观测性**：新增 env-gated span `key-infer:fused-pass` / `key-infer:scoring`（MATCHA_TABLE_PERF 关闭时零开销，与既有 span 同机制）。
+
+结果（exe `9909cc4ed679ad1d9ccde8e6d17ed7abf55bffdeaa61d701eb6478f41cb399c6`，rev 4a0124e dirty，3 轮中位，MiB）：
+
+| 路径 | ready 中位 | 稳定PB | 稳定WS | 稳定PWS | 加载观测PB峰值 | 观测PB峰值 | OS WS峰值 |
+|---|---|---|---|---|---|---|---|
+| dense | 4519.9 ms（上批 4795.3） | 1798.8 | 1706.1 | 1672.1 | 1798.8 | 1798.8 | 1962.9 |
+| lazy | 3761.1 ms（上批 4610.1；**×0.8321，≤1.10 回归门保持**） | 162.0 | 266.5 | 100.3 | 162.0（采样盲窗，同前口径） | 162.0 | **524.0（对照上批 523.8，+0.2 未变差，无需降 4 线程**；>300 未达标项口径不变） |
+
+- 正确性门禁：6 轮 fingerprint 全等冻结统计；输入 SHA256 同前；exit=0、ClosedByMainWindow 全部成立；raw 在 `target/memory-audit/gui/batch-20261108-113915/`。
+- infer 两分段（本批中位，ms）：fused-pass lazy 535.2 vs dense 70.0；scoring lazy 55.7 vs dense 67.0（dense 侧 map 插入主导、计分不小于取值；lazy 侧计分并行从串行 ~250ms 量级降至 55.7）。
+- 相位（lazy 本批中位 vs 上批，ms）：prepare-rules 595.1 vs 815.4（−220，= fused 533→535 持平 + 计分 ~250→56）；hashes 276.9 vs 377.9；row-text 693.3 vs 829.9（−137，分配消除在 5 个含数字文本列的收益）；verify-filter 87.3 vs 109.4；compare 264.1 vs 260.4（平）。dense：prepare 152.1 vs 189.0；hashes 187.2；row-text 232.9；verify 29.5；compare 104.9。
+- worker 口径（中位）：table-align-job lazy ~1966 vs dense ~856 ms（上批 2472.8 vs 869.3）；load-side 两側并行与上批持平。
+- 离线复核（demand_proto 两模式）：四摘要全等冻结值；示例内 infer_keys demand 模式 fused 533.2 + scoring 69.1。
+- 测试：bc-engine-table 全绿（含 3 项 regional 等价/锚定测试）；bc-gui lazy 3 项全绿；demand_measure_tests 全 PASS。
+- 内存结论：5 worker × 2 map（~36MB/个）+ 160MB 融合数组的计分暂态未抬高 OS WS 峰值（524.0 vs 523.8，噪声内）——峰值不由 infer 相位设定，维持 8 线程预算，未启用 4 线程回退。
+- 未做（按边界）：候选裁剪/提前退出、infer 与 align hash 编码统一、hashes 相位两遍并行化（留作后续候选）、demand.rs、默认开关、测量脚本、imara-diff；未 commit。剩余 lazy-only 相位差：fused-pass +465ms / row-text +460ms / hashes +90ms / compare +159ms（对 dense），均为逐格取值成本，已过回归门。

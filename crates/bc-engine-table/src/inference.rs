@@ -300,11 +300,12 @@ fn score_from_hashes(
 /// Score a wave of single-column candidates from one fused hash pass per
 /// side instead of one full pass per candidate. Small inputs take the same
 /// sequential path `score_wave` uses; big inputs hash each side once
-/// (chunked over scoped workers), then score candidates one at a time — the
-/// staging arrays (2 sides × candidates × rows × 8B) plus one reused pair of
-/// key maps stay below the old wave's 4-thread × 2-map scratch, and each
-/// candidate's array pair is dropped right after scoring. Candidates come
-/// back in list order, so `best()` tie-breaks see the identical sequence.
+/// (chunked over scoped workers), then score candidates concurrently in
+/// order-preserving chunks (each worker owns its candidates' array pairs,
+/// dropping them right after scoring, and carries its own scratch map pair).
+/// Each candidate still rebuilds its maps in ascending row order and runs
+/// the unchanged `score_maps`, so per-candidate results — and their
+/// concatenation order — are exactly the sequential sequence.
 fn score_wave_fused<S: TableData + Sync>(
     left: &S,
     right: &S,
@@ -321,26 +322,76 @@ fn score_wave_fused<S: TableData + Sync>(
         }
         return Ok(out);
     }
+    let t = std::time::Instant::now();
     let lh = fused_column_hashes(left, Side::Left, rules, columns_list, cancel)?;
     let rh = fused_column_hashes(right, Side::Right, rules, columns_list, cancel)?;
-    let mut scratch = ScoreScratch::new(left, right);
-    let mut out = Vec::with_capacity(columns_list.len());
+    crate::perf::span("key-infer:fused-pass", t);
+    let t = std::time::Instant::now();
+    let left_rows = left.row_count();
+    let right_rows = right.row_count();
     let total_columns = rules.columns.0.len();
-    for (c, (l, r)) in columns_list
+    // Owned per-candidate jobs, scored concurrently in order-preserving
+    // chunks; each worker carries its own scratch map pair. The hash arrays
+    // stay borrowed for the scoring section (chunk boundaries never affect
+    // results), so the transient is the arrays plus workers × 2 maps.
+    let jobs: Vec<(Vec<usize>, Vec<u64>, Vec<u64>)> = columns_list
         .iter()
+        .cloned()
         .zip(lh.into_iter().zip(rh.into_iter()))
-    {
-        out.push(score_from_hashes(
-            left.row_count(),
-            right.row_count(),
-            total_columns,
-            &l,
-            &r,
-            c.clone(),
-            &mut scratch,
-            cancel,
-        )?);
-    }
+        .map(|(c, (l, r))| (c, l, r))
+        .collect();
+    let threads = crate::perf::phase_threads(left_rows.max(right_rows)).min(jobs.len());
+    let out = if threads < 2 {
+        let mut scratch = ScoreScratch::new(left, right);
+        let mut out = Vec::with_capacity(jobs.len());
+        for (c, l, r) in jobs {
+            out.push(score_from_hashes(
+                left_rows,
+                right_rows,
+                total_columns,
+                &l,
+                &r,
+                c,
+                &mut scratch,
+                cancel,
+            )?);
+        }
+        out
+    } else {
+        let chunk = jobs.len().div_ceil(threads).max(1);
+        let results = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for chunk in jobs.chunks(chunk) {
+                handles.push(scope.spawn(move || {
+                    let mut scratch = ScoreScratch::new(left, right);
+                    let mut out = Vec::with_capacity(chunk.len());
+                    for (c, l, r) in chunk {
+                        out.push(score_from_hashes(
+                            left_rows,
+                            right_rows,
+                            total_columns,
+                            l,
+                            r,
+                            c.clone(),
+                            &mut scratch,
+                            cancel,
+                        )?);
+                    }
+                    Ok::<_, bc_core::CoreError>(out)
+                }));
+            }
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_else(|_| Err(invalid("key inference panicked"))))
+                .collect::<Vec<_>>()
+        });
+        let mut out = Vec::with_capacity(columns_list.len());
+        for r in results {
+            out.extend(r?);
+        }
+        out
+    };
+    crate::perf::span("key-infer:scoring", t);
     Ok(out)
 }
 /// Full-column uniqueness, Jaccard, relative position stability, left-position
