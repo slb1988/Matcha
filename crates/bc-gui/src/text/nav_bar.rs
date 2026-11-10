@@ -60,7 +60,7 @@ impl NavBar {
         current: usize,
     ) -> Option<usize> {
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(22.0, ui.available_height()),
+            egui::vec2(52.0, ui.available_height()),
             egui::Sense::click_and_drag(),
         );
         ui.painter()

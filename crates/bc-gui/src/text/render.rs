@@ -1,7 +1,7 @@
 //! O(可见行)绘制；UTF-8 行内区间、光标和鼠标命中使用同一 galley。
 use super::{
     editor::{byte_at_char, Caret},
-    gutter, nav_bar,
+    gutter,
     projection::DisplayRow,
     view::{editor_id, index},
     TextCompareView,
@@ -22,10 +22,18 @@ impl TextCompareView {
     pub(crate) fn pane(&mut self, ui: &mut egui::Ui, s: usize, height: f32, prefs: &Prefs) {
         let top = ui.cursor().top();
         self.header(ui, s, prefs);
-        let remaining = (height - (ui.cursor().top() - top)).max(40.0);
+        let remaining = (height - (ui.cursor().top() - top) - 19.0).max(40.0);
         let rect =
             egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), remaining));
         self.pane_rects[s] = rect;
+        ui.painter()
+            .rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
+        ui.painter().rect_stroke(
+            rect,
+            0.0,
+            egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+            egui::StrokeKind::Inside,
+        );
         let id = editor_id(s);
         let response = ui.interact(rect, id, egui::Sense::click());
         if response.clicked() {
@@ -45,7 +53,7 @@ impl TextCompareView {
         });
         let snapshot = self.content(s).snapshot();
         let focused = ui.memory(|m| m.has_focus(id));
-        let row_height = self.font_size + 5.0;
+        let row_height = self.row_height();
         // Clamp before either pane renders, including programmatic jumps in short files.
         self.scroll.y = self
             .scroll
@@ -53,9 +61,13 @@ impl TextCompareView {
             .min((self.projection.len() as f32 * row_height - remaining + 16.0).max(0.0));
         let scroll = self.scroll;
         ui.spacing_mut().item_spacing.y = 0.0;
+        ui.spacing_mut().scroll.bar_width = 16.0;
+        ui.spacing_mut().scroll.bar_inner_margin = 1.0;
+        ui.spacing_mut().scroll.bar_outer_margin = 1.0;
         let output = egui::ScrollArea::both()
             .id_salt(("text_scroll", s))
             .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .max_height(remaining)
             .vertical_scroll_offset(scroll.y)
             .horizontal_scroll_offset(scroll.x)
@@ -111,7 +123,7 @@ impl TextCompareView {
                     }
                     importance =
                         importance.with_ignore_unimportant(self.map.rules.ignore_unimportant);
-                    let orphan = matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
+
                     let glyph = self.font_size * 0.62;
                     self.content_width = self
                         .content_width
@@ -125,26 +137,17 @@ impl TextCompareView {
                         egui::pos2(ui.clip_rect().left(), rect.top()),
                         egui::pos2(ui.clip_rect().right(), rect.bottom()),
                     );
-                    if importance != Importance::Same {
-                        ui.painter().rect_filled(
-                            viewport_rect,
-                            0.0,
-                            nav_bar::color(&prefs.colors, importance, orphan, 38),
-                        );
+                    let orphan = matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
+                    let fill = row_fill(&prefs.colors, importance, orphan);
+
+                    ui.painter().rect_filled(viewport_rect, 0.0, fill);
+                    if line.is_none() || row >= self.map.row_count() {
+                        hatch(ui, viewport_rect, row >= self.map.row_count());
                     }
                     if row == self.current_row {
                         ui.painter().line_segment(
                             [viewport_rect.left_bottom(), viewport_rect.right_bottom()],
-                            egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
-                        );
-                    }
-                    if line.is_none() {
-                        ui.painter().text(
-                            rect.left_center() + egui::vec2(gutter::WIDTH + 8.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            "···",
-                            egui::FontId::monospace(self.font_size),
-                            ui.visuals().weak_text_color(),
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
                         );
                     }
                     self.ensure_inline(row);
@@ -187,13 +190,17 @@ impl TextCompareView {
                             .and_then(|f| f.tab_size)
                             .unwrap_or(4)
                             .clamp(1, 32) as usize,
-                        ui.visuals().text_color(),
+                        if orphan && importance != Importance::Same {
+                            diff_ink(&prefs.colors, importance)
+                        } else {
+                            ui.visuals().text_color()
+                        },
                     );
                     let galley = ui.painter().layout_job(job);
                     let origin = rect.min
                         + egui::vec2(
                             if self.show_numbers {
-                                gutter::WIDTH + 8.0
+                                gutter::WIDTH + 1.0
                             } else {
                                 8.0
                             },
@@ -279,7 +286,14 @@ impl TextCompareView {
                     }
                     // Gutter is fixed horizontally, after text painting so it cannot be overdrawn.
                     if self.show_numbers {
-                        gutter::paint(ui, viewport_rect, line, row == self.current_row);
+                        gutter::paint(
+                            ui,
+                            viewport_rect,
+                            line.filter(|i| *i < snapshot.lines.len()),
+                            row == self.current_row,
+                            importance != Importance::Same,
+                            s,
+                        );
                     }
                     let pressed = ui.input(|i| i.pointer.primary_pressed());
                     let held = ui.input(|i| i.pointer.primary_down());
@@ -424,10 +438,7 @@ fn layout(
         });
         let format = egui::TextFormat {
             font_id: egui::FontId::monospace(font),
-            color,
-            background: span.map_or(egui::Color32::TRANSPARENT, |s| {
-                nav_bar::color(colors, s.importance, false, 100)
-            }),
+            color: span.map_or(color, |s| diff_ink(colors, s.importance)),
             ..Default::default()
         };
         let value = if c == '\t' {
@@ -472,5 +483,64 @@ fn syntax_color(kind: ElementKind, normal: egui::Color32) -> egui::Color32 {
         ElementKind::String => egui::Color32::from_rgb(205, 165, 115),
         ElementKind::Number => egui::Color32::from_rgb(125, 195, 190),
         _ => normal,
+    }
+}
+
+fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
+    let stroke = egui::Stroke::new(0.6, egui::Color32::from_rgb(230, 230, 230));
+    for x in (0..(rect.width() + rect.height()) as usize).step_by(7) {
+        let x = rect.left() + x as f32;
+        painter.line_segment(
+            [
+                egui::pos2(x, rect.top()),
+                egui::pos2(x - rect.height(), rect.bottom()),
+            ],
+            stroke,
+        );
+        if cross {
+            painter.line_segment(
+                [
+                    egui::pos2(x - rect.height(), rect.top()),
+                    egui::pos2(x, rect.bottom()),
+                ],
+                stroke,
+            );
+        }
+    }
+}
+
+fn row_fill(colors: &DiffColors, importance: Importance, orphan: bool) -> egui::Color32 {
+    let defaults = DiffColors::default();
+    let custom = if orphan {
+        colors.inserted != defaults.inserted
+    } else if importance == Importance::Unimportant {
+        colors.unimportant != defaults.unimportant
+    } else {
+        colors.important != defaults.important
+    };
+    if importance == Importance::Same {
+        egui::Color32::WHITE
+    } else if custom {
+        super::nav_bar::color(colors, importance, orphan, 38)
+    } else if importance == Importance::Unimportant {
+        egui::Color32::from_rgb(238, 238, 255)
+    } else {
+        crate::chrome::theme::Theme::default().difference_fill
+    }
+}
+fn diff_ink(colors: &DiffColors, importance: Importance) -> egui::Color32 {
+    let defaults = DiffColors::default();
+    if importance == Importance::Unimportant {
+        if colors.unimportant == defaults.unimportant {
+            egui::Color32::BLUE
+        } else {
+            super::nav_bar::color(colors, importance, false, 255)
+        }
+    } else if colors.important == defaults.important {
+        crate::chrome::theme::Theme::default().difference_text
+    } else {
+        super::nav_bar::color(colors, importance, false, 255)
     }
 }

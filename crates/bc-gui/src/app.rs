@@ -289,7 +289,13 @@ impl eframe::App for MatchaApp {
         let mut view_action = None;
         let mut table_action = None;
         let mut folder_switch = None;
-        egui::CentralPanel::default().show(ui, |ui| match &mut self.view {
+        let panel = if matches!(self.view, View::TextCompare(_)) {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(crate::chrome::theme::PANEL_BG))
+        } else {
+            egui::CentralPanel::default()
+        };
+        panel.show(ui, |ui| match &mut self.view {
             View::Home(home) => home_action = home.ui(ui),
             View::TextCompare(view) => view_action = view.ui(ui, &mut self.prefs),
             View::TableCompare(view) => table_action = view.ui(ui, &mut self.prefs),

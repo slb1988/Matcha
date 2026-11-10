@@ -346,7 +346,7 @@ fn virtual_scroll_stacked_gaps_colors_and_pointer_status() {
     v.scroll_to_row(700);
     let out = frame(&ctx, &mut v, vec![]);
     assert!(v.last_stats.rows_drawn < 120);
-    assert!((v.top_row(18.0) as isize - 700).abs() <= 1);
+    assert!((v.top_row(v.row_height()) as isize - 700).abs() <= 1);
     assert!(
         text_shapes(&out)
             .iter()
@@ -367,8 +367,7 @@ fn virtual_scroll_stacked_gaps_colors_and_pointer_status() {
     let out = frame(&ctx, &mut v, vec![]);
     assert_eq!(v.map.row(1).unwrap().left, None);
     assert_eq!(v.map.row(1).unwrap().right, Some(1));
-    let green =
-        super::super::nav_bar::color(&Prefs::default().colors, Importance::Important, true, 38);
+    let green = crate::chrome::theme::Theme::default().difference_fill;
     assert!(out
         .shapes
         .iter()
@@ -406,8 +405,7 @@ fn two_inline_spans_and_unimportant_colors_reach_the_painter() {
         "value = 3; many_unchanged_letters; flag = 4\n",
     );
     let out = frame(&ctx, &mut v, vec![]);
-    let dark =
-        super::super::nav_bar::color(&Prefs::default().colors, Importance::Important, false, 100);
+    let dark = crate::chrome::theme::Theme::default().difference_text;
     let changed = out
         .shapes
         .iter()
@@ -422,7 +420,7 @@ fn two_inline_spans_and_unimportant_colors_reach_the_painter() {
             .job
             .sections
             .iter()
-            .filter(|s| s.format.background == dark)
+            .filter(|s| s.format.color == dark)
             .count(),
         2
     );
@@ -451,8 +449,7 @@ fn two_inline_spans_and_unimportant_colors_reach_the_painter() {
     v.recompare();
     ready(&mut v);
     let out = frame(&ctx, &mut v, vec![]);
-    let blue =
-        super::super::nav_bar::color(&Prefs::default().colors, Importance::Unimportant, false, 38);
+    let blue = egui::Color32::from_rgb(238, 238, 255);
     assert!(out
         .shapes
         .iter()
@@ -534,7 +531,8 @@ fn raw_clipboard_multiline_cut_paste_and_only_save_right() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
     let source_row = v.row_for_line(1, 0);
-    let pos = v.pane_rects[1].left_top() + egui::vec2(95.0, 8.0 + source_row as f32 * 18.0);
+    let pos =
+        v.pane_rects[1].left_top() + egui::vec2(95.0, 8.0 + source_row as f32 * v.row_height());
     click(&ctx, &mut v, pos);
     frame(&ctx, &mut v, vec![key(egui::Key::A, true)]);
     let output = frame(&ctx, &mut v, vec![egui::Event::Copy]);

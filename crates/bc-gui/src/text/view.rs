@@ -72,6 +72,7 @@ pub struct FileInfo {
     pub byte_len: usize,
     pub load_time: Duration,
     pub metadata_dirty: bool,
+    pub modified_label: String,
 }
 pub struct TextCompareView {
     pub map: TextMap,
@@ -122,6 +123,8 @@ pub struct TextCompareView {
     show_goto: bool,
     show_view_options: bool,
     show_file_options: bool,
+    path_edits: [String; 2],
+    path_sources: [Option<PathBuf>; 2],
 }
 impl TextCompareView {
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -158,7 +161,7 @@ impl TextCompareView {
             show_whitespace: false,
             show_syntax: true,
             show_numbers: true,
-            font_size: 13.0,
+            font_size: crate::chrome::theme::EDITOR_SIZE,
             content_width: 0.0,
             pending_scroll: None,
             filter: DisplayFilter::All,
@@ -188,6 +191,8 @@ impl TextCompareView {
             show_goto: false,
             show_view_options: false,
             show_file_options: false,
+            path_edits: Default::default(),
+            path_sources: Default::default(),
         };
         view.rebuild_projection();
         view.recompare();
@@ -764,20 +769,9 @@ impl TextCompareView {
         if blocked {
             ui.disable();
         }
+        ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui, prefs);
-        let progress = self
-            .worker
-            .as_ref()
-            .map(Worker::progress)
-            .unwrap_or_else(|| self.message.clone());
-        status_bar::ui(
-            ui,
-            &self.map.left,
-            &self.map.right,
-            &self.editors,
-            self.counts,
-            &progress,
-        );
+        ui.add_space(3.0);
         if let Some(action) = self.find.ui(ui) {
             if let Err(e) = self.find_action(action) {
                 self.message = e.to_string();
@@ -805,39 +799,52 @@ impl TextCompareView {
         }
         self.dialogs(&ctx, prefs);
         self.last_stats.rows_drawn = 0;
-        let row_height = self.font_size + 5.0;
+        let row_height = self.row_height();
         if let Some(row) = self.pending_scroll.take() {
             self.scroll.y = row.min(self.projection.len().saturating_sub(1)) as f32 * row_height;
         }
-        ui.horizontal_top(|ui| {
-            let nav_height = ui.available_height();
-            let mut target = None;
-            ui.allocate_ui(egui::vec2(22.0, nav_height), |ui| {
-                target = self
-                    .nav
-                    .ui(ui, &prefs.colors, self.visible.clone(), self.current_row);
-            });
-            if let Some(row) = target {
+        let available = ui.available_rect_before_wrap();
+        let body = egui::Rect::from_min_max(
+            available.min,
+            egui::pos2(
+                available.right(),
+                (available.bottom() - 74.0).max(available.top() + 120.0),
+            ),
+        );
+        let nav_rect = egui::Rect::from_min_size(body.min, egui::vec2(52.0, body.height()));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(nav_rect), |ui| {
+            if let Some(row) =
+                self.nav
+                    .ui(ui, &prefs.colors, self.visible.clone(), self.current_row)
+            {
                 self.goto_row(row);
             }
-            let available = ui.available_size();
-            ui.allocate_ui_with_layout(available, egui::Layout::top_down(egui::Align::Min), |ui| {
-                if self.stacked {
-                    let height = (available.y - 8.0) / 2.0;
-                    for s in 0..2 {
-                        ui.allocate_ui(egui::vec2(available.x, height), |ui| {
-                            self.pane(ui, s, height, prefs);
-                        });
-                    }
-                } else {
-                    ui.columns(2, |cols| {
-                        for (s, col) in cols.iter_mut().enumerate() {
-                            self.pane(col, s, available.y, prefs);
-                        }
-                    });
-                }
-            });
         });
+        let panes = egui::Rect::from_min_max(body.min + egui::vec2(52.0, 0.0), body.max);
+        let width = (panes.width() - 4.0) / 2.0 + 2.0;
+        for s in 0..2 {
+            let rect = if self.stacked {
+                egui::Rect::from_min_size(
+                    panes.min + egui::vec2(0.0, s as f32 * (panes.height() / 2.0)),
+                    egui::vec2(panes.width(), panes.height() / 2.0),
+                )
+            } else if s == 0 {
+                egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
+            } else {
+                egui::Rect::from_min_max(panes.min + egui::vec2(width + 4.0, 0.0), panes.max)
+            };
+            ui.scope_builder(
+                egui::UiBuilder::new()
+                    .id_salt(("text-pane", s))
+                    .max_rect(rect),
+                |ui| {
+                    ui.set_clip_rect(rect.intersect(ui.clip_rect()));
+                    self.pane(ui, s, rect.height(), prefs);
+                },
+            );
+        }
+        // Bottom slots are reserved independently of document length and filtering.
+        ui.allocate_rect(available, egui::Sense::hover());
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.dragging = None;
         }
@@ -1004,7 +1011,12 @@ impl TextCompareView {
                         self.counts.left_only,
                         self.counts.right_only
                     ));
-                    ui.label(&self.message);
+                    ui.label(
+                        self.worker
+                            .as_ref()
+                            .map(Worker::progress)
+                            .unwrap_or_else(|| self.message.clone()),
+                    );
                     for file in &self.files {
                         if let Some(target) = &file.target {
                             ui.label(format!("Save target: {}", target.display()));
@@ -1272,71 +1284,137 @@ impl TextCompareView {
             self.scroll.y = 0.0;
         }
     }
+    pub(crate) fn row_height(&self) -> f32 {
+        self.font_size + (15.0 - crate::chrome::theme::EDITOR_SIZE)
+    }
     pub(crate) fn header(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {
-        let label = self.files[s].path.as_ref().map_or_else(
-            || "Clipboard / untitled".into(),
-            |p| p.display().to_string(),
+        use crate::chrome::pathbar;
+        let top = ui.cursor().min;
+        let width = ui.available_width();
+        if self.path_sources[s] != self.files[s].path {
+            self.path_sources[s] = self.files[s].path.clone();
+            self.path_edits[s] = self.files[s]
+                .path
+                .as_ref()
+                .map(|p| {
+                    std::path::absolute(p)
+                        .unwrap_or_else(|_| p.clone())
+                        .display()
+                        .to_string()
+                })
+                .unwrap_or_default();
+        }
+        let history: Vec<_> = self
+            .recent
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        let path_rect = egui::Rect::from_min_size(top, egui::vec2(width, 26.0));
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .id_salt(("path", s))
+                .max_rect(path_rect.shrink2(egui::vec2(0.0, 2.0))),
+            |ui| {
+                let response = pathbar::show_with_history(ui, &mut self.path_edits[s], &history);
+                if response.submitted {
+                    self.request(Pending::Open(s, PathBuf::from(self.path_edits[s].trim())));
+                } else {
+                    match response.action.as_deref() {
+                        Some("save") => {
+                            if let Err(e) = self.save(s, prefs) {
+                                self.message = e.to_string();
+                            }
+                        }
+                        Some("browse" | "history") => {
+                            self.active = s;
+                            self.command("Open File...", ui.ctx(), prefs);
+                        }
+                        _ => {}
+                    }
+                }
+            },
         );
-        ui.horizontal(|ui| {
-            if ui
-                .selectable_label(self.active == s, if s == 0 { "Left" } else { "Right" })
-                .clicked()
-            {
-                self.active = s;
-            }
-            ui.label(
-                egui::RichText::new(format!(
-                    "{}{}",
-                    label,
-                    if self.side_dirty(s) { " *" } else { "" }
-                ))
-                .small(),
-            );
-            ui.menu_button("File", |ui| self.file_options(ui, s, prefs));
-        });
-        ui.horizontal(|ui| {
-            let selected = self
-                .content(s)
-                .format()
-                .map_or("Plain text", |f| f.name.as_str())
-                .to_string();
-            let mut choice = None;
-            egui::ComboBox::from_id_salt(("format", s))
-                .selected_text(selected)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, "Detected").clicked() {
-                        choice = Some(
-                            self.files[s]
-                                .path
-                                .as_ref()
-                                .and_then(|p| self.registry.resolve(p, Some(FormatKind::Text)))
-                                .cloned(),
-                        );
-                    }
-                    if ui.selectable_label(false, "Plain text").clicked() {
-                        choice = Some(None);
-                    }
-                    for f in self
-                        .registry
-                        .formats()
-                        .iter()
-                        .filter(|f| f.kind == FormatKind::Text)
-                    {
-                        if ui.selectable_label(false, &f.name).clicked() {
-                            choice = Some(Some(f.clone()));
+        let info_rect =
+            egui::Rect::from_min_size(top + egui::vec2(0.0, 26.0), egui::vec2(width, 27.0));
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .id_salt(("info", s))
+                .max_rect(info_rect.shrink2(egui::vec2(8.0, 3.0))),
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    ui.label(&self.files[s].modified_label);
+                    ui.label(format!("{} bytes", self.files[s].byte_len));
+                    let selected = self
+                        .content(s)
+                        .format()
+                        .map_or("Everything Else", |f| f.name.as_str())
+                        .to_string();
+                    let mut choice = None;
+                    egui::ComboBox::from_id_salt(("format", s))
+                        .width(110.0)
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(false, "Detected").clicked() {
+                                choice = Some(
+                                    self.files[s]
+                                        .path
+                                        .as_ref()
+                                        .and_then(|p| {
+                                            self.registry.resolve(p, Some(FormatKind::Text))
+                                        })
+                                        .cloned(),
+                                );
+                            }
+                            if ui.selectable_label(false, "Plain text").clicked() {
+                                choice = Some(None);
+                            }
+                            for f in self
+                                .registry
+                                .formats()
+                                .iter()
+                                .filter(|f| f.kind == FormatKind::Text)
+                            {
+                                if ui.selectable_label(false, &f.name).clicked() {
+                                    choice = Some(Some(f.clone()));
+                                }
+                            }
+                        });
+                    if let Some(format) = choice {
+                        match self.content_mut(s).set_format(format) {
+                            Ok(()) => self.recompare(),
+                            Err(e) => self.message = e.to_string(),
                         }
                     }
+
+                    let encoding = super::status_bar::encoding_label(self.content(s));
+                    egui::ComboBox::from_id_salt(("encoding", s))
+                        .width(96.0)
+                        .selected_text(encoding)
+                        .show_ui(ui, |ui| {
+                            for (label, value) in [
+                                ("UTF-8", Encoding::Utf8),
+                                ("UTF-16 LE", Encoding::Utf16Le),
+                                ("UTF-16 BE", Encoding::Utf16Be),
+                                ("GBK (936)", Encoding::CodePage(936)),
+                                ("Windows-1252", Encoding::CodePage(1252)),
+                            ] {
+                                if ui
+                                    .selectable_label(self.content(s).encoding == value, label)
+                                    .clicked()
+                                {
+                                    self.request(Pending::Encoding(s, value));
+                                }
+                            }
+                        });
+                    ui.label(super::status_bar::ending_label(self.content(s)));
                 });
-            if let Some(format) = choice {
-                match self.content_mut(s).set_format(format) {
-                    Ok(()) => self.recompare(),
-                    Err(e) => self.message = e.to_string(),
-                }
-            }
-            if let Some(target) = &self.files[s].target {
-                ui.label(format!("→ {}", target.display()));
-            }
-        });
+            },
+        );
+        ui.allocate_rect(
+            egui::Rect::from_min_size(top, egui::vec2(width, 53.0)),
+            egui::Sense::hover(),
+        );
     }
     fn file_options(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {
         for (label, mode) in [
@@ -1484,7 +1562,7 @@ impl TextCompareView {
                     self.editors[1 - s].place(Caret { line, byte: 0 }, false);
                 }
                 let row = self.projection.display_for(self.current_row);
-                let top = self.top_row(self.font_size + 5.0);
+                let top = self.top_row(self.row_height());
                 if row < top || row > top + 30 {
                     self.scroll_to_row(row.saturating_sub(8));
                 }
@@ -1629,6 +1707,7 @@ fn load(path: &Path, registry: &FormatRegistry) -> Result<(TextContent, FileInfo
         FileInfo {
             path: Some(path.to_path_buf()),
             byte_len: metadata.len() as usize,
+            modified_label: super::status_bar::modified_label(metadata.modified().ok()),
             load_time: start.elapsed(),
             ..Default::default()
         },
