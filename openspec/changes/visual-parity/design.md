@@ -46,13 +46,13 @@
 - 场景注册表 `bc-gui/src/snapshot.rs`：场景名 → 语料路径、视图初始化、预置操作（展开、选择、切换过滤、打开菜单），等待后台比较完成后截图；禁用光标闪烁与动画；时间戳显示使用语料文件真实 mtime（采集脚本把语料 mtime 固定为 `2026-01-02 03:04:05`）。
 - `tools/visual/snap-matcha.ps1` 批量产出 `target/visual/matcha/<scene>.png`；`tools/visual/compare.ps1` 产出 `target/visual/compare/<scene>-{side,heat}.png` 与 `report.md`。
 
-### D7. 波次与并行
+### D7. 波次（串行）与范围
 
-- Wave 1：任务组 1（独立 worktree 分支 `sunlaibing/visual-ref`，只写 `tools/visual/`、`docs/visual-parity/`）与任务组 2（master）并行；组 2 先用种子截图取初值。
-- Wave 2：合并组 1 后，master 上做组 3（文本视图）并按 tokens 校准组 2 的初值。
-- Wave 3：组 4（文件夹，独立 worktree 分支）与组 5（Home+表格，master）并行，各自只动自己的视图文件，`app.rs` 只做最小接线；组 4 结束合回 master。
-- Wave 4：组 6（对话框/菜单）与组 7（收尾回归与对照报告）。
-- 同一 worktree 任一时刻只允许一个提交者；参考工具调用一律持 `%TEMP%\matcha-reference-tool.lock`。
+- 2026-11-10 用户要求：worker 一个个来（串行），抓大放小。并行 worker 即使不共享文件，也共享桌面焦点（参考工具采集依赖 SendKeys/前台）与 CPU。
+- 顺序：Wave 1A 参考采集（已完成，合入 11334ae）→ Wave 1B chrome 基础（已完成 8ace066）→ Wave 2 文本比较主视图（任务组 3）→ Wave 3 文件夹比较主视图（4.1）→ 收尾报告（7.1 先出核心版）。
+- 后置：4.2 同步视图、任务组 5（Home、表格）、任务组 6（对话框、右键菜单）、标签类（会话标签页、sheet 标签）、缩略图与行详情精细对齐。
+- 参考工具采集只做一次；后续波次一律离线使用 `docs/visual-parity/reference/` 已有截图，不再启动参考工具。
+- 字体实测：UI 跟随系统消息字体（本机 Microsoft YaHei UI 9pt），编辑器 Consolas 10pt。
 
 ### D8. 不变量
 
