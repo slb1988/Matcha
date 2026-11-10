@@ -3,7 +3,7 @@
 //! edit/undo/redo/save/reload, structural edit/sort undo/redo/save, copy and
 //! export — complementing the dense matrix, never replacing it.
 use super::*;
-use bc_engine_table::{columns::Side, demand::DemandSheet, SheetStore};
+use bc_engine_table::{demand::DemandSheet, SheetStore};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static TAG: AtomicU32 = AtomicU32::new(0);
@@ -82,7 +82,10 @@ fn lazy_value_edit_undo_redo_save_and_reload() {
     ));
     v.save_to(1, &out, &Prefs::default(), false).unwrap();
     let bytes = std::fs::read_to_string(&out).unwrap();
-    assert_eq!(bytes, "id,name,price\n7,apple,1.2\n8,pair,2.1\n9,plum,3.0\n");
+    assert_eq!(
+        bytes,
+        "id,name,price\n7,apple,1.2\n8,pair,2.1\n9,plum,3.0\n"
+    );
     // Re-read: dense and lazy loads of the saved file show identical cells.
     let dense = sheet(&bytes);
     let lazy = lazy_store(&bytes);
@@ -98,7 +101,6 @@ fn lazy_value_edit_undo_redo_save_and_reload() {
 fn lazy_structural_chain_with_undo_redo_and_save() {
     let (left, right) = lazy_fixture();
     let mut v = lazy_view(left, right);
-    let ctx = egui::Context::default();
     v.grid.active = 1;
     v.grid.cursor = Cursor { row: 1, column: 1 };
     // Insert Row After (op 1), then Insert Column After (op 4) — same command
@@ -109,12 +111,18 @@ fn lazy_structural_chain_with_undo_redo_and_save() {
     assert_eq!(text(&v, 1, 2, 0), "");
     v.structure(4).unwrap();
     ready(&mut v);
-    assert_eq!(v.pair.as_ref().unwrap().map.right.borrow().column_count(), 4);
+    assert_eq!(
+        v.pair.as_ref().unwrap().map.right.borrow().column_count(),
+        4
+    );
     assert_eq!(text(&v, 1, 0, 2), "");
     // Undo both, redo both.
     v.undo(false);
     ready(&mut v);
-    assert_eq!(v.pair.as_ref().unwrap().map.right.borrow().column_count(), 3);
+    assert_eq!(
+        v.pair.as_ref().unwrap().map.right.borrow().column_count(),
+        3
+    );
     v.undo(false);
     ready(&mut v);
     assert_eq!(v.pair.as_ref().unwrap().map.right.borrow().row_count(), 3);
@@ -123,7 +131,10 @@ fn lazy_structural_chain_with_undo_redo_and_save() {
     v.undo(true);
     ready(&mut v);
     assert_eq!(v.pair.as_ref().unwrap().map.right.borrow().row_count(), 4);
-    assert_eq!(v.pair.as_ref().unwrap().map.right.borrow().column_count(), 4);
+    assert_eq!(
+        v.pair.as_ref().unwrap().map.right.borrow().column_count(),
+        4
+    );
     // Sort the lazy side descending by id, then undo.
     v.grid.anchor = Some(Cursor { row: 0, column: 0 });
     v.grid.cursor = Cursor { row: 0, column: 0 };

@@ -220,13 +220,20 @@ fn print_summary<L: TableData, R: TableData>(
 fn infer_and_align<S: TableData + Sync>(
     left: &S,
     right: &S,
-) -> Result<(TableRules, bc_engine_table::align::KeyAlignment, AlignmentOverrides), Box<dyn std::error::Error>>
-{
+) -> Result<
+    (
+        TableRules,
+        bc_engine_table::align::KeyAlignment,
+        AlignmentOverrides,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let mut rules = TableRules {
         columns: ColumnMapping::by_number(left.column_count(), right.column_count()),
         ..Default::default()
     };
-    let suggestion = bc_engine_table::inference::infer_keys_data(left, right, &rules, &NeverCancel)?;
+    let suggestion =
+        bc_engine_table::inference::infer_keys_data(left, right, &rules, &NeverCancel)?;
     assert!(suggestion.apply(&mut rules));
     mark("infer_keys");
     eprintln!("[proto] key_selection={:?}", rules.keys);
@@ -243,7 +250,8 @@ fn run_reference(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     let right = read_path(&args.right, &options, &NeverCancel)?.sheet;
     mark("load:right");
     let (rules, alignment, overrides) = infer_and_align(&left, &right)?;
-    let output = compare_alignment_data(&left, &right, &rules, &overrides, alignment, &NeverCancel)?;
+    let output =
+        compare_alignment_data(&left, &right, &rules, &overrides, alignment, &NeverCancel)?;
     mark("compare");
     print_summary("reference", &output, &left, &right);
     hold_with_live_state(args.hold, || {
@@ -267,7 +275,7 @@ fn viewport_driver(left: &DemandSheet, right: &DemandSheet, rows: usize) -> u64 
     while start < rows {
         for row in start..(start + 50).min(rows) {
             for (side, t) in [(0u8, left), (1u8, right)] {
-                std::hint::black_box(t.cached_row_displays(row as usize));
+                std::hint::black_box(t.cached_row_displays(row));
                 access_log.push((side, row as u32));
                 accesses += 1;
             }
@@ -281,7 +289,7 @@ fn viewport_driver(left: &DemandSheet, right: &DemandSheet, rows: usize) -> u64 
         state ^= state >> 7;
         state ^= state << 17;
         let row = (state % rows as u64) as u32;
-        for (side, t) in [(0u8, left), (1u8, right)] {
+        for (_side, t) in [(0u8, left), (1u8, right)] {
             std::hint::black_box(t.cached_row_displays(row as usize));
             accesses += 1;
         }

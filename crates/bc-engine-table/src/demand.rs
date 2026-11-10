@@ -38,7 +38,7 @@ use crate::{
     data::{CellData, CellInfo, TableData},
     invalid,
     model::Style,
-    source::{Records, ReadOptions},
+    source::{ReadOptions, Records},
     Cell, CellValue, Result, StyleId, TableOptions,
 };
 
@@ -167,7 +167,7 @@ fn build_span_index(
 
 fn fast_span_eligible(format: &TableOptions, ctrl_z: bool, body: &[u8]) -> bool {
     format.table_type == TableType::Delimited
-        && format.qualifier.map_or(true, |q| q.is_ascii())
+        && format.qualifier.is_none_or(|q| q.is_ascii())
         && format.delimiters.iter().all(|d| d.is_ascii())
         && !(ctrl_z && body.contains(&0x1A))
 }
@@ -225,10 +225,7 @@ fn fast_span_index(
     ctrl_z: bool,
     cancel: &dyn CancelCheck,
 ) -> Result<SpanIndex> {
-    let qualifier = format
-        .qualifier
-        .filter(|q| q.is_ascii())
-        .map(|q| q as u8);
+    let qualifier = format.qualifier.filter(|q| q.is_ascii()).map(|q| q as u8);
     let delimiters: Vec<u8> = format.delimiters.iter().map(|&d| d as u8).collect();
     let consecutive = format.consecutive_delimiters;
     let mut spans = Vec::new();
@@ -542,7 +539,11 @@ impl DemandSheet {
     /// read-only mapping, span index via the production parser, header handling
     /// identical to `read_text`. `Unsupported` reasons ask the caller to fall
     /// back to the dense load (non-UTF8 encodings, fixed-width layouts).
-    pub fn open(path: &Path, options: &ReadOptions, cancel: &dyn CancelCheck) -> std::result::Result<Self, DemandError> {
+    pub fn open(
+        path: &Path,
+        options: &ReadOptions,
+        cancel: &dyn CancelCheck,
+    ) -> std::result::Result<Self, DemandError> {
         if options.format.table_type == TableType::Fixed {
             return Err(DemandError::unsupported(
                 "fixed-width layout is not demand-backed; dense load applies",
@@ -641,10 +642,10 @@ impl DemandSheet {
             cache_cap: CACHE_CAP_BYTES,
         });
         // Identity counters start above the physical ranges.
-        inner.next_row.store(inner.spans.len() as u32, AtomicOrdering::Relaxed);
         inner
-            .next_col
-            .store(inner.columns, AtomicOrdering::Relaxed);
+            .next_row
+            .store(inner.spans.len() as u32, AtomicOrdering::Relaxed);
+        inner.next_col.store(inner.columns, AtomicOrdering::Relaxed);
         let version = Arc::new(Version {
             rows: (0..inner.spans.len() as u32).collect(),
             cols: (0..inner.columns).collect(),
@@ -681,7 +682,9 @@ impl DemandSheet {
         inner.header_rows = 1;
         inner.header_span = Some(inner.spans[0]);
         inner.spans.remove(0);
-        inner.next_row.store(inner.spans.len() as u32, AtomicOrdering::Relaxed);
+        inner
+            .next_row
+            .store(inner.spans.len() as u32, AtomicOrdering::Relaxed);
         let version = Arc::make_mut(&mut self.version);
         version.rows = (0..inner.spans.len() as u32).collect();
         version.headers = Some(headers);
@@ -770,7 +773,8 @@ impl DemandSheet {
                 };
             }
         }
-        self.parsed_field(record, column).map(std::borrow::Cow::Owned)
+        self.parsed_field(record, column)
+            .map(std::borrow::Cow::Owned)
     }
 
     /// Same interpretation as the dense load path: textual values keep the
@@ -960,7 +964,9 @@ impl DemandSheet {
     }
     pub(crate) fn insert_display_override(&mut self, row: usize, column: usize, text: Arc<str>) {
         if let Some((rid, cid)) = self.ids(row, column) {
-            self.version_mut().display_overrides.insert((rid, cid), text);
+            self.version_mut()
+                .display_overrides
+                .insert((rid, cid), text);
         }
     }
     pub fn source_is_workbook(&self) -> bool {
@@ -1171,9 +1177,7 @@ impl DemandSheet {
             if identity_cols {
                 // Verbatim header record bytes (promoted span, includes ending).
                 if let Some((off, len)) = self.inner.header_span {
-                    writer.write_all(
-                        &self.inner.bytes()[off as usize..(off + len) as usize],
-                    )?;
+                    writer.write_all(&self.inner.bytes()[off as usize..(off + len) as usize])?;
                 }
             } else {
                 let mut text = String::new();
@@ -1409,8 +1413,10 @@ mod tests {
     }
 
     fn open(path: &Path) -> DemandSheet {
-        let mut options = ReadOptions::default();
-        options.header = Some(HeaderMode::Data);
+        let options = ReadOptions {
+            header: Some(HeaderMode::Data),
+            ..Default::default()
+        };
         DemandSheet::open(path, &options, &NeverCancel).unwrap()
     }
 
@@ -1421,10 +1427,7 @@ mod tests {
         assert_eq!(sheet.row_count(), 3);
         assert_eq!(sheet.column_count(), 3);
         // Typed access mirrors dense interpret.
-        assert_eq!(
-            sheet.typed_value(0, 1),
-            Some(CellData::Number(1.0))
-        );
+        assert_eq!(sheet.typed_value(0, 1), Some(CellData::Number(1.0)));
         // Display keeps the source spelling (trailing zero).
         assert_eq!(sheet.display_text_at(0, 2).as_deref(), Some("0.250"));
         // Quoted field via production parser fallback.
@@ -1456,7 +1459,8 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text, "a,1,0.250\r\nb,20,x\r\nc,3,y\r\n");
         // Inserted row serializes; removed row disappears.
-        sheet.insert_row(1, vec![Cell::text("i"), Cell::text("5"), Cell::text("z")])
+        sheet
+            .insert_row(1, vec![Cell::text("i"), Cell::text("5"), Cell::text("z")])
             .unwrap();
         sheet.remove_row_indices(&[2]).unwrap();
         let mut out = Vec::new();
@@ -1595,8 +1599,7 @@ mod tests {
         for name in ["table-left.csv", "table-right.csv"] {
             let bytes = std::fs::read(dir.join(name)).unwrap();
             assert!(fast_span_eligible(&format, false, &bytes));
-            let expected =
-                records_span_index(&bytes, 0, &format, false, &NeverCancel).unwrap();
+            let expected = records_span_index(&bytes, 0, &format, false, &NeverCancel).unwrap();
             let fast = fast_span_index(&bytes, 0, &format, false, &NeverCancel).unwrap();
             assert_eq!(
                 (expected.0, expected.1, expected.2),

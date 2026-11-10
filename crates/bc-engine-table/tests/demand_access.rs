@@ -10,8 +10,8 @@ use bc_engine_table::{
     inference::infer_keys_data,
     map::{compare_alignment_data, TableAlignOutput},
     rules::Layers,
-    source::{read_text, detect_header_data, ReadOptions, Records},
-    KeyAlign, TableRules, TableOptions,
+    source::{detect_header_data, read_text, ReadOptions, Records},
+    KeyAlign, TableOptions, TableRules,
 };
 use bc_formats::model::RegionalSettings;
 use std::io::Cursor;
@@ -62,7 +62,10 @@ impl BufferTable {
         let mut columns = 0;
         let pos = std::rc::Rc::new(std::cell::Cell::new(0usize));
         let mut records = Records::new(
-            Counting { inner: &bytes, pos: pos.clone() },
+            Counting {
+                inner: &bytes,
+                pos: pos.clone(),
+            },
             options.clone(),
             false,
         )
@@ -101,7 +104,6 @@ impl BufferTable {
             .fields
     }
 }
-
 
 impl TableData for BufferTable {
     fn row_count(&self) -> usize {
@@ -149,11 +151,15 @@ impl TableData for BufferTable {
     fn collect_edited_rows(&self, _out: &mut std::collections::HashSet<usize>) {}
 }
 
-fn digest<L: TableData, R: TableData>(output: &TableAlignOutput, left: &L, right: &R) -> (u64, u64, u64, usize, [usize; 5]) {
+fn digest<L: TableData, R: TableData>(
+    output: &TableAlignOutput,
+    left: &L,
+    right: &R,
+) -> (u64, u64, u64, usize, [usize; 5]) {
     let mut h = 0xcbf29ce484222325u64;
     let mut hc = 0xcbf29ce484222325u64;
     let mut hv = 0xcbf29ce484222325u64;
-    let mut put3 = |hh: &mut u64, b: u8| {
+    let put3 = |hh: &mut u64, b: u8| {
         *hh ^= b as u64;
         *hh = hh.wrapping_mul(0x100000001b3);
     };
@@ -230,7 +236,7 @@ fn chain<L: TableData + Sync>(left: &L, right: &L) -> TableAlignOutput {
 /// delimiter-bounded fields for a qualifier-free record body (ending stripped).
 /// Any drift between this copy and the parser is caught by the differential
 /// below; the example's copy is additionally guarded by the real-data digests.
-fn fast_fields<'a>(body: &'a [u8], delim: u8) -> Vec<&'a [u8]> {
+fn fast_fields(body: &[u8], delim: u8) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut start = 0usize;
     for (i, &b) in body.iter().enumerate() {
@@ -249,18 +255,19 @@ fn fast_split_matches_records_on_edge_fields() {
     // (body, parser_input): fast path sees the record body with the ending
     // stripped; the parser sees the raw line including the ending.
     let cases: &[(&[u8], &[u8])] = &[
-        (b"a,b,c", b"a,b,c\r\n"),                 // plain
-        (b"a,,c", b"a,,c\r\n"),                  // empty middle
-        (b",b,c", b",b,c\r\n"),                  // leading empty
-        (b"a,b,", b"a,b,\r\n"),                  // trailing empty
-        (b"", b"\r\n"),                          // blank record -> one empty field
-        (b"x,y", b"x,y"),                         // EOF without trailing newline
+        (b"a,b,c", b"a,b,c\r\n"),                               // plain
+        (b"a,,c", b"a,,c\r\n"),                                 // empty middle
+        (b",b,c", b",b,c\r\n"),                                 // leading empty
+        (b"a,b,", b"a,b,\r\n"),                                 // trailing empty
+        (b"", b"\r\n"),                                         // blank record -> one empty field
+        (b"x,y", b"x,y"),                                       // EOF without trailing newline
         (b"true,1.25,2026-01-01", b"true,1.25,2026-01-01\r\n"), // typed-looking stay raw
-        (b"a , b ,c", b"a , b ,c\r\n"),          // whitespace preserved (no trim)
+        (b"a , b ,c", b"a , b ,c\r\n"),                         // whitespace preserved (no trim)
         (b"item0,code0,0.25", b"item0,code0,0.25\r\n"),
     ];
     for (n, (body, input)) in cases.iter().enumerate() {
-        let mut records = Records::new(Cursor::new(*input), TableOptions::default(), false).unwrap();
+        let mut records =
+            Records::new(Cursor::new(*input), TableOptions::default(), false).unwrap();
         let parsed = records
             .next_record(&NeverCancel)
             .unwrap()
@@ -270,7 +277,12 @@ fn fast_split_matches_records_on_edge_fields() {
             .into_iter()
             .map(|s| String::from_utf8_lossy(s).into_owned())
             .collect();
-        assert_eq!(parsed, fast, "case {n}: {:?}", String::from_utf8_lossy(input));
+        assert_eq!(
+            parsed,
+            fast,
+            "case {n}: {:?}",
+            String::from_utf8_lossy(input)
+        );
     }
     // quoted/escaped records must NOT take the fast path (caller gates on the
     // qualifier byte); Records remains the semantics source there.
@@ -305,7 +317,10 @@ fn numeric_text_variants_compare_equal_via_rules() {
             .sheet;
         let out = chain(&ls, &rs);
         let row = out.data.row(0, Layers::All, false).unwrap();
-        (row.importance == bc_engine_table::compare::Importance::Same, digest(&out, &ls, &rs))
+        (
+            row.importance == bc_engine_table::compare::Importance::Same,
+            digest(&out, &ls, &rs),
+        )
     };
     let (same_ref, digest_ref) = run(left, right);
     let (same_dem, digest_dem) = {
@@ -318,7 +333,10 @@ fn numeric_text_variants_compare_equal_via_rules() {
             digest(&out, &l, &r),
         )
     };
-    assert!(same_ref && same_dem, "numeric text variants must compare Same");
+    assert!(
+        same_ref && same_dem,
+        "numeric text variants must compare Same"
+    );
     assert_eq!(digest_ref, digest_dem);
 }
 
@@ -358,12 +376,9 @@ fn demand_store(text: &str, tag: &str) -> bc_engine_table::SheetStore {
         std::process::id()
     ));
     std::fs::write(&path, text).unwrap();
-    let sheet = bc_engine_table::demand::DemandSheet::open(
-        &path,
-        &ReadOptions::default(),
-        &NeverCancel,
-    )
-    .unwrap();
+    let sheet =
+        bc_engine_table::demand::DemandSheet::open(&path, &ReadOptions::default(), &NeverCancel)
+            .unwrap();
     let _ = std::fs::remove_file(&path);
     bc_engine_table::SheetStore::Lazy(sheet)
 }
@@ -410,7 +425,10 @@ fn store_chain_matches_dense_and_save_bytes_equal() {
         for c in 0..dense_out.data.column_count() {
             let a = dense_out.data.cell_diff(i, c).unwrap();
             let b = lazy_out.data.cell_diff(i, c).unwrap();
-            assert_eq!((a.value, a.formula, a.format), (b.value, b.formula, b.format));
+            assert_eq!(
+                (a.value, a.formula, a.format),
+                (b.value, b.formula, b.format)
+            );
         }
         i += 1;
     }
@@ -460,8 +478,20 @@ fn store_chain_matches_dense_and_save_bytes_equal() {
     let ds = dense_map.statistics();
     let ls = lazy_map.statistics();
     assert_eq!(
-        (ds.same, ds.unimportant, ds.important, ds.left_only, ds.right_only),
-        (ls.same, ls.unimportant, ls.important, ls.left_only, ls.right_only)
+        (
+            ds.same,
+            ds.unimportant,
+            ds.important,
+            ds.left_only,
+            ds.right_only
+        ),
+        (
+            ls.same,
+            ls.unimportant,
+            ls.important,
+            ls.left_only,
+            ls.right_only
+        )
     );
     let mut dense_bytes = Vec::new();
     let mut lazy_bytes = Vec::new();

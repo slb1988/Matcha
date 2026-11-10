@@ -18,8 +18,10 @@ use std::{io::Cursor, sync::Arc};
 mod xlsx;
 
 fn dense_csv(text: &str, header: HeaderMode) -> Sheet {
-    let mut options = ReadOptions::default();
-    options.header = Some(header);
+    let options = ReadOptions {
+        header: Some(header),
+        ..Default::default()
+    };
     read_text(Cursor::new(text), &options, &NeverCancel)
         .unwrap()
         .sheet
@@ -32,8 +34,10 @@ fn lazy_csv(text: &str, header: HeaderMode) -> DemandSheet {
         text.as_ptr() as usize
     ));
     std::fs::write(&path, text).unwrap();
-    let mut options = ReadOptions::default();
-    options.header = Some(header);
+    let options = ReadOptions {
+        header: Some(header),
+        ..Default::default()
+    };
     let sheet = DemandSheet::open(&path, &options, &NeverCancel).unwrap();
     let _ = std::fs::remove_file(&path);
     sheet
@@ -45,7 +49,7 @@ fn stats(map: &TableMap) -> TableStatistics {
 
 /// Sheet -> synthetic xlsx -> dense sheet via the production workbook reader.
 fn via_xlsx(sheet: &Sheet) -> Sheet {
-    let bytes = xlsx::workbook(&[sheet.clone()]);
+    let bytes = xlsx::workbook(std::slice::from_ref(sheet));
     let mut wb = Workbook::from_reader(Cursor::new(bytes), Arc::new(NeverCancel)).unwrap();
     wb.load_sheet("Sheet1").unwrap()
 }
@@ -82,8 +86,13 @@ fn mixed_xlsx_dense_and_lazy_csv_compare_equal_to_dense_dense() {
         ..Default::default()
     };
     // Reference: dense xlsx × dense xlsx.
-    let reference = TableMap::new(xl_left.clone(), xl_right.clone(), rules.clone(), &NeverCancel)
-        .unwrap();
+    let reference = TableMap::new(
+        xl_left.clone(),
+        xl_right.clone(),
+        rules.clone(),
+        &NeverCancel,
+    )
+    .unwrap();
     // Mixed: dense xlsx × lazy CSV (the GUI's lazy-env mixed path).
     let mixed = TableMap::new_stores(
         SheetStore::Dense(xl_left),
@@ -132,8 +141,10 @@ fn regional_settings_on_lazy_match_dense() {
         date_order: DateOrder::Dmy,
         date_separator: '.',
     };
-    let mut options = ReadOptions::default();
-    options.header = Some(HeaderMode::Data);
+    let mut options = ReadOptions {
+        header: Some(HeaderMode::Data),
+        ..Default::default()
+    };
     options.format.delimiters = vec![';'];
     options.format.regional = regional.clone();
     let dense_l = read_text(Cursor::new(&left), &options, &NeverCancel)
@@ -142,10 +153,8 @@ fn regional_settings_on_lazy_match_dense() {
     let dense_r = read_text(Cursor::new(&right), &options, &NeverCancel)
         .unwrap()
         .sheet;
-    let path = std::env::temp_dir().join(format!(
-        "matcha-regional-test-{}.csv",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("matcha-regional-test-{}.csv", std::process::id()));
     std::fs::write(&path, &right).unwrap();
     let lazy_r = DemandSheet::open(&path, &options, &NeverCancel).unwrap();
     let _ = std::fs::remove_file(&path);
@@ -155,7 +164,11 @@ fn regional_settings_on_lazy_match_dense() {
     };
     let dense = TableMap::new(dense_l, dense_r, rules.clone(), &NeverCancel).unwrap();
     let lazy = TableMap::new_stores(
-        SheetStore::Dense(read_text(Cursor::new(&left), &options, &NeverCancel).unwrap().sheet),
+        SheetStore::Dense(
+            read_text(Cursor::new(&left), &options, &NeverCancel)
+                .unwrap()
+                .sheet,
+        ),
         SheetStore::Lazy(lazy_r),
         rules,
         &NeverCancel,

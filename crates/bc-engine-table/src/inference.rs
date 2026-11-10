@@ -100,7 +100,10 @@ fn score_wave<S: TableData + Sync>(
             }));
         }
         for h in handles {
-            results.push(h.join().unwrap_or_else(|_| Err(invalid("key inference panicked"))));
+            results.push(
+                h.join()
+                    .unwrap_or_else(|_| Err(invalid("key inference panicked"))),
+            );
         }
     });
     let mut out = Vec::with_capacity(columns_list.len());
@@ -155,9 +158,8 @@ fn score_maps(
         }
         if let Some(&rr) = r.get(hash) {
             matches += 1;
-            displacement += (lr as f64 / left_rows.max(1) as f64
-                - rr as f64 / right_rows.max(1) as f64)
-                .abs();
+            displacement +=
+                (lr as f64 / left_rows.max(1) as f64 - rr as f64 / right_rows.max(1) as f64).abs();
         }
     }
     let overlap = matches as f64 / (l.len() + r.len() - matches).max(1) as f64;
@@ -246,12 +248,13 @@ fn fused_column_hashes<S: TableData + Sync>(
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for (start, mut bufs) in jobs {
-            handles.push(scope.spawn(move || {
-                fused_chunk(sheet, mapped, handling, start, &mut bufs, cancel)
-            }));
+            handles.push(
+                scope.spawn(move || fused_chunk(sheet, mapped, handling, start, &mut bufs, cancel)),
+            );
         }
         for h in handles {
-            h.join().unwrap_or_else(|_| Err(invalid("key inference panicked")))?;
+            h.join()
+                .unwrap_or_else(|_| Err(invalid("key inference panicked")))?;
         }
         Ok::<(), bc_core::CoreError>(())
     })?;
@@ -261,6 +264,8 @@ fn fused_column_hashes<S: TableData + Sync>(
 /// order, first-occurrence `or_insert`, same capacity policy (`ScoreScratch`),
 /// same deterministic hasher — the resulting maps are layout-identical to
 /// `values_into`'s, so `score_maps` observes the same iteration order.
+// 保留显式借用的融合数组参数，避免为 lint 改变基准热路径。
+#[allow(clippy::too_many_arguments)]
 fn score_from_hashes(
     left_rows: usize,
     right_rows: usize,
@@ -337,7 +342,7 @@ fn score_wave_fused<S: TableData + Sync>(
     let jobs: Vec<(Vec<usize>, Vec<u64>, Vec<u64>)> = columns_list
         .iter()
         .cloned()
-        .zip(lh.into_iter().zip(rh.into_iter()))
+        .zip(lh.into_iter().zip(rh))
         .map(|(c, (l, r))| (c, l, r))
         .collect();
     let threads = crate::perf::phase_threads(left_rows.max(right_rows)).min(jobs.len());
@@ -382,7 +387,10 @@ fn score_wave_fused<S: TableData + Sync>(
             }
             handles
                 .into_iter()
-                .map(|h| h.join().unwrap_or_else(|_| Err(invalid("key inference panicked"))))
+                .map(|h| {
+                    h.join()
+                        .unwrap_or_else(|_| Err(invalid("key inference panicked")))
+                })
                 .collect::<Vec<_>>()
         });
         let mut out = Vec::with_capacity(columns_list.len());

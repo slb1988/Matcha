@@ -18,6 +18,8 @@ use crate::{
 /// One comparison side's storage. Clone is cheap for both variants (arc-shared
 /// columns / arc-shared mapping + version), matching prior `Sheet` clone cost
 /// semantics relied on by edit snapshots and worker hand-offs.
+// 保留内联存储和现有 Clone 成本，不引入 Box 的分配与间接访问。
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum SheetStore {
     Dense(Sheet),
