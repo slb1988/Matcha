@@ -445,7 +445,7 @@ mod tests {
     }
     fn frame(ctx: &egui::Context, input: egui::RawInput) -> (Option<String>, egui::FullOutput) {
         let mut action = None;
-        let output = crate::chrome::test_frame(&ctx, input, |ui| {
+        let output = crate::chrome::test_frame(ctx, input, |ui| {
             action = show(ui, &menus());
         });
         (action, output)

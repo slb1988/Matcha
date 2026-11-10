@@ -3,7 +3,7 @@
 use eframe::egui::{self, Color32, CornerRadius, Stroke, Visuals};
 
 /// Initial colors measured from the seed screenshot (seed; calibrate in group 3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     pub panel_fill: Color32,
     pub window_fill: Color32,
@@ -17,7 +17,7 @@ pub struct Theme {
     pub toolbar_height: u16,
     pub status_height: u16,
     pub ui_size: u16,
-    pub editor_size: u16,
+    pub editor_size: f32,
     pub editor_line_height: u16,
     pub icon_size: u16,
 }
@@ -31,13 +31,13 @@ impl Default for Theme {
             text: Color32::from_rgb(0, 0, 0),
             selected_fill: Color32::from_rgb(204, 232, 255),
             selected_border: Color32::from_rgb(153, 209, 255),
-            difference_fill: Color32::from_rgb(255, 227, 227),
-            difference_text: Color32::from_rgb(255, 0, 0),
+            difference_fill: Color32::from_rgb(252, 230, 230),
+            difference_text: Color32::from_rgb(252, 48, 48),
             menu_height: 27,
             toolbar_height: 43,
-            status_height: 24,
+            status_height: 25,
             ui_size: 12,
-            editor_size: 12,
+            editor_size: 40.0 / 3.0,
             editor_line_height: 15,
             icon_size: 16,
         }
@@ -49,12 +49,12 @@ pub const BORDER: Color32 = Color32::from_rgb(160, 160, 160);
 pub const CLASSIC_BLUE: Color32 = Color32::from_rgb(153, 209, 255);
 pub const HOVER_BLUE: Color32 = Color32::from_rgb(204, 232, 255);
 pub const UI_SIZE: f32 = 12.0;
-pub const EDITOR_SIZE: f32 = 12.0;
+pub const EDITOR_SIZE: f32 = 40.0 / 3.0;
 pub const EDITOR_LINE_HEIGHT: f32 = 15.0;
 pub const MENU_HEIGHT: f32 = 27.0;
 pub const TOOLBAR_HEIGHT: f32 = 43.0;
 pub const TOOL_ICON: f32 = 16.0;
-pub const STATUS_HEIGHT: f32 = 24.0;
+pub const STATUS_HEIGHT: f32 = 25.0;
 
 /// Apply the classic flat, one-pixel, zero-radius widget style.
 pub fn apply(ctx: &egui::Context) {
@@ -105,7 +105,7 @@ impl Theme {
             }
             style.text_styles.insert(
                 egui::TextStyle::Monospace,
-                egui::FontId::monospace(theme.editor_size as f32),
+                egui::FontId::monospace(theme.editor_size),
             );
             style.spacing.interact_size.y = 20.0;
             style.spacing.scroll = egui::style::ScrollStyle::solid();
@@ -148,22 +148,26 @@ mod tests {
             eprintln!("tokens.json 尚未合入；跳过真源断言");
             return;
         }
-        let tokens: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let tokens: serde_json::Value = serde_json::from_str(
+            std::fs::read_to_string(path)
+                .unwrap()
+                .trim_start_matches('\u{feff}'),
+        )
+        .unwrap();
         let t = Theme::default();
         for (name, color) in [
-            ("panel_fill", t.panel_fill),
-            ("window_fill", t.window_fill),
-            ("border", t.border),
-            ("text", t.text),
-            ("selected_fill", t.selected_fill),
-            ("selected_border", t.selected_border),
-            ("difference_fill", t.difference_fill),
-            ("difference_text", t.difference_text),
+            ("panel", t.panel_fill),
+            ("menubar", t.window_fill),
+            ("separator", t.border),
+            ("textForeground", t.text),
+            ("toolbarToggle", t.selected_fill),
+            ("toolbarToggleBorder", t.selected_border),
+            ("diffRow", t.difference_fill),
+            ("diffForeground", t.difference_text),
         ] {
             let expected = format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b());
             assert_eq!(
-                tokens["colors"][name]
+                tokens["colors"][name]["hex"]
                     .as_str()
                     .map(str::to_ascii_uppercase)
                     .as_deref(),
@@ -172,25 +176,29 @@ mod tests {
             );
         }
         for (name, value) in [
-            ("menu_height", t.menu_height),
-            ("toolbar_height", t.toolbar_height),
-            ("status_height", t.status_height),
-            ("editor_line_height", t.editor_line_height),
-            ("icon_size", t.icon_size),
+            ("menubarHeight", t.menu_height),
+            ("toolbarHeight", t.toolbar_height),
+            ("statusbarHeight", t.status_height),
+            ("lineHeight", t.editor_line_height),
         ] {
             assert_eq!(
-                tokens["metrics"][name].as_f64(),
+                tokens["metrics"][name]["value"].as_f64(),
                 Some(value as f64),
                 "metrics.{name}"
             );
         }
-        for (name, value) in [("ui_size", t.ui_size), ("editor_size", t.editor_size)] {
-            assert_eq!(
-                tokens["fonts"][name].as_f64(),
-                Some(value as f64),
-                "fonts.{name}"
-            );
-        }
+        assert_eq!(
+            tokens["metrics"]["toolbarIconSize"]["value"],
+            serde_json::json!([t.icon_size, t.icon_size])
+        );
+        assert_eq!(
+            tokens["fonts"]["ui"]["sizePt"].as_f64().unwrap() * 4.0 / 3.0,
+            t.ui_size as f64
+        );
+        assert!(
+            (tokens["fonts"]["editor"]["sizePx"].as_f64().unwrap() - t.editor_size as f64).abs()
+                < 0.001
+        );
     }
 
     #[test]

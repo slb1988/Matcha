@@ -6,8 +6,8 @@
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use std::path::{Path, PathBuf};
 
-const UI_FONT: &str = "matcha-segoe-ui";
-const UI_BOLD_FONT: &str = "matcha-segoe-ui-bold";
+const UI_FONT: &str = "matcha-system-message";
+const UI_BOLD_FONT: &str = "matcha-system-message-bold";
 const EDITOR_FONT: &str = "matcha-consolas";
 const CJK_FONT: &str = "matcha-microsoft-yahei";
 
@@ -51,7 +51,113 @@ fn windows_font_dir() -> PathBuf {
 
 /// Install system fonts, preserving egui's bundled fonts as the final fallback.
 pub fn install(ctx: &egui::Context) {
-    install_from_plan(ctx, &FontPlan::from_dir(windows_font_dir()));
+    let mut plan = FontPlan::from_dir(windows_font_dir());
+    let system = system_message_font();
+    if let Some(font) = &system {
+        plan.ui = font.path.clone();
+        if font.family == "Microsoft YaHei UI" {
+            plan.ui_bold = windows_font_dir().join("msyhbd.ttc");
+        }
+    }
+    let mut definitions = load(&plan);
+    if let Some(font) = &system {
+        // 微软雅黑 TTC 索引 0 是 Microsoft YaHei，索引 1 是 UI 家族。
+        if font.family == "Microsoft YaHei UI" {
+            for key in [UI_FONT, UI_BOLD_FONT] {
+                if let Some(data) = definitions.font_data.get_mut(key) {
+                    std::sync::Arc::make_mut(data).index = 1;
+                }
+            }
+        }
+        eprintln!(
+            "matcha.font message={:?} size_px={} path={} editor=Consolas size_pt=10",
+            font.family,
+            font.size_px,
+            font.path.display()
+        );
+    } else {
+        eprintln!("matcha.font: SPI message font unavailable; using Segoe UI/bundled fallback");
+    }
+    ctx.set_fonts(definitions);
+    set_sizes(
+        ctx,
+        system.as_ref().map_or(super::theme::UI_SIZE, |f| f.size_px),
+    );
+}
+
+#[derive(Debug)]
+struct SystemFont {
+    family: String,
+    path: PathBuf,
+    size_px: f32,
+}
+
+#[cfg(not(windows))]
+fn system_message_font() -> Option<SystemFont> {
+    None
+}
+
+/// 保持 bc-gui 的 forbid(unsafe_code)：通过隐藏的系统 PowerShell 助手调用 SPI。
+/// 只读取消息字体与 Windows 字体注册表；不依赖或启动参考工具。
+#[cfg(windows)]
+fn system_message_font() -> Option<SystemFont> {
+    use std::os::windows::process::CommandExt;
+    const QUERY: &str = r#"
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class MatchaMessageFont {
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct Font {
+  public int height,width,escapement,orientation,weight;
+  public byte italic,underline,strikeout,charset,outprecision,clipprecision,quality,pitch;
+  [MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)] public string family;
+ }
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct Metrics {
+  public uint size; public int borderWidth,scrollWidth,scrollHeight,captionWidth,captionHeight;
+  public Font caption; public int smallWidth,smallHeight; public Font small;
+  public int menuWidth,menuHeight; public Font menu,status,message; public int paddedBorderWidth;
+ }
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool SystemParametersInfo(uint action,uint param,ref Metrics data,uint flags);
+ public static Font Read() { var m=new Metrics(); m.size=(uint)Marshal.SizeOf(m); if(!SystemParametersInfo(0x29,m.size,ref m,0)) throw new Exception("SPI_GETNONCLIENTMETRICS failed"); return m.message; }
+}
+'@
+$f=[MatchaMessageFont]::Read()
+$fonts=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+$entry=$fonts.PSObject.Properties | Where-Object { $_.Name -notmatch 'Bold|Italic' -and ($_.Name -replace ' \(TrueType\)$','').Split('&').Trim() -contains $f.family } | Select-Object -First 1
+if(!$entry){throw 'Font file not registered'}
+$path=[string]$entry.Value
+if(![IO.Path]::IsPathRooted($path)){$path=Join-Path $env:WINDIR ('Fonts/'+$path)}
+Write-Output $f.family
+Write-Output ([Math]::Abs($f.height))
+Write-Output $path
+"#;
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", QUERY])
+        .creation_flags(0x0800_0000)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_system_font(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+#[cfg(any(windows, test))]
+fn parse_system_font(text: &str) -> Option<SystemFont> {
+    let mut lines = text.trim().lines();
+    let family = lines.next()?.trim().to_owned();
+    let size_px = lines.next()?.trim().parse::<f32>().ok()?;
+    let path = PathBuf::from(lines.next()?.trim());
+    if family.is_empty() || !size_px.is_finite() || !(6.0..=96.0).contains(&size_px) {
+        return None;
+    }
+    Some(SystemFont {
+        family,
+        path,
+        size_px,
+    })
 }
 
 /// Install a supplied plan. This is public for deterministic integration tests.
@@ -123,11 +229,15 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
 /// 按同一字号 token 安装字体；DPI 默认由 eframe 管理。
 pub fn install_from_plan(ctx: &egui::Context, plan: &FontPlan) {
     ctx.set_fonts(load(plan));
+    set_sizes(ctx, super::theme::UI_SIZE);
+}
+
+fn set_sizes(ctx: &egui::Context, ui_size: f32) {
     ctx.all_styles_mut(|style| {
         for text_style in [TextStyle::Body, TextStyle::Button, TextStyle::Small] {
             style
                 .text_styles
-                .insert(text_style, FontId::proportional(super::theme::UI_SIZE));
+                .insert(text_style, FontId::proportional(ui_size));
         }
         style.text_styles.insert(
             TextStyle::Monospace,
