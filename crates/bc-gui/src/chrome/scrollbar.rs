@@ -1,2 +1,93 @@
-use eframe::egui;
-pub fn show(ui:&mut egui::Ui,range:std::ops::RangeInclusive<usize>,value:&mut usize)->egui::Response{ui.add(egui::Slider::new(value,range).vertical().show_value(false))}
+//! 经典竖向滚动条近似：上下按钮、比例滑块、轨道定位与拖动。
+//! egui 不提供 Win32 的原生自动重复时序；长按箭头重复是已知限制。
+use eframe::egui::{self, Color32, Rect, Sense, Stroke, StrokeKind};
+/// `range` 是可滚动首行范围。返回合并的响应，数值变化时标记 changed。
+pub fn show(
+    ui: &mut egui::Ui,
+    range: std::ops::RangeInclusive<usize>,
+    value: &mut usize,
+) -> egui::Response {
+    let min = *range.start();
+    let max = (*range.end()).max(min);
+    let before = *value;
+    *value = (*value).clamp(min, max);
+    let (rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(16.0, ui.available_height().max(64.0)),
+        Sense::hover(),
+    );
+    let top = Rect::from_min_size(rect.min, egui::vec2(16.0, 16.0));
+    let bottom = Rect::from_min_size(
+        rect.left_bottom() - egui::vec2(0.0, 16.0),
+        egui::vec2(16.0, 16.0),
+    );
+    let track = Rect::from_min_max(top.left_bottom(), bottom.right_top());
+    ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
+    for (button, up) in [(top, true), (bottom, false)] {
+        let r = ui.interact(button, response.id.with(up), Sense::click());
+        if r.clicked() {
+            *value = if up {
+                value.saturating_sub(1).max(min)
+            } else {
+                value.saturating_add(1).min(max)
+            };
+        }
+        ui.painter().rect_stroke(
+            button,
+            0.0,
+            Stroke::new(1.0, super::theme::BORDER),
+            StrokeKind::Inside,
+        );
+        let c = button.center();
+        let y = if up { -1.0 } else { 1.0 };
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![
+                c + egui::vec2(0.0, -3.0 * y),
+                c + egui::vec2(3.0, 2.0 * y),
+                c + egui::vec2(-3.0, 2.0 * y),
+            ],
+            Color32::DARK_GRAY,
+            Stroke::NONE,
+        ));
+        response = response.union(r);
+    }
+    let thumb_height =
+        (track.height() / ((max - min + 1) as f32).sqrt()).clamp(16.0, track.height());
+    let travel = track.height() - thumb_height;
+    let y = track.top() + travel * ((*value - min) as f32 / (max - min).max(1) as f32);
+    let thumb = Rect::from_min_size(egui::pos2(track.left(), y), egui::vec2(16.0, thumb_height));
+    let r = ui.interact(track, response.id.with("track"), Sense::click_and_drag());
+    if (r.clicked() || r.dragged()) && travel > 0.0 {
+        if let Some(pos) = r.interact_pointer_pos() {
+            let ratio = ((pos.y - track.top() - thumb_height / 2.0) / travel).clamp(0.0, 1.0);
+            *value = min + (ratio * (max - min) as f32).round() as usize;
+        }
+    }
+    ui.painter().rect_filled(
+        thumb,
+        0.0,
+        Color32::from_gray(if r.hovered() { 190 } else { 205 }),
+    );
+    ui.painter().rect_stroke(
+        thumb,
+        0.0,
+        Stroke::new(1.0, super::theme::BORDER),
+        StrokeKind::Inside,
+    );
+    response = response.union(r);
+    if *value != before {
+        response.mark_changed();
+    }
+    response
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn empty_and_out_of_range_scroll_positions_are_clamped() {
+        let ctx = eframe::egui::Context::default();
+        let mut value = 999;
+        let _ = crate::chrome::test_frame(&ctx, Default::default(), |ui| {
+            super::show(ui, 0..=0, &mut value);
+        });
+        assert_eq!(value, 0);
+    }
+}

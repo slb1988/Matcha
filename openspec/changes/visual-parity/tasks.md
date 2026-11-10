@@ -14,8 +14,8 @@
 - [x] 2.1 `chrome/fonts.rs`：系统 Segoe UI / 编辑器字体 / CJK 回退加载、DPI 与快照模式 `pixels_per_point=1`；验证单测：字体缺失回退不 panic
 - [x] 2.2 `chrome/theme.rs`：token 常量（初值取种子截图，组 3 按 tokens.json 校准）与全局 Visuals/Style；验证单测：token 与 tokens.json 一致（tokens.json 未合入前跳过）
 - [x] 2.3 `chrome/{menubar,toolbar,pathbar,statusbar,splitter,scrollbar}.rs` 通用组件（数据驱动：菜单树、工具栏条目、状态字段）；验证 egui 输入注入单测：菜单打开/助记符/快捷键显示、切换按钮态、分体按钮下拉
-- [x] 2.4 `chrome/icons.rs` 原创图标集（覆盖四个视图工具栏全部条目与路径栏/状态栏小图标）+ `icon-catalog` 场景；验证快照
-- [x] 2.5 快照基础设施：`--snapshot=<scene>`、`--window-size=WxH`、场景注册表、等待后台完成、禁用闪烁、`tools/visual/snap-matcha.ps1`；验证同场景连续两次快照字节一致
+- [ ] 2.4 `chrome/icons.rs` 原创图标集（覆盖四个视图工具栏全部条目与路径栏/状态栏小图标）+ `icon-catalog` 场景；验证快照
+- [ ] 2.5 快照基础设施：`--snapshot=<scene>`、`--window-size=WxH`、场景注册表、等待后台完成、禁用闪烁、`tools/visual/snap-matcha.ps1`；验证同场景连续两次快照字节一致
 
 ## 3. 文本比较外观（master，Wave 2）
 
