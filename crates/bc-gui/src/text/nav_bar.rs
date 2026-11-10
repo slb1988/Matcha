@@ -64,7 +64,7 @@ impl NavBar {
             egui::Sense::click_and_drag(),
         );
         ui.painter()
-            .rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+            .rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
         for (i, bin) in self
             .bins
             .iter()

@@ -85,7 +85,10 @@ impl MatchaApp {
                 }
             }
             (Some(l), Some(r)) => match TextCompareView::open(l, r) {
-                Ok(v) => {
+                Ok(mut v) => {
+                    if options.snapshot.is_some() {
+                        v.snapshot_rules();
+                    }
                     if options.snapshot.is_none() {
                         HomeView::record(l, r);
                     }
@@ -311,7 +314,9 @@ impl eframe::App for MatchaApp {
             };
             if ready && !self.snapshot_preset_applied {
                 match &mut self.view {
-                    View::TextCompare(v) => v.scroll_to_row(0),
+                    View::TextCompare(v) => {
+                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                    }
                     View::TableCompare(v) => v.scroll_to_row(0),
                     View::FolderCompare(v) => v.send(crate::dir_view::Command::ExpandAll(true)),
                     _ => {}

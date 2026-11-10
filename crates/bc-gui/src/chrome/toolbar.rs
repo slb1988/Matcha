@@ -52,7 +52,7 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
         ui.spacing_mut().item_spacing.x = 2.0;
         for (index, item) in items.iter().enumerate() {
             if index > 0 && item.group != items[index - 1].group {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(5.0, 34.0), Sense::hover());
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 34.0), Sense::hover());
                 ui.painter().line_segment(
                     [rect.center_top(), rect.center_bottom()],
                     Stroke::new(1.0, super::theme::BORDER),
@@ -72,7 +72,7 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
             } else {
                 0.0
             };
-            let width = (galley.size().x + 12.0).max(48.0) + arrow_width;
+            let width = (galley.size().x + 12.0).max(57.0) + arrow_width;
             let (rect, _) = ui.allocate_exact_size(
                 egui::vec2(width, super::theme::TOOLBAR_HEIGHT - 3.0),
                 Sense::hover(),
@@ -226,7 +226,7 @@ mod tests {
             }
         );
         assert_eq!(
-            click(&items, 56.0),
+            click(&items, 65.0),
             ToolbarResponse {
                 clicked: None,
                 dropdown: Some("split".into())

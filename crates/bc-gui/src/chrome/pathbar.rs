@@ -18,7 +18,8 @@ pub fn show_with_history(
     let mut result = PathbarResponse::default();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        let edit_width = (ui.available_width() - 122.0).max(40.0);
+        ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(194, 220, 245);
+        let edit_width = (ui.available_width() - 100.0).max(40.0);
         let edit = ui.add_sized([edit_width, 22.0], egui::TextEdit::singleline(path));
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             result.submitted = true;
@@ -45,7 +46,7 @@ pub fn show_with_history(
             (Icon::Save, "save", "Save path"),
         ] {
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                ui.allocate_exact_size(egui::vec2(18.0, 22.0), egui::Sense::click());
             if response.clicked() {
                 result.action = Some(id.into());
             }

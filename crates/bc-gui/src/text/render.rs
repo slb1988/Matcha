@@ -64,11 +64,12 @@ impl TextCompareView {
         ui.spacing_mut().scroll.bar_width = 16.0;
         ui.spacing_mut().scroll.bar_inner_margin = 1.0;
         ui.spacing_mut().scroll.bar_outer_margin = 1.0;
+        ui.add_space(1.0);
         let output = egui::ScrollArea::both()
             .id_salt(("text_scroll", s))
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-            .max_height(remaining)
+            .max_height(remaining - 1.0)
             .vertical_scroll_offset(scroll.y)
             .horizontal_scroll_offset(scroll.x)
             .show_rows(ui, row_height, self.projection.len(), |ui, range| {
@@ -204,7 +205,7 @@ impl TextCompareView {
                             } else {
                                 8.0
                             },
-                            1.0,
+                            3.0,
                         )
                         + egui::vec2(start_char as f32 * glyph, 0.0);
                     let char_for_byte = |byte: usize| {
@@ -364,6 +365,10 @@ impl TextCompareView {
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
             ui.memory_mut(|m| m.request_focus(id));
         }
+        ui.painter().line_segment(
+            [rect.left_top(), rect.right_top()],
+            egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+        );
         let status = egui::Rect::from_min_size(
             egui::pos2(rect.left(), rect.bottom()),
             egui::vec2(rect.width(), 19.0),

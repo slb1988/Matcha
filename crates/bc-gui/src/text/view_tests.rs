@@ -648,3 +648,30 @@ fn status_title_and_core_geometry_follow_reference_slots() {
         .iter()
         .any(|(t, _)| t.contains("difference section(s)")));
 }
+
+#[test]
+fn toolbar_mouse_filter_and_reference_presets_use_real_projection() {
+    let ctx = egui::Context::default();
+    let mut v = view(
+        "alpha\r\nbeta\r\ngamma\r\n",
+        "alpha\r\nBETA\r\ngamma\r\ninserted\r\n",
+    );
+    v.snapshot_rules();
+    ready(&mut v);
+    v.snapshot_preset("text-diffs-filter");
+    assert_eq!(v.filter, DisplayFilter::Differences);
+    assert!(!v.context_enabled);
+    assert!(v.projection.len() < v.row_count());
+    let out = frame(&ctx, &mut v, vec![]);
+    let all = text_shapes(&out)
+        .into_iter()
+        .find(|(t, _)| t == "All")
+        .unwrap()
+        .1
+        .center();
+    click(&ctx, &mut v, all);
+    assert_eq!(v.filter, DisplayFilter::All);
+    v.snapshot_preset("text-cursor-on-diff");
+    assert_eq!(v.editors[0].caret.line, 1);
+    assert_eq!(v.row(v.current_row).importance, Importance::Unimportant);
+}

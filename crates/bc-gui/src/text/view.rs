@@ -50,6 +50,7 @@ enum Pending {
     Home,
     Exit,
     Reload(usize),
+    ReloadBoth,
     Open(usize, PathBuf),
     Clipboard(usize, String),
     Encoding(usize, Encoding),
@@ -126,6 +127,8 @@ pub struct TextCompareView {
     path_edits: [String; 2],
     path_sources: [Option<PathBuf>; 2],
     window_title: String,
+    displayed_sections: usize,
+    tool_dropdown: Option<(String, egui::Pos2)>,
 }
 impl TextCompareView {
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -195,6 +198,8 @@ impl TextCompareView {
             path_edits: Default::default(),
             path_sources: Default::default(),
             window_title: String::new(),
+            displayed_sections: 0,
+            tool_dropdown: None,
         };
         view.rebuild_projection();
         view.recompare();
@@ -313,6 +318,15 @@ impl TextCompareView {
             CompiledComparison::new(&self.map.rules.comparison).expect("validated session rules");
         self.sections = self.map.sections();
         self.counts = self.map.statistics();
+        self.displayed_sections = self
+            .sections
+            .iter()
+            .filter(|s| {
+                s.importance
+                    .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                    != Importance::Same
+            })
+            .count();
         self.nav.rebuild(&self.map);
         self.rebuild_projection();
         self.current_row = self.row_for_line(self.active, self.editors[self.active].caret.line);
@@ -552,7 +566,7 @@ impl TextCompareView {
     }
     fn affected(&self, p: &Pending) -> Vec<usize> {
         match p {
-            Pending::Home | Pending::Exit => vec![0, 1],
+            Pending::Home | Pending::Exit | Pending::ReloadBoth => vec![0, 1],
             Pending::Reload(s)
             | Pending::Open(s, _)
             | Pending::Clipboard(s, _)
@@ -568,6 +582,10 @@ impl TextCompareView {
             Pending::Exit => {
                 self.action = Some(ViewAction::Exit);
                 Ok(())
+            }
+            Pending::ReloadBoth => {
+                let paths = self.paths();
+                (0..2).try_for_each(|s| paths[s].as_ref().map_or(Ok(()), |p| self.open_side(s, p)))
             }
             Pending::Reload(s) => self.files[s].path.clone().map_or_else(
                 || {
@@ -757,6 +775,24 @@ impl TextCompareView {
         }
         Ok(())
     }
+    /// 离线参考采用大小写不重要规则；只在明确的快照初始化路径调用。
+    pub(crate) fn snapshot_rules(&mut self) {
+        self.map.rules.comparison.importance.case_unimportant = true;
+        self.settings.draft = self.map.rules.clone();
+        self.recompare();
+    }
+    pub(crate) fn snapshot_preset(&mut self, scene: &str) {
+        self.scroll_to_row(0);
+        if scene == "text-diffs-filter" {
+            self.context_enabled = false;
+            self.filter = DisplayFilter::Differences;
+            self.rebuild_projection();
+        }
+        if scene == "text-cursor-on-diff" {
+            self.goto_row(self.row_for_line(0, 1));
+            self.scroll_to_row(0);
+        }
+    }
     pub fn title(&self) -> String {
         let name = |s: usize| {
             self.files[s]
@@ -892,16 +928,7 @@ impl TextCompareView {
                 }
             };
             let mut count = StatusField::fixed(
-                format!(
-                    "{} difference section(s)",
-                    self.sections
-                        .iter()
-                        .filter(|s| s
-                            .importance
-                            .with_ignore_unimportant(self.map.rules.ignore_unimportant)
-                            != Importance::Same)
-                        .count()
-                ),
+                format!("{} difference section(s)", self.displayed_sections),
                 293.0,
             );
             count.icon = Some(crate::chrome::icons::Icon::Diffs);
@@ -1027,8 +1054,79 @@ impl TextCompareView {
         })
         .collect();
         let response = toolbar::show(ui, &items);
-        if let Some(action) = response.clicked.or(response.dropdown) {
+        if let Some(action) = response.clicked {
             self.command(&action, ui.ctx(), prefs);
+        }
+        if let Some(action) = response.dropdown {
+            self.tool_dropdown = Some((
+                action,
+                ui.ctx().pointer_latest_pos().unwrap_or(ui.cursor().min),
+            ));
+        }
+        if let Some((name, pos)) = self.tool_dropdown.clone() {
+            let mut chosen = None;
+            let mut format = None;
+            let popup = egui::Area::new(egui::Id::unique("text-toolbar-dropdown"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(pos)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        if name == "Sessions" {
+                            for label in ["Home", "Session Settings...", "Text Compare Info"] {
+                                if ui.button(label).clicked() {
+                                    chosen = Some(label);
+                                }
+                            }
+                            ui.add_enabled(false, egui::Button::new("Open Session"));
+                            ui.add_enabled(false, egui::Button::new("Save Session"));
+                        } else {
+                            if ui.button("Detected").clicked() {
+                                format = Some(
+                                    self.files[self.active]
+                                        .path
+                                        .as_ref()
+                                        .and_then(|p| {
+                                            self.registry.resolve(p, Some(FormatKind::Text))
+                                        })
+                                        .cloned(),
+                                );
+                            }
+                            if ui.button("Plain text").clicked() {
+                                format = Some(None);
+                            }
+                            for f in self
+                                .registry
+                                .formats()
+                                .iter()
+                                .filter(|f| f.kind == FormatKind::Text)
+                            {
+                                if ui.button(&f.name).clicked() {
+                                    format = Some(Some(f.clone()));
+                                }
+                            }
+                        }
+                    });
+                });
+            if let Some(action) = chosen {
+                self.command(action, ui.ctx(), prefs);
+                self.tool_dropdown = None;
+            }
+            if let Some(format) = format {
+                match self.content_mut(self.active).set_format(format) {
+                    Ok(()) => self.recompare(),
+                    Err(e) => self.message = e.to_string(),
+                }
+                self.tool_dropdown = None;
+            }
+            if ui.input(|i| {
+                i.key_pressed(egui::Key::Escape)
+                    || (i.pointer.any_pressed()
+                        && i.pointer
+                            .interact_pos()
+                            .is_some_and(|p| !popup.response.rect.contains(p)))
+            }) {
+                self.tool_dropdown = None;
+            }
         }
         if self.show_file_options {
             let mut open = true;
@@ -1135,6 +1233,9 @@ impl TextCompareView {
         use crate::chrome::menubar::{MenuItem, MenuItemKind};
         fn update(view: &TextCompareView, items: &mut [MenuItem]) {
             for item in items {
+                if item.action_id == "Align With..." {
+                    item.shortcut = None;
+                }
                 if let MenuItemKind::Submenu(children) = &mut item.kind {
                     update(view, children);
                     item.enabled = true;
@@ -1215,7 +1316,18 @@ impl TextCompareView {
     fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
         let old_filter = self.filter;
         match id {
-            "Home" | "Close Tab" | "Sessions" => self.request_home(),
+            "To Windows/DOS" | "To Unix" | "To Macintosh" => {
+                let ending = match id {
+                    "To Windows/DOS" => bc_core::line::LineEnding::CrLf,
+                    "To Unix" => bc_core::line::LineEnding::Lf,
+                    _ => bc_core::line::LineEnding::Cr,
+                };
+                match self.content_mut(self.active).convert_endings(ending) {
+                    Ok(()) => self.recompare(),
+                    Err(e) => self.message = e.to_string(),
+                }
+            }
+            "Home" | "Close Tab" => self.request_home(),
             "Exit" => self.request_exit(),
             "First difference" => self.navigate(true, true),
             "Last difference" => self.navigate(false, true),
@@ -1235,7 +1347,7 @@ impl TextCompareView {
             }
             "Swap Sides" => self.swap(),
             "Recompare Files" => self.recompare(),
-            "Reload Files" => self.request(Pending::Reload(self.active)),
+            "Reload Files" => self.request(Pending::ReloadBoth),
             "Find..." | "Replace..." => self.find.open = true,
             "Find Next" | "Find Previous" => {
                 if let Err(e) = self.find_action(if id == "Find Next" {
@@ -1427,12 +1539,19 @@ impl TextCompareView {
         ui.scope_builder(
             egui::UiBuilder::new()
                 .id_salt(("info", s))
-                .max_rect(info_rect.shrink2(egui::vec2(8.0, 3.0))),
+                .max_rect(info_rect.shrink2(egui::vec2(10.0, 3.0))),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
-                    ui.label(&self.files[s].modified_label);
-                    ui.label(format!("{} bytes", self.files[s].byte_len));
+                    ui.visuals_mut().widgets.inactive.bg_fill = crate::chrome::theme::PANEL_BG;
+                    ui.visuals_mut().widgets.inactive.weak_bg_fill = crate::chrome::theme::PANEL_BG;
+                    ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                    ui.allocate_ui(egui::vec2(132.0, 20.0), |ui| {
+                        ui.label(&self.files[s].modified_label);
+                    });
+                    ui.allocate_ui(egui::vec2(56.0, 20.0), |ui| {
+                        ui.label(format!("{} bytes", self.files[s].byte_len));
+                    });
                     let selected = self
                         .content(s)
                         .format()
@@ -1603,6 +1722,26 @@ impl TextCompareView {
                 ..
             } = &event
             {
+                let action = match (*key, modifiers.command, modifiers.shift) {
+                    (egui::Key::N, true, _) => Some("Next Difference Section"),
+                    (egui::Key::P, true, _) => Some("Previous Difference Section"),
+                    (egui::Key::G, true, _) => Some("Go To..."),
+                    (egui::Key::I, true, false) => Some("Text Compare Info"),
+                    (egui::Key::O, true, false) => Some("Open File..."),
+                    (egui::Key::H, true, _) => Some("Replace..."),
+                    (egui::Key::R, true, false) => Some("Copy to Right"),
+                    (egui::Key::V, true, true) => Some("Open Clipboard"),
+                    (egui::Key::W, true, _) => Some("Close Tab"),
+                    (egui::Key::Q, true, _) => Some("Exit"),
+                    (egui::Key::F5, true, _) => Some("Recompare Files"),
+                    (egui::Key::F5, false, _) => Some("Reload Files"),
+                    (egui::Key::F12, _, _) => Some("Save File As..."),
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    self.command(action, ctx, prefs);
+                    continue;
+                }
                 if modifiers.command && *key == egui::Key::F {
                     self.find.open = true;
                     continue;
@@ -1790,13 +1929,14 @@ fn load(path: &Path, registry: &FormatRegistry) -> Result<(TextContent, FileInfo
         1252,
     )?;
     content.read_only = metadata.permissions().readonly();
+    let load_time = start.elapsed();
     Ok((
         content,
         FileInfo {
             path: Some(path.to_path_buf()),
             byte_len: metadata.len() as usize,
             modified_label: super::status_bar::modified_label(metadata.modified().ok()),
-            load_time: start.elapsed(),
+            load_time,
             ..Default::default()
         },
     ))

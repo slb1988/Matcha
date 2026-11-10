@@ -67,3 +67,14 @@ tools/visual/snap-matcha.ps1 -All -Verify
 - Windows UI 字体来自 `SPI_GETNONCLIENTMETRICS.lfMessageFont`；为了保持 Rust `forbid(unsafe_code)`，使用隐藏的系统 PowerShell 一次性查询 SPI 与字体注册表。失败回退 Segoe UI/egui 内置，Consolas 10pt 编辑器与微软雅黑 CJK 回退；不分发字体文件。
 - 主题仅镜像实际使用的 `tokens.json` 条目，单测逐字段断言；不在每帧读取 JSON。颜色/度量余下精调交给 Wave 2。
 - 组件 API、验收日志、截图和 A/B 数据见 [Wave 1B 报告](../../docs/worker-reports/visual-parity-wave1B.md)。
+
+## 文本核心外观（Wave 2，未完成像素/性能验收）
+
+文本比较已迁至菜单/大图标工具栏、双路径/信息头、40px 槽位、Consolas 10pt/15px 行高、窗格状态/行详情/四栏状态。旧功能迁移清单与未完成项见 [Wave 2 报告](../../docs/worker-reports/visual-parity-wave2.md)。性能调试栏仅基准模式显示。
+
+直接运行新增场景（现有 snap-matcha.ps1 的 ValidateSet 尚不含它们）：
+```powershell
+cargo run --release -p bcompare -- --snapshot=text-diffs-filter
+cargo run --release -p bcompare -- --snapshot=text-cursor-on-diff
+```
+三个文本快照明确使用大小写不重要的现有会话规则，以匹配离线参考；普通启动仍保持原默认，不改引擎语义。Diffs 场景关闭 Context；cursor 场景选择左侧来源第 2 行。没有启动参考工具，也没有修改文件夹/表格/Home 的布局。

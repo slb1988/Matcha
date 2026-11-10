@@ -15,7 +15,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const SCENES: &[&str] = &["icon-catalog", "chrome-demo", "text-basic", "folder-basic"];
+pub const SCENES: &[&str] = &[
+    "icon-catalog",
+    "chrome-demo",
+    "text-basic",
+    "folder-basic",
+    "text-diffs-filter",
+    "text-cursor-on-diff",
+];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
 pub const TEXT_LEFT: &str = "tools/visual/corpus/text-basic-left.txt";
@@ -31,6 +38,8 @@ pub enum SceneView {
 pub enum Preset {
     FirstRow,
     ExpandAll,
+    Differences,
+    CursorOnDifference,
     None,
 }
 #[derive(Clone, Copy, Debug)]
@@ -39,7 +48,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 4] = [
+pub const REGISTRY: [Scene; 6] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -59,6 +68,16 @@ pub const REGISTRY: [Scene; 4] = [
         name: "folder-basic",
         view: SceneView::Folder,
         preset: Preset::ExpandAll,
+    },
+    Scene {
+        name: "text-diffs-filter",
+        view: SceneView::Text,
+        preset: Preset::Differences,
+    },
+    Scene {
+        name: "text-cursor-on-diff",
+        view: SceneView::Text,
+        preset: Preset::CursorOnDifference,
     },
 ];
 pub fn is_scene(scene: Option<&str>) -> bool {
@@ -571,8 +590,8 @@ impl ChromeDemo {
                             ui.horizontal(|ui| {
                                 ui.label("2026-01-02 03:04:05");
                                 ui.label(if side == 0 { "41 bytes" } else { "50 bytes" });
-                                ui.label("Everything Else ▾");
-                                ui.label("UTF-8 ▾");
+                                dropdown_label(ui, "Everything Else");
+                                dropdown_label(ui, "UTF-8");
                                 ui.label("UNIX");
                             });
                             let (pane, _) = ui.allocate_exact_size(
@@ -652,6 +671,14 @@ impl ChromeDemo {
                 });
             });
     }
+}
+
+fn dropdown_label(ui: &mut egui::Ui, label: &str) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 12.0), egui::Sense::hover());
+        crate::chrome::icons::dropdown_triangle(ui.painter(), rect.center(), egui::Color32::BLACK);
+    });
 }
 
 #[cfg(test)]

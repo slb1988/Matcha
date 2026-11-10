@@ -133,9 +133,9 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon) {
     let s = rect.width().min(rect.height()).max(8.0);
     let c = rect.center();
     let rect = Rect::from_center_size(c, Vec2::splat(s));
-    let stroke = Stroke::new((s / 12.0).clamp(1.0, 1.8), BLUE);
-    let thin = Stroke::new(1.0, DARK);
-    let inset = rect.shrink(s * 0.18);
+    let stroke = Stroke::new((s / 9.0).clamp(1.2, 2.0), BLUE);
+    let thin = Stroke::new(1.25, DARK);
+    let inset = rect.shrink(s * 0.08);
     match icon {
         Icon::Home => {
             let roof = [
@@ -685,6 +685,19 @@ fn gear(painter: &Painter, center: Pos2, radius: f32, color: Color32) {
         let p = center + Vec2::angled(a) * radius * 1.35;
         painter.circle_filled(p, radius * 0.25, color);
     }
+}
+
+/// 使用几何三角，不依赖系统 UI 字体是否包含 U+25BE。
+pub fn dropdown_triangle(painter: &Painter, center: Pos2, color: Color32) {
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            center + Vec2::new(-3.0, -1.0),
+            center + Vec2::new(3.0, -1.0),
+            center + Vec2::new(0.0, 2.0),
+        ],
+        color,
+        Stroke::NONE,
+    ));
 }
 
 #[cfg(test)]

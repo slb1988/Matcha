@@ -1,7 +1,7 @@
 //! Segmented status bar with fixed and flexible fields.
 
 use crate::chrome::icons::{self, Icon};
-use eframe::egui::{self, Color32, Stroke, StrokeKind};
+use eframe::egui::{self, Color32, Stroke};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusField {
@@ -38,23 +38,17 @@ pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
         for (index, field) in fields.iter().enumerate() {
             let width = widths[index];
             let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(width, super::theme::STATUS_HEIGHT - 2.0),
+                egui::vec2(width, super::theme::STATUS_HEIGHT),
                 egui::Sense::hover(),
             );
             ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
-            ui.painter().rect_stroke(
-                rect,
-                0.0,
-                Stroke::new(1.0, Color32::from_rgb(178, 178, 178)),
-                StrokeKind::Inside,
-            );
             ui.painter().line_segment(
-                [rect.left_bottom(), rect.right_bottom()],
+                [rect.left_top(), rect.right_top()],
                 Stroke::new(1.0, Color32::WHITE),
             );
             ui.painter().line_segment(
                 [rect.right_top(), rect.right_bottom()],
-                Stroke::new(1.0, Color32::WHITE),
+                Stroke::new(1.0, Color32::from_gray(214)),
             );
             let mut x = rect.left() + 5.0;
             if let Some(icon) = field.icon {
@@ -70,7 +64,7 @@ pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
                 egui::Align2::LEFT_CENTER,
                 &field.text,
                 egui::FontId::proportional(super::theme::UI_SIZE),
-                Color32::from_rgb(35, 35, 35),
+                Color32::BLACK,
             );
             if index + 1 < fields.len() && field.fixed {
                 ui.painter().line_segment(
