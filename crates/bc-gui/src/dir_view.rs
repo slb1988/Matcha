@@ -5469,7 +5469,8 @@ impl DirCompareView {
             }
         }
         if response.hovered() {
-            let delta = ui.input(|i| i.smooth_scroll_delta.y);
+            // Raw wheel, 1:1 this frame (egui's smoothed delta glides on).
+            let delta = crate::chrome::wheel::delta(ui.ctx(), &[rows_area]).y;
             if delta != 0.0 {
                 self.scroll_y = (self.scroll_y - delta).clamp(0.0, max_scroll);
             }
@@ -5871,6 +5872,90 @@ mod tests {
         frame(&mut view, &ctx);
         assert!(view.last_stats.top_row >= 89_999);
         assert!(view.last_stats.rows_drawn < 80);
+    }
+    fn frame_with(view: &mut DirCompareView, ctx: &egui::Context, events: Vec<egui::Event>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                view.ui(ui);
+            });
+        })
+        .drop_without_applying_deltas();
+    }
+    #[test]
+    fn wheel_scroll_tracks_input_immediately() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        let source = view.snapshot.rows[row(&view, "a.txt")].clone();
+        let rows = (0..10_000)
+            .map(|index| {
+                let mut row = source.clone();
+                row.node = Some(index + 1);
+                for side in row.sides.iter_mut().flatten() {
+                    side.node = index + 1;
+                    side.label = format!("file{index:06}.txt");
+                }
+                row
+            })
+            .collect();
+        view.snapshot = Arc::new(Snapshot {
+            rows,
+            files: 10_000,
+            complete: true,
+            ..Snapshot::default()
+        });
+        frame(&mut view, &ctx);
+        let pos = egui::pos2(300.0, 400.0);
+        frame_with(&mut view, &ctx, vec![egui::Event::PointerMoved(pos)]);
+        assert_eq!(view.scroll_y, 0.0);
+        let wheel = |lines: f32, modifiers| egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, lines),
+            modifiers,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+        };
+        let mut events = vec![egui::Event::PointerMoved(pos)];
+        events.extend((0..10).map(|_| wheel(-3.0, egui::Modifiers::default())));
+        frame_with(&mut view, &ctx, events);
+        let mut trajectory = vec![view.scroll_y];
+        for _ in 0..20 {
+            frame_with(&mut view, &ctx, vec![egui::Event::PointerMoved(pos)]);
+            trajectory.push(view.scroll_y);
+        }
+        eprintln!("folder wheel trajectory: {trajectory:?}");
+        assert!(
+            trajectory.iter().all(|&y| y == 1200.0),
+            "full delta applies in the arrival frame without glide: {trajectory:?}"
+        );
+        // Ctrl+wheel never scrolls; wheel up past the top clamps at zero.
+        frame_with(
+            &mut view,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                wheel(-3.0, egui::Modifiers::COMMAND),
+            ],
+        );
+        assert_eq!(view.scroll_y, 1200.0);
+        frame_with(
+            &mut view,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                wheel(50.0, egui::Modifiers::default()),
+            ],
+        );
+        assert_eq!(view.scroll_y, 0.0);
     }
     #[test]
     fn selection_find_sort_expand_filters_and_cross_row_open_use_snapshot_identities() {

@@ -69,6 +69,9 @@ impl TextCompareView {
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
         let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
+            // Wheel input is applied raw by `TextCompareView::ui` before
+            // either pane renders (no smoothing glide, panes in lockstep).
+            .scroll_source(crate::chrome::wheel::scroll_source())
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
             .max_height(remaining - 1.0)

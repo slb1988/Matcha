@@ -679,3 +679,104 @@ fn toolbar_mouse_filter_and_reference_presets_use_real_projection() {
     assert_eq!(v.editors[0].caret.byte, 4);
     assert_eq!(v.row(v.current_row).importance, Importance::Unimportant);
 }
+
+fn wheel_lines(lines: f32, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, lines),
+        modifiers,
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
+    }
+}
+/// Top y of the "line N" text in the left/right pane (x split at the splitter).
+fn line_tops(out: &egui::FullOutput, label: &str, split: f32) -> [Option<f32>; 2] {
+    let mut tops = [None, None];
+    for (t, r) in text_shapes(out) {
+        if t == label {
+            tops[usize::from(r.left() > split)] = Some(r.top());
+        }
+    }
+    tops
+}
+/// Topmost "line N" label drawn in each pane.
+fn first_rows(out: &egui::FullOutput, split: f32) -> [Option<String>; 2] {
+    let mut best: [Option<(f32, String)>; 2] = [None, None];
+    for (t, r) in text_shapes(out) {
+        if !t.starts_with("line ") {
+            continue;
+        }
+        let side = usize::from(r.left() > split);
+        if best[side].as_ref().is_none_or(|(y, _)| r.top() < *y) {
+            best[side] = Some((r.top(), t));
+        }
+    }
+    best.map(|b| b.map(|(_, t)| t))
+}
+#[test]
+fn wheel_scroll_tracks_input_immediately_and_keeps_panes_in_lockstep() {
+    let left = (0..5000).map(|i| format!("line {i}\n")).collect::<String>();
+    let mut v = view(&left, &left);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let pane = v.pane_rects[1];
+    let pos = egui::pos2(pane.left() + 100.0, pane.top() + 100.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+    assert_eq!(v.scroll.y, 0.0);
+    // 10 wheel-down notches of 3 lines in one frame over the right pane.
+    let mut events = vec![egui::Event::PointerMoved(pos)];
+    events.extend((0..10).map(|_| wheel_lines(-3.0, Default::default())));
+    let mut trajectory = Vec::new();
+    let split = (v.pane_rects[0].right() + v.pane_rects[1].left()) / 2.0;
+    let mut out = frame(&ctx, &mut v, events);
+    let mut out_of_step = usize::from(first_rows(&out, split)[0] != first_rows(&out, split)[1]);
+    trajectory.push(v.scroll.y);
+    for _ in 0..20 {
+        out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+        let rows = first_rows(&out, split);
+        out_of_step += usize::from(rows[0] != rows[1]);
+        trajectory.push(v.scroll.y);
+    }
+    eprintln!("frames with left/right panes out of step: {out_of_step}");
+    assert_eq!(out_of_step, 0, "panes scroll in the same frame");
+    let target = 10.0 * 3.0 * 40.0;
+    eprintln!("text wheel trajectory: {trajectory:?}");
+    assert!(
+        trajectory.iter().all(|&y| y == target),
+        "full delta applies in the arrival frame without glide: {trajectory:?}"
+    );
+    // Both panes show the same row at the same height in that frame.
+    let row = (target / v.row_height()) as usize + 3;
+    let tops = line_tops(&out, &format!("line {row}"), split);
+    assert!(tops[0].is_some() && tops[0] == tops[1], "{tops:?}");
+    // Ctrl+wheel is zoom, never scroll; outside the panes nothing scrolls.
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            wheel_lines(-3.0, egui::Modifiers::COMMAND),
+        ],
+    );
+    assert_eq!(v.scroll.y, target);
+    let outside = egui::pos2(5.0, 5.0);
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(outside),
+            wheel_lines(-3.0, Default::default()),
+        ],
+    );
+    assert_eq!(v.scroll.y, target);
+    // Wheel up past the top clamps at zero.
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(pos),
+            wheel_lines(50.0, Default::default()),
+        ],
+    );
+    assert_eq!(v.scroll.y, 0.0);
+}

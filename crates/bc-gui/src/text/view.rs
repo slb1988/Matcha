@@ -866,6 +866,13 @@ impl TextCompareView {
         if let Some(row) = self.pending_scroll.take() {
             self.scroll.y = row.min(self.projection.len().saturating_sub(1)) as f32 * row_height;
         }
+        if !blocked {
+            // Raw wheel over either pane, 1:1 this frame; upper bounds are
+            // clamped in `pane` before anything is drawn.
+            let delta = crate::chrome::wheel::delta(&ctx, &self.pane_rects);
+            self.scroll.x = (self.scroll.x - delta.x).max(0.0);
+            self.scroll.y = (self.scroll.y - delta.y).max(0.0);
+        }
         let available = ui.available_rect_before_wrap();
         let body = egui::Rect::from_min_max(
             available.min,

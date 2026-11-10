@@ -103,60 +103,14 @@ pub fn mapped(map: &TableMap, row: usize) -> TableMapRow {
         edited: false,
     }
 }
-/// Wheel/trackpad deltas over the grid panes, applied immediately. egui
-/// 0.37 low-passes wheel deltas through `WheelState` (exponential bleed,
-/// ~90% in 0.1s plus an asymptotic tail; Line/Page notches always take the
-/// backlog path), so fast wheel scrolling keeps gliding after the input
-/// stops; the grid ScrollAreas run with `mouse_wheel: false` and consume the
-/// raw deltas here instead, 1:1 in the frame they arrive. Conversion and
-/// modifiers use egui's native defaults (nothing in this workspace overrides
-/// `InputOptions`, which has no public getter): 40pt per line, Page =
-/// viewport height, Shift = horizontal, Alt = vertical, Ctrl = zoom (left to
-/// egui, never scrolls).
+/// Wheel/trackpad deltas over the grid panes, applied immediately (see
+/// [`crate::chrome::wheel`]); the grid ScrollAreas run with
+/// `mouse_wheel: false`.
 pub fn wheel(ctx: &egui::Context, state: &mut GridState, enabled: bool) {
     if !enabled {
         return;
     }
-    let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) else {
-        return;
-    };
-    if !state.pane_rects.iter().any(|r| r.contains(pointer)) {
-        return;
-    }
-    let (events, page) = ctx.input(|i| (i.events.clone(), i.viewport_rect().height()));
-    // egui 0.37 native `InputOptions` defaults.
-    const LINE_SPEED: f32 = 40.0;
-    let zoom = egui::Modifiers::COMMAND;
-    let horizontal = egui::Modifiers::SHIFT;
-    let vertical = egui::Modifiers::ALT;
-    let mut delta = egui::Vec2::ZERO;
-    for event in events {
-        if let egui::Event::MouseWheel {
-            unit,
-            delta: d,
-            modifiers,
-            ..
-        } = event
-        {
-            if modifiers.matches_any(zoom) {
-                continue; // egui treats Ctrl+wheel as zoom, never scrolling
-            }
-            let mut d = match unit {
-                egui::MouseWheelUnit::Point => d,
-                egui::MouseWheelUnit::Line => LINE_SPEED * d,
-                egui::MouseWheelUnit::Page => page * d,
-            };
-            let is_horizontal = modifiers.matches_any(horizontal);
-            let is_vertical = modifiers.matches_any(vertical);
-            if is_horizontal && !is_vertical {
-                d = egui::vec2(d.x + d.y, 0.0);
-            }
-            if !is_horizontal && is_vertical {
-                d = egui::vec2(0.0, d.x + d.y);
-            }
-            delta += d;
-        }
-    }
+    let delta = crate::chrome::wheel::delta(ctx, &state.pane_rects);
     if delta == egui::Vec2::ZERO {
         return;
     }
@@ -215,11 +169,7 @@ pub fn pane(
         .id_salt(("table_grid", side))
         // Wheel deltas are consumed by `grid::wheel` (immediate, unsmoothed);
         // scrollbars and touch drag keep the framework behavior.
-        .scroll_source(egui::containers::scroll_area::ScrollSource {
-            scroll_bar: true,
-            drag: egui::containers::scroll_area::DragScroll::OnTouch,
-            mouse_wheel: false,
-        })
+        .scroll_source(crate::chrome::wheel::scroll_source())
         .auto_shrink([false, false])
         .max_height(height)
         .vertical_scroll_offset(scroll.y)
