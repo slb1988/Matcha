@@ -1,0 +1,35 @@
+[latency] folder open() call         0.2ms
+[latency] folder load                   round-trip=  8177.5ms frames=5046 worst-frame=   3.56ms rows=100
+[latency] folder Expand All             round-trip=   290.2ms frames= 177 worst-frame=   1.52ms rows=100100
+[latency] folder   wheel x60 after Expand All       p50=0.41ms max=0.59ms
+[latency] folder Show Differences       round-trip=    68.4ms frames=  42 worst-frame=   0.97ms rows=0
+[latency] folder   wheel x60 after Show Differences p50=0.10ms max=0.14ms
+[latency] folder Show Same              round-trip=   383.3ms frames= 239 worst-frame=   1.60ms rows=100100
+[latency] folder   wheel x60 after Show Same        p50=0.40ms max=0.78ms
+[latency] folder Show All               round-trip=   334.2ms frames= 177 worst-frame=   1.52ms rows=100100
+[latency] folder   wheel x60 after Show All         p50=0.41ms max=0.70ms
+[latency] folder jump to middle frame 0.57ms
+[latency] folder select all frame 9.97ms
+[latency] folder   wheel x60 with all selected p50=0.80ms max=2.36ms
+[latency] folder Collapse All           round-trip=    76.8ms frames=  39 worst-frame=   3.80ms rows=100
+[latency] text open=288.2ms align=871.7ms rows=2141335
+[latency] text first frame                ui=    7.24ms ui+tess=    7.78ms
+[latency] text second frame               ui=    0.52ms ui+tess=    0.76ms
+[latency] text pointer move               ui=    0.50ms ui+tess=    0.75ms
+[latency] text wheel x60 p50=0.87ms max=1.81ms
+[latency] text Show Differences           ui=    1.79ms ui+tess=    2.36ms
+[latency] text   command Show Differences     cmd=0.88ms (+frame 2.36ms)
+[latency] text Show Same                  ui=    1.19ms ui+tess=    1.44ms
+[latency] text   command Show Same            cmd=0.92ms (+frame 1.44ms)
+[latency] text Show Context               ui=    0.45ms ui+tess=    0.66ms
+[latency] text   command Show Context         cmd=0.00ms (+frame 0.66ms)
+[latency] text Show All                   ui=    0.52ms ui+tess=    0.82ms
+[latency] text   command Show All             cmd=0.12ms (+frame 0.82ms)
+[latency] text Next Difference            ui=    1.19ms ui+tess=    1.46ms
+[latency] text   command Next Difference      cmd=0.00ms (+frame 1.46ms)
+[latency] text Last difference            ui=    1.52ms ui+tess=    1.92ms
+[latency] text   command Last difference      cmd=0.00ms (+frame 1.92ms)
+[latency] text First difference           ui=    1.25ms ui+tess=    1.65ms
+[latency] text   command First difference     cmd=0.00ms (+frame 1.65ms)
+[latency] text jump to middle             ui=    1.40ms ui+tess=    1.77ms
+[latency] text jump to end                ui=    1.18ms ui+tess=    1.48ms

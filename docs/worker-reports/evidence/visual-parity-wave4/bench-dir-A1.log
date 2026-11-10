@@ -1,0 +1,13 @@
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+bench.dir.ready=true
+bench.dir.screenshot=C:\Users\admin\AppData\Local\Temp\matcha-dir-bench-50212.bmp
+bench.dir.frames=600
+bench.dir.file_count=100000
+bench.dir.row_count=100100
+bench.dir.update_ms.p50=8.049
+bench.dir.update_ms.p95=19.940
+bench.dir.update_ms.p99=21.323
+bench.dir.update_ms.max=28.885
+bench.dir.rows_drawn.max=30
+bench.dir.wall_seconds=23.939
+bench.dir.pass=false

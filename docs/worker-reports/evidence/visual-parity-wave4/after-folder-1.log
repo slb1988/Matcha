@@ -1,0 +1,13 @@
+[table-perf] t=      0.0ms main:enter
+[table-perf] t=      0.3ms run:enter
+[table-perf] t=    228.3ms app:new-enter
+[table-perf] t=    373.6ms fonts:system-query took 373.0ms
+[table-perf] t=    392.4ms fonts:load-files took 18.7ms
+[table-perf] t=    392.7ms fonts:resolved took 164.3ms
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+[table-perf] t=    392.8ms app:fonts-installed
+[table-perf] t=    393.2ms app:view-created
+[table-perf] t=    686.9ms folder:host-probe took 293.2ms
+[table-perf] t=    687.8ms app:first-ready-frame
+[frame-perf] ui_ms n=9 p50=0.19 p90=0.57 p99=2.11 max=2.11 over_16ms=0
+[frame-perf] interval_ms n=8 p50=17.00 p90=194.44 p99=4765.21 max=4765.21

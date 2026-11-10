@@ -1,0 +1,17 @@
+# folder_interaction_latency at f0e4b70 + probe (before 7147453 / 0397629), release build, same fixture.
+# Transcribed from the run output of that build (the probe binary is rebuilt in place).
+[latency] folder load                   round-trip= 11958.2ms frames=7750 worst-frame=   3.10ms rows=100
+[latency] folder Expand All             round-trip=   290.2ms frames= 178 worst-frame=   4.44ms rows=100100
+[latency] folder   wheel x60 after Expand All       p50=10.41ms max=19.17ms
+[latency] folder Show Differences       round-trip=    80.3ms frames=   4 worst-frame=  19.95ms rows=100100
+[latency] folder   wheel x60 after Show Differences p50=0.09ms max=0.32ms
+[latency] folder Show Same              round-trip=   385.2ms frames= 234 worst-frame=   4.32ms rows=100100
+[latency] folder   wheel x60 after Show Same        p50=10.10ms max=19.30ms
+[latency] folder Show All               round-trip=   370.0ms frames=  17 worst-frame=  23.09ms rows=100100
+[latency] folder   wheel x60 after Show All         p50=28.60ms max=35.67ms
+[latency] folder jump to middle frame 2.47ms
+[latency] folder select all frame 11.38ms
+# after 7147453 (guides fixed, status totals not yet cached):
+[latency] folder select all frame 10.00ms
+[latency] folder   wheel x60 with all selected p50=10.00ms max=11.77ms
+[latency] folder Collapse All           round-trip=    27.3ms frames=   8 worst-frame=   2.59ms rows=100

@@ -1,0 +1,19 @@
+[table-perf] t=      0.0ms main:enter
+[table-perf] t=      0.2ms run:enter
+[table-perf] t=    189.7ms app:new-enter
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+[table-perf] t=    532.1ms app:fonts-installed
+[table-perf] t=    546.7ms view:reload-spawned
+[table-perf] t=    547.9ms app:view-created
+[table-perf] t=    730.7ms worker:load-side-1 took 183.7ms
+[table-perf] t=    730.7ms worker:load-side-0 took 183.7ms
+[table-perf] t=    731.2ms worker:table-align-job took 0.1ms
+[table-perf] t=    731.3ms worker:cache-build took 0.0ms
+[table-perf] t=    736.6ms view:worker-finished
+[table-perf] t=    736.7ms view:install-from-output took 0.0ms
+[table-perf] t=    736.8ms view:install-project took 0.0ms
+[table-perf] t=    737.2ms view:finish-install took 0.0ms
+[table-perf] t=    739.4ms app:first-ready-frame
+[table-perf] fingerprint rows=4 same=1 unimportant=0 important=1 left_only=1 right_only=1
+[frame-perf] ui_ms n=15 p50=0.16 p90=1.79 p99=2.88 max=2.88 over_16ms=0
+[frame-perf] interval_ms n=14 p50=16.66 p90=45.66 p99=6552.10 max=6552.10

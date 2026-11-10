@@ -38,7 +38,8 @@
 1. ~~**Wave 2b：收口任务 3.4**~~ **已完成**（见第 3 节，报告 `docs/worker-reports/visual-parity-wave2b.md`）。
 2. ~~**Wave 3：文件夹比较主视图（任务 4.1）**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave3.md`，提交 `9d438e6`+`e127a6d`）：菜单栏/工具栏/过滤栏/路径栏/双树/日志区/状态栏全部按参考换肤；三场景命名区域 ≤2 px（多数精确 0），颜色样本 basic 2/2、expanded 5 项为字形 AA 已知差异；Modified 本地时区格式（仅比较视图）；排序/聚合属比较行为未改（行序与参考不同，记为已知差异）；同步视图零改动。文件夹同步（4.2）与对照收口（4.3）未做。
 3. ~~**7.1 收尾报告（核心版）**~~ **已完成**（协调者，`docs/reference-parity/visual.md`）：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
-4. 后置项（第 1 节）等用户再开。
+4. ~~**Wave 4：UI 卡顿优化 + 缩略图靠齐**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave4.md`，提交 `34e9541`..`ff2a46d`）：文本/文件夹滚轮去拖尾；启动到可交互文本 −55%、文件夹 −50%（PowerShell 主机查询移出 UI 线程/并行）；文件夹树线点阵裁剪（`--bench-dir` p99 21.3→0.53 ms，基线曾 pass=false）；状态栏选中统计缓存；文本缩略图换为参考样式（三场景缩略图区逐像素一致），新增 `text-long-scrolled` 场景。测量设施：`MATCHA_FRAME_PERF=1`、`MATCHA_PERF=1`、`interaction_latency` 忽略测试。REA 原生 UI 观测仅支持 macOS，悬停/按下态仍未测量。
+5. 后置项（第 1 节）等用户再开。
 
 ## 5. 跟进项（不在外观范围）
 
@@ -61,7 +62,8 @@
 - 外观真源：`docs/visual-parity/tokens.json`、`tokens.md`、`reference/*.png`、`supplemental/`（菜单树截图与 UIA 结构）
 - 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`tools/visual/snap-matcha.ps1 [-Scene|-All] [-Verify]`、`cargo run --release -p bcompare -- --snapshot=<scene>`
 - 代码：`crates/bc-gui/src/chrome/`、`snapshot.rs`、`text/`、`dir_view.rs`、`app.rs`
-- 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2}.md`
+- 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2,2b,3,4}.md`
+- 性能：`MATCHA_FRAME_PERF=1`（帧直方图）、`MATCHA_PERF=1`（启动打点）、`cargo test --release -p bc-gui --lib interaction_latency -- --ignored --nocapture`
 
 ## 8. worker 纪律（Wave 2b 教训，2026-11-11）
 
