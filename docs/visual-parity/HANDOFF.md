@@ -62,3 +62,10 @@
 - 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`tools/visual/snap-matcha.ps1 [-Scene|-All] [-Verify]`、`cargo run --release -p bcompare -- --snapshot=<scene>`
 - 代码：`crates/bc-gui/src/chrome/`、`snapshot.rs`、`text/`、`dir_view.rs`、`app.rs`
 - 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2}.md`
+
+## 8. worker 纪律（Wave 2b 教训，2026-11-11）
+
+- **字形像素不计**：egui 灰度 AA 与 GDI ClearType 的笔划强度差不计入对照；落在文字笔划上的颜色样本一律记已知差异，不得叠画、加粗、改字号去凑（Wave 2b 曾为行号灰度 159 vs 107 空转 1 小时、约 $56）。
+- **每区域最多两轮调整**，仍不达标写已知差异与原因。
+- **时间盒**：单个 worker 目标 ≤ 90 分钟出第一个可验收提交；超过 60 分钟无提交，协调者应读终端判断是否在抠琐碎细节并叫停。
+- `compare.ps1` 对平坦色带边界的自动 FAIL 可能是检测噪声，以人工像素测量为准并在报告给证据；不得改判定规则让其通过。
