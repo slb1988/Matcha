@@ -1,0 +1,64 @@
+{
+  "name": "Open With",
+  "source": "folder-menu-Actions-5.png",
+  "screenRect": [
+    324,
+    181,
+    186,
+    79
+  ],
+  "items": [
+    {
+      "name": "Associated Application",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-5.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": true,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "folder-menu-Actions-5.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Folder Compare",
+      "mnemonic": "f",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-5.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Folder Sync",
+      "mnemonic": "o",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-5.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

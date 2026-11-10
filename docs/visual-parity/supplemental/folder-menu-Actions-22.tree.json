@@ -1,0 +1,77 @@
+{
+  "name": "Synchronize",
+  "source": "folder-menu-Actions-22.png",
+  "screenRect": [
+    324,
+    516,
+    265,
+    111
+  ],
+  "items": [
+    {
+      "name": "Update Right...",
+      "mnemonic": "r",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-22.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Update Left...",
+      "mnemonic": "l",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-22.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Update Both...",
+      "mnemonic": "b",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-22.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Mirror to Right...",
+      "mnemonic": "g",
+      "shortcut": "Shift+Ctrl+R",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-22.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Mirror to Left...",
+      "mnemonic": "f",
+      "shortcut": "Shift+Ctrl+L",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Actions-22.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

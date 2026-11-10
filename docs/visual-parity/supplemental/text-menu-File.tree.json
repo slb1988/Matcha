@@ -1,0 +1,130 @@
+{
+  "name": "File",
+  "source": "text-menu-File.png",
+  "screenRect": [
+    86,
+    76,
+    262,
+    132
+  ],
+  "items": [
+    {
+      "name": "Open File...",
+      "mnemonic": "o",
+      "shortcut": "Ctrl+O",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-File.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Open Clipboard",
+      "mnemonic": "c",
+      "shortcut": "Shift+Ctrl+V",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-File.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Open With",
+      "mnemonic": "w",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": true,
+      "msaaState": 1074790400,
+      "source": "text-menu-File.png",
+      "children": [
+        {
+          "name": "Associated Application",
+          "mnemonic": null,
+          "shortcut": null,
+          "separator": false,
+          "enabled": true,
+          "checked": false,
+          "hasSubmenu": false,
+          "msaaState": 1048576,
+          "source": "text-menu-File-2.png",
+          "children": [],
+          "dynamicExternal": false
+        },
+        {
+          "name": "",
+          "mnemonic": null,
+          "shortcut": null,
+          "separator": true,
+          "enabled": false,
+          "checked": false,
+          "hasSubmenu": false,
+          "msaaState": 1048577,
+          "source": "text-menu-File-2.png",
+          "children": [],
+          "dynamicExternal": false
+        },
+        {
+          "name": "Text Edit",
+          "mnemonic": "d",
+          "shortcut": null,
+          "separator": false,
+          "enabled": true,
+          "checked": false,
+          "hasSubmenu": false,
+          "msaaState": 1048576,
+          "source": "text-menu-File-2.png",
+          "children": [],
+          "dynamicExternal": false
+        }
+      ],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Save File",
+      "mnemonic": "s",
+      "shortcut": "Ctrl+S",
+      "separator": false,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "text-menu-File.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Save File As...",
+      "mnemonic": "a",
+      "shortcut": "F12",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-File.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Explorer",
+      "mnemonic": "x",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": true,
+      "msaaState": 1074790400,
+      "source": "text-menu-File.png",
+      "children": [],
+      "dynamicExternal": true
+    }
+  ]
+}

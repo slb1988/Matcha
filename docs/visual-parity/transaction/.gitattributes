@@ -1,0 +1,4 @@
+baseline.ps1 -text
+compare.patch -text
+VERIFICATION.txt text eol=lf
+ROLLBACK.sh text eol=lf

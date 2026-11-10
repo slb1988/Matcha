@@ -1,0 +1,25 @@
+{
+  "name": "Load Workspace",
+  "source": "table-menu-Session-5.png",
+  "screenRect": [
+    274,
+    170,
+    187,
+    27
+  ],
+  "items": [
+    {
+      "name": "Manage Workspaces...",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "table-menu-Session-5.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

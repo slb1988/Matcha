@@ -1,0 +1,103 @@
+{
+  "name": "Edit",
+  "source": "sync-menu-Edit.png",
+  "screenRect": [
+    140,
+    76,
+    206,
+    142
+  ],
+  "items": [
+    {
+      "name": "Expand All",
+      "mnemonic": "e",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Collapse All",
+      "mnemonic": "c",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": true,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Select All",
+      "mnemonic": "a",
+      "shortcut": "Ctrl+A",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Invert Selection",
+      "mnemonic": "i",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Refresh",
+      "mnemonic": "r",
+      "shortcut": "F5",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Full Refresh",
+      "mnemonic": "u",
+      "shortcut": "Ctrl+F5",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Edit.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

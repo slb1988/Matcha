@@ -1,0 +1,24 @@
+PASS home 1384x961 36803ADB3D48 client=1384x961; menuInk=295
+PASS text-basic 1384x961 C6585340F7EA client=1384x961; menuInk=493
+PASS text-diffs-filter 1384x961 AAD81FE84C3E client=1384x961; menuInk=493; operation changed samples=12145
+PASS text-long-scrolled 1384x961 574AF95C5893 client=1384x961; menuInk=493; operation changed samples=6109
+PASS text-cjk-tabs 1384x961 9203EE17DBD2 client=1384x961; menuInk=493
+PASS text-crlf-lf 1384x961 7D0C9FCF61C9 client=1384x961; menuInk=493
+PASS text-cursor-on-diff 1384x961 291020E89E7D client=1384x961; menuInk=493; operation changed samples=1019
+PASS text-menu-session 1384x961 4180D8EA6BE0 client=1384x961; menuInk=493; menu dropdown changed samples=4353
+PASS text-menu-file 1384x961 24FCEA35EF03 client=1384x961; menuInk=493; menu dropdown changed samples=2392
+PASS text-menu-edit 1384x961 F65487FFC9FE client=1384x961; menuInk=493; menu dropdown changed samples=5488
+PASS text-menu-search 1384x961 D5E54340CC99 client=1384x961; menuInk=493; menu dropdown changed samples=5889
+PASS text-menu-view 1384x961 793CC5F6555F client=1384x961; menuInk=493; menu dropdown changed samples=5325
+PASS text-menu-tools 1384x961 F622108B68EA client=1384x961; menuInk=493; menu dropdown changed samples=3667
+PASS text-menu-help 1384x961 67F65BB44355 client=1384x961; menuInk=493; menu dropdown changed samples=3352
+PASS folder-basic 1384x961 FEDC91134901 client=1384x961; menuInk=483; Folder Compare dual header/grid edges=1334,1516
+PASS folder-expanded 1384x961 E2017240F2D3 client=1384x961; menuInk=483; operation changed samples=24776; Folder Compare dual header/grid edges=1334,1516
+PASS folder-diffs-filter 1384x961 083D35FE4E77 client=1384x961; menuInk=483; operation changed samples=1487; Folder Compare dual header/grid edges=1334,1516
+PASS folder-sync 1384x961 4BA63C46A3F4 client=1384x961; menuInk=483; Folder Sync dual header/grid edges=437,142
+PASS table-basic 1384x961 31E406EA783A client=1384x961; menuInk=493; Table Compare dual header/grid edges=574,505
+PASS table-cursor-on-diff 1384x961 AFDD7A09BFA8 client=1384x961; menuInk=493; operation changed samples=429; Table Compare dual header/grid edges=524,503
+PASS dlg-text-session-settings 583x563 73862450718C dialogHwnd=4592074 != mainHwnd=11604438; title=Session Settings - Text Compare
+PASS dlg-options 859x655 90796186FDA6 dialogHwnd=16587314 != mainHwnd=26284756; title=Options
+PASS text-find-bar 1384x961 CF8F611F71B3 client=1384x961; menuInk=493; findbar changed samples=4391
+CLEANUP lockExists=False; BCompareProcesses=0

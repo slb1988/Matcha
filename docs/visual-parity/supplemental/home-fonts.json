@@ -1,0 +1,68 @@
+[
+  {
+    "windowClass": "TUiEdit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiPageControl",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiTaskBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiTaskBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiTaskBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiButton",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiButton",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiSearchEdit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiBitBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiBitBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiTreeView",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  }
+]

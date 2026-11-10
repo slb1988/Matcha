@@ -1,0 +1,51 @@
+{
+  "name": "Line Endings",
+  "source": "text-menu-Edit-19-3.png",
+  "screenRect": [
+    578,
+    494,
+    157,
+    69
+  ],
+  "items": [
+    {
+      "name": "To Windows/DOS",
+      "mnemonic": "w",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": true,
+      "hasSubmenu": false,
+      "msaaState": 1048592,
+      "source": "text-menu-Edit-19-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "To Unix",
+      "mnemonic": "u",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Edit-19-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "To Macintosh",
+      "mnemonic": "m",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Edit-19-3.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

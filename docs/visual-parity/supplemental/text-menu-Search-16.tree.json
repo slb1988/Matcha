@@ -1,0 +1,142 @@
+{
+  "name": "Go to Bookmark",
+  "source": "text-menu-Search-16.png",
+  "screenRect": [
+    436,
+    368,
+    205,
+    216
+  ],
+  "items": [
+    {
+      "name": "Bookmark 0",
+      "mnemonic": "0",
+      "shortcut": "Ctrl+0",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 1",
+      "mnemonic": "1",
+      "shortcut": "Ctrl+1",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 2",
+      "mnemonic": "2",
+      "shortcut": "Ctrl+2",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 3",
+      "mnemonic": "3",
+      "shortcut": "Ctrl+3",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 4",
+      "mnemonic": "4",
+      "shortcut": "Ctrl+4",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 5",
+      "mnemonic": "5",
+      "shortcut": "Ctrl+5",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 6",
+      "mnemonic": "6",
+      "shortcut": "Ctrl+6",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 7",
+      "mnemonic": "7",
+      "shortcut": "Ctrl+7",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 8",
+      "mnemonic": "8",
+      "shortcut": "Ctrl+8",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Bookmark 9",
+      "mnemonic": "9",
+      "shortcut": "Ctrl+9",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-menu-Search-16.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}
