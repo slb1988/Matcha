@@ -47,10 +47,35 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
     let painter = ui.painter();
     painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
     painter.line_segment(
+        [rect.left_top(), rect.left_bottom()],
+        egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+    );
+    // 参考：右缘 1 px 白线（分隔右侧窗格或窗口边）。
+    painter.rect_filled(
+        egui::Rect::from_min_max(rect.right_top() - egui::vec2(1.0, 0.0), rect.right_bottom()),
+        0.0,
+        egui::Color32::WHITE,
+    );
+    // 参考：顶部 215 细分隔线，底部白色高光和 160 凹槽线。
+    painter.line_segment(
         [rect.left_top(), rect.right_top()],
+        egui::Stroke::new(1.0, egui::Color32::from_gray(215)),
+    );
+    painter.line_segment(
+        [
+            rect.left_bottom() - egui::vec2(0.0, 2.0),
+            rect.right_bottom() - egui::vec2(0.0, 2.0),
+        ],
         egui::Stroke::new(1.0, egui::Color32::WHITE),
     );
-    for x in [98.0, 228.0, 360.0] {
+    painter.line_segment(
+        [
+            rect.left_bottom() - egui::vec2(0.0, 1.0),
+            rect.right_bottom() - egui::vec2(0.0, 1.0),
+        ],
+        egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+    );
+    for x in [98.0, 229.0, 360.0] {
         painter.line_segment(
             [
                 rect.min + egui::vec2(x, 1.0),
@@ -60,8 +85,9 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
         );
     }
     for (offset, label) in [
-        (2.0, format!("{}: {}", editor.caret.line + 1, column)),
-        (102.0, "Default text".into()),
+        (4.0, format!("{}: {}", editor.caret.line + 1, column)),
+        (104.0, "Default text".into()),
+        (378.0, "\u{2014}".into()),
     ] {
         painter.text(
             rect.left_center() + egui::vec2(offset, 0.0),
@@ -78,27 +104,38 @@ pub fn details(
     contents: [&TextContent; 2],
     editors: &[Editor; 2],
 ) {
-    use crate::chrome::icons::{self, Icon};
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
+    // 参考行详情：左侧 160 边、两条内容行（白底/灰白底文本框）、底部白色高光。
+    painter.line_segment(
+        [rect.left_top(), rect.left_bottom()],
+        egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+    );
+    painter.line_segment(
+        [
+            rect.left_bottom() - egui::vec2(0.0, 1.0),
+            rect.right_bottom() - egui::vec2(0.0, 1.0),
+        ],
+        egui::Stroke::new(1.0, egui::Color32::WHITE),
+    );
     for s in 0..2 {
         let top = rect.top() + s as f32 * 16.0;
-        painter.line_segment(
-            [egui::pos2(rect.left(), top), egui::pos2(rect.right(), top)],
-            egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
-        );
-        icons::paint(
-            &painter,
-            egui::Rect::from_min_size(
-                egui::pos2(rect.left() + 2.0, top + 2.0),
-                egui::vec2(12.0, 12.0),
-            ),
-            if s == 0 {
-                Icon::ArrowRight
-            } else {
-                Icon::ArrowLeft
-            },
-        );
+        if s == 1 {
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), top - 1.0),
+                    egui::pos2(rect.right(), top - 1.0),
+                ],
+                egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left(), top + 15.0),
+                    egui::pos2(rect.right(), top + 15.0),
+                ],
+                egui::Stroke::new(1.0, egui::Color32::WHITE),
+            );
+        }
         let lines = contents[s].lines.borrow();
         let line = editors[s].caret.line;
         let text = std::str::from_utf8(lines.line_bytes(line).unwrap_or_default()).unwrap();
@@ -112,14 +149,63 @@ pub fn details(
         while !text.is_char_boundary(limit) {
             limit -= 1;
         }
-        painter.text(
-            egui::pos2(rect.left() + 18.0, top + 1.0),
-            egui::Align2::LEFT_TOP,
+        let galley = painter.layout_no_wrap(
             format!("{}{end}", &text[..limit]),
             egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE),
             egui::Color32::BLACK,
         );
+        // 收缩包裹的文本框：第一行纯白，第二行 #FCFCFC。
+        let text_x = rect.left() + 20.0;
+        let box_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 19.0, top),
+            egui::pos2(
+                text_x + galley.size().x + 3.0,
+                (top + 15.0).min(rect.bottom()),
+            ),
+        );
+        painter.rect_filled(
+            box_rect,
+            0.0,
+            if s == 0 {
+                egui::Color32::WHITE
+            } else {
+                egui::Color32::from_rgb(252, 252, 252)
+            },
+        );
+        painter.line_segment(
+            [box_rect.left_top(), box_rect.left_bottom()],
+            egui::Stroke::new(1.0, egui::Color32::from_gray(192)),
+        );
+        // 参考箭头：灰描边浅蓝填充。
+        let c = egui::pos2(rect.left() + 8.0, top + 7.5);
+        let dir = if s == 0 { 1.0 } else { -1.0 };
+        let points = [
+            (-5.0, -2.0),
+            (1.0, -2.0),
+            (1.0, -4.0),
+            (6.0, 0.0),
+            (1.0, 4.0),
+            (1.0, 2.0),
+            (-5.0, 2.0),
+        ]
+        .into_iter()
+        .map(|(x, y)| c + egui::vec2(x * dir, y))
+        .collect();
+        painter.add(egui::Shape::convex_polygon(
+            points,
+            egui::Color32::from_rgb(215, 233, 249),
+            egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
+        ));
+        painter.galley(egui::pos2(text_x, top + 1.0), galley, egui::Color32::BLACK);
     }
+    // 参考第三行是静态占位「—」。
+    painter.text(
+        rect.left_center() + egui::vec2(21.0, 8.0),
+        egui::Align2::LEFT_CENTER,
+        "\u{2014}",
+        egui::FontId::proportional(12.0),
+        egui::Color32::BLACK,
+    );
 }
 
 pub fn encoding_label(content: &TextContent) -> String {

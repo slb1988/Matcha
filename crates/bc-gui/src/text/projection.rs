@@ -33,6 +33,17 @@ impl Projection {
         context: usize,
         expanded: &[Range<usize>],
     ) -> Self {
+        Self::build_with_options(total, differences, filter, context, expanded, false)
+    }
+    /// 文本视图专用：Differences/Same 过滤时为空隙补「N FILTERED LINES」分隔行。
+    pub fn build_with_options(
+        total: usize,
+        differences: &[Range<usize>],
+        filter: DisplayFilter,
+        context: usize,
+        expanded: &[Range<usize>],
+        gap_folds: bool,
+    ) -> Self {
         let mut wanted = match filter {
             DisplayFilter::All => std::iter::once(0..total).collect(),
             DisplayFilter::Differences | DisplayFilter::Same => differences.to_vec(),
@@ -49,14 +60,25 @@ impl Projection {
         }
         let mut result = Self::default();
         let mut end = 0;
+        // 文本视图参考在 Differences/Same 过滤时也显示「N FILTERED LINES」分隔行；
+        // 表格视图复用本类型但不显示分隔行。
+        let gap_folds =
+            gap_folds && matches!(filter, DisplayFilter::Differences | DisplayFilter::Same);
         for range in merge(wanted, total) {
-            if filter == DisplayFilter::Context && range.start > end {
+            if (filter == DisplayFilter::Context || gap_folds) && range.start > end {
                 result.push(end..range.start, true);
             }
             end = range.end;
             result.push(range, false);
         }
-        if filter == DisplayFilter::Context && end < total {
+        if gap_folds && end < total {
+            // 虚拟 EOF 行（最后一行）保持可见，不折叠。
+            let eof = total - 1;
+            if end < eof {
+                result.push(end..eof, true);
+            }
+            result.push(eof..total, false);
+        } else if filter == DisplayFilter::Context && end < total {
             result.push(end..total, true);
         }
         result
@@ -166,12 +188,29 @@ mod tests {
             Projection::build(0, &[], DisplayFilter::All, 3, &[]).len(),
             0
         );
+        let p = Projection::build_with_options(
+            10,
+            &[2..4, 7..8],
+            DisplayFilter::Differences,
+            3,
+            &[],
+            true,
+        );
+        assert_eq!(p.len(), 7);
+        assert_eq!(p.row(0), Some(DisplayRow::Fold(0..2)));
+        assert_eq!(p.row(1), Some(DisplayRow::Text(2)));
+        assert_eq!(p.row(4), Some(DisplayRow::Text(7)));
+        assert_eq!(p.row(5), Some(DisplayRow::Fold(8..9)));
+        assert_eq!(p.row(6), Some(DisplayRow::Text(9)));
+        let p =
+            Projection::build_with_options(10, &[2..4, 7..8], DisplayFilter::Same, 3, &[], true);
+        assert_eq!(p.len(), 9);
+        assert_eq!(p.row(2), Some(DisplayRow::Fold(2..4)));
+        assert_eq!(p.row(3), Some(DisplayRow::Text(4)));
+        // 默认 build 不补分隔行（表格视图复用此类型）。
         let p = Projection::build(10, &[2..4, 7..8], DisplayFilter::Differences, 3, &[]);
         assert_eq!(p.len(), 3);
         assert_eq!(p.row(2), Some(DisplayRow::Text(7)));
-        let p = Projection::build(10, &[2..4, 7..8], DisplayFilter::Same, 3, &[]);
-        assert_eq!(p.len(), 7);
-        assert_eq!(p.row(2), Some(DisplayRow::Text(4)));
         assert_eq!(
             Projection::build(10, &[], DisplayFilter::Context, 3, &[]).row(0),
             Some(DisplayRow::Fold(0..10))

@@ -2,7 +2,7 @@
 use super::{
     editor::{byte_at_char, Caret},
     gutter,
-    projection::DisplayRow,
+    projection::{DisplayFilter, DisplayRow},
     view::{editor_id, index},
     TextCompareView,
 };
@@ -28,11 +28,10 @@ impl TextCompareView {
         self.pane_rects[s] = rect;
         ui.painter()
             .rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
-        ui.painter().rect_stroke(
-            rect,
-            0.0,
+        // 参考窗格只有左边框与顶边框；右侧/底部不画深色边。
+        ui.painter().line_segment(
+            [rect.left_top(), rect.left_bottom()],
             egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
-            egui::StrokeKind::Inside,
         );
         let id = editor_id(s);
         let response = ui.interact(rect, id, egui::Sense::click());
@@ -52,7 +51,6 @@ impl TextCompareView {
             )
         });
         let snapshot = self.content(s).snapshot();
-        let focused = ui.memory(|m| m.has_focus(id));
         let row_height = self.row_height();
         // Clamp before either pane renders, including programmatic jumps in short files.
         self.scroll.y = self
@@ -65,7 +63,11 @@ impl TextCompareView {
         ui.spacing_mut().scroll.bar_inner_margin = 1.0;
         ui.spacing_mut().scroll.bar_outer_margin = 1.0;
         ui.add_space(1.0);
-        let output = egui::ScrollArea::both()
+        // 参考在内容放得下时不显示水平滚动条。
+        let need_hscroll = self.content_width > rect.width() - 20.0;
+        let need_vscroll_pre = self.projection.len() as f32 * row_height
+            > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
+        let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
             .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
@@ -91,15 +93,62 @@ impl TextCompareView {
                             egui::vec2(ui.available_width().max(200.0), row_height),
                             egui::Sense::click(),
                         );
-                        ui.painter()
-                            .rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
-                        ui.painter().text(
-                            rect.left_center() + egui::vec2(8.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            format!("··· {} hidden rows — click to expand ···", hidden.len()),
-                            egui::FontId::monospace(self.font_size),
-                            ui.visuals().weak_text_color(),
+                        let viewport_rect = egui::Rect::from_min_max(
+                            egui::pos2(ui.clip_rect().left(), rect.top()),
+                            egui::pos2(ui.clip_rect().right(), rect.bottom()),
                         );
+                        if self.filter == DisplayFilter::Context {
+                            ui.painter().rect_filled(
+                                viewport_rect,
+                                0.0,
+                                ui.visuals().faint_bg_color,
+                            );
+                            ui.painter().text(
+                                viewport_rect.left_center() + egui::vec2(8.0, 0.0),
+                                egui::Align2::LEFT_CENTER,
+                                format!("··· {} hidden rows — click to expand ···", hidden.len()),
+                                egui::FontId::monospace(self.font_size),
+                                ui.visuals().weak_text_color(),
+                            );
+                        } else {
+                            // 参考：灰底、横向细分线、居中灰色小字「N FILTERED LINES」。
+                            ui.painter().rect_filled(
+                                viewport_rect,
+                                0.0,
+                                crate::chrome::theme::PANEL_BG,
+                            );
+                            let ink = egui::Color32::from_rgb(105, 105, 105);
+                            let cy = viewport_rect.center().y;
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(viewport_rect.left(), cy),
+                                    egui::pos2(viewport_rect.right(), cy),
+                                ],
+                                egui::Stroke::new(1.0, ink),
+                            );
+                            let galley = ui.painter().layout_no_wrap(
+                                format!("{} FILTERED LINES", hidden.len()),
+                                egui::FontId::proportional(8.666667),
+                                ink,
+                            );
+                            let text_rect = egui::Rect::from_center_size(
+                                viewport_rect.center(),
+                                galley.size() + egui::vec2(12.0, 0.0),
+                            );
+                            ui.painter().rect_filled(
+                                text_rect,
+                                0.0,
+                                crate::chrome::theme::PANEL_BG,
+                            );
+                            ui.painter().galley(
+                                egui::pos2(
+                                    text_rect.center().x - galley.size().x / 2.0,
+                                    cy - galley.size().y / 2.0,
+                                ),
+                                galley,
+                                ink,
+                            );
+                        }
                         if response.clicked() {
                             self.expand(hidden);
                         }
@@ -205,7 +254,7 @@ impl TextCompareView {
                             } else {
                                 8.0
                             },
-                            3.0,
+                            2.0,
                         )
                         + egui::vec2(start_char as f32 * glyph, 0.0);
                     let char_for_byte = |byte: usize| {
@@ -254,7 +303,8 @@ impl TextCompareView {
                             );
                         }
                     }
-                    if focused && line == Some(self.editors[s].caret.line) {
+                    // 与参考一致：窗格即使未聚焦也画 caret。
+                    if line == Some(self.editors[s].caret.line) {
                         let cursor = galley
                             .pos_from_cursor(CCursor::new(char_for_byte(
                                 self.editors[s].caret.byte,
@@ -369,6 +419,37 @@ impl TextCompareView {
             [rect.left_top(), rect.right_top()],
             egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
         );
+        // 内容放得下时，egui 的竖向滚动条把手铺满轨道；参考此时为平坦灰轨加两侧白线。
+        if !need_vscroll_pre {
+            let bar_left = rect.right() - 18.0;
+            let top = rect.top() + 1.0;
+            let bottom = rect.bottom();
+            let p = ui.painter();
+            p.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(bar_left + 1.0, top),
+                    egui::pos2(rect.right() - 1.0, bottom),
+                ),
+                0.0,
+                crate::chrome::theme::PANEL_BG,
+            );
+            p.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(bar_left, top),
+                    egui::pos2(bar_left + 1.0, bottom),
+                ),
+                0.0,
+                egui::Color32::WHITE,
+            );
+            p.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.right() - 1.0, top),
+                    egui::pos2(rect.right(), bottom),
+                ),
+                0.0,
+                egui::Color32::WHITE,
+            );
+        }
         let status = egui::Rect::from_min_size(
             egui::pos2(rect.left(), rect.bottom()),
             egui::vec2(rect.width(), 19.0),
@@ -499,26 +580,50 @@ fn syntax_color(kind: ElementKind, normal: egui::Color32) -> egui::Color32 {
 fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
-    let stroke = egui::Stroke::new(0.6, egui::Color32::from_rgb(230, 230, 230));
-    for x in (0..(rect.width() + rect.height()) as usize).step_by(7) {
-        let x = rect.left() + x as f32;
-        painter.line_segment(
-            [
-                egui::pos2(x, rect.top()),
-                egui::pos2(x - rect.height(), rect.bottom()),
-            ],
-            stroke,
-        );
-        if cross {
-            painter.line_segment(
-                [
-                    egui::pos2(x - rect.height(), rect.top()),
-                    egui::pos2(x, rect.bottom()),
-                ],
-                stroke,
-            );
+    // 参考为 8 px 周期平铺菱格位图（非几何线），颜色 #E6E6E6，相位锚定客户区原点。
+    let _ = cross;
+    const TILE: [u8; 8] = [
+        0b0100_0010,
+        0b0010_0100,
+        0b0001_1000,
+        0b0001_1000,
+        0b0010_0100,
+        0b0100_0010,
+        0b1000_0001,
+        0b1000_0001,
+    ];
+    let color = egui::Color32::from_rgb(230, 230, 230);
+    let mut mesh = egui::Mesh {
+        texture_id: egui::TextureId::Managed(0),
+        ..Default::default()
+    };
+    let left = rect.left().floor() as i32;
+    let right = rect.right().ceil() as i32;
+    for py in rect.top().floor() as i32..rect.bottom().ceil() as i32 {
+        let bits = TILE[(py as usize) % 8];
+        let mut px = left;
+        while px < right {
+            if bits >> ((px as usize) % 8) & 1 == 1 {
+                // 汇聚同一行里的连续 ON 像素为一条横段。
+                let mut end = px + 1;
+                while end < right && bits >> ((end as usize) % 8) & 1 == 1 {
+                    end += 1;
+                }
+                mesh.add_rect_with_uv(
+                    egui::Rect::from_min_max(
+                        egui::pos2(px as f32, py as f32),
+                        egui::pos2(end as f32, py as f32 + 1.0),
+                    ),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(0.0, 0.0)),
+                    color,
+                );
+                px = end;
+            } else {
+                px += 1;
+            }
         }
     }
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 fn row_fill(colors: &DiffColors, importance: Importance, orphan: bool) -> egui::Color32 {

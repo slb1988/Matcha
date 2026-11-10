@@ -52,11 +52,8 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
         ui.spacing_mut().item_spacing.x = 2.0;
         for (index, item) in items.iter().enumerate() {
             if index > 0 && item.group != items[index - 1].group {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 34.0), Sense::hover());
-                ui.painter().line_segment(
-                    [rect.center_top(), rect.center_bottom()],
-                    Stroke::new(1.0, super::theme::BORDER),
-                );
+                // 参考工具栏只有组间距，没有分隔线。
+                ui.allocate_exact_size(egui::vec2(3.0, 34.0), Sense::hover());
             }
             let font = FontId::proportional(super::theme::UI_SIZE);
             let text_color = if item.enabled {
@@ -74,7 +71,7 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
             };
             let width = (galley.size().x + 12.0).max(57.0) + arrow_width;
             let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(width, super::theme::TOOLBAR_HEIGHT - 3.0),
+                egui::vec2(width, super::theme::TOOLBAR_HEIGHT),
                 Sense::hover(),
             );
             let id = ui.scope_id().with(("tool", &item.action_id));
@@ -106,8 +103,13 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
                 && (body.is_pointer_button_down_on()
                     || drop.as_ref().is_some_and(|r| r.is_pointer_button_down_on()));
             if item.selected || hovered || pressed {
+                // 参考高亮块上下各留 3/4 px 内边距。
+                let fill = Rect::from_min_max(
+                    rect.min + egui::vec2(0.0, 3.0),
+                    rect.max - egui::vec2(0.0, 4.0),
+                );
                 ui.painter().rect_filled(
-                    rect,
+                    fill,
                     0.0,
                     if pressed {
                         Color32::from_rgb(180, 216, 247)
@@ -116,7 +118,7 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
                     },
                 );
                 ui.painter().rect_stroke(
-                    rect,
+                    fill,
                     0.0,
                     Stroke::new(1.0, super::theme::CLASSIC_BLUE),
                     StrokeKind::Inside,
@@ -142,17 +144,14 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
             }
             let x = rect.center().x - arrow_width / 2.0;
             let icon =
-                Rect::from_center_size(egui::pos2(x, rect.top() + 11.0), egui::vec2(16.0, 16.0));
+                Rect::from_center_size(egui::pos2(x, rect.top() + 13.0), egui::vec2(16.0, 16.0));
             let mut painter = ui.painter().clone();
             if !item.enabled {
                 painter.set_opacity(0.35);
             }
             icons::paint(&painter, icon, item.icon);
             ui.painter().galley(
-                egui::pos2(
-                    x - galley.size().x / 2.0,
-                    rect.bottom() - galley.size().y - 2.0,
-                ),
+                egui::pos2(x - galley.size().x / 2.0, rect.top() + 24.0),
                 galley,
                 text_color,
             );

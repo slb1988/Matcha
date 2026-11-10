@@ -14,7 +14,7 @@ pub fn paint(
         .rect_filled(gutter, 0.0, crate::chrome::theme::PANEL_BG);
     if let Some(line) = line {
         ui.painter().text(
-            gutter.right_center() - egui::vec2(8.0, 0.0),
+            gutter.right_center() - egui::vec2(9.0, -1.0),
             egui::Align2::RIGHT_CENTER,
             (line + 1).to_string(),
             egui::FontId::proportional(8.666667),
@@ -43,9 +43,15 @@ pub fn paint(
         }
     }
     if current {
-        ui.painter().line_segment(
-            [gutter.right_top(), gutter.right_bottom()],
-            egui::Stroke::new(1.0, egui::Color32::BLACK),
-        );
+        // 参考的当前行标记为 2 px 宽黑线。
+        for dx in [0.0, 1.0] {
+            ui.painter().line_segment(
+                [
+                    gutter.right_top() + egui::vec2(dx, 0.0),
+                    gutter.right_bottom() + egui::vec2(dx, 0.0),
+                ],
+                egui::Stroke::new(1.0, egui::Color32::BLACK),
+            );
+        }
     }
 }

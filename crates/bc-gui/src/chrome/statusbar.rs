@@ -44,7 +44,7 @@ pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
             ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
             ui.painter().line_segment(
                 [rect.left_top(), rect.right_top()],
-                Stroke::new(1.0, Color32::WHITE),
+                Stroke::new(1.0, Color32::from_gray(215)),
             );
             ui.painter().line_segment(
                 [rect.right_top(), rect.right_bottom()],

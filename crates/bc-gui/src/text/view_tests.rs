@@ -182,10 +182,11 @@ fn filters_navigation_context_and_public_alignment_options() {
     assert!(v.message.contains("No more"));
     v.filter = DisplayFilter::Differences;
     v.rebuild_projection();
-    assert_eq!(v.projection.len(), 2);
+    // 2 个差异行 + 3 个折叠分隔行 + 可编辑 EOF 行。
+    assert_eq!(v.projection.len(), 6);
     v.filter = DisplayFilter::Same;
     v.rebuild_projection();
-    assert_eq!(v.projection.len(), 4); // three Same + editable EOF
+    assert_eq!(v.projection.len(), 6); // three Same + editable EOF + 2 fold separators
     v.filter = DisplayFilter::Context;
     v.context = 0;
     v.rebuild_projection();
@@ -661,7 +662,9 @@ fn toolbar_mouse_filter_and_reference_presets_use_real_projection() {
     v.snapshot_preset("text-diffs-filter");
     assert_eq!(v.filter, DisplayFilter::Differences);
     assert!(!v.context_enabled);
-    assert!(v.projection.len() < v.row_count());
+    // 折叠分隔行让隐藏行可见为「N FILTERED LINES」；行数可等于总行数。
+    assert!(v.projection.len() <= v.row_count());
+    assert_eq!(v.projection.row(0), Some(DisplayRow::Fold(0..1)));
     let out = frame(&ctx, &mut v, vec![]);
     let all = text_shapes(&out)
         .into_iter()
@@ -673,5 +676,6 @@ fn toolbar_mouse_filter_and_reference_presets_use_real_projection() {
     assert_eq!(v.filter, DisplayFilter::All);
     v.snapshot_preset("text-cursor-on-diff");
     assert_eq!(v.editors[0].caret.line, 1);
+    assert_eq!(v.editors[0].caret.byte, 4);
     assert_eq!(v.row(v.current_row).importance, Importance::Unimportant);
 }

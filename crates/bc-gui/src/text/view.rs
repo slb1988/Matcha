@@ -97,7 +97,7 @@ pub struct TextCompareView {
     pub(crate) font_size: f32,
     pub(crate) content_width: f32,
     pending_scroll: Option<usize>,
-    filter: DisplayFilter,
+    pub(crate) filter: DisplayFilter,
     context: usize,
     expanded: Vec<Range<usize>>,
     nav: NavBar,
@@ -126,6 +126,7 @@ pub struct TextCompareView {
     show_file_options: bool,
     path_edits: [String; 2],
     path_sources: [Option<PathBuf>; 2],
+    snapshot_select_paths: bool,
     window_title: String,
     displayed_sections: usize,
     tool_dropdown: Option<(String, egui::Pos2)>,
@@ -196,6 +197,7 @@ impl TextCompareView {
             show_view_options: false,
             show_file_options: false,
             path_edits: Default::default(),
+            snapshot_select_paths: false,
             path_sources: Default::default(),
             window_title: String::new(),
             displayed_sections: 0,
@@ -359,7 +361,7 @@ impl TextCompareView {
             })
             .map(|s| s.rows.clone())
             .collect();
-        self.projection = Projection::build(
+        self.projection = Projection::build_with_options(
             self.row_count(),
             &ranges,
             if stale {
@@ -369,6 +371,7 @@ impl TextCompareView {
             },
             self.context,
             &self.expanded,
+            true,
         );
     }
     pub(crate) fn row(&self, row: usize) -> TextMapRow {
@@ -783,6 +786,7 @@ impl TextCompareView {
     }
     pub(crate) fn snapshot_preset(&mut self, scene: &str) {
         self.scroll_to_row(0);
+        self.snapshot_select_paths = true;
         if scene == "text-diffs-filter" {
             self.context_enabled = false;
             self.filter = DisplayFilter::Differences;
@@ -790,6 +794,11 @@ impl TextCompareView {
         }
         if scene == "text-cursor-on-diff" {
             self.goto_row(self.row_for_line(0, 1));
+            // 参考光标停在第 2 行第 5 列。
+            for editor in &mut self.editors {
+                editor.caret.byte = 4;
+                editor.anchor = None;
+            }
             self.scroll_to_row(0);
         }
     }
@@ -826,7 +835,6 @@ impl TextCompareView {
         }
         ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui, prefs);
-        ui.add_space(3.0);
         if let Some(action) = self.find.ui(ui) {
             if let Err(e) = self.find_action(action) {
                 self.message = e.to_string();
@@ -923,8 +931,8 @@ impl TextCompareView {
                     .with_ignore_unimportant(self.map.rules.ignore_unimportant)
                 {
                     Importance::Same => "Same",
-                    Importance::Unimportant => "Unimportant difference",
-                    _ => "Important difference",
+                    Importance::Unimportant => "Unimportant Difference",
+                    _ => "Important Difference",
                 }
             };
             let mut count = StatusField::fixed(
@@ -1510,12 +1518,25 @@ impl TextCompareView {
             .map(|p| p.display().to_string())
             .collect();
         let path_rect = egui::Rect::from_min_size(top, egui::vec2(width, 26.0));
+        // 参考路径栏顶端有一条全宽白色高光线，按钮区保持面板灰。
+        ui.painter().line_segment(
+            [path_rect.left_top(), path_rect.right_top()],
+            egui::Stroke::new(1.0, egui::Color32::WHITE),
+        );
         ui.scope_builder(
             egui::UiBuilder::new()
                 .id_salt(("path", s))
-                .max_rect(path_rect.shrink2(egui::vec2(0.0, 2.0))),
+                .max_rect(egui::Rect::from_min_max(
+                    path_rect.min + egui::vec2(0.0, 1.0),
+                    path_rect.max,
+                )),
             |ui| {
-                let response = pathbar::show_with_history(ui, &mut self.path_edits[s], &history);
+                let response = pathbar::show_with_history(
+                    ui,
+                    &mut self.path_edits[s],
+                    &history,
+                    self.snapshot_select_paths && s == 0,
+                );
                 if response.submitted {
                     self.request(Pending::Open(s, PathBuf::from(self.path_edits[s].trim())));
                 } else {

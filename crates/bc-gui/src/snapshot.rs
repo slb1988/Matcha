@@ -583,6 +583,7 @@ impl ChromeDemo {
                                 ui,
                                 &mut self.paths[side],
                                 &[TEXT_LEFT.into(), TEXT_RIGHT.into()],
+                                false,
                             );
                             if let Some(id) = response.action {
                                 self.last_action = id;
