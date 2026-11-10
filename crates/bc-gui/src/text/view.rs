@@ -116,6 +116,12 @@ pub struct TextCompareView {
     goto_line: usize,
     goto_column: usize,
     recent: Vec<PathBuf>,
+    menus: Vec<crate::chrome::menubar::MenuSpec>,
+    context_enabled: bool,
+    show_info: bool,
+    show_goto: bool,
+    show_view_options: bool,
+    show_file_options: bool,
 }
 impl TextCompareView {
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -176,6 +182,12 @@ impl TextCompareView {
             goto_line: 1,
             goto_column: 1,
             recent: Vec::new(),
+            menus: super::menu::inventory(),
+            context_enabled: true,
+            show_info: false,
+            show_goto: false,
+            show_view_options: false,
+            show_file_options: false,
         };
         view.rebuild_projection();
         view.recompare();
@@ -844,120 +856,421 @@ impl TextCompareView {
         self.action.take()
     }
     fn toolbar(&mut self, ui: &mut egui::Ui, prefs: &Prefs) {
-        egui::Panel::top("text_commands").show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (name, next, edge) in [
-                    ("First difference", true, true),
-                    ("Previous", false, false),
-                    ("Next", true, false),
-                    ("Last", false, true),
-                ] {
-                    if ui.button(name).clicked() {
-                        self.navigate(next, edge);
-                    }
-                }
-                if ui.button("Copy to Left").clicked() {
-                    if let Err(e) = self.copy_to(0) {
-                        self.message = e.to_string();
-                    }
-                }
-                if ui.button("Copy to Right").clicked() {
-                    if let Err(e) = self.copy_to(1) {
-                        self.message = e.to_string();
-                    }
-                }
-                if ui.button("Swap Sides").clicked() {
-                    self.swap();
-                }
-                if ui.button("Recompare").clicked() {
-                    self.recompare();
-                }
-                if ui.button("Find / Replace").clicked() {
-                    self.find.open = !self.find.open;
-                }
-                if ui.button("Settings").clicked() {
-                    self.settings.draft = self.map.rules.clone();
-                    self.settings.open = !self.settings.open;
-                }
-                if ui.button("File formats").clicked() {
-                    self.formats.open = !self.formats.open;
-                }
-                if ui.button("Save active").clicked() {
-                    if let Err(e) = self.save(self.active, prefs) {
-                        self.message = e.to_string();
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                let old = self.filter;
-                for f in [
-                    DisplayFilter::All,
-                    DisplayFilter::Differences,
-                    DisplayFilter::Same,
-                    DisplayFilter::Context,
-                ] {
-                    ui.selectable_value(&mut self.filter, f, format!("{f:?}"));
-                }
-                if old != self.filter {
-                    self.expanded.clear();
-                    self.rebuild_projection();
-                    self.scroll.y = 0.0;
-                }
-                if ui
-                    .checkbox(&mut self.map.rules.ignore_unimportant, "Ignore unimportant")
-                    .changed()
-                {
-                    self.settings.draft.ignore_unimportant = self.map.rules.ignore_unimportant;
-                    self.after_alignment();
-                }
-                ui.checkbox(&mut self.stacked, "Over-Under");
-                ui.menu_button("View / alignment", |ui| {
-                    ui.checkbox(&mut self.show_numbers, "Line numbers");
-                    ui.checkbox(&mut self.show_whitespace, "Visible whitespace");
-                    ui.checkbox(&mut self.show_syntax, "Syntax highlighting");
-                    ui.add(egui::Slider::new(&mut self.font_size, 10.0..=24.0).text("Font size"));
-                    if ui.button("Align With: pick other side line").clicked() {
-                        self.align_with = Some((self.active, self.editors[self.active].caret.line));
-                        ui.close();
-                    }
-                    if ui.button("Clear manual alignment").clicked() {
-                        self.map.overrides.clear();
-                        self.recompare();
-                        ui.close();
-                    }
-                    // Switching views drops this one, so unsaved edits keep it disabled.
-                    let parents = self.parent_folders().filter(|_| !self.is_dirty());
-                    if ui
-                        .add_enabled(parents.is_some(), egui::Button::new("Compare Parent Folders"))
-                        .on_disabled_hover_text("Needs two saved files on disk")
-                        .clicked()
-                    {
-                        if let Some([left, right]) = parents {
-                            self.action = Some(ViewAction::CompareParentFolders { left, right });
+        use crate::chrome::{icons::Icon, menubar, toolbar};
+        use toolbar::{ToolItem, ToolItemKind as Kind};
+        self.update_menus();
+        if let Some(action) = menubar::show(ui, &self.menus) {
+            self.command(&action, ui.ctx(), prefs);
+        }
+        let items: Vec<_> = [
+            (Icon::Home, "Home", "Home", Kind::Normal, "home"),
+            (
+                Icon::Sessions,
+                "Sessions",
+                "Sessions",
+                Kind::Dropdown,
+                "sessions",
+            ),
+            (Icon::All, "All", "Show All", Kind::Toggle, "filter"),
+            (
+                Icon::Diffs,
+                "Diffs",
+                "Show Differences",
+                Kind::Toggle,
+                "filter",
+            ),
+            (Icon::Same, "Same", "Show Same", Kind::Toggle, "filter"),
+            (
+                Icon::Context,
+                "Context",
+                "Show Context",
+                Kind::Toggle,
+                "context",
+            ),
+            (
+                Icon::Minor,
+                "Minor",
+                "Ignore Unimportant Differences",
+                Kind::Toggle,
+                "context",
+            ),
+            (
+                Icon::Rules,
+                "Rules",
+                "Session Settings...",
+                Kind::Normal,
+                "rules",
+            ),
+            (
+                Icon::Format,
+                "Format",
+                "File Formats...",
+                Kind::Split,
+                "rules",
+            ),
+            (Icon::Copy, "Copy", "Copy to Other", Kind::Normal, "copy"),
+            (
+                Icon::Next,
+                "Next Section",
+                "Next Difference Section",
+                Kind::Normal,
+                "nav",
+            ),
+            (
+                Icon::Prev,
+                "Prev Section",
+                "Previous Difference Section",
+                Kind::Normal,
+                "nav",
+            ),
+            (Icon::Swap, "Swap", "Swap Sides", Kind::Normal, "files"),
+            (
+                Icon::Reload,
+                "Reload",
+                "Reload Files",
+                Kind::Normal,
+                "files",
+            ),
+        ]
+        .into_iter()
+        .map(|(icon, label, id, kind, group)| ToolItem {
+            label: label.into(),
+            action_id: id.into(),
+            kind,
+            enabled: true,
+            selected: self.checked(id).unwrap_or(false),
+            icon,
+            group: Some(group.into()),
+        })
+        .collect();
+        let response = toolbar::show(ui, &items);
+        if let Some(action) = response.clicked.or(response.dropdown) {
+            self.command(&action, ui.ctx(), prefs);
+        }
+        if self.show_file_options {
+            let mut open = true;
+            egui::Window::new("File properties")
+                .open(&mut open)
+                .show(ui.ctx(), |ui| self.file_options(ui, self.active, prefs));
+            self.show_file_options = open;
+        }
+        if self.show_goto {
+            let mut open = true;
+            egui::Window::new("Go To")
+                .open(&mut open)
+                .show(ui.ctx(), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Line:");
+                        ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));
+                        ui.label("Column:");
+                        ui.add(egui::DragValue::new(&mut self.goto_column).range(1..=usize::MAX));
+                        if ui.button("Go").clicked() {
+                            let content = self.content(self.active);
+                            let lines = content.lines.borrow();
+                            let line = (self.goto_line - 1).min(lines.len().saturating_sub(1));
+                            let text =
+                                std::str::from_utf8(lines.line_bytes(line).unwrap_or_default())
+                                    .unwrap();
+                            let byte = super::editor::byte_at_char(text, self.goto_column - 1);
+                            drop(lines);
+                            self.current_row = self.row_for_line(self.active, line);
+                            self.editors[self.active].place(Caret { line, byte }, false);
+                            self.filter = DisplayFilter::All;
+                            self.rebuild_projection();
+                            self.scroll_to_row(self.current_row);
+                            self.show_goto = false;
                         }
-                        ui.close();
+                    });
+                });
+            self.show_goto &= open;
+        }
+        if self.show_view_options {
+            egui::Window::new("Text display")
+                .open(&mut self.show_view_options)
+                .show(ui.ctx(), |ui| {
+                    ui.add(egui::Slider::new(&mut self.font_size, 10.0..=24.0).text("Font size"));
+                });
+        }
+        if self.show_info {
+            egui::Window::new("Text Compare Info")
+                .open(&mut self.show_info)
+                .show(ui.ctx(), |ui| {
+                    ui.label(status_bar::side_text(&self.map.left, &self.editors[0]));
+                    ui.label(status_bar::side_text(&self.map.right, &self.editors[1]));
+                    ui.label(format!(
+                        "{} important · {} unimportant · {} left-only · {} right-only",
+                        self.counts.important,
+                        self.counts.unimportant,
+                        self.counts.left_only,
+                        self.counts.right_only
+                    ));
+                    ui.label(&self.message);
+                    for file in &self.files {
+                        if let Some(target) = &file.target {
+                            ui.label(format!("Save target: {}", target.display()));
+                        }
                     }
                 });
-                ui.label("Go to");
-                ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));
-                ui.label(":");
-                ui.add(egui::DragValue::new(&mut self.goto_column).range(1..=usize::MAX));
-                if ui.button("Go").clicked() {
-                    let content = self.content(self.active);
-                    let lines = content.lines.borrow();
-                    let line = (self.goto_line - 1).min(lines.len().saturating_sub(1));
-                    let text =
-                        std::str::from_utf8(lines.line_bytes(line).unwrap_or_default()).unwrap();
-                    let byte = super::editor::byte_at_char(text, self.goto_column - 1);
-                    drop(lines);
-                    self.current_row = self.row_for_line(self.active, line);
-                    self.editors[self.active].place(Caret { line, byte }, false);
-                    self.filter = DisplayFilter::All;
-                    self.rebuild_projection();
-                    self.scroll_to_row(self.current_row);
+        }
+    }
+    fn checked(&self, id: &str) -> Option<bool> {
+        Some(match id {
+            "Show All" => self.filter == DisplayFilter::All,
+            "Show Differences" => matches!(
+                self.filter,
+                DisplayFilter::Differences | DisplayFilter::Context
+            ),
+            "Show Same" => self.filter == DisplayFilter::Same,
+            "Show Context" => self.context_enabled,
+            "Ignore Unimportant Differences" => self.map.rules.ignore_unimportant,
+            "Visible Whitespace" => self.show_whitespace,
+            "Line Numbers" => self.show_numbers,
+            "Syntax Highlighting" => self.show_syntax,
+            "Over-Under Layout" => self.stacked,
+            "Side-by-Side Layout" => !self.stacked,
+            _ => return None,
+        })
+    }
+    fn update_menus(&mut self) {
+        use crate::chrome::menubar::{MenuItem, MenuItemKind};
+        fn update(view: &TextCompareView, items: &mut [MenuItem]) {
+            for item in items {
+                if let MenuItemKind::Submenu(children) = &mut item.kind {
+                    update(view, children);
+                    item.enabled = true;
+                } else {
+                    item.enabled = matches!(
+                        item.action_id.as_str(),
+                        "Home"
+                            | "Close Tab"
+                            | "Exit"
+                            | "Swap Sides"
+                            | "Reload Files"
+                            | "Recompare Files"
+                            | "Session Settings..."
+                            | "Text Compare Info"
+                            | "Open File..."
+                            | "Save File"
+                            | "Save File As..."
+                            | "Open Clipboard"
+                            | "Undo"
+                            | "Redo"
+                            | "Cut"
+                            | "Copy"
+                            | "Paste"
+                            | "Delete"
+                            | "Select All"
+                            | "Copy to Left"
+                            | "Copy to Right"
+                            | "Align With..."
+                            | "Clear manual alignment"
+                            | "Next Difference"
+                            | "Previous Difference"
+                            | "Next Difference Section"
+                            | "Previous Difference Section"
+                            | "First difference"
+                            | "Last difference"
+                            | "Find..."
+                            | "Replace..."
+                            | "Find Next"
+                            | "Find Previous"
+                            | "Go To..."
+                            | "File Formats..."
+                            | "Text display..."
+                            | "Save target..."
+                            | "File properties..."
+                    );
+                    if item.action_id == "Compare Parent Folders" {
+                        item.enabled = view.parent_folders().is_some() && !view.is_dirty();
+                    }
+                    if let Some(checked) = view.checked(&item.action_id) {
+                        item.kind = MenuItemKind::Check { checked };
+                        item.enabled = true;
+                    }
                 }
-            });
-        });
+            }
+        }
+        let mut menus = std::mem::take(&mut self.menus);
+        if !menus[1]
+            .items
+            .iter()
+            .any(|i| i.action_id == "File properties...")
+        {
+            for (index, names) in [
+                (1, &["Save target...", "File properties..."][..]),
+                (2, &["Copy to Left", "Clear manual alignment"][..]),
+                (3, &["First difference", "Last difference"][..]),
+                (4, &["Text display..."][..]),
+            ] {
+                menus[index]
+                    .items
+                    .extend(names.iter().map(|n| MenuItem::action(*n, *n)));
+            }
+        }
+        for menu in &mut menus {
+            update(self, &mut menu.items);
+        }
+        self.menus = menus;
+    }
+    fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
+        let old_filter = self.filter;
+        match id {
+            "Home" | "Close Tab" | "Sessions" => self.request_home(),
+            "Exit" => self.request_exit(),
+            "First difference" => self.navigate(true, true),
+            "Last difference" => self.navigate(false, true),
+            "Next Difference" | "Next Difference Section" => self.navigate(true, false),
+            "Previous Difference" | "Previous Difference Section" => self.navigate(false, false),
+            "Copy to Left" | "Copy to Right" | "Copy to Other" => {
+                let s = if id == "Copy to Left" {
+                    0
+                } else if id == "Copy to Right" {
+                    1
+                } else {
+                    1 - self.active
+                };
+                if let Err(e) = self.copy_to(s) {
+                    self.message = e.to_string();
+                }
+            }
+            "Swap Sides" => self.swap(),
+            "Recompare Files" => self.recompare(),
+            "Reload Files" => self.request(Pending::Reload(self.active)),
+            "Find..." | "Replace..." => self.find.open = true,
+            "Find Next" | "Find Previous" => {
+                if let Err(e) = self.find_action(if id == "Find Next" {
+                    FindAction::Next
+                } else {
+                    FindAction::Previous
+                }) {
+                    self.message = e.to_string();
+                }
+            }
+            "Session Settings..." => {
+                self.settings.draft = self.map.rules.clone();
+                self.settings.open = true;
+            }
+            "File Formats..." => self.formats.open = true,
+            "Save File" => {
+                if let Err(e) = self.save(self.active, prefs) {
+                    self.message = e.to_string();
+                }
+            }
+            "Open File..." | "Save File As..." | "Save target..." => {
+                self.file_dialog = Some(FileDialog {
+                    side: self.active,
+                    mode: match id {
+                        "Open File..." => FileMode::Open,
+                        "Save File As..." => FileMode::SaveAs,
+                        _ => FileMode::Target,
+                    },
+                    path: self.files[self.active]
+                        .path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                })
+            }
+            "Open Clipboard" => {
+                self.clipboard_side = Some(self.active);
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            }
+            "Show All" => self.filter = DisplayFilter::All,
+            "Show Differences" => {
+                self.filter = if self.context_enabled {
+                    DisplayFilter::Context
+                } else {
+                    DisplayFilter::Differences
+                }
+            }
+            "Show Same" => self.filter = DisplayFilter::Same,
+            "Show Context" => {
+                self.context_enabled = !self.context_enabled;
+                if matches!(
+                    self.filter,
+                    DisplayFilter::Context | DisplayFilter::Differences
+                ) {
+                    self.filter = if self.context_enabled {
+                        DisplayFilter::Context
+                    } else {
+                        DisplayFilter::Differences
+                    };
+                }
+            }
+            "Ignore Unimportant Differences" => {
+                self.map.rules.ignore_unimportant = !self.map.rules.ignore_unimportant;
+                self.settings.draft.ignore_unimportant = self.map.rules.ignore_unimportant;
+                self.after_alignment();
+            }
+            "Over-Under Layout" => self.stacked = true,
+            "Side-by-Side Layout" => self.stacked = false,
+            "Line Numbers" => self.show_numbers = !self.show_numbers,
+            "Visible Whitespace" => self.show_whitespace = !self.show_whitespace,
+            "Syntax Highlighting" => self.show_syntax = !self.show_syntax,
+            "Align With..." => {
+                self.align_with = Some((self.active, self.editors[self.active].caret.line))
+            }
+            "Clear manual alignment" => {
+                self.map.overrides.clear();
+                self.recompare();
+            }
+            "Compare Parent Folders" => {
+                if !self.is_dirty() {
+                    if let Some([left, right]) = self.parent_folders() {
+                        self.action = Some(ViewAction::CompareParentFolders { left, right });
+                    }
+                }
+            }
+            "Go To..." => self.show_goto = true,
+            "Text display..." => self.show_view_options = true,
+            "Text Compare Info" => self.show_info = true,
+            "File properties..." => self.show_file_options = true,
+            "Undo" | "Redo" | "Select All" | "Delete" | "Cut" | "Copy" | "Paste" => {
+                if id == "Paste" {
+                    ctx.memory_mut(|m| m.request_focus(editor_id(self.active)));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                } else {
+                    let event = match id {
+                        "Cut" => egui::Event::Cut,
+                        "Copy" => egui::Event::Copy,
+                        _ => egui::Event::Key {
+                            key: match id {
+                                "Undo" => egui::Key::Z,
+                                "Redo" => egui::Key::Y,
+                                "Select All" => egui::Key::A,
+                                _ => egui::Key::Delete,
+                            },
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers: egui::Modifiers {
+                                command: id != "Delete",
+                                ctrl: id != "Delete",
+                                ..Default::default()
+                            },
+                        },
+                    };
+                    let s = self.active;
+                    let old = self.content(s).lines.borrow().len();
+                    let content = if s == 0 {
+                        &mut self.map.left
+                    } else {
+                        &mut self.map.right
+                    };
+                    match self.editors[s].event(content, &event, ctx) {
+                        Ok(true) => self.edited(old),
+                        Ok(false) => {}
+                        Err(e) => self.message = e.to_string(),
+                    }
+                }
+            }
+            _ => {}
+        }
+        if self.filter != old_filter {
+            self.expanded.clear();
+            self.rebuild_projection();
+            self.scroll.y = 0.0;
+        }
     }
     pub(crate) fn header(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {
         let label = self.files[s].path.as_ref().map_or_else(
@@ -979,86 +1292,7 @@ impl TextCompareView {
                 ))
                 .small(),
             );
-            ui.menu_button("File", |ui| {
-                for (label, mode) in [
-                    ("Open…", FileMode::Open),
-                    ("Save as…", FileMode::SaveAs),
-                    ("Save target…", FileMode::Target),
-                ] {
-                    if ui.button(label).clicked() {
-                        self.file_dialog = Some(FileDialog {
-                            side: s,
-                            mode,
-                            path: self.files[s]
-                                .path
-                                .as_ref()
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_default(),
-                        });
-                        ui.close();
-                    }
-                }
-                if ui.button("Save").clicked() {
-                    if let Err(e) = self.save(s, prefs) {
-                        self.message = e.to_string();
-                    }
-                    ui.close();
-                }
-                if ui.button("Reload").clicked() {
-                    self.request(Pending::Reload(s));
-                    ui.close();
-                }
-                if ui.button("Open Clipboard").clicked() {
-                    self.clipboard_side = Some(s);
-                    ui.ctx()
-                        .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                    ui.close();
-                }
-                ui.checkbox(&mut self.content_mut(s).read_only, "Read-only");
-                ui.separator();
-                for (label, encoding) in [
-                    ("UTF-8", Encoding::Utf8),
-                    ("UTF-16 LE", Encoding::Utf16Le),
-                    ("UTF-16 BE", Encoding::Utf16Be),
-                    ("GBK (936)", Encoding::CodePage(936)),
-                    ("Windows-1252", Encoding::CodePage(1252)),
-                ] {
-                    if ui
-                        .selectable_label(self.content(s).encoding == encoding, label)
-                        .clicked()
-                    {
-                        self.request(Pending::Encoding(s, encoding));
-                        ui.close();
-                    }
-                }
-                ui.label("Save BOM policy");
-                let old = self.content(s).bom_policy;
-                for (name, policy) in [
-                    ("Preserve", BomPolicy::Preserve),
-                    ("Always", BomPolicy::Always),
-                    ("Never", BomPolicy::Never),
-                ] {
-                    ui.selectable_value(&mut self.content_mut(s).bom_policy, policy, name);
-                }
-                if old != self.content(s).bom_policy {
-                    self.files[s].metadata_dirty = true;
-                }
-                ui.menu_button("Convert line endings", |ui| {
-                    for e in [
-                        bc_core::line::LineEnding::Lf,
-                        bc_core::line::LineEnding::CrLf,
-                        bc_core::line::LineEnding::Cr,
-                    ] {
-                        if ui.button(format!("{e:?}")).clicked() {
-                            match self.content_mut(s).convert_endings(e) {
-                                Ok(()) => self.recompare(),
-                                Err(e) => self.message = e.to_string(),
-                            }
-                            ui.close();
-                        }
-                    }
-                });
-            });
+            ui.menu_button("File", |ui| self.file_options(ui, s, prefs));
         });
         ui.horizontal(|ui| {
             let selected = self
@@ -1101,6 +1335,86 @@ impl TextCompareView {
             }
             if let Some(target) = &self.files[s].target {
                 ui.label(format!("→ {}", target.display()));
+            }
+        });
+    }
+    fn file_options(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {
+        for (label, mode) in [
+            ("Open…", FileMode::Open),
+            ("Save as…", FileMode::SaveAs),
+            ("Save target…", FileMode::Target),
+        ] {
+            if ui.button(label).clicked() {
+                self.file_dialog = Some(FileDialog {
+                    side: s,
+                    mode,
+                    path: self.files[s]
+                        .path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
+                });
+                ui.close();
+            }
+        }
+        if ui.button("Save").clicked() {
+            if let Err(e) = self.save(s, prefs) {
+                self.message = e.to_string();
+            }
+            ui.close();
+        }
+        if ui.button("Reload").clicked() {
+            self.request(Pending::Reload(s));
+            ui.close();
+        }
+        if ui.button("Open Clipboard").clicked() {
+            self.clipboard_side = Some(s);
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            ui.close();
+        }
+        ui.checkbox(&mut self.content_mut(s).read_only, "Read-only");
+        ui.separator();
+        for (label, encoding) in [
+            ("UTF-8", Encoding::Utf8),
+            ("UTF-16 LE", Encoding::Utf16Le),
+            ("UTF-16 BE", Encoding::Utf16Be),
+            ("GBK (936)", Encoding::CodePage(936)),
+            ("Windows-1252", Encoding::CodePage(1252)),
+        ] {
+            if ui
+                .selectable_label(self.content(s).encoding == encoding, label)
+                .clicked()
+            {
+                self.request(Pending::Encoding(s, encoding));
+                ui.close();
+            }
+        }
+        ui.label("Save BOM policy");
+        let old = self.content(s).bom_policy;
+        for (name, policy) in [
+            ("Preserve", BomPolicy::Preserve),
+            ("Always", BomPolicy::Always),
+            ("Never", BomPolicy::Never),
+        ] {
+            ui.selectable_value(&mut self.content_mut(s).bom_policy, policy, name);
+        }
+        if old != self.content(s).bom_policy {
+            self.files[s].metadata_dirty = true;
+        }
+        ui.menu_button("Convert line endings", |ui| {
+            for e in [
+                bc_core::line::LineEnding::Lf,
+                bc_core::line::LineEnding::CrLf,
+                bc_core::line::LineEnding::Cr,
+            ] {
+                if ui.button(format!("{e:?}")).clicked() {
+                    match self.content_mut(s).convert_endings(e) {
+                        Ok(()) => self.recompare(),
+                        Err(e) => self.message = e.to_string(),
+                    }
+                    ui.close();
+                }
             }
         });
     }

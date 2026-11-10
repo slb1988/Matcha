@@ -594,3 +594,41 @@ fn manual_anchors_survive_recompare_and_clear() {
     ready(&mut v);
     assert!(v.map.overrides.pairs().is_empty());
 }
+
+#[test]
+fn chrome_commands_keep_legacy_actions_and_filter_state() {
+    let ctx = egui::Context::default();
+    let mut v = view("same\nleft\ntail\n", "same\nright\ntail\n");
+    let prefs = Prefs::default();
+    v.command("Show Context", &ctx, &prefs);
+    v.command("Show Differences", &ctx, &prefs);
+    assert_eq!(v.filter, DisplayFilter::Differences);
+    assert_eq!(v.checked("Show Differences"), Some(true));
+    v.command("First difference", &ctx, &prefs);
+    assert_eq!(v.current_row, 1);
+    v.command("Copy to Right", &ctx, &prefs);
+    ready(&mut v);
+    assert_eq!(
+        v.map.left.to_bytes().unwrap(),
+        v.map.right.to_bytes().unwrap()
+    );
+    v.command("Over-Under Layout", &ctx, &prefs);
+    assert!(v.stacked);
+    v.command("Line Numbers", &ctx, &prefs);
+    assert!(!v.show_numbers);
+    v.command("File properties...", &ctx, &prefs);
+    assert!(v.show_file_options);
+    v.update_menus();
+    assert_eq!(
+        v.menus.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(),
+        ["Session", "File", "Edit", "Search", "View", "Tools", "Help"]
+    );
+    assert!(
+        !v.menus[0]
+            .items
+            .iter()
+            .find(|i| i.label == "New Tab")
+            .unwrap()
+            .enabled
+    );
+}

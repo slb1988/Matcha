@@ -247,7 +247,9 @@ impl eframe::App for MatchaApp {
             }
             return;
         }
-        self.top_bar(ui);
+        if !matches!(self.view, View::TextCompare(_)) {
+            self.top_bar(ui);
+        }
         if self.snapshot.is_none() {
             egui::Panel::bottom("performance_status").show(ui, |ui| {
                 ui.horizontal(|ui| {

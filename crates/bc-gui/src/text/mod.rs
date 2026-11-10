@@ -3,6 +3,7 @@ pub mod editor;
 pub mod find_panel;
 mod format_panel;
 pub mod gutter;
+mod menu;
 pub mod nav_bar;
 pub mod projection;
 mod render;
