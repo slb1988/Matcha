@@ -3538,8 +3538,20 @@ fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui
 }
 
 /// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
+/// First dot of a 2 px-period run starting at `start` that can touch
+/// `[min, ..)`: skipping fully clipped dots keeps the emitted shapes O(clip)
+/// instead of O(run length) without moving the dot phase.
+fn dot_start(start: f32, min: f32) -> f32 {
+    if min - 1.0 > start {
+        start + ((min - 1.0 - start) / 2.0).floor() * 2.0
+    } else {
+        start
+    }
+}
 fn dotted_v(painter: &egui::Painter, x: f32, y0: f32, y1: f32, color: egui::Color32) {
-    let mut y = y0;
+    let clip = painter.clip_rect();
+    let mut y = dot_start(y0, clip.top());
+    let y1 = y1.min(clip.bottom() + 1.0);
     while y < y1 {
         painter.rect_filled(
             egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.0, 1.0)),
@@ -3550,7 +3562,9 @@ fn dotted_v(painter: &egui::Painter, x: f32, y0: f32, y1: f32, color: egui::Colo
     }
 }
 fn dotted_h(painter: &egui::Painter, x0: f32, x1: f32, y: f32, color: egui::Color32) {
-    let mut x = x0;
+    let clip = painter.clip_rect();
+    let mut x = dot_start(x0, clip.left());
+    let x1 = x1.min(clip.right() + 1.0);
     while x < x1 {
         painter.rect_filled(
             egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.0, 1.0)),
@@ -5274,6 +5288,10 @@ impl DirCompareView {
             )),
         ];
         let mut drawn = 0;
+        // Vertical guide runs already painted this frame per side, as
+        // (x, painted up to y): sibling rows share their parent's run, so
+        // each row only adds the part below what an earlier row drew.
+        let mut guides: [Vec<(f32, f32)>; 2] = Default::default();
         for index in first..end {
             let row = &self.snapshot.rows[index];
             let y = rows_area.top() + index as f32 * CHROME_ROW - self.scroll_y;
@@ -5301,7 +5319,23 @@ impl DirCompareView {
                     let mid = y + CHROME_ROW / 2.0 - 0.5;
                     // 竖段从父行图标下缘到本行行中；横段到图标左缘。
                     let top = y - flags.parent_up as f32 * CHROME_ROW + 17.0;
-                    dotted_v(tree_clip, x, top, mid, TREE_LINE);
+                    // Same x ⇒ same dot phase (row tops differ by whole rows).
+                    let start = match guides[side].iter_mut().find(|(gx, _)| *gx == x) {
+                        Some((_, until)) => {
+                            let start = if *until > top {
+                                dot_start(top, *until + 1.0)
+                            } else {
+                                top
+                            };
+                            *until = until.max(mid);
+                            start
+                        }
+                        None => {
+                            guides[side].push((x, mid));
+                            top
+                        }
+                    };
+                    dotted_v(tree_clip, x, start, mid, TREE_LINE);
                     let icon_left = tree.left()
                         + 6.0
                         + 19.0 * depth as f32
@@ -5988,6 +6022,18 @@ mod tests {
             ],
         );
         assert_eq!(view.scroll_y, 0.0);
+    }
+    #[test]
+    fn clipped_dot_runs_keep_phase_and_cover_the_clip() {
+        for start in [-40_017.5f32, -17.0, -3.5, 0.0, 0.5, 12.0] {
+            for min in [-1000.0f32, -18.0, 0.0, 0.5, 1.0, 7.25, 300.0] {
+                let first = dot_start(start, min);
+                assert_eq!((first - start).rem_euclid(2.0), 0.0, "{start} {min}");
+                assert!(first >= start);
+                // No dot that can touch [min, ..) is skipped.
+                assert!(first == start || first + 2.0 + 1.0 > min && first + 1.0 <= min);
+            }
+        }
     }
     /// Interactive-latency probe over a real tree (not part of the default
     /// run): `cargo test --release -p bc-gui --lib folder_interaction_latency
