@@ -1827,6 +1827,8 @@ pub struct DirCompareView {
     chrome_log_logged: bool,
     log_save_open: bool,
     grid_lines: Option<(usize, Arc<Vec<RowLine>>)>,
+    /// Status-bar selection totals keyed by snapshot and selection fingerprint.
+    selection_totals: Option<(usize, (usize, u64), SelectionTotals)>,
 }
 impl DirCompareView {
     pub fn open(
@@ -1927,6 +1929,7 @@ impl DirCompareView {
             chrome_log_logged: false,
             log_save_open: false,
             grid_lines: None,
+            selection_totals: None,
         };
         if !sync_mode {
             // 参考：比较视图过滤栏默认 *.*，日志区默认打开。
@@ -3538,6 +3541,53 @@ fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui
 }
 
 /// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SelectionTotals {
+    /// Per side: selected files and their bytes.
+    counts: [(usize, u64); 2],
+    any: bool,
+    only_files: bool,
+}
+fn selection_totals(snapshot: &Snapshot, selection: &Selection) -> SelectionTotals {
+    let mut counts = [(0usize, 0u64); 2];
+    let mut any = false;
+    let mut only_files = true;
+    if !selection.items.is_empty() {
+        for row in &snapshot.rows {
+            for (side, count) in counts.iter_mut().enumerate() {
+                if let Some(item) = &row.sides[side] {
+                    if selection.items.contains(&(item.node, side)) {
+                        any = true;
+                        if item.entry.kind == EntryKind::File {
+                            count.0 += 1;
+                            count.1 += item.entry.size.unwrap_or(0);
+                        } else {
+                            only_files = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    SelectionTotals {
+        counts,
+        any,
+        only_files,
+    }
+}
+/// Order-independent selection fingerprint (count plus a sum of mixed
+/// items): O(selection) integer work, cheap enough to take every frame.
+fn selection_fingerprint(selection: &Selection) -> (usize, u64) {
+    let sum = selection.items.iter().fold(0u64, |acc, &(node, side)| {
+        // splitmix64 finalizer over (node, side).
+        let mut z = (node as u64).wrapping_mul(2).wrapping_add(side as u64);
+        z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        acc.wrapping_add(z ^ (z >> 31))
+    });
+    (selection.items.len(), sum)
+}
 /// First dot of a 2 px-period run starting at `start` that can touch
 /// `[min, ..)`: skipping fully clipped dots keeps the emitted shapes O(clip)
 /// instead of O(run length) without moving the dot phase.
@@ -5748,24 +5798,24 @@ impl DirCompareView {
             };
             fields = vec![StatusField::flexible(text)];
         } else {
-            let mut counts = [(0usize, 0u64); 2];
-            let mut any = false;
-            let mut only_files = true;
-            for row in &self.snapshot.rows {
-                for (side, count) in counts.iter_mut().enumerate() {
-                    if let Some(item) = &row.sides[side] {
-                        if self.selection.items.contains(&(item.node, side)) {
-                            any = true;
-                            if item.entry.kind == EntryKind::File {
-                                count.0 += 1;
-                                count.1 += item.entry.size.unwrap_or(0);
-                            } else {
-                                only_files = false;
-                            }
-                        }
-                    }
+            // Walking every row against the selection costs ~10 ms per frame
+            // at 100k rows with everything selected; recompute only when the
+            // snapshot or the selection changes.
+            let key = Arc::as_ptr(&self.snapshot) as usize;
+            let print = selection_fingerprint(&self.selection);
+            let totals = match self.selection_totals {
+                Some((k, p, totals)) if k == key && p == print => totals,
+                _ => {
+                    let totals = selection_totals(&self.snapshot, &self.selection);
+                    self.selection_totals = Some((key, print, totals));
+                    totals
                 }
-            }
+            };
+            let SelectionTotals {
+                counts,
+                any,
+                only_files,
+            } = totals;
             if any && only_files {
                 let free = |side: usize| {
                     self.snapshot.free[side]
@@ -6034,6 +6084,34 @@ mod tests {
                 assert!(first == start || first + 2.0 + 1.0 > min && first + 1.0 <= min);
             }
         }
+    }
+    #[test]
+    fn status_totals_follow_selection_changes_of_equal_size() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        frame(&mut view, &ctx);
+        let node = |view: &DirCompareView, name: &str| {
+            view.snapshot.rows[row(view, name)].sides[0]
+                .as_ref()
+                .unwrap()
+                .node
+        };
+        let a = node(&view, "a.txt");
+        let b = node(&view, "b.txt");
+        view.selection.items = [(a, 0)].into();
+        frame(&mut view, &ctx);
+        let totals = view.selection_totals.unwrap().2;
+        assert_eq!(totals.counts[0], (1, 9));
+        assert!(totals.any && totals.only_files);
+        // Same size, different item: the cached totals must not be reused.
+        view.selection.items = [(b, 0)].into();
+        frame(&mut view, &ctx);
+        assert_eq!(view.selection_totals.unwrap().2.counts[0], (1, 5));
+        view.selection.items.clear();
+        frame(&mut view, &ctx);
+        assert!(!view.selection_totals.unwrap().2.any);
     }
     /// Interactive-latency probe over a real tree (not part of the default
     /// run): `cargo test --release -p bc-gui --lib folder_interaction_latency
