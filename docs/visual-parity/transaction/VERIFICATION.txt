@@ -1,0 +1,102 @@
+{
+  "target": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\compare.ps1",
+  "changedSymbols": [
+    "Find-RegionShift",
+    "Find-Boundary",
+    "region/color report"
+  ],
+  "baselineHash": "744a2f2c61243370f3f1c0eb1560a72ff9c2f91333bba7bd7332c2b73f347038",
+  "modifiedHash": "c7f4bf5ac333217422a1006f1fd88afc0547b7f86e8537c1135ced8695f7df51",
+  "rollbackHash": "744a2f2c61243370f3f1c0eb1560a72ff9c2f91333bba7bd7332c2b73f347038",
+  "roles": {
+    "MODIFIED_FILE": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\compare.ps1",
+    "DIFF_FILE": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\compare.patch",
+    "VERIFICATION": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\VERIFICATION.txt",
+    "ROLLBACK": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\ROLLBACK.sh"
+  },
+  "events": [
+    {
+      "label": "BASELINE",
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\baseline.ps1",
+        "-Reference",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Actual",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Scene",
+        "text-basic"
+      ],
+      "stdout": "Compared text-basic; pixel differences=0\n",
+      "stderr": "",
+      "exitStatus": 0
+    },
+    {
+      "label": "MODIFIED",
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\compare.ps1",
+        "-Reference",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Actual",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Scene",
+        "text-basic"
+      ],
+      "stdout": "Compared text-basic; pixel differences=0; regions=16; max deviation=0; color samples=21\n",
+      "stderr": "",
+      "exitStatus": 0
+    },
+    {
+      "label": "ROLLBACK_COMMAND",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\ROLLBACK.sh",
+        "C:/Users/admin/orca/workspaces/Matcha/visual-ref/target/visual/transaction/restored.ps1"
+      ],
+      "stdout": "Restored pristine comparator: C:/Users/admin/orca/workspaces/Matcha/visual-ref/target/visual/transaction/restored.ps1\n",
+      "stderr": "",
+      "exitStatus": 0
+    },
+    {
+      "label": "ROLLBACK",
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\restored.ps1",
+        "-Reference",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Actual",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\target\\visual\\transaction\\fixture.png",
+        "-Scene",
+        "text-basic"
+      ],
+      "stdout": "Compared text-basic; pixel differences=0\n",
+      "stderr": "",
+      "exitStatus": 0
+    },
+    {
+      "label": "REAPPLY",
+      "command": [
+        "git",
+        "apply",
+        "--whitespace=nowarn",
+        "--directory=target/visual/transaction/reapply",
+        "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\transaction\\compare.patch"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "exitStatus": 0
+    }
+  ],
+  "previousAttempt": {
+    "source": "verify-transaction.py patch byte-hash assertion",
+    "exitStatus": 1,
+    "reason": "core.autocrlf=true reconstructed CRLF, while modified had mixed LF. Normalized comparator to CRLF and reran all commands. A quoting error in the first normalization command was corrected using this Python file."
+  }
+}

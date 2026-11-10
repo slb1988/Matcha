@@ -1,0 +1,116 @@
+[
+  {
+    "windowClass": "TUiCancelBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiOkBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiComboBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiPageControl",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiMemo",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiCheckBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiSpecComboBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "Edit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiBitBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiBitBtn",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiCheckBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiSpecComboBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "Edit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiCheckListBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiListBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiCodePageEdit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiCodePageEdit",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiComboBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  },
+  {
+    "windowClass": "TUiComboBox",
+    "family": "Microsoft YaHei UI",
+    "heightPx": -12,
+    "weight": 400
+  }
+]

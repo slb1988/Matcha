@@ -1,0 +1,129 @@
+{
+  "name": "Help",
+  "source": "sync-menu-Help.png",
+  "screenRect": [
+    308,
+    76,
+    239,
+    173
+  ],
+  "items": [
+    {
+      "name": "Contents",
+      "mnemonic": "c",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Context Sensitive Help",
+      "mnemonic": "h",
+      "shortcut": "F1",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": true,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Scooter Software on the Web",
+      "mnemonic": "w",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Check for Updates",
+      "mnemonic": "u",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Support",
+      "mnemonic": "s",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Enter Key...",
+      "mnemonic": "e",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": true,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "About Beyond Compare",
+      "mnemonic": "a",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-Help.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

@@ -1,0 +1,370 @@
+{
+  "pixelDifferences": 0,
+  "scene": "folder-basic",
+  "dimensionMatch": true,
+  "reference": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\reference\\folder-basic.png",
+  "colors": [
+    {
+      "pass": true,
+      "delta": 0,
+      "point": [
+        300,
+        174
+      ],
+      "actual": "#A8CDF1",
+      "name": "folderSelection",
+      "expected": "#A8CDF1"
+    },
+    {
+      "pass": true,
+      "delta": 0,
+      "point": [
+        300,
+        195
+      ],
+      "actual": "#F8FAF9",
+      "name": "folderStripe",
+      "expected": "#F8FAF9"
+    }
+  ],
+  "regions": [
+    {
+      "region": "filterbar",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 750,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        70,
+        1384,
+        45
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        70,
+        1384,
+        45
+      ]
+    },
+    {
+      "region": "headers.left",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 578,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        141,
+        665,
+        24
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        141,
+        665,
+        24
+      ]
+    },
+    {
+      "region": "headers.right",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 626,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        702,
+        141,
+        664,
+        24
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        702,
+        141,
+        664,
+        24
+      ]
+    },
+    {
+      "region": "log",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 798,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        830,
+        1384,
+        106
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        830,
+        1384,
+        106
+      ]
+    },
+    {
+      "region": "menubar",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 546,
+      "pass": true,
+      "ambiguous": true,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        0,
+        1384,
+        27
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        0,
+        1384,
+        27
+      ]
+    },
+    {
+      "region": "pathbar.left",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 678,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        115,
+        702,
+        26
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        115,
+        702,
+        26
+      ]
+    },
+    {
+      "region": "pathbar.right",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 695,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        702,
+        115,
+        682,
+        26
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        702,
+        115,
+        682,
+        26
+      ]
+    },
+    {
+      "region": "splitter",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 854,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        665,
+        141,
+        37,
+        689
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        665,
+        141,
+        37,
+        689
+      ]
+    },
+    {
+      "region": "statusbar",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 530,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        936,
+        1384,
+        25
+      ]
+    },
+    {
+      "region": "toolbar",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 735,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        27,
+        1384,
+        43
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        27,
+        1384,
+        43
+      ]
+    },
+    {
+      "region": "tree.left",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 713,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        0,
+        165,
+        665,
+        665
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        0,
+        165,
+        665,
+        665
+      ]
+    },
+    {
+      "region": "tree.right",
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "samples": 807,
+      "pass": true,
+      "ambiguous": false,
+      "dy": 0,
+      "dx": 0,
+      "score": 0.0,
+      "actual": [
+        702,
+        165,
+        664,
+        665
+      ],
+      "maxDeviation": 0.0,
+      "reference": [
+        702,
+        165,
+        664,
+        665
+      ]
+    }
+  ],
+  "actual": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\reference\\folder-basic.png",
+  "maxDeviation": 0
+}

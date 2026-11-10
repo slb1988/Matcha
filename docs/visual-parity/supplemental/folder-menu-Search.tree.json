@@ -1,0 +1,77 @@
+{
+  "name": "Search",
+  "source": "folder-menu-Search.png",
+  "screenRect": [
+    174,
+    76,
+    276,
+    111
+  ],
+  "items": [
+    {
+      "name": "Next Difference",
+      "mnemonic": "n",
+      "shortcut": "Ctrl+N",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Search.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Previous Difference",
+      "mnemonic": "p",
+      "shortcut": "Ctrl+P",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Search.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Find Filename...",
+      "mnemonic": "f",
+      "shortcut": "Ctrl+F",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Search.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Find Next Filename",
+      "mnemonic": "x",
+      "shortcut": "F3",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Search.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Find Previous Filename",
+      "mnemonic": "v",
+      "shortcut": "Shift+F3",
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Search.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

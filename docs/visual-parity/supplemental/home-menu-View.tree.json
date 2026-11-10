@@ -1,0 +1,51 @@
+{
+  "name": "View",
+  "source": "home-menu-View.png",
+  "screenRect": [
+    86,
+    76,
+    238,
+    69
+  ],
+  "items": [
+    {
+      "name": "Show Session Management",
+      "mnemonic": "m",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "home-menu-View.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Maximize Session Management",
+      "mnemonic": "x",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": true,
+      "hasSubmenu": false,
+      "msaaState": 1048592,
+      "source": "home-menu-View.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Show Web Resources",
+      "mnemonic": "w",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": true,
+      "hasSubmenu": false,
+      "msaaState": 1048592,
+      "source": "home-menu-View.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

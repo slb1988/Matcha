@@ -1,0 +1,691 @@
+{
+  "regions": [
+    {
+      "samples": 872,
+      "region": "details",
+      "score": 0.0,
+      "reference": [
+        52,
+        887,
+        1332,
+        49
+      ],
+      "dy": 0,
+      "actual": [
+        52,
+        887,
+        1332,
+        49
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 870,
+      "region": "gutter.left",
+      "score": 0.0,
+      "reference": [
+        52,
+        123,
+        40,
+        745
+      ],
+      "dy": 0,
+      "actual": [
+        52,
+        123,
+        40,
+        745
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 870,
+      "region": "gutter.right",
+      "score": 0.0,
+      "reference": [
+        722,
+        123,
+        40,
+        745
+      ],
+      "dy": 0,
+      "actual": [
+        722,
+        123,
+        40,
+        745
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 750,
+      "region": "info.left",
+      "score": 0.0,
+      "reference": [
+        52,
+        96,
+        666,
+        27
+      ],
+      "dy": 0,
+      "actual": [
+        52,
+        96,
+        666,
+        27
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 696,
+      "region": "info.right",
+      "score": 0.0,
+      "reference": [
+        722,
+        96,
+        662,
+        27
+      ],
+      "dy": 0,
+      "actual": [
+        722,
+        96,
+        662,
+        27
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 546,
+      "region": "menubar",
+      "score": 0.0,
+      "reference": [
+        0,
+        0,
+        1384,
+        27
+      ],
+      "dy": 0,
+      "actual": [
+        0,
+        0,
+        1384,
+        27
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": true,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 940,
+      "region": "pane.left",
+      "score": 0.0,
+      "reference": [
+        92,
+        123,
+        608,
+        745
+      ],
+      "dy": 0,
+      "actual": [
+        92,
+        123,
+        608,
+        745
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 940,
+      "region": "pane.right",
+      "score": 0.0,
+      "reference": [
+        762,
+        123,
+        604,
+        745
+      ],
+      "dy": 0,
+      "actual": [
+        762,
+        123,
+        604,
+        745
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 670,
+      "region": "paneStatus.left",
+      "score": 0.0,
+      "reference": [
+        52,
+        868,
+        666,
+        19
+      ],
+      "dy": 0,
+      "actual": [
+        52,
+        868,
+        666,
+        19
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 632,
+      "region": "paneStatus.right",
+      "score": 0.0,
+      "reference": [
+        722,
+        868,
+        662,
+        19
+      ],
+      "dy": 0,
+      "actual": [
+        722,
+        868,
+        662,
+        19
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 740,
+      "region": "pathbar.left",
+      "score": 0.0,
+      "reference": [
+        52,
+        70,
+        666,
+        26
+      ],
+      "dy": 0,
+      "actual": [
+        52,
+        70,
+        666,
+        26
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 688,
+      "region": "pathbar.right",
+      "score": 0.0,
+      "reference": [
+        722,
+        70,
+        662,
+        26
+      ],
+      "dy": 0,
+      "actual": [
+        722,
+        70,
+        662,
+        26
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 520,
+      "region": "splitter",
+      "score": 0.0,
+      "reference": [
+        718,
+        123,
+        4,
+        764
+      ],
+      "dy": 0,
+      "actual": [
+        718,
+        123,
+        4,
+        764
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 534,
+      "region": "statusbar",
+      "score": 0.0,
+      "reference": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "dy": 0,
+      "actual": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": true,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 911,
+      "region": "thumbnail",
+      "score": 0.0,
+      "reference": [
+        0,
+        70,
+        52,
+        817
+      ],
+      "dy": 0,
+      "actual": [
+        0,
+        70,
+        52,
+        817
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    },
+    {
+      "samples": 735,
+      "region": "toolbar",
+      "score": 0.0,
+      "reference": [
+        0,
+        27,
+        1384,
+        43
+      ],
+      "dy": 0,
+      "actual": [
+        0,
+        27,
+        1384,
+        43
+      ],
+      "pass": true,
+      "dx": 0,
+      "ambiguous": false,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxDeviation": 0.0
+    }
+  ],
+  "actual": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\reference\\text-basic.png",
+  "colors": [
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        500,
+        909
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "details",
+      "pass": true
+    },
+    {
+      "expected": "#FC3030",
+      "point": [
+        766,
+        202
+      ],
+      "delta": 0,
+      "actual": "#FC3030",
+      "name": "diffForeground",
+      "pass": true
+    },
+    {
+      "expected": "#FCE6E6",
+      "point": [
+        1000,
+        205
+      ],
+      "delta": 0,
+      "actual": "#FCE6E6",
+      "name": "diffRow",
+      "pass": true
+    },
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        500,
+        300
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "eof",
+      "pass": true
+    },
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        56,
+        165
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "gutter",
+      "pass": true
+    },
+    {
+      "expected": "#696969",
+      "point": [
+        80,
+        130
+      ],
+      "delta": 0,
+      "actual": "#696969",
+      "name": "lineNumber",
+      "pass": true
+    },
+    {
+      "expected": "#FFFFFF",
+      "point": [
+        500,
+        10
+      ],
+      "delta": 0,
+      "actual": "#FFFFFF",
+      "name": "menubar",
+      "pass": true
+    },
+    {
+      "expected": "#EEEEFF",
+      "point": [
+        500,
+        146
+      ],
+      "delta": 0,
+      "actual": "#EEEEFF",
+      "name": "minorBg",
+      "pass": true
+    },
+    {
+      "expected": "#0000FF",
+      "point": [
+        96,
+        145
+      ],
+      "delta": 0,
+      "actual": "#0000FF",
+      "name": "minorForeground",
+      "pass": true
+    },
+    {
+      "expected": "#FFFFFF",
+      "point": [
+        93,
+        199
+      ],
+      "delta": 0,
+      "actual": "#FFFFFF",
+      "name": "missingBackground",
+      "pass": true
+    },
+    {
+      "expected": "#E6E6E6",
+      "point": [
+        95,
+        199
+      ],
+      "delta": 0,
+      "actual": "#E6E6E6",
+      "name": "missingHatch",
+      "pass": true
+    },
+    {
+      "expected": "#FFFFFF",
+      "point": [
+        500,
+        175
+      ],
+      "delta": 0,
+      "actual": "#FFFFFF",
+      "name": "pane",
+      "pass": true
+    },
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        10,
+        30
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "panel",
+      "pass": true
+    },
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        500,
+        877
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "paneStatus",
+      "pass": true
+    },
+    {
+      "expected": "#FFFFFF",
+      "point": [
+        620,
+        85
+      ],
+      "delta": 0,
+      "actual": "#FFFFFF",
+      "name": "pathbar",
+      "pass": true
+    },
+    {
+      "expected": "#C2DCF5",
+      "point": [
+        400,
+        90
+      ],
+      "delta": 0,
+      "actual": "#C2DCF5",
+      "name": "pathSelection",
+      "pass": true
+    },
+    {
+      "expected": "#A0A0A0",
+      "point": [
+        400,
+        123
+      ],
+      "delta": 0,
+      "actual": "#A0A0A0",
+      "name": "separator",
+      "pass": true
+    },
+    {
+      "expected": "#F0F0F0",
+      "point": [
+        1000,
+        950
+      ],
+      "delta": 0,
+      "actual": "#F0F0F0",
+      "name": "statusbar",
+      "pass": true
+    },
+    {
+      "expected": "#000000",
+      "point": [
+        93,
+        125
+      ],
+      "delta": 0,
+      "actual": "#000000",
+      "name": "textForeground",
+      "pass": true
+    },
+    {
+      "expected": "#CCE8FF",
+      "point": [
+        150,
+        35
+      ],
+      "delta": 0,
+      "actual": "#CCE8FF",
+      "name": "toolbarToggle",
+      "pass": true
+    },
+    {
+      "expected": "#99D1FF",
+      "point": [
+        145,
+        35
+      ],
+      "delta": 0,
+      "actual": "#99D1FF",
+      "name": "toolbarToggleBorder",
+      "pass": true
+    }
+  ],
+  "dimensionMatch": true,
+  "maxDeviation": 0,
+  "scene": "text-basic",
+  "pixelDifferences": 0,
+  "reference": "C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\docs\\visual-parity\\reference\\text-basic.png"
+}

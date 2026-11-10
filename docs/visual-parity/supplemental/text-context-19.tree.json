@@ -1,0 +1,51 @@
+{
+  "name": "Open With",
+  "source": "text-context-19.png",
+  "screenRect": [
+    497,
+    581,
+    186,
+    58
+  ],
+  "items": [
+    {
+      "name": "Associated Application",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-context-19.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "",
+      "mnemonic": null,
+      "shortcut": null,
+      "separator": true,
+      "enabled": false,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048577,
+      "source": "text-context-19.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Text Edit",
+      "mnemonic": "d",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "text-context-19.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

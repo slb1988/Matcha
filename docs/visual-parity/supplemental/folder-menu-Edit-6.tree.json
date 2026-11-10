@@ -1,0 +1,51 @@
+{
+  "name": "Select Orphans",
+  "source": "folder-menu-Edit-6.png",
+  "screenRect": [
+    383,
+    191,
+    116,
+    69
+  ],
+  "items": [
+    {
+      "name": "Left Side",
+      "mnemonic": "l",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Edit-6.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Right Side",
+      "mnemonic": "r",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Edit-6.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Both Sides",
+      "mnemonic": "b",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Edit-6.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

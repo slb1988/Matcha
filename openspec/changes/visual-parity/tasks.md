@@ -9,6 +9,8 @@
 - [x] 1.3 度量并写 `docs/visual-parity/tokens.json` 与说明 `tokens.md`：颜色、几何、字体（含参考 Options 中的默认编辑器字体/字号）、每视图菜单树/工具栏/状态栏/右键菜单清单、场景命名区域矩形；验证 JSON 可被 `tools/visual/compare.ps1` 读取
 - [x] 1.4 编写 `tools/visual/compare.ps1`（只用 PowerShell + System.Drawing）：并排图、差异热图、命名区域边界检测与偏差表、颜色 token 抽样核对，输出 `target/visual/compare/report.md`；验证用参考图对自身比较偏差为 0
 
+> 任务组 1 按 2026-11-10 协调者收窄范围验收：核心文本/文件夹度量优先；其余精调 deferred；Find 按实际改为 text-find-bar；停止参考工具后仅离线收尾。详见 tokens.md。
+
 ## 2. 外观基础（master）
 
 - [ ] 2.1 `chrome/fonts.rs`：系统 Segoe UI / 编辑器字体 / CJK 回退加载、DPI 与快照模式 `pixels_per_point=1`；验证单测：字体缺失回退不 panic

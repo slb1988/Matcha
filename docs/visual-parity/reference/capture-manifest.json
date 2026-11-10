@@ -1,0 +1,556 @@
+[
+  {
+    "scene": "home",
+    "arguments": [
+      "/solo"
+    ],
+    "corpus": [],
+    "operations": [
+      "collapse Auto-saved; select New (no session files edited)"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "36803ADB3D48F2E66CE245E2BB9E34CAD17729F3E6095A64FC8F8D10AB468A8D",
+    "checks": [
+      "client=1384x961; menuInk=295"
+    ],
+    "title": "Home - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-basic",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "C6585340F7EA787D3CB88FE9E827D985FACA497244BE724450656EDFC8F3C4C9",
+    "checks": [
+      "client=1384x961; menuInk=493"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-diffs-filter",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "toolbar Diffs; Context off"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "AAD81FE84C3E9E148DCF2C66D0C07ED9FFE343F4955FAB287F9442830F1B9774",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "operation changed samples=12145"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-long-scrolled",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-long-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-long-right.txt\""
+    ],
+    "corpus": [
+      "text-long-left.txt",
+      "text-long-right.txt"
+    ],
+    "operations": [
+      "left pane; PageDown x3"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "574AF95C58930E97D27E717C746C6F740ACB90A5FF1868C507B3FDB860A55E92",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "operation changed samples=6109"
+    ],
+    "title": "text-long-left.txt <--> text-long-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-cjk-tabs",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-cjk-tabs-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-cjk-tabs-right.txt\""
+    ],
+    "corpus": [
+      "text-cjk-tabs-left.txt",
+      "text-cjk-tabs-right.txt"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "9203EE17DBD2AC86563062F295B03B7ACCA0FB94E90D8ABA9382276F42CF723F",
+    "checks": [
+      "client=1384x961; menuInk=493"
+    ],
+    "title": "text-cjk-tabs-left.txt <--> text-cjk-tabs-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-crlf-lf",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-crlf-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-crlf-right.txt\""
+    ],
+    "corpus": [
+      "text-crlf-left.txt",
+      "text-crlf-right.txt"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "7D0C9FCF61C9E77003C2489C94F14959B5A8AEAA3C75C2A6FB73176003A55DC4",
+    "checks": [
+      "client=1384x961; menuInk=493"
+    ],
+    "title": "text-crlf-left.txt <--> text-crlf-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-cursor-on-diff",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "left pane line 2"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "291020E89E7D8C95BBCDF0ABD5C75D8CF3E17649B827CC9CAE1A60AF8284031B",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "operation changed samples=1019"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-menu-session",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level session menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "4180D8EA6BE03179AFB46A33764DF8205452CE7D2D773CE616C0B8889312636E",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=4353"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-file",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level file menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "24FCEA35EF031B13D890AC7A6119C64D1B86D920231CA5DFD0CB458B07EEA8A6",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=2392"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-edit",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level edit menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "F65487FFC9FE373D7218B554812DC4006EC7BFA45FB8E2E78CC1E8E863E75D0F",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=5488"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-search",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level search menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "D5E54340CC9955230D40411CFE3CF2E1724FEBE1123F5E11726B650994041F48",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=5889"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-view",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level view menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "793CC5F6555F1517B5C6A6FD8C303BED7D490E3A2BD78E9DBA635599573072B5",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=5325"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-tools",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level tools menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "F622108B68EAC5662A4EE1597FCC81ED9F6BA93A7CF2AC82CAD383A852E83BF6",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=3667"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "text-menu-help",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "open top-level help menu"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "67F65BB443554DC42FDD17806FD68A013AB72E70EB56996FF7255D5773FDCAD5",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "menu dropdown changed samples=3352"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client + popup hwnd composite (coordinator approved)"
+  },
+  {
+    "scene": "folder-basic",
+    "arguments": [
+      "/solo",
+      "/fv=\"Folder Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-left\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-right\""
+    ],
+    "corpus": [
+      "folder-left",
+      "folder-right"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "FEDC91134901A44C5540D1E66007A2B5A5E276F59D3F83681FA720BA86DD014E",
+    "checks": [
+      "client=1384x961; menuInk=483",
+      "Folder Compare dual header/grid edges=1334,1516"
+    ],
+    "title": "folder-left <--> folder-right - Folder Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "folder-expanded",
+    "arguments": [
+      "/solo",
+      "/fv=\"Folder Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-left\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-right\""
+    ],
+    "corpus": [
+      "folder-left",
+      "folder-right"
+    ],
+    "operations": [
+      "Ctrl+A; Edit > Expand All"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "E2017240F2D34EDA7355D2C581860D180708D7D841E721416E45D067C78D646B",
+    "checks": [
+      "client=1384x961; menuInk=483",
+      "operation changed samples=24776",
+      "Folder Compare dual header/grid edges=1334,1516"
+    ],
+    "title": "folder-left <--> folder-right - Folder Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "folder-diffs-filter",
+    "arguments": [
+      "/solo",
+      "/fv=\"Folder Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-left\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-right\""
+    ],
+    "corpus": [
+      "folder-left",
+      "folder-right"
+    ],
+    "operations": [
+      "toolbar Diffs"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "083D35FE4E770FAACCEEE7B9868BFF8FAFEDFDC0C8F693680DDB04BCF93186A7",
+    "checks": [
+      "client=1384x961; menuInk=483",
+      "operation changed samples=1487",
+      "Folder Compare dual header/grid edges=1334,1516"
+    ],
+    "title": "folder-left <--> folder-right - Folder Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "folder-sync",
+    "arguments": [
+      "/solo",
+      "/fv=\"Folder Sync\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-left\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\folder-right\""
+    ],
+    "corpus": [
+      "folder-left",
+      "folder-right"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "4BA63C46A3F4D75C89BAA44A3D63EC3FCFA7F59E5DEDC1B3480C1129985ED0C2",
+    "checks": [
+      "client=1384x961; menuInk=483",
+      "Folder Sync dual header/grid edges=437,142"
+    ],
+    "title": "Update: folder-left <--> folder-right - Folder Sync - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "table-basic",
+    "arguments": [
+      "/solo",
+      "/fv=\"Table Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\table-left.csv\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\table-right.csv\""
+    ],
+    "corpus": [
+      "table-left.csv",
+      "table-right.csv"
+    ],
+    "operations": [],
+    "width": 1384,
+    "height": 961,
+    "sha256": "31E406EA783A6AAAE1D78FECC44E4CFB263593DADEB05DFB6F5EFFC1EB4B422F",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "Table Compare dual header/grid edges=574,505"
+    ],
+    "title": "table-left.csv <--> table-right.csv - Table Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "table-cursor-on-diff",
+    "arguments": [
+      "/solo",
+      "/fv=\"Table Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\table-left.csv\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\table-right.csv\""
+    ],
+    "corpus": [
+      "table-left.csv",
+      "table-right.csv"
+    ],
+    "operations": [
+      "left grid differing cell"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "AFDD7A09BFA888369F8526FBB962BFDBBD04240227C96D24B0CE36F1780DB388",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "operation changed samples=429",
+      "Table Compare dual header/grid edges=524,503"
+    ],
+    "title": "table-left.csv <--> table-right.csv - Table Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "dlg-text-session-settings",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "Session > Session Settings (observed menu row)"
+    ],
+    "width": 583,
+    "height": 563,
+    "sha256": "73862450718C681091209CB497C54754E57CB60925499EA0F8976B9A78752384",
+    "checks": [
+      "dialogHwnd=4592074 != mainHwnd=11604438; title=Session Settings - Text Compare"
+    ],
+    "title": "Session Settings - Text Compare",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "dlg-options",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "Tools > Options"
+    ],
+    "width": 859,
+    "height": 655,
+    "sha256": "90796186FDA65C569244E722288FAD9B23B9434A286203434AE57C7517459E5E",
+    "checks": [
+      "dialogHwnd=16587314 != mainHwnd=26284756; title=Options"
+    ],
+    "title": "Options",
+    "capture": "PrintWindow client"
+  },
+  {
+    "scene": "text-find-bar",
+    "arguments": [
+      "/solo",
+      "/fv=\"Text Compare\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-left.txt\"",
+      "\"C:\\Users\\admin\\orca\\workspaces\\Matcha\\visual-ref\\tools\\visual\\corpus\\text-basic-right.txt\""
+    ],
+    "corpus": [
+      "text-basic-left.txt",
+      "text-basic-right.txt"
+    ],
+    "operations": [
+      "Search > Find; docked bar (coordinator approved)"
+    ],
+    "width": 1384,
+    "height": 961,
+    "sha256": "CF8F611F71B3D9E2591736CEE0A06B728D5240F50C7216E8B930CE1D8C791D91",
+    "checks": [
+      "client=1384x961; menuInk=493",
+      "findbar changed samples=4391"
+    ],
+    "title": "text-basic-left.txt <--> text-basic-right.txt - Text Compare - Beyond Compare",
+    "capture": "PrintWindow client"
+  }
+]

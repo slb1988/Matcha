@@ -1,0 +1,142 @@
+{
+  "name": "Columns",
+  "source": "sync-menu-View-3.png",
+  "screenRect": [
+    458,
+    128,
+    110,
+    216
+  ],
+  "items": [
+    {
+      "name": "Ext",
+      "mnemonic": "e",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Status",
+      "mnemonic": "s",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Revision",
+      "mnemonic": "i",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Version",
+      "mnemonic": "v",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Size",
+      "mnemonic": "z",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": true,
+      "hasSubmenu": false,
+      "msaaState": 1048592,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "CRC",
+      "mnemonic": "c",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Modified",
+      "mnemonic": "m",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": true,
+      "hasSubmenu": false,
+      "msaaState": 1048592,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Attributes",
+      "mnemonic": "a",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Owner",
+      "mnemonic": "o",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Group",
+      "mnemonic": "g",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "sync-menu-View-3.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}

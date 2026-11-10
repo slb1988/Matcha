@@ -1,0 +1,38 @@
+{
+  "name": "Browse for Folder",
+  "source": "folder-menu-Session-18.png",
+  "screenRect": [
+    276,
+    421,
+    113,
+    48
+  ],
+  "items": [
+    {
+      "name": "Left Side",
+      "mnemonic": "l",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Session-18.png",
+      "children": [],
+      "dynamicExternal": false
+    },
+    {
+      "name": "Right Side",
+      "mnemonic": "r",
+      "shortcut": null,
+      "separator": false,
+      "enabled": true,
+      "checked": false,
+      "hasSubmenu": false,
+      "msaaState": 1048576,
+      "source": "folder-menu-Session-18.png",
+      "children": [],
+      "dynamicExternal": false
+    }
+  ]
+}
