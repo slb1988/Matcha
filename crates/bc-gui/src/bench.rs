@@ -38,6 +38,23 @@ pub fn save_screenshot(
     file.flush()
 }
 
+/// 将帧缓冲保存为无时间戳的 PNG；编码器来自已有 image 依赖。
+pub fn save_png(path: &std::path::Path, image: &eframe::egui::ColorImage) -> std::io::Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let bytes: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
+    image::save_buffer_with_format(
+        path,
+        &bytes,
+        image.width() as u32,
+        image.height() as u32,
+        image::ColorType::Rgba8,
+        image::ImageFormat::Png,
+    )
+    .map_err(std::io::Error::other)
+}
+
 /// Benchmark configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BenchOptions {

@@ -30,20 +30,40 @@ pub struct MatchaApp {
     exit_confirmed: bool,
     screenshot: Option<std::path::PathBuf>,
     snapshot: Option<String>,
-    snapshot_frames: u8,
+    snapshot_capture: Option<std::sync::Arc<crate::snapshot::Capture>>,
+    snapshot_preset_applied: bool,
+    chrome_demo: crate::snapshot::ChromeDemo,
     capture_requested: bool,
     table_perf_reported: bool,
 }
 impl MatchaApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, options: LaunchOptions) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        options: LaunchOptions,
+        capture_result: crate::snapshot::CaptureResult,
+    ) -> Self {
         crate::perf::mark("app:new-enter");
-        cc.egui_ctx.all_styles_mut(|style| {
-            style
-                .text_styles
-                .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
-        });
-        crate::chrome::fonts::install(&cc.egui_ctx);
         crate::chrome::theme::apply(&cc.egui_ctx);
+        crate::chrome::fonts::install(&cc.egui_ctx);
+        let snapshot_capture = options
+            .snapshot_out
+            .as_ref()
+            .filter(|_| options.snapshot.is_some())
+            .map(|path| {
+                crate::chrome::fonts::snapshot_scale(&cc.egui_ctx);
+                cc.egui_ctx.all_styles_mut(|style| {
+                    style.animation_time = 0.0;
+                    style.visuals.text_cursor.blink = false;
+                });
+                crate::snapshot::Capture::install(
+                    &cc.egui_ctx,
+                    path.clone(),
+                    options
+                        .window_size
+                        .unwrap_or(crate::snapshot::DEFAULT_WINDOW_SIZE),
+                    capture_result,
+                )
+            });
         crate::perf::mark("app:fonts-installed");
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
@@ -53,7 +73,9 @@ impl MatchaApp {
             (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
                 match TableCompareView::open(l, r) {
                     Ok(v) => {
-                        HomeView::record(l, r);
+                        if options.snapshot.is_none() {
+                            HomeView::record(l, r);
+                        }
                         View::TableCompare(Box::new(v))
                     }
                     Err(e) => {
@@ -64,7 +86,9 @@ impl MatchaApp {
             }
             (Some(l), Some(r)) => match TextCompareView::open(l, r) {
                 Ok(v) => {
-                    HomeView::record(l, r);
+                    if options.snapshot.is_none() {
+                        HomeView::record(l, r);
+                    }
                     View::TextCompare(Box::new(v))
                 }
                 Err(e) => {
@@ -96,7 +120,9 @@ impl MatchaApp {
             exit_confirmed: false,
             screenshot: options.screenshot,
             snapshot: options.snapshot,
-            snapshot_frames: 0,
+            snapshot_capture,
+            snapshot_preset_applied: false,
+            chrome_demo: Default::default(),
             capture_requested: false,
             table_perf_reported: false,
         }
@@ -130,9 +156,19 @@ impl MatchaApp {
     }
 }
 impl eframe::App for MatchaApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::from(crate::chrome::theme::PANEL_BG).to_array()
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        if self.snapshot.is_some() {
+            input.time = Some(1.0);
+            input.events.clear();
+        }
+    }
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let started = Instant::now();
-        self.snapshot_frames = self.snapshot_frames.saturating_add(1);
+
         let ctx = ui.ctx().clone();
         self.frame_cpu_ms = frame.info().cpu_usage.map(|s| s as f64 * 1e3);
         if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
@@ -186,7 +222,7 @@ impl eframe::App for MatchaApp {
                 }
             }
         }
-        if (benchmark_ready || (self.snapshot.is_some() && self.snapshot_frames >= 2)) && !self.capture_requested {
+        if benchmark_ready && self.snapshot.is_none() && !self.capture_requested {
             if let Some(path) = self.screenshot.take() {
                 ctx.request_screenshot(move |image| {
                     if let Err(error) = crate::bench::save_screenshot(&path, &image) {
@@ -200,41 +236,53 @@ impl eframe::App for MatchaApp {
             view.poll(&ctx);
             bench.drive(view, &ctx);
         }
-        if let Some(scene) = self.snapshot.clone() { crate::snapshot::demo(ui, &scene); } else { self.top_bar(ui);
+        if let Some(scene) = self
+            .snapshot
+            .as_deref()
+            .filter(|s| crate::snapshot::is_demo(s))
+        {
+            self.chrome_demo.show(ui, scene);
+            if let Some(capture) = &self.snapshot_capture {
+                capture.set_ready(true);
+            }
+            return;
         }
-        egui::Panel::bottom("performance_status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!("update {:.2} ms", self.last_update_ms));
-                if let Some(cpu) = self.frame_cpu_ms {
-                    ui.label(format!("frame cpu {cpu:.2} ms"));
-                }
-                if let View::TextCompare(v) = &self.view {
-                    ui.label(format!(
-                        "rows drawn {} · total rows {}",
-                        v.last_stats.rows_drawn,
-                        v.row_count()
-                    ));
-                }
-                if let View::TableCompare(v) = &self.view {
-                    ui.label(format!(
-                        "rows drawn {} · cells drawn {} · total rows {}",
-                        v.rows_drawn(),
-                        v.cells_drawn(),
-                        v.row_count()
-                    ));
-                }
-                if self.bench.is_some() {
-                    ui.colored_label(
-                        egui::Color32::YELLOW,
-                        if benchmark_ready {
-                            "benchmark running"
-                        } else {
-                            "benchmark waiting for alignment"
-                        },
-                    );
-                }
+        self.top_bar(ui);
+        if self.snapshot.is_none() {
+            egui::Panel::bottom("performance_status").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!("update {:.2} ms", self.last_update_ms));
+                    if let Some(cpu) = self.frame_cpu_ms {
+                        ui.label(format!("frame cpu {cpu:.2} ms"));
+                    }
+                    if let View::TextCompare(v) = &self.view {
+                        ui.label(format!(
+                            "rows drawn {} · total rows {}",
+                            v.last_stats.rows_drawn,
+                            v.row_count()
+                        ));
+                    }
+                    if let View::TableCompare(v) = &self.view {
+                        ui.label(format!(
+                            "rows drawn {} · cells drawn {} · total rows {}",
+                            v.rows_drawn(),
+                            v.cells_drawn(),
+                            v.row_count()
+                        ));
+                    }
+                    if self.bench.is_some() {
+                        ui.colored_label(
+                            egui::Color32::YELLOW,
+                            if benchmark_ready {
+                                "benchmark running"
+                            } else {
+                                "benchmark waiting for alignment"
+                            },
+                        );
+                    }
+                });
             });
-        });
+        }
         let mut home_action = None;
         let mut view_action = None;
         let mut table_action = None;
@@ -246,6 +294,25 @@ impl eframe::App for MatchaApp {
             View::FolderCompare(view) => folder_switch = view.ui(ui),
             View::FolderSync(view) => folder_switch = view.ui(ui),
         });
+        if let Some(capture) = &self.snapshot_capture {
+            let mut ready = match &self.view {
+                View::TextCompare(v) => v.is_ready(),
+                View::TableCompare(v) => v.is_ready(),
+                View::FolderCompare(v) => !v.busy(),
+                _ => false,
+            };
+            if ready && !self.snapshot_preset_applied {
+                match &mut self.view {
+                    View::TextCompare(v) => v.scroll_to_row(0),
+                    View::TableCompare(v) => v.scroll_to_row(0),
+                    View::FolderCompare(v) => v.send(crate::dir_view::Command::ExpandAll(true)),
+                    _ => {}
+                }
+                self.snapshot_preset_applied = true;
+                ready = false;
+            }
+            capture.set_ready(ready);
+        }
         // The central panel has just drawn the comparison grid when the view
         // first reports ready: this is the first interactive frame.
         if !self.table_perf_reported && crate::perf::enabled() {
@@ -423,5 +490,3 @@ impl eframe::App for MatchaApp {
         }
     }
 }
-
-

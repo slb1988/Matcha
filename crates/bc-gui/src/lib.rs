@@ -15,19 +15,19 @@
 
 pub mod app;
 pub mod bench;
-pub mod home;
-pub mod perf;
-pub mod table;
-pub mod text;
-pub mod dir_view;
-pub mod sync_view;
 pub mod bench_dir;
+pub mod chrome;
+pub mod dialogs;
+pub mod dir_view;
+pub mod filters_bar;
+pub mod home;
 pub mod legend;
 pub mod log_panel;
-pub mod filters_bar;
-pub mod dialogs;
-pub mod chrome;
+pub mod perf;
 pub mod snapshot;
+pub mod sync_view;
+pub mod table;
+pub mod text;
 
 use std::path::PathBuf;
 
@@ -45,25 +45,44 @@ pub struct LaunchOptions {
     /// Capture this application's own framebuffer as BMP, even on a locked desktop.
     pub screenshot: Option<PathBuf>,
     pub snapshot: Option<String>,
+    /// PNG destination for deterministic snapshot mode.
+    pub snapshot_out: Option<PathBuf>,
     pub window_size: Option<[f32; 2]>,
 }
 
 /// Start the native window. Blocks until the window closes.
 pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
     perf::mark("run:enter");
+    let options =
+        snapshot::prepare_options(options).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
+    let snapshot_mode = options.snapshot.is_some();
+    let result: snapshot::CaptureResult = Default::default();
+    let capture_result = result.clone();
+    let size = options.window_size.unwrap_or(if snapshot_mode {
+        snapshot::DEFAULT_WINDOW_SIZE
+    } else {
+        [1400.0, 900.0]
+    });
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1400.0, 900.0])
+            .with_inner_size(size)
             .with_title("Matcha"),
         ..Default::default()
     };
     eframe::run_native(
         "matcha",
         native,
-        Box::new(move |cc| Ok(Box::new(app::MatchaApp::new(cc, options)))),
-    )
+        Box::new(move |cc| Ok(Box::new(app::MatchaApp::new(cc, options, capture_result)))),
+    )?;
+    if snapshot_mode {
+        let outcome = result
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| Err("snapshot window closed before PNG was saved".into()));
+        outcome.map_err(|e| eframe::Error::AppCreation(Box::new(std::io::Error::other(e))))?;
+    }
+    Ok(())
 }
 
 pub use eframe::egui;
-
-

@@ -1,6 +1,6 @@
 # bc-gui
 
-正式的 egui 0.37 文本比较视图。唯一依赖 GUI 工具包的 crate；没有 GUI 自己的 mmap、unsafe 或新增第三方依赖。底层只读锁与编码由 bc-core / bc-engine-text 负责。
+正式的 egui 0.37 文本比较视图。唯一依赖 GUI 工具包的 crate；没有 GUI 自己的 mmap 或 unsafe；PNG 复用工作区已有 image 版本。底层只读锁与编码由 bc-core / bc-engine-text 负责。
 
 ## 结构
 
@@ -49,3 +49,21 @@ cargo test -p bc-gui --lib
 18 个 GUI 回归使用真实 egui RawInput（鼠标、键盘、拖放、IME）与 tessellation，并覆盖保存/撤销/对齐/过滤；正式原生程序另跑 110 MB 基准与 GPU 截图。原生 Windows 中文输入法候选窗因锁定桌面待负责人手验，不能以提交事件测试冒称已完成原生候选窗验收。
 
 原生文件选择器、持久化会话、打印/报告、词内差异导航、Word Wrap、书签、外部工具及独立详细面板后置。路径文本框和最近列表是本期正式打开/保存入口；Compare Parent Folders 在两侧均为已保存磁盘文件时启用，打开两侧父目录的文件夹比较。逐命令取舍见 [对照清单](../../docs/reference-parity/text-compare.md)。
+
+## 外观基础与快照（Wave 1B）
+
+`chrome/` 提供数据驱动菜单、工具栏、路径/状态栏、分割条和简单滚动条；视图拿返回的 action_id 调用已有业务动作。实际文本/文件夹布局本波不重排，完整接线在 Wave 2/3。
+
+```powershell
+cargo run --release -p bcompare -- --snapshot=text-basic
+cargo run --release -p bcompare -- --snapshot=chrome-demo --snapshot-out=target/demo.png --window-size=1384x961
+tools/visual/set-corpus-mtime.ps1
+tools/visual/snap-matcha.ps1 -All -Verify
+```
+
+- 场景仅 `icon-catalog`、`chrome-demo`、`text-basic`、`folder-basic`；默认 PNG 为 `target/visual/matcha/<scene>.png`，客户区 1384×961。
+- 文本/文件夹使用 `tools/visual/corpus/` 的真实语料与真实视图；文件夹预置展开全部。后台完成后再等待两帧无视图/egui 重绘请求，写入 PNG 后退出，失败非零退出；60 秒门控超时。
+- 快照禁用动画/光标闪烁，固定逻辑时间、100% DPI、排除外部输入和 performance_status 调试栏，不记录演示语料到最近会话。`--screenshot` 的 BMP 兼容行为保留。
+- Windows UI 字体来自 `SPI_GETNONCLIENTMETRICS.lfMessageFont`；为了保持 Rust `forbid(unsafe_code)`，使用隐藏的系统 PowerShell 一次性查询 SPI 与字体注册表。失败回退 Segoe UI/egui 内置，Consolas 10pt 编辑器与微软雅黑 CJK 回退；不分发字体文件。
+- 主题仅镜像实际使用的 `tokens.json` 条目，单测逐字段断言；不在每帧读取 JSON。颜色/度量余下精调交给 Wave 2。
+- 组件 API、验收日志、截图和 A/B 数据见 [Wave 1B 报告](../../docs/worker-reports/visual-parity-wave1B.md)。
