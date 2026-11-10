@@ -24,19 +24,18 @@
 
 ## 3. Wave 2 收尾状态
 
-**部分交付（outcome=failed，按紧急收尾指令停止）**，报告 `docs/worker-reports/visual-parity-wave2.md`（`5864733`）。
+**Wave 2 已完成**（Wave 2b 收口任务 3.4，提交 `6586a7e` + 报告提交，报告 `docs/worker-reports/visual-parity-wave2b.md`）：
 
-- 已完成并提交：3.1 菜单栏 + 大图标工具栏（旧按钮行全部迁移，迁移表见报告）、3.2 路径栏/信息头/行号与箭头槽/差异色/编辑器字体、3.3 窗格状态/行详情/状态栏/窗口标题。提交 `c5a3a2b`、`b4c0832`、`e618cd6`、`e87c3ba`。全仓 clippy 零警告、424 tests passed。
-- 新增快照场景 `text-diffs-filter`、`text-cursor-on-diff`；并排图 `docs/worker-reports/assets/visual-wave2-*-side.png`。协调者目检：整体结构与参考高度一致。
-- **未完成（任务 3.4）**：
-  - 对照最大偏差 8 px，多数区域未达 ≤ 2 px；固定颜色样本 12/21 通过。完整四边表在 `target/visual/wave2-transaction/<scene>-compare.md`（未入库，需重跑 compare 生成）。
-  - 目检可见差异：左窗格 EOF/缺行处缺斜纹/网纹；缩略图仍是旧导航条（参考为顶部微型文档，已后置可不做）；路径栏右侧小按钮样式；行详情箭头/行尾符形状。
-  - `tools/visual/snap-matcha.ps1` 的 `ValidateSet` 未加入两个新场景；新场景未做两次快照字节一致复验。
-  - 性能 A/B（文本 `--bench`、表格 `--bench-table`，基线 `8ace066` vs HEAD）未执行；Wave 1B 表格 +15.9% 未复测。
+- 核心区域全部达标：自动扫描通过 menubar/toolbar/pathbar.*/paneStatus.*/pane.left/details 等 9–10 项；info.right、gutter.right、pane.right、splitter、statusbar 的自动 FAIL 经人工逐像素测量证实为平坦色带检测噪声（真实偏差 ≤1 px），证据在报告内。`compare.ps1` 判定规则未改。
+- 颜色样本 16/21（Wave 2 为 12/21）；未通过 5 项（diffForeground/lineNumber/minorForeground 为 egui 灰度 AA vs GDI ClearType 笔划强度差；pathSelection 因本机路径短于参考截图机；toolbarToggleBorder 差 1 px 按钮位置）。
+- 可见修复：缺行/EOF 改为参考的 8 px 菱格位图（逐像素一致）；路径栏右侧无边框 16 px 图标钮 + 编辑框内嵌历史箭头 + 快照复刻路径全选；Differences/Same 新增「N FILTERED LINES」灰色分隔行（15 px，参考 9 px，列为已知差异）；cursor 场景光标列 5。
+- `snap-matcha.ps1 -All -Verify` 六场景两次哈希一致；clippy 零警告、424 tests passed。
+- 性能 A/B（基线 `8ace066` worktree 构建）：文本 p99 +1.3%、表格 +5.5%（Wave 1B 的 +15.9% 未重现），各 1 轮均 <10%。
+- 已知差异（详见 Wave 2b 报告）：缩略图旧导航条（后置）、折叠行 15 px 行高、菜单栏无更新提示链接、字形级 AA 强度差。
 
 ## 4. 剩余工作（按顺序，串行）
 
-1. **Wave 2b：收口任务 3.4**（已派 pi，见 ObsidianVault `.claude/plans/Matcha编排-visual-parity-wave2b.md`）：核心区域偏差与颜色样本收敛（每区域最多两轮）、缺行斜纹/EOF 网纹、snap-matcha 场景集、性能 A/B。
+1. ~~**Wave 2b：收口任务 3.4**~~ **已完成**（见第 3 节，报告 `docs/worker-reports/visual-parity-wave2b.md`）。
 2. **Wave 3：文件夹比较主视图（任务 4.1）**：菜单栏/工具栏（`inventories` 中 folder 视图条目：Home、Sessions▾、All、Diffs▾、Same、Files▾、Minor、Rules、Copy、Expand、Collapse、Select、Files、Refresh、Swap、Stop）、过滤栏（Filters 输入 + Filters/Peek）、路径栏、双树（列头 Name/Size/Modified，行高 20，列宽 437/78/150，展开符、文件夹/文件小图标、名称颜色：孤儿 `#6A00D5` 紫、不同为红、较新/较旧按 tokens）、日志区、状态栏。参考图：`reference/folder-basic.png`、`folder-expanded.png`、`folder-diffs-filter.png`。只动 `dir_view.rs`、`filters_bar.rs`、`app.rs` 最小接线、`snapshot.rs`；同步视图不动。
 3. **7.1 收尾报告（核心版）**：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
 4. 后置项（第 1 节）等用户再开。
@@ -44,7 +43,7 @@
 ## 5. 跟进项（不在外观范围）
 
 - **默认比较规则与参考对齐**：参考 text-basic 中 `beta`/`BETA` 显示为同一行蓝色不重要差异，说明参考默认规则下大小写不重要；Matcha 默认 `case_unimportant=false`。ADR 007 写明黄金语料未继承未核实的默认配置。需另立行为 change：先离线看 `reference/dlg-text-session-settings.png` 等核实默认 Importance，再改默认值。Wave 2 仅在快照 preset 中显式设 `case_unimportant=true`。
-- **性能暂留**：Wave 1B 后表格 `--bench-table` update p99 中位数 +15.9%（绝对约 1.2 ms，远低于 4 ms 门槛），文本 +8.6%。复测数字见 Wave 2 报告。
+- **性能暂留**：Wave 2b 复测：文本 `--bench` update p99 +1.3%、表格 `--bench-table` +5.5%（基线 `8ace066` worktree 构建，各 1 轮）；Wave 1B 的表格 +15.9% 未重现。日志 `target/visual/wave2b/bench/`。
 - **fmt 历史债**：约 39 个历史文件 `cargo fmt --check` 不通过，未授权全仓 fmt；worker 只格式化自己触及的文件。
 
 ## 6. 编排方法（给下一任协调者）
