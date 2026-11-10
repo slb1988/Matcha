@@ -36,7 +36,7 @@
 ## 4. 剩余工作（按顺序，串行）
 
 1. ~~**Wave 2b：收口任务 3.4**~~ **已完成**（见第 3 节，报告 `docs/worker-reports/visual-parity-wave2b.md`）。
-2. **Wave 3：文件夹比较主视图（任务 4.1）**：菜单栏/工具栏（`inventories` 中 folder 视图条目：Home、Sessions▾、All、Diffs▾、Same、Files▾、Minor、Rules、Copy、Expand、Collapse、Select、Files、Refresh、Swap、Stop）、过滤栏（Filters 输入 + Filters/Peek）、路径栏、双树（列头 Name/Size/Modified，行高 20，列宽 437/78/150，展开符、文件夹/文件小图标、名称颜色：孤儿 `#6A00D5` 紫、不同为红、较新/较旧按 tokens）、日志区、状态栏。参考图：`reference/folder-basic.png`、`folder-expanded.png`、`folder-diffs-filter.png`。只动 `dir_view.rs`、`filters_bar.rs`、`app.rs` 最小接线、`snapshot.rs`；同步视图不动。
+2. ~~**Wave 3：文件夹比较主视图（任务 4.1）**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave3.md`，提交 `9d438e6`+`e127a6d`）：菜单栏/工具栏/过滤栏/路径栏/双树/日志区/状态栏全部按参考换肤；三场景命名区域 ≤2 px（多数精确 0），颜色样本 basic 2/2、expanded 5 项为字形 AA 已知差异；排序按名称并孤儿不后置（仅比较视图）；Modified 本地时区格式（仅比较视图）；同步视图零改动。文件夹同步（4.2）与对照收口（4.3）未做。
 3. **7.1 收尾报告（核心版）**：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
 4. 后置项（第 1 节）等用户再开。
 
