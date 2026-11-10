@@ -16,3 +16,8 @@ bc-engine-table = { workspace = true }
 bc-engine-dir = { workspace = true }
 bc-session = { workspace = true }
 eframe = { workspace = true }
+
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
