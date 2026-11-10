@@ -312,8 +312,8 @@ impl eframe::App for MatchaApp {
             View::FolderSync(view) => folder_switch = view.ui(ui),
         });
         if let Some(capture) = &self.snapshot_capture {
-            let mut ready = match &self.view {
-                View::TextCompare(v) => v.is_ready(),
+            let mut ready = match &mut self.view {
+                View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::TableCompare(v) => v.is_ready(),
                 View::FolderCompare(v) => !v.busy(),
                 _ => false,

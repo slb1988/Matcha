@@ -73,7 +73,7 @@ pub struct FileInfo {
     pub byte_len: usize,
     pub load_time: Duration,
     pub metadata_dirty: bool,
-    pub modified_label: String,
+    pub modified_label: super::status_bar::ModifiedLabel,
 }
 pub struct TextCompareView {
     pub map: TextMap,
@@ -138,8 +138,10 @@ impl TextCompareView {
                 .map_err(|e| CoreError::Invalid(format!("user formats: {e}")))?,
             Err(_) => FormatRegistry::with_builtins(),
         };
+        let t = std::time::Instant::now();
         let (l, lf) = load(left, &registry)?;
         let (r, rf) = load(right, &registry)?;
+        crate::perf::span("text:load-files", t);
         let mut view = Self::from_contents(l, r, registry);
         view.files = [lf, rf];
         view.recent = vec![left.to_path_buf(), right.to_path_buf()];
@@ -269,6 +271,11 @@ impl TextCompareView {
     pub fn index_bytes(&self) -> usize {
         (self.map.left.lines.borrow().len() + self.map.right.lines.borrow().len())
             * std::mem::size_of::<bc_core::line::Line>()
+    }
+    /// True while a file's modification label is still being resolved.
+    pub fn labels_pending(&mut self) -> bool {
+        let left = self.files[0].modified_label.poll();
+        self.files[1].modified_label.poll() || left
     }
     pub fn poll(&mut self) {
         if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
@@ -822,7 +829,7 @@ impl TextCompareView {
             self.window_title = title;
         }
 
-        if self.worker.is_some() || self.edited_at.is_some() {
+        if self.worker.is_some() || self.edited_at.is_some() || self.labels_pending() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         self.keyboard(&ctx, prefs);
@@ -1575,7 +1582,7 @@ impl TextCompareView {
                     ui.visuals_mut().widgets.inactive.weak_bg_fill = crate::chrome::theme::PANEL_BG;
                     ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
                     ui.allocate_ui(egui::vec2(132.0, 20.0), |ui| {
-                        ui.label(&self.files[s].modified_label);
+                        ui.label(self.files[s].modified_label.text());
                     });
                     ui.allocate_ui(egui::vec2(56.0, 20.0), |ui| {
                         ui.label(format!("{} bytes", self.files[s].byte_len));
@@ -1958,12 +1965,13 @@ fn load(path: &Path, registry: &FormatRegistry) -> Result<(TextContent, FileInfo
     )?;
     content.read_only = metadata.permissions().readonly();
     let load_time = start.elapsed();
+    let modified_label = super::status_bar::ModifiedLabel::resolve(metadata.modified().ok());
     Ok((
         content,
         FileInfo {
             path: Some(path.to_path_buf()),
             byte_len: metadata.len() as usize,
-            modified_label: super::status_bar::modified_label(metadata.modified().ok()),
+            modified_label,
             load_time,
             ..Default::default()
         },

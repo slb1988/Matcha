@@ -234,6 +234,52 @@ pub fn ending_label(content: &TextContent) -> &'static str {
         LineEnding::None => "",
     }
 }
+/// File modification label resolved off the UI thread: the local-time host
+/// query costs ~150 ms per file, which used to stall every text open.
+#[derive(Default)]
+pub struct ModifiedLabel {
+    text: String,
+    pending: Option<std::sync::mpsc::Receiver<String>>,
+}
+impl ModifiedLabel {
+    pub fn resolve(time: Option<std::time::SystemTime>) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = time.is_some()
+            && std::thread::Builder::new()
+                .name("matcha-modified-label".into())
+                .spawn(move || {
+                    let t = std::time::Instant::now();
+                    let _ = tx.send(modified_label(time));
+                    crate::perf::span("text:modified-label", t);
+                })
+                .is_ok();
+        Self {
+            text: if spawned || time.is_none() {
+                String::new()
+            } else {
+                modified_label(time)
+            },
+            pending: spawned.then_some(rx),
+        }
+    }
+    /// Pick up a finished lookup; true while one is still running.
+    pub fn poll(&mut self) -> bool {
+        if let Some(rx) = &self.pending {
+            match rx.try_recv() {
+                Ok(text) => {
+                    self.text = text;
+                    self.pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.pending = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        self.pending.is_some()
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
 /// 在加载时缓存系统本地时间；没有平台 FFI、依赖或逐帧 I/O；失败时明确回退 UTC。
 pub fn modified_label(time: Option<std::time::SystemTime>) -> String {
     let Some(seconds) = time
