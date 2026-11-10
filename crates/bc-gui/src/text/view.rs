@@ -799,6 +799,11 @@ impl TextCompareView {
             self.filter = DisplayFilter::Differences;
             self.rebuild_projection();
         }
+        if scene == "text-long-scrolled" {
+            // Reference: left pane, PageDown x3 → top row 147, caret row 158.
+            self.goto_row(158);
+            self.scroll_to_row(147);
+        }
         if scene == "text-cursor-on-diff" {
             self.goto_row(self.row_for_line(0, 1));
             // 参考光标停在第 2 行第 5 列。

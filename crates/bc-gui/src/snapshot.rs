@@ -24,11 +24,15 @@ pub const SCENES: &[&str] = &[
     "text-cursor-on-diff",
     "folder-expanded",
     "folder-diffs-filter",
+    "text-long-scrolled",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
 pub const TEXT_LEFT: &str = "tools/visual/corpus/text-basic-left.txt";
 pub const TEXT_RIGHT: &str = "tools/visual/corpus/text-basic-right.txt";
+/// Long pair for the scrolled-thumbnail scene.
+pub const TEXT_LONG_LEFT: &str = "tools/visual/corpus/text-long-left.txt";
+pub const TEXT_LONG_RIGHT: &str = "tools/visual/corpus/text-long-right.txt";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneView {
     Icons,
@@ -42,6 +46,7 @@ pub enum Preset {
     ExpandAll,
     Differences,
     CursorOnDifference,
+    LongScrolled,
     None,
 }
 #[derive(Clone, Copy, Debug)]
@@ -50,7 +55,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 8] = [
+pub const REGISTRY: [Scene; 9] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -91,6 +96,11 @@ pub const REGISTRY: [Scene; 8] = [
         view: SceneView::Folder,
         preset: Preset::Differences,
     },
+    Scene {
+        name: "text-long-scrolled",
+        view: SceneView::Text,
+        preset: Preset::LongScrolled,
+    },
 ];
 pub fn is_scene(scene: Option<&str>) -> bool {
     scene.is_some_and(|s| REGISTRY.iter().any(|r| r.name == s))
@@ -118,6 +128,10 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
         .snapshot_out
         .get_or_insert_with(|| PathBuf::from(format!("target/visual/matcha/{scene}.png")));
     let inputs = match entry.view {
+        SceneView::Text if entry.preset == Preset::LongScrolled => Some((
+            PathBuf::from(TEXT_LONG_LEFT),
+            PathBuf::from(TEXT_LONG_RIGHT),
+        )),
         SceneView::Text => Some((PathBuf::from(TEXT_LEFT), PathBuf::from(TEXT_RIGHT))),
         SceneView::Folder => Some((
             PathBuf::from("tools/visual/corpus/folder-left"),
