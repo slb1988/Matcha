@@ -364,6 +364,11 @@ impl TextCompareView {
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
             ui.memory_mut(|m| m.request_focus(id));
         }
+        let status = egui::Rect::from_min_size(
+            egui::pos2(rect.left(), rect.bottom()),
+            egui::vec2(rect.width(), 19.0),
+        );
+        super::status_bar::pane(ui, status, self.content(s), &self.editors[s]);
         let offset = output.state.clamped_offset();
         if (offset - scroll).length() > 0.5 {
             self.scroll = offset;

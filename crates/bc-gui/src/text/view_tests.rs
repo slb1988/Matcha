@@ -630,3 +630,21 @@ fn chrome_commands_keep_legacy_actions_and_filter_state() {
             .enabled
     );
 }
+
+#[test]
+fn status_title_and_core_geometry_follow_reference_slots() {
+    let ctx = egui::Context::default();
+    let mut v = view("one\n", "two\n");
+    v.files[0].path = Some("left.txt".into());
+    v.files[1].path = Some("right.txt".into());
+    assert_eq!(v.title(), "left.txt <--> right.txt - Text Compare - Matcha");
+    let out = frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.pane_rects[0].top(), 123.0);
+    assert_eq!(v.pane_rects[0].left(), 52.0);
+    assert_eq!(v.pane_rects[0].bottom(), 807.0);
+    assert!(text_shapes(&out).iter().any(|(t, _)| t == "Default text"));
+    assert!(text_shapes(&out).iter().any(|(t, _)| t == "Insert"));
+    assert!(text_shapes(&out)
+        .iter()
+        .any(|(t, _)| t.contains("difference section(s)")));
+}

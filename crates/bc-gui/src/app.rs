@@ -206,7 +206,7 @@ impl eframe::App for MatchaApp {
         if benchmark_ready {
             if let (Some(bench), View::TextCompare(view)) = (&mut self.bench, &mut self.view) {
                 match bench.next_step(view.row_count()) {
-                    Step::Smooth(n) => view.scroll_to_row(view.top_row(18.0) + n),
+                    Step::Smooth(n) => view.scroll_to_row(view.top_row(view.row_height()) + n),
                     Step::Jump(row) => view.scroll_to_row(row),
                 }
             }
@@ -250,7 +250,7 @@ impl eframe::App for MatchaApp {
         if !matches!(self.view, View::TextCompare(_)) {
             self.top_bar(ui);
         }
-        if self.snapshot.is_none() {
+        if self.bench.is_some() || self.bench_dir.is_some() {
             egui::Panel::bottom("performance_status").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("update {:.2} ms", self.last_update_ms));

@@ -125,6 +125,7 @@ pub struct TextCompareView {
     show_file_options: bool,
     path_edits: [String; 2],
     path_sources: [Option<PathBuf>; 2],
+    window_title: String,
 }
 impl TextCompareView {
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -193,6 +194,7 @@ impl TextCompareView {
             show_file_options: false,
             path_edits: Default::default(),
             path_sources: Default::default(),
+            window_title: String::new(),
         };
         view.rebuild_projection();
         view.recompare();
@@ -755,9 +757,26 @@ impl TextCompareView {
         }
         Ok(())
     }
+    pub fn title(&self) -> String {
+        let name = |s: usize| {
+            self.files[s]
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Untitled".into())
+        };
+        format!("{} <--> {} - Text Compare - Matcha", name(0), name(1))
+    }
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<ViewAction> {
         self.poll();
         let ctx = ui.ctx().clone();
+        let title = self.title();
+        if self.window_title != title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
+
         if self.worker.is_some() || self.edited_at.is_some() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
@@ -843,6 +862,63 @@ impl TextCompareView {
                 },
             );
         }
+        let details = egui::Rect::from_min_size(
+            egui::pos2(panes.left(), body.bottom()),
+            egui::vec2(panes.width(), 49.0),
+        );
+        status_bar::details(
+            ui,
+            details,
+            [&self.map.left, &self.map.right],
+            &self.editors,
+        );
+        let status = egui::Rect::from_min_size(
+            egui::pos2(available.left(), details.bottom()),
+            egui::vec2(available.width(), 25.0),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
+            use crate::chrome::statusbar::{self, StatusField};
+            let current = if self.map.is_stale() {
+                "Comparing"
+            } else {
+                match self
+                    .row(self.current_row)
+                    .importance
+                    .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                {
+                    Importance::Same => "Same",
+                    Importance::Unimportant => "Unimportant difference",
+                    _ => "Important difference",
+                }
+            };
+            let mut count = StatusField::fixed(
+                format!(
+                    "{} difference section(s)",
+                    self.sections
+                        .iter()
+                        .filter(|s| s
+                            .importance
+                            .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                            != Importance::Same)
+                        .count()
+                ),
+                293.0,
+            );
+            count.icon = Some(crate::chrome::icons::Icon::Diffs);
+            ui.spacing_mut().item_spacing.x = 0.0;
+            statusbar::show(
+                ui,
+                &[
+                    count,
+                    StatusField::fixed(current, 392.0),
+                    StatusField::fixed("Insert", 92.0),
+                    StatusField::flexible(format!(
+                        "Load time: {} seconds",
+                        (self.files[0].load_time + self.files[1].load_time).as_secs()
+                    )),
+                ],
+            );
+        });
         // Bottom slots are reserved independently of document length and filtering.
         ui.allocate_rect(available, egui::Sense::hover());
         if !ctx.input(|i| i.pointer.primary_down()) {
@@ -1017,6 +1093,18 @@ impl TextCompareView {
                             .map(Worker::progress)
                             .unwrap_or_else(|| self.message.clone()),
                     );
+                    if self.map.left.lines.borrow().ending_style()
+                        != self.map.right.lines.borrow().ending_style()
+                    {
+                        ui.label("Line ending styles differ");
+                    }
+                    let final_ending = |c: &TextContent| {
+                        let lines = c.lines.borrow();
+                        lines.len().checked_sub(1).and_then(|i| lines.ending(i))
+                    };
+                    if final_ending(&self.map.left) != final_ending(&self.map.right) {
+                        ui.label("Final line endings differ");
+                    }
                     for file in &self.files {
                         if let Some(target) = &file.target {
                             ui.label(format!("Save target: {}", target.display()));
