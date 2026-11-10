@@ -787,21 +787,6 @@ impl Model {
                     }
                 };
                 size(a).cmp(&size(b))
-            } else if column == Column::Name && self.sync_mode.is_none() {
-                // 参考按名称排序，单侧孤儿不后置（左/右孤儿都参与同一字母序）。
-                let name = |n: &bc_engine_dir::DirNode| {
-                    n.sides[side]
-                        .as_ref()
-                        .or_else(|| n.sides[1 - side].as_ref())
-                        .map(|e| e.name.to_lowercase())
-                };
-                let exact = |n: &bc_engine_dir::DirNode| {
-                    n.sides[side]
-                        .as_ref()
-                        .or_else(|| n.sides[1 - side].as_ref())
-                        .map(|e| e.name.clone())
-                };
-                name(a).cmp(&name(b)).then_with(|| exact(a).cmp(&exact(b)))
             } else {
                 compare_entry(a.sides[side].as_ref(), b.sides[side].as_ref(), column)
             };

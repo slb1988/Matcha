@@ -56,11 +56,11 @@ folder-expanded 5 项均未通过，全部是文字/小方块笔划覆盖率差�
 icon-catalog        A65C53F7… verified=True（目录新增 6 枚原创图标，哈希变化属预期）
 chrome-demo         532DC16A… verified=True
 text-basic          04E9AA13… verified=True（与 Wave 2b 记录一致）
-folder-basic        6A4B66B3… verified=True
+folder-basic        BCFE37E8… verified=True
 text-diffs-filter   722A05AF… verified=True（同上）
 text-cursor-on-diff FFD0B5DD… verified=True（同上）
-folder-expanded     A3BEF58E… verified=True
-folder-diffs-filter 0899C8A8… verified=True
+folder-expanded     86977D7E… verified=True
+folder-diffs-filter 060B1F8C… verified=True
 ```
 
 快照预置与参考操作等价：folder-basic = 折叠 + 首行双侧选中；folder-expanded = 先按 Ctrl+A 语义只选顶层行、再 Expand All（与参考 `Ctrl+A; Edit > Expand All` 同序，故子行不被选中）；folder-diffs-filter = 工具栏 Diffs（DisplayFilter::Mismatches）+ 首行选中。
@@ -89,7 +89,6 @@ folder-diffs-filter 0899C8A8… verified=True
 
 ## 数据/语义修正（均在 dir_view.rs 内）
 
-- **排序**：比较视图按名称排序时左右孤儿共用同一字母序（参考序：different, left-only, right-only, same, newer.txt, older.txt, version.txt）；同步视图保持旧的"孤儿后置"。
 - **Modified 列**：本地时区 `M/D/YYYY H:MM:SS AM/PM`（月/日/时不补零），用装载时已有的 `system_clock()` 偏移；同步视图保持 UTC。
 - **尺寸/日期缺省**：比较视图空白（参考），同步视图保持 "—"。
 - **图标**：文件夹图标按内容聚合着色（未扫描=黄、含差异=红、含孤儿=紫、全同=灰，四段垂直渐变 + 标签页，原创矢量）；文件图标为白底 8×8 + 5×6 语义色芯（参考的"未知类型"小方块）；树线为 #808080 逐像素点线的父→子肘形。
@@ -99,6 +98,7 @@ folder-diffs-filter 0899C8A8… verified=True
 ## 已知差异（均不超核心区域）
 
 - 菜单栏无参考的 "New version available..." 更新提示链接（通知类，与 Wave 2b 一致不做）。
+- **行序**：既有比较排序把"对侧缺失"条目排在同组末尾（发布排序属比较行为，不在外观范围，按协调者 2026-11-10 指示不改）：参考为名称合并序（right-only 在 left-only 与 same 之间、newer.txt 在 older.txt 之前），本实现中 right-only/newer.txt 靠后。行几何/颜色语义不受影响。
 - 路径栏文本为本地相对语料路径（参考为另一机器的绝对路径）——路径内容差异，非几何。
 - egui 灰度 AA vs GDI ClearType 的字形强度差：落在文字笔划上的 5 个颜色样本未命中（证据见上表）。
 - 文件夹/文件图标为原创近似（红线要求不描摹参考图标资源）；参考图标带 GDI 位图渐变，我们的为四段渐变。
