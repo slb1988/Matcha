@@ -80,13 +80,24 @@ impl TextCompareView {
             .show_rows(ui, row_height, self.projection.len(), |ui, range| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let first = self.projection.row(range.start);
-                let last = self.projection.row(range.end.saturating_sub(1));
-                let source = |r: Option<DisplayRow>| match r {
+                // `show_rows` over-scans one row past the viewport; the
+                // thumbnail frame covers only rows that are (partly) shown.
+                let shown = (ui.clip_rect().height() / row_height).ceil() as usize;
+                let shown_end = range.end.min(range.start + shown.max(1));
+                let last = self.projection.row(shown_end.saturating_sub(1));
+                // Shown source rows (the thumbnail viewport): a fold at either
+                // edge contributes none of its hidden rows.
+                let start = match first {
                     Some(DisplayRow::Text(n)) => n,
+                    Some(DisplayRow::Fold(r)) => r.end,
+                    None => 0,
+                };
+                let end = match last {
+                    Some(DisplayRow::Text(n)) => n + 1,
                     Some(DisplayRow::Fold(r)) => r.start,
                     None => 0,
                 };
-                self.visible = source(first)..source(last) + 1;
+                self.visible = start..end.max(start);
                 for display in range {
                     let Some(projected) = self.projection.row(display) else {
                         continue;
