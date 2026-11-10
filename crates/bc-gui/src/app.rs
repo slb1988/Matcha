@@ -35,6 +35,7 @@ pub struct MatchaApp {
     chrome_demo: crate::snapshot::ChromeDemo,
     capture_requested: bool,
     table_perf_reported: bool,
+    frame_log: Option<crate::perf::FrameLog>,
 }
 impl MatchaApp {
     pub fn new(
@@ -128,6 +129,7 @@ impl MatchaApp {
             chrome_demo: Default::default(),
             capture_requested: false,
             table_perf_reported: false,
+            frame_log: crate::perf::frames_enabled().then(Default::default),
         }
     }
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -332,23 +334,29 @@ impl eframe::App for MatchaApp {
             }
             capture.set_ready(ready);
         }
-        // The central panel has just drawn the comparison grid when the view
-        // first reports ready: this is the first interactive frame.
+        // The central panel has just drawn the comparison when the view first
+        // reports ready: this is the first interactive frame.
         if !self.table_perf_reported && crate::perf::enabled() {
-            if let View::TableCompare(v) = &self.view {
-                if v.is_ready() {
-                    self.table_perf_reported = true;
-                    crate::perf::mark("app:first-ready-frame");
+            let ready = match &self.view {
+                View::TextCompare(v) => v.is_ready(),
+                View::TableCompare(v) => v.is_ready(),
+                View::FolderCompare(v) => !v.busy(),
+                _ => false,
+            };
+            if ready {
+                self.table_perf_reported = true;
+                crate::perf::mark("app:first-ready-frame");
+                if let View::TableCompare(v) = &self.view {
                     if let Some(s) = v.statistics() {
                         eprintln!(
                             "[table-perf] fingerprint rows={} same={} unimportant={} important={} left_only={} right_only={}",
                             v.row_count(), s.same, s.unimportant, s.important, s.left_only, s.right_only
                         );
                     }
-                    if std::env::var_os("MATCHA_TABLE_PERF_EXIT").is_some() {
-                        self.exit_confirmed = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
+                }
+                if crate::perf::exit_after_ready() {
+                    self.exit_confirmed = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
         }
@@ -446,6 +454,16 @@ impl eframe::App for MatchaApp {
             };
         }
         self.last_update_ms = started.elapsed().as_secs_f64() * 1e3;
+        if let Some(log) = &mut self.frame_log {
+            let view = match &self.view {
+                View::Home(_) => "home",
+                View::TextCompare(_) => "text",
+                View::TableCompare(_) => "table",
+                View::FolderCompare(_) => "folder",
+                View::FolderSync(_) => "sync",
+            };
+            log.record(started, self.last_update_ms as f32, view);
+        }
         let mut dir_done = false;
         if let (Some(bench), View::FolderCompare(view)) = (&mut self.bench_dir, &self.view) {
             if bench.record(started.elapsed(), view) {
