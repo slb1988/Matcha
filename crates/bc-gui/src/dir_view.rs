@@ -5989,6 +5989,124 @@ mod tests {
         );
         assert_eq!(view.scroll_y, 0.0);
     }
+    /// Interactive-latency probe over a real tree (not part of the default
+    /// run): `cargo test --release -p bc-gui --lib folder_interaction_latency
+    /// -- --ignored --nocapture` with `MATCHA_PERF_LEFT`/`MATCHA_PERF_RIGHT`
+    /// (default: the 100k-file `dir_ui_fixture` under %TEMP%). Frames are real
+    /// egui passes plus tessellation; worker round trips are timed to the
+    /// first frame that shows the result.
+    #[test]
+    #[ignore]
+    fn folder_interaction_latency() {
+        let fixture = std::env::temp_dir().join("matcha-wave3-fixture");
+        let path = |var: &str, side: &str| {
+            std::env::var_os(var)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| fixture.join(side))
+        };
+        let (left, right) = (
+            path("MATCHA_PERF_LEFT", "left"),
+            path("MATCHA_PERF_RIGHT", "right"),
+        );
+        let ctx = egui::Context::default();
+        let timed = |view: &mut DirCompareView, events: Vec<egui::Event>| {
+            let t = Instant::now();
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 900.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    view.ui(ui);
+                });
+            });
+            out.textures_delta.clear();
+            let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
+            t.elapsed().as_secs_f64() * 1e3
+        };
+        // Drive frames until the worker is idle; report the round trip and
+        // the slowest frame seen meanwhile (a UI-thread stall shows there).
+        let settle = |label: &str, view: &mut DirCompareView| {
+            let t = Instant::now();
+            let mut worst: f64 = 0.0;
+            let mut frames = 0;
+            loop {
+                worst = worst.max(timed(view, vec![]));
+                frames += 1;
+                if !view.busy() && frames > 1 {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(1));
+                assert!(t.elapsed() < Duration::from_secs(300), "{label}");
+            }
+            eprintln!(
+                "[latency] folder {label:<22} round-trip={:>8.1}ms frames={frames:>4} worst-frame={worst:>7.2}ms rows={}",
+                t.elapsed().as_secs_f64() * 1e3,
+                view.snapshot.rows.len()
+            );
+        };
+        let t = Instant::now();
+        let mut view = DirCompareView::open(&ctx, &left, &right, false, false);
+        eprintln!(
+            "[latency] folder open() call         {:.1}ms",
+            t.elapsed().as_secs_f64() * 1e3
+        );
+        settle("load", &mut view);
+        let pos = egui::pos2(300.0, 400.0);
+        let wheel = egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -3.0),
+            modifiers: Default::default(),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+        };
+        for command in ["Expand All", "Show Differences", "Show Same", "Show All"] {
+            view.folder_command(command);
+            settle(command, &mut view);
+            let mut ms: Vec<f64> = (0..60)
+                .map(|_| {
+                    timed(
+                        &mut view,
+                        vec![egui::Event::PointerMoved(pos), wheel.clone()],
+                    )
+                })
+                .collect();
+            ms.sort_by(f64::total_cmp);
+            eprintln!(
+                "[latency] folder   wheel x60 after {command:<16} p50={:.2}ms max={:.2}ms",
+                ms[30], ms[59]
+            );
+        }
+        view.scroll_to_row(view.snapshot.rows.len() / 2);
+        eprintln!(
+            "[latency] folder jump to middle frame {:.2}ms",
+            timed(&mut view, vec![])
+        );
+        view.select_visible("all", false);
+        eprintln!(
+            "[latency] folder select all frame {:.2}ms",
+            timed(&mut view, vec![])
+        );
+        let mut ms: Vec<f64> = (0..60)
+            .map(|_| {
+                timed(
+                    &mut view,
+                    vec![egui::Event::PointerMoved(pos), wheel.clone()],
+                )
+            })
+            .collect();
+        ms.sort_by(f64::total_cmp);
+        eprintln!(
+            "[latency] folder   wheel x60 with all selected p50={:.2}ms max={:.2}ms",
+            ms[30], ms[59]
+        );
+        view.folder_command("Collapse All");
+        settle("Collapse All", &mut view);
+    }
     #[test]
     fn selection_find_sort_expand_filters_and_cross_row_open_use_snapshot_identities() {
         let temp = Temp::new();

@@ -780,3 +780,93 @@ fn wheel_scroll_tracks_input_immediately_and_keeps_panes_in_lockstep() {
     );
     assert_eq!(v.scroll.y, 0.0);
 }
+
+/// Interactive-latency probe over real files (not part of the default run):
+/// `cargo test --release -p bc-gui --lib text_interaction_latency -- --ignored --nocapture`
+/// with `MATCHA_PERF_LEFT`/`MATCHA_PERF_RIGHT` (default: the 110 MB audit
+/// inputs). Each step is one real egui pass plus tessellation, timed
+/// end-to-end on this thread the way a frame would be.
+#[test]
+#[ignore]
+fn text_interaction_latency() {
+    let path = |var: &str, default: &str| {
+        std::env::var_os(var)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(default))
+    };
+    let left = path(
+        "MATCHA_PERF_LEFT",
+        "../../target/table-wave7/audit/inputs/text-left.txt",
+    );
+    let right = path(
+        "MATCHA_PERF_RIGHT",
+        "../../target/table-wave7/audit/inputs/text-right.txt",
+    );
+    let ctx = egui::Context::default();
+    let t = Instant::now();
+    let mut v = TextCompareView::open(&left, &right).unwrap();
+    let open_ms = t.elapsed().as_secs_f64() * 1e3;
+    let start = Instant::now();
+    while !v.is_ready() {
+        v.poll();
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(start.elapsed() < Duration::from_secs(300));
+    }
+    let ready_ms = start.elapsed().as_secs_f64() * 1e3;
+    eprintln!(
+        "[latency] text open={open_ms:.1}ms align={ready_ms:.1}ms rows={}",
+        v.row_count()
+    );
+    let prefs = Prefs::default();
+    let timed = |label: &str, v: &mut TextCompareView, events: Vec<egui::Event>| {
+        let t = Instant::now();
+        let out = frame(&ctx, v, events);
+        let ui = t.elapsed().as_secs_f64() * 1e3;
+        let _ = ctx.tessellate(out.shapes, out.pixels_per_point);
+        let total = t.elapsed().as_secs_f64() * 1e3;
+        if !label.is_empty() {
+            eprintln!("[latency] text {label:<26} ui={ui:>8.2}ms ui+tess={total:>8.2}ms");
+        }
+        total
+    };
+    timed("first frame", &mut v, vec![]);
+    timed("second frame", &mut v, vec![]);
+    let pane = v.pane_rects[1];
+    let pos = egui::pos2(pane.left() + 100.0, pane.top() + 100.0);
+    timed("pointer move", &mut v, vec![egui::Event::PointerMoved(pos)]);
+    let mut wheel_ms = Vec::new();
+    for _ in 0..60 {
+        wheel_ms.push(timed(
+            "",
+            &mut v,
+            vec![
+                egui::Event::PointerMoved(pos),
+                wheel_lines(-3.0, Default::default()),
+            ],
+        ));
+    }
+    wheel_ms.sort_by(f64::total_cmp);
+    eprintln!(
+        "[latency] text wheel x60 p50={:.2}ms max={:.2}ms",
+        wheel_ms[30], wheel_ms[59]
+    );
+    for command in [
+        "Show Differences",
+        "Show Same",
+        "Show Context",
+        "Show All",
+        "Next Difference",
+        "Last difference",
+        "First difference",
+    ] {
+        let t = Instant::now();
+        v.command(command, &ctx, &prefs);
+        let cmd = t.elapsed().as_secs_f64() * 1e3;
+        let total = timed(command, &mut v, vec![egui::Event::PointerMoved(pos)]);
+        eprintln!("[latency] text   command {command:<20} cmd={cmd:.2}ms (+frame {total:.2}ms)");
+    }
+    v.scroll_to_row(v.row_count() / 2);
+    timed("jump to middle", &mut v, vec![]);
+    v.scroll_to_row(v.row_count());
+    timed("jump to end", &mut v, vec![]);
+}
