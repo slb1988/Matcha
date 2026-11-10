@@ -842,11 +842,24 @@ impl Model {
                     .path
                     .to_local_path()?;
                 let attrs = attrs_label(entry.attrs);
+                // 同步视图保持旧 UTC/占位文本；比较视图按参考用本地时间与空白占位。
+                let compare = self.sync_mode.is_none();
                 let cells = [
-                    entry.size.map_or(String::new(), |s| s.to_string()),
                     entry
-                        .modified
-                        .map_or(String::new(), |t| local_time_label(t, &self.clock)),
+                        .size
+                        .map_or(if compare { String::new() } else { "—".into() }, |s| {
+                            s.to_string()
+                        }),
+                    entry.modified.map_or(
+                        if compare { String::new() } else { "—".into() },
+                        |t| {
+                            if compare {
+                                local_time_label(t, &self.clock)
+                            } else {
+                                time_label(t)
+                            }
+                        },
+                    ),
                     entry.crc32.map_or("—".into(), |c| format!("{c:08X}")),
                     entry.version.clone().unwrap_or("—".into()),
                     attrs.clone(),
@@ -2693,7 +2706,26 @@ impl DirCompareView {
         let mut open = self.rules_open;
         let mut apply = false;
         let mut align = false;
+        let mut apply_filters = false;
+        let mut save_presets = false;
         egui::Window::new("Folder comparison rules").open(&mut open).show(ctx,|ui|{
+            // 旧过滤行的附加字段迁到这里（名称掩码在过滤栏组合框）。
+            ui.label("Name filters are edited in the toolbar filter box; additional script filters:");
+            ui.add(egui::TextEdit::singleline(&mut self.filters.other).desired_width(550.0));
+            ui.label("UTF-8 content text (empty disables)");
+            ui.text_edit_singleline(&mut self.filters.content);
+            ui.checkbox(&mut self.filters.exclude_containing,"Exclude containing (otherwise exclude not containing)");
+            if ui.button("Apply filters").clicked(){apply_filters=true;}
+            ui.horizontal(|ui|{
+                ui.text_edit_singleline(&mut self.filters.preset_name);
+                if ui.button("Save named preset").clicked(){
+                    match self.filters.presets.upsert(&self.filters.preset_name,&self.filters.names){
+                        Ok(())=>{self.filters.error=None;save_presets=true;}
+                        Err(e)=>self.filters.error=Some(e),
+                    }
+                }
+            });
+            ui.separator();
             ui.label("criteria arguments");ui.add(egui::TextEdit::singleline(&mut self.criteria_text).desired_width(550.0));
             ui.small("Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / skip-quick-same. Rules-based uses the default text rules; add comments-unimportant to ignore comment edits.");
             ui.checkbox(&mut self.pairing.case_sensitive,"Case-sensitive pairing");ui.checkbox(&mut self.pairing.ignore_extension,"Align different extensions");ui.checkbox(&mut self.pairing.normalize_nfc,"Align Unicode normalization forms");
@@ -2708,6 +2740,12 @@ impl DirCompareView {
             ui.separator();ui.label("Alignment override (left pattern / right pattern / optional relative folder)");ui.text_edit_singleline(&mut self.align_left);ui.text_edit_singleline(&mut self.align_right);ui.text_edit_singleline(&mut self.align_folder);ui.checkbox(&mut self.align_regex,"Regex captures");if ui.button("Add alignment override").clicked(){align=true;}
         });
         self.rules_open = open;
+        if apply_filters {
+            self.apply_view_options();
+        }
+        if save_presets {
+            self.send(Command::SavePresets(self.filters.presets.to_xml()));
+        }
         if apply {
             match Criteria::parse_script(&self.criteria_text) {
                 Ok(criteria) => self.send(Command::Rules {
@@ -3369,47 +3407,26 @@ const TREE_EDGE: egui::Color32 = egui::Color32::from_rgb(192, 192, 192);
 const LOG_FILL: egui::Color32 = egui::Color32::from_rgb(227, 231, 237);
 const COMBO_EDGE: egui::Color32 = egui::Color32::from_rgb(141, 141, 141);
 
-/// 每行树线标记：`continues` 位 l 表示 level l 的竖线穿过本行。
+/// 每行树线标记：参考只画“父节点 → 直接子行”的肘形连接，无跨层贯通竖线。
+/// `parent_up` = 本行到父行的行距（行数）；0 表示顶层行无连接线。
 #[derive(Clone, Copy, Default)]
 pub struct RowLine {
-    continues: u32,
-    connector: bool,
-    connector_last: bool,
+    parent_up: u16,
 }
 
-/// 由可见行序计算树线标记：两次线性扫描（反向求“是否还有后续兄弟”，正向挂祖先链）。
+/// 正向一次扫描求每行父连接线的起点（祖先栈）。
 fn row_lines(rows: &[RenderRow]) -> Vec<RowLine> {
-    let n = rows.len();
-    let mut next_sibling = vec![false; n];
-    let mut stack: Vec<usize> = Vec::new();
-    for i in (0..n).rev() {
-        let d = rows[i].depth;
-        while stack.last().is_some_and(|&t| rows[t].depth > d) {
-            stack.pop();
-        }
-        if let Some(&t) = stack.last() {
-            if rows[t].depth == d {
-                next_sibling[i] = true;
-            }
-        }
-        stack.push(i);
-    }
-    let mut out = Vec::with_capacity(n);
+    let mut out = Vec::with_capacity(rows.len());
     let mut ancestors: Vec<usize> = Vec::new();
-    for i in 0..n {
-        let d = rows[i].depth;
+    for (i, row) in rows.iter().enumerate() {
+        let d = row.depth;
         ancestors.truncate(d);
-        let mut flags = RowLine::default();
-        if d > 0 {
-            flags.connector = true;
-            flags.connector_last = !next_sibling[i];
-            for l in 0..(d - 1).min(ancestors.len()).min(31) {
-                if next_sibling[ancestors[l]] {
-                    flags.continues |= 1 << l;
-                }
-            }
-        }
-        out.push(flags);
+        let parent_up = if d > 0 && ancestors.len() == d {
+            (i - ancestors[d - 1]) as u16
+        } else {
+            0
+        };
+        out.push(RowLine { parent_up });
         ancestors.push(i);
     }
     out
@@ -4962,78 +4979,39 @@ impl DirCompareView {
                 reload = Some([self.paths.left.clone(), self.paths.right.clone()]);
             }
             // 小图标按钮：位置按参考实测偏移（相对组合框右缘）。
-            struct Btn {
-                icon: Icon,
-                rel: f32,
-                id: &'static str,
-                enabled: bool,
-                chevron: bool,
-            }
             let back = self.history_at > 0;
             let forward = self.history_at + 1 < self.history.len();
-            let mut buttons = vec![
-                Btn {
-                    icon: Icon::UpLevel,
-                    rel: 5.0,
-                    id: "back",
-                    enabled: back,
-                    chevron: false,
-                },
-                Btn {
-                    icon: Icon::Browse,
-                    rel: 28.0,
-                    id: "browse",
-                    enabled: true,
-                    chevron: false,
-                },
-                Btn {
-                    icon: Icon::FolderUp,
-                    rel: 51.0,
-                    id: "up",
-                    enabled: true,
-                    chevron: false,
-                },
-            ];
-            if side == 0 {
-                buttons.push(Btn {
-                    icon: Icon::FolderUpBoth,
-                    rel: 81.0,
-                    id: "up-both",
-                    enabled: true,
-                    chevron: false,
-                });
+            let mut buttons = if side == 0 {
+                vec![
+                    (Icon::UpLevel, 5.0, "back", back, false),
+                    (Icon::Browse, 28.0, "browse", true, false),
+                    (Icon::FolderUp, 51.0, "up", true, false),
+                    (Icon::FolderUpBoth, 81.0, "up-both", true, false),
+                ]
             } else {
-                buttons.push(Btn {
-                    icon: Icon::BackCircle,
-                    rel: 76.0,
-                    id: "back",
-                    enabled: back,
-                    chevron: true,
-                });
-                buttons.push(Btn {
-                    icon: Icon::ForwardCircle,
-                    rel: 113.0,
-                    id: "forward",
-                    enabled: forward,
-                    chevron: true,
-                });
-            }
-            let rel_shift = if side == 0 { 0.0 } else { 7.0 };
-            for button in buttons {
+                vec![
+                    (Icon::UpLevel, 12.0, "back", back, false),
+                    (Icon::Browse, 27.0, "browse", true, false),
+                    (Icon::FolderUp, 51.0, "up", true, false),
+                    (Icon::BackCircle, 76.0, "back", back, true),
+                    (Icon::ForwardCircle, 113.0, "forward", forward, true),
+                ]
+            };
+            for (icon, rel, id, enabled, chevron) in buttons.drain(..) {
                 let slot = egui::Rect::from_min_size(
-                    egui::pos2(combo.right() + rel_shift + button.rel, bar.top() + 1.0),
+                    egui::pos2(combo.right() + rel, bar.top() + 1.0),
                     egui::vec2(22.0, 25.0),
                 );
                 let response = ui.interact(
                     slot,
-                    edit_id.with(("btn", button.id)),
-                    if button.enabled {
+                    edit_id.with(("btn", id)),
+                    if enabled {
                         egui::Sense::click()
                     } else {
                         egui::Sense::hover()
                     },
                 );
-                if response.hovered() && button.enabled {
+                if response.hovered() && enabled {
                     painter.rect_filled(slot, 0.0, crate::chrome::theme::HOVER_BLUE);
                     painter.rect_stroke(
                         slot,
@@ -5043,7 +5021,7 @@ impl DirCompareView {
                     );
                 }
                 let mut icon_painter = painter.clone();
-                if !button.enabled {
+                if !enabled {
                     icon_painter.set_opacity(0.35);
                 }
                 icons::paint(
@@ -5052,20 +5030,20 @@ impl DirCompareView {
                         egui::pos2(slot.left() + 8.0, slot.center().y),
                         egui::vec2(16.0, 16.0),
                     ),
-                    button.icon,
+                    icon,
                 );
-                if button.chevron {
+                if chevron {
                     icons::dropdown_triangle(
                         &painter,
-                        egui::pos2(slot.right() + 5.0, slot.center().y),
-                        if button.enabled {
+                        egui::pos2(slot.left() + 20.0, slot.center().y),
+                        if enabled {
                             egui::Color32::BLACK
                         } else {
                             egui::Color32::from_rgb(150, 150, 150)
                         },
                     );
                 }
-                let tip = match button.icon {
+                let tip = match icon {
                     Icon::UpLevel => "Back",
                     Icon::Browse => "Browse for folder",
                     Icon::FolderUp => "Up one level",
@@ -5074,7 +5052,7 @@ impl DirCompareView {
                     _ => "Forward (with history)",
                 };
                 if response.clicked() {
-                    match button.id {
+                    match id {
                         "back" => {
                             if back {
                                 self.history_at -= 1;
@@ -5267,6 +5245,17 @@ impl DirCompareView {
             crate::chrome::theme::PANEL_BG,
         );
         let font = egui::FontId::proportional(crate::chrome::theme::UI_SIZE);
+        // 树线用整列行区裁剪（竖段跨行）；行内容用行带裁剪。
+        let tree_clip = [
+            painter.with_clip_rect(egui::Rect::from_min_max(
+                egui::pos2(left.left(), rows_area.top()),
+                egui::pos2(left.right(), rows_area.bottom()),
+            )),
+            painter.with_clip_rect(egui::Rect::from_min_max(
+                egui::pos2(right.left(), rows_area.top()),
+                egui::pos2(right.right(), rows_area.bottom()),
+            )),
+        ];
         let mut drawn = 0;
         for index in first..end {
             let row = &self.snapshot.rows[index];
@@ -5286,43 +5275,26 @@ impl DirCompareView {
                 painter.rect_filled(band, 0.0, TREE_SELECTED);
             }
             let flags = lines.get(index).copied().unwrap_or_default();
-            for side in 0..2 {
+            for (side, tree_clip) in tree_clip.iter().enumerate() {
                 let tree = if side == 0 { left } else { right };
+                // 树线：只画“父节点 → 直接子行”的肘形，且该侧有条目才画。
+                let depth = row.depth;
+                if depth > 0 && row.sides[side].is_some() && flags.parent_up > 0 {
+                    let x = tree.left() + 15.0 + 21.0 * (depth - 1) as f32;
+                    let mid = y + CHROME_ROW / 2.0 - 0.5;
+                    // 竖段从父行图标下缘到本行行中；横段到图标左缘。
+                    let top = y - flags.parent_up as f32 * CHROME_ROW + 17.0;
+                    dotted_v(tree_clip, x, top, mid, TREE_LINE);
+                    let icon_left = tree.left()
+                        + 6.0
+                        + 19.0 * depth as f32
+                        + if row.directory { 0.0 } else { 2.0 };
+                    dotted_h(tree_clip, x, icon_left - 1.0, mid, TREE_LINE);
+                }
                 let clip = painter.with_clip_rect(egui::Rect::from_min_max(
                     egui::pos2(tree.left(), y),
                     egui::pos2(tree.right(), y + CHROME_ROW),
                 ));
-                // 树线。
-                let depth = row.depth;
-                if depth > 0 {
-                    for level in 0..(depth - 1).min(31) {
-                        if flags.continues & (1 << level) != 0 {
-                            dotted_v(
-                                &clip,
-                                tree.left() + 15.0 + 21.0 * level as f32,
-                                y,
-                                y + CHROME_ROW,
-                                TREE_LINE,
-                            );
-                        }
-                    }
-                    if flags.connector {
-                        let level = depth - 1;
-                        let x = tree.left() + 15.0 + 21.0 * level as f32;
-                        let mid = y + CHROME_ROW / 2.0 - 0.5;
-                        let bottom = if flags.connector_last {
-                            mid
-                        } else {
-                            y + CHROME_ROW
-                        };
-                        dotted_v(&clip, x, y, bottom, TREE_LINE);
-                        let icon_left = tree.left()
-                            + 6.0
-                            + 19.0 * depth as f32
-                            + if row.directory { 0.0 } else { 2.0 };
-                        dotted_h(&clip, x, icon_left - 1.0, mid, TREE_LINE);
-                    }
-                }
                 let Some(item) = &row.sides[side] else {
                     continue;
                 };
@@ -6423,5 +6395,235 @@ mod tests {
         find.text = "[".into();
         assert!(find.pattern().is_err());
     }
+
+    fn menu_enabled(view: &DirCompareView, id: &str) -> Option<bool> {
+        fn walk(items: &[MenuItem], id: &str) -> Option<bool> {
+            for item in items {
+                if item.action_id == id {
+                    return Some(item.enabled);
+                }
+                if let MenuItemKind::Submenu(children) = &item.kind {
+                    if let Some(found) = walk(children, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        view.menus.iter().find_map(|m| walk(&m.items, id))
+    }
+
+    #[test]
+    fn chrome_layout_menu_inventory_toolbar_states_and_reference_geometry() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        // 七个顶层菜单按参考顺序；未实现项禁用、已有动作启用。
+        let titles: Vec<_> = view.menus.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Session", "Actions", "Edit", "Search", "View", "Tools", "Help"]
+        );
+        frame(&mut view, &ctx);
+        assert_eq!(menu_enabled(&view, "Options"), Some(false));
+        assert_eq!(menu_enabled(&view, "Swap Sides"), Some(true));
+        assert_eq!(menu_enabled(&view, "Expand All"), Some(true));
+        assert_eq!(menu_enabled(&view, "Show Differences"), Some(true));
+        assert_eq!(menu_enabled(&view, "Back"), Some(false));
+        // 工具栏切换态反映当前显示过滤（默认 All 选中、Diffs 未选中、Stop 禁用）。
+        let items = view.chrome_toolbar_items(false);
+        let by_id = |id: &str| items.iter().find(|i| i.action_id == id).unwrap();
+        assert!(by_id("Show All").selected && !by_id("Show Differences").selected);
+        assert!(!by_id("Stop").enabled);
+        assert!(by_id("Show Files").selected);
+        view.filters.options.display = bc_engine_dir::filter::DisplayFilter::Mismatches;
+        let items = view.chrome_toolbar_items(false);
+        assert!(
+            items
+                .iter()
+                .find(|i| i.action_id == "Show Differences")
+                .unwrap()
+                .selected
+        );
+        // 参考状态栏图例文本逐字一致。
+        assert_eq!(
+            shows_legend(bc_engine_dir::filter::DisplayFilter::All),
+            "Shows same, left orphan, right orphan, left newer, right newer and difference items."
+        );
+        assert_eq!(
+            shows_legend(bc_engine_dir::filter::DisplayFilter::Mismatches),
+            "Shows left orphan, right orphan, left newer, right newer and difference items."
+        );
+        // 参考几何：1384x961 下首行选中填充 y165、行高 20。
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1384.0, 961.0),
+            )),
+            ..Default::default()
+        };
+        view.focus_row(0, None);
+        let mut output = ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(crate::chrome::theme::PANEL_BG))
+                .show(ui, |ui| {
+                    view.ui(ui);
+                });
+        });
+        let selected_fill = egui::Color32::from_rgb(168, 205, 241);
+        let row0 = output.shapes.iter().any(|s| {
+            matches!(&s.shape, egui::Shape::Rect(r)
+                if r.fill == selected_fill
+                    && (r.rect.top() - 165.0).abs() < 1.0
+                    && (r.rect.height() - 20.0).abs() < 1.0)
+        });
+        assert!(row0, "selected first row at reference y=165 h=20");
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn chrome_menu_commands_drive_filters_expand_swap_and_home() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        let before = view.row_count();
+        // View > Show Differences 过滤到差异行。
+        assert!(view.folder_command("Show Differences").is_none());
+        wait(&mut view, &ctx);
+        assert!(view.row_count() < before);
+        assert!(view
+            .snapshot
+            .rows
+            .iter()
+            .all(|r| !matches!(r.status, CompareStatus::Same)));
+        // View > Show All 恢复。
+        view.folder_command("Show All");
+        wait(&mut view, &ctx);
+        assert_eq!(view.row_count(), before);
+        // Edit > Expand All 展开出子行。
+        view.folder_command("Expand All");
+        wait(&mut view, &ctx);
+        assert!(view.snapshot.rows.iter().any(|r| r.depth == 1));
+        // Session > Swap Sides 交换两侧。
+        view.folder_command("Swap Sides");
+        wait(&mut view, &ctx);
+        assert!(view.paths()[0].ends_with("right"));
+        assert!(view.paths()[1].ends_with("left"));
+        // Home 进入待回 Home 状态（由 app 层处理）。
+        assert!(!view.take_home_request());
+        view.folder_command("Home");
+        assert!(view.take_home_request());
+        // View > Log 关闭日志区；View > Toolbar 保留。
+        assert!(view.log_panel.open);
+        view.folder_command("Log");
+        assert!(!view.log_panel.open);
+        view.folder_command("Log");
+        assert!(view.log_panel.open);
+        // Actions > Ignored 打开范围确认窗（与旧 Actions 菜单同路径），确认后标记；再次切换清除。
+        view.focus_row(row(&view, "a.txt"), Some(0));
+        view.folder_command("Ignored");
+        let scope = view
+            .scope
+            .take()
+            .expect("Ignored opens the scope review dialog");
+        assert!(matches!(scope.op, DirOp::Ignored(true)));
+        view.operate(scope.op, scope.include_hidden);
+        let started = Instant::now();
+        while view.busy() {
+            view.poll(&ctx);
+            if let Some(question) = view.question.take() {
+                question.reply.send(Confirmation::YesToAll).unwrap();
+            }
+            assert!(started.elapsed() < Duration::from_secs(10));
+            thread::sleep(Duration::from_millis(5));
+        }
+        wait(&mut view, &ctx);
+        assert!(view.snapshot.rows[row(&view, "a.txt")].ignored);
+        view.folder_command("Ignored");
+        let scope = view
+            .scope
+            .take()
+            .expect("Ignored toggle re-opens the dialog");
+        assert!(matches!(scope.op, DirOp::Ignored(false)));
+        view.operate(scope.op, scope.include_hidden);
+        let started = Instant::now();
+        while view.busy() {
+            view.poll(&ctx);
+            if let Some(question) = view.question.take() {
+                question.reply.send(Confirmation::YesToAll).unwrap();
+            }
+            assert!(started.elapsed() < Duration::from_secs(10));
+            thread::sleep(Duration::from_millis(5));
+        }
+        wait(&mut view, &ctx);
+        assert!(!view.snapshot.rows[row(&view, "a.txt")].ignored);
+    }
+
+    #[test]
+    fn snapshot_presets_match_reference_operations() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        // folder-expanded：先选中顶层行，再 Expand All；子行不追加选择（参考 Ctrl+A 先于展开）。
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        let collapsed_rows = view.row_count();
+        view.snapshot_preset("folder-expanded");
+        wait(&mut view, &ctx);
+        frame(&mut view, &ctx);
+        assert!(view.row_count() > collapsed_rows);
+        assert!(view.snapshot.rows.iter().any(|r| r.depth == 1));
+        for (index, r) in view.snapshot.rows.iter().enumerate() {
+            for side in 0..2 {
+                if let Some(s) = &r.sides[side] {
+                    let selected = view.selection.items.contains(&(s.node, side));
+                    if r.depth == 0 {
+                        assert!(selected, "root row {index} must stay selected");
+                    } else {
+                        assert!(!selected, "child row {index} must not be selected");
+                    }
+                }
+            }
+        }
+        assert_eq!(view.focus, Some(0));
+        // folder-diffs-filter：只留差异行（本语料首行 nested 为 Same，过滤后焦点清除属预期）。
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        view.snapshot_preset("folder-diffs-filter");
+        wait(&mut view, &ctx);
+        assert!(view.row_count() > 0);
+        assert!(view
+            .snapshot
+            .rows
+            .iter()
+            .all(|r| !matches!(r.status, CompareStatus::Same)));
+        assert_eq!(
+            view.filters.options.display,
+            bc_engine_dir::filter::DisplayFilter::Mismatches
+        );
+        // folder-basic：折叠、首行双侧选中。
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        view.snapshot_preset("folder-basic");
+        frame(&mut view, &ctx);
+        assert!(!view.snapshot.rows.iter().any(|r| r.depth > 0));
+        assert_eq!(view.focus, Some(0));
+        assert_eq!(view.selection.items.len(), 2);
+    }
+
+    #[test]
+    fn local_time_label_matches_reference_format() {
+        // 语料 mtime 由 set-corpus-mtime.ps1 固定为本地 2026-01-02 03:04:05。
+        let clock = FilterClock {
+            today_midnight: UNIX_EPOCH,
+            utc_offset_seconds: 8 * 3600,
+        };
+        let t = UNIX_EPOCH + Duration::from_secs(1_767_294_245); // 2026-01-01 19:04:05 UTC
+        assert_eq!(local_time_label(t, &clock), "1/2/2026 3:04:05 AM");
+        let older = t - Duration::from_secs(86400);
+        assert_eq!(local_time_label(older, &clock), "1/1/2026 3:04:05 AM");
+        let noon = UNIX_EPOCH + Duration::from_secs(1_767_268_800); // 2026-01-01 12:00:00 UTC
+        assert_eq!(local_time_label(noon, &clock), "1/1/2026 8:00:00 PM");
+    }
 }
-// touch
