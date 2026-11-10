@@ -157,6 +157,10 @@ impl MatchaApp {
             });
         });
     }
+    /// 文本/文件夹视图自带 chrome 菜单栏，不再绘制应用顶条。
+    fn has_own_chrome(&self) -> bool {
+        matches!(self.view, View::TextCompare(_) | View::FolderCompare(_))
+    }
 }
 impl eframe::App for MatchaApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -250,7 +254,7 @@ impl eframe::App for MatchaApp {
             }
             return;
         }
-        if !matches!(self.view, View::TextCompare(_)) {
+        if !self.has_own_chrome() {
             self.top_bar(ui);
         }
         if self.bench.is_some() || self.bench_dir.is_some() {
@@ -292,7 +296,7 @@ impl eframe::App for MatchaApp {
         let mut view_action = None;
         let mut table_action = None;
         let mut folder_switch = None;
-        let panel = if matches!(self.view, View::TextCompare(_)) {
+        let panel = if self.has_own_chrome() {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(crate::chrome::theme::PANEL_BG))
         } else {
@@ -318,7 +322,9 @@ impl eframe::App for MatchaApp {
                         v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
                     }
                     View::TableCompare(v) => v.scroll_to_row(0),
-                    View::FolderCompare(v) => v.send(crate::dir_view::Command::ExpandAll(true)),
+                    View::FolderCompare(v) => {
+                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                    }
                     _ => {}
                 }
                 self.snapshot_preset_applied = true;
@@ -346,11 +352,18 @@ impl eframe::App for MatchaApp {
                 }
             }
         }
+        let mut folder_go_home = false;
         if let View::FolderCompare(view) = &mut self.view {
             if view.take_exit_request() {
                 self.exit_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            if view.take_home_request() {
+                folder_go_home = true;
+            }
+        }
+        if folder_go_home {
+            self.view = View::Home(HomeView::default());
         }
         if let Some(HomeAction::OpenTextCompare { left, right }) = home_action {
             match TextCompareView::open(&left, &right) {

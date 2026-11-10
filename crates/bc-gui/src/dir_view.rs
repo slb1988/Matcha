@@ -1,6 +1,7 @@
 //! Folder view: worker-owned trees, latest-only immutable snapshots and virtual rows.
 //! The UI never enumerates directories, compares contents or executes file operations.
 use crate::{
+    chrome::menubar::{MenuItem, MenuItemKind, MenuSpec},
     dialogs::{
         self,
         find::FindDialog,
@@ -112,6 +113,7 @@ pub struct RenderRow {
     pub pending: bool,
     pub red: bool,
     pub purple: bool,
+    pub ignored: bool,
     pub center: String,
     pub conflict: bool,
 }
@@ -125,6 +127,8 @@ pub struct Snapshot {
     pub paths: [String; 2],
     pub sync_stats: Option<SyncStatistics>,
     pub clock: FilterClock,
+    /// 每侧根所在卷的剩余空间标签（如 "50.6 GB free on C:\\"）；查询失败为 None。
+    pub free: [Option<String>; 2],
     pub complete: bool,
 }
 impl Default for Snapshot {
@@ -138,6 +142,7 @@ impl Default for Snapshot {
             paths: Default::default(),
             sync_stats: None,
             clock: utc_clock(),
+            free: Default::default(),
             complete: false,
         }
     }
@@ -223,6 +228,8 @@ pub enum Command {
     },
     SaveLog(PathBuf),
     SavePresets(String),
+    /// 视图级“显示文件”开关（参考工具栏 Files 切换）；只在比较视图生效。
+    ShowFiles(bool),
     Details {
         selection: Option<Selection>,
         crc: bool,
@@ -311,6 +318,8 @@ struct Model {
     last_publish: Instant,
     snapshots: Vec<Arc<Snapshot>>,
     sort: (Column, usize, bool),
+    show_files: bool,
+    free: [Option<String>; 2],
 }
 impl Model {
     fn new(shared: Arc<Shared>, sync: bool, bench: bool) -> Self {
@@ -336,6 +345,8 @@ impl Model {
             last_publish: Instant::now(),
             snapshots: Vec::new(),
             sort: (Column::Name, 0, false),
+            show_files: true,
+            free: Default::default(),
         }
     }
     fn context(&self) -> JobContext {
@@ -396,6 +407,7 @@ impl Model {
             )));
             utc_clock()
         });
+        self.free = std::array::from_fn(|s| free_space_label(&paths[s]));
         if self.scan.automatic {
             self.scan_descendants(0, false)?;
         }
@@ -775,6 +787,21 @@ impl Model {
                     }
                 };
                 size(a).cmp(&size(b))
+            } else if column == Column::Name && self.sync_mode.is_none() {
+                // 参考按名称排序，单侧孤儿不后置（左/右孤儿都参与同一字母序）。
+                let name = |n: &bc_engine_dir::DirNode| {
+                    n.sides[side]
+                        .as_ref()
+                        .or_else(|| n.sides[1 - side].as_ref())
+                        .map(|e| e.name.to_lowercase())
+                };
+                let exact = |n: &bc_engine_dir::DirNode| {
+                    n.sides[side]
+                        .as_ref()
+                        .or_else(|| n.sides[1 - side].as_ref())
+                        .map(|e| e.name.clone())
+                };
+                name(a).cmp(&name(b)).then_with(|| exact(a).cmp(&exact(b)))
             } else {
                 compare_entry(a.sides[side].as_ref(), b.sides[side].as_ref(), column)
             };
@@ -816,8 +843,10 @@ impl Model {
                     .to_local_path()?;
                 let attrs = attrs_label(entry.attrs);
                 let cells = [
-                    entry.size.map_or("—".into(), |s| s.to_string()),
-                    entry.modified.map_or("—".into(), time_label),
+                    entry.size.map_or(String::new(), |s| s.to_string()),
+                    entry
+                        .modified
+                        .map_or(String::new(), |t| local_time_label(t, &self.clock)),
                     entry.crc32.map_or("—".into(), |c| format!("{c:08X}")),
                     entry.version.clone().unwrap_or("—".into()),
                     attrs.clone(),
@@ -910,9 +939,14 @@ impl Model {
                 pending: node.is_some_and(|n| n.summary.pending),
                 red: node.is_some_and(|n| n.summary.red),
                 purple: node.is_some_and(|n| n.summary.purple),
+                ignored: node.is_some_and(|n| n.ignored),
                 center,
                 conflict,
             });
+        }
+        // 比较视图的“Files”开关只隐藏文件行；同步视图保持全部行。
+        if !self.show_files && self.sync_mode.is_none() {
+            rows.retain(|row| row.directory);
         }
         if self.view.folders == FolderDisplay::Flatten {
             rows.sort_by(|a, b| {
@@ -955,6 +989,7 @@ impl Model {
             }),
             sync_stats: self.sync_plan.as_ref().map(SyncPlan::statistics),
             clock: self.clock,
+            free: self.free.clone(),
             complete,
         };
         let snapshot = Arc::new(snapshot);
@@ -1445,6 +1480,9 @@ impl Model {
                 std::fs::write(&temporary, xml).map_err(|e| e.to_string())?;
                 std::fs::rename(temporary, path).map_err(|e| e.to_string())?;
             }
+            Command::ShowFiles(show) => {
+                self.show_files = show;
+            }
         }
         self.publish(true);
         Ok(())
@@ -1628,6 +1666,25 @@ fn presets_path() -> PathBuf {
 }
 fn time_label(time: SystemTime) -> String {
     let seconds = time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let (year, month, day, hour, minute, second) = civil(seconds);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}")
+}
+/// 参考的 Modified 列：本地时区 `M/D/YYYY H:MM:SS AM/PM`（月/日/时不补零）。
+fn local_time_label(time: SystemTime, clock: &FilterClock) -> String {
+    let seconds = time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let local = seconds as i64 + i64::from(clock.utc_offset_seconds);
+    if local < 0 {
+        return time_label(time);
+    }
+    let (year, month, day, hour, minute, second) = civil(local as u64);
+    let meridiem = if hour < 12 { "AM" } else { "PM" };
+    let hour12 = match hour % 12 {
+        0 => 12,
+        h => h,
+    };
+    format!("{month}/{day}/{year} {hour12}:{minute:02}:{second:02} {meridiem}")
+}
+fn civil(seconds: u64) -> (i64, i64, i64, u64, u64, u64) {
     let days = seconds / 86400;
     let z = days as i64 + 719468;
     let era = z.div_euclid(146097);
@@ -1639,12 +1696,50 @@ fn time_label(time: SystemTime) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = mp + if mp < 10 { 3 } else { -9 };
     year += i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}",
+    (
+        year,
+        month,
+        day,
         seconds % 86400 / 3600,
         seconds % 3600 / 60,
-        seconds % 60
+        seconds % 60,
     )
+}
+/// 根路径所在卷的剩余空间标签（一次性 PowerShell 查询；失败为 None，不逐帧查询）。
+fn free_space_label(path: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let text = Path::new(path);
+        let root = text.components().next()?;
+        let prefix = root.as_os_str().to_string_lossy();
+        let drive = prefix.trim_end_matches(":\\").trim_end_matches(':');
+        if drive.is_empty() || drive.starts_with("\\\\") {
+            return None;
+        }
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!("Write-Output ((Get-PSDrive {drive}).Free)"),
+            ])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8(output.stdout).ok()?;
+        let bytes: f64 = text.trim().parse().ok()?;
+        Some(format!(
+            "{:.1} GB free on {}:\\",
+            bytes / (1u64 << 30) as f64,
+            drive
+        ))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        None
+    }
 }
 
 pub struct DirCompareView {
@@ -1693,6 +1788,15 @@ pub struct DirCompareView {
     align_right: String,
     align_folder: String,
     align_regex: bool,
+    /// 参考 chrome 布局状态（仅比较视图；同步视图保持旧布局）。
+    menus: Vec<crate::chrome::menubar::MenuSpec>,
+    home_requested: bool,
+    tool_dropdown: Option<(String, egui::Pos2)>,
+    show_files: bool,
+    chrome_log: Vec<String>,
+    chrome_log_logged: bool,
+    log_save_open: bool,
+    grid_lines: Option<(usize, Arc<Vec<RowLine>>)>,
 }
 impl DirCompareView {
     pub fn open(
@@ -1726,7 +1830,7 @@ impl DirCompareView {
             command: Command::Load(paths.clone()),
             cancel: token,
         });
-        Self {
+        let mut view = Self {
             window_id: NEXT_VIEW.fetch_add(1, AtomicOrdering::Relaxed),
             child: None,
             shared,
@@ -1785,7 +1889,21 @@ impl DirCompareView {
             align_right: String::new(),
             align_folder: String::new(),
             align_regex: false,
+            menus: folder_menu_inventory(),
+            home_requested: false,
+            tool_dropdown: None,
+            show_files: true,
+            chrome_log: Vec::new(),
+            chrome_log_logged: false,
+            log_save_open: false,
+            grid_lines: None,
+        };
+        if !sync_mode {
+            // 参考：比较视图过滤栏默认 *.*，日志区默认打开。
+            view.filters.names = "*.*".into();
+            view.log_panel.open = true;
         }
+        view
     }
     pub fn busy(&self) -> bool {
         self.shared.busy.load(AtomicOrdering::Relaxed)
@@ -1848,11 +1966,24 @@ impl DirCompareView {
                 self.anchor = None;
             }
             self.snapshot = snapshot;
+            if self.snapshot.complete && !self.chrome_log_logged && !self.sync_mode {
+                self.chrome_log_logged = true;
+                self.chrome_log.push(format!(
+                    "Load comparison: {} <-> {}",
+                    self.paths.left, self.paths.right
+                ));
+            }
         }
         let notices: Vec<_> = self.shared.notices.lock().unwrap().drain(..).collect();
         for notice in notices {
             match notice {
-                Notice::Message(text) => self.message = text,
+                Notice::Message(text) => {
+                    if !self.sync_mode {
+                        self.chrome_log.push(text.clone());
+                        self.chrome_log.truncate(200);
+                    }
+                    self.message = text;
+                }
                 Notice::Clipboard(text) => ctx.copy_text(text),
                 Notice::Quick(text) => self.quick = Some(text),
                 Notice::Text(paths) => match TextCompareView::open(&paths[0], &paths[1]) {
@@ -2602,55 +2733,60 @@ impl DirCompareView {
         self.poll(&ctx);
         let mut switch = None;
         let busy = self.busy();
-        ui.add_enabled_ui(!busy && self.child.is_none(), |ui| {
-            switch = self.toolbar(ui).map(|paths| (!self.sync_mode, paths));
-            let change = self.filters.ui(ui, !self.sync_mode);
-            if change.save_presets {
-                self.send(Command::SavePresets(self.filters.presets.to_xml()));
-            }
-            if change.apply {
-                self.send(Command::Filters {
-                    names: self.filters.names.clone(),
-                    other: self.filters.other.clone(),
-                    content: self.filters.content.clone(),
-                    exclude_containing: self.filters.exclude_containing,
-                    view: self.filters.options,
-                });
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label(format!("{}  |  {}", self.paths.left, self.paths.right));
-        });
-        ui.horizontal(|ui| {
-            ui.label(format!(
-                "{} files, {} folders; {} visible rows; {} selected",
-                self.snapshot.files,
-                self.snapshot.folders,
-                self.row_count(),
-                self.selection.items.len()
-            ));
-            if busy {
-                let p = self.shared.progress.lock().unwrap().clone();
-                let fraction = p
-                    .total
-                    .filter(|n| *n > 0)
-                    .map_or(0.0, |n| p.current as f32 / n as f32);
-                ui.add(
-                    egui::ProgressBar::new(fraction)
-                        .desired_width(180.0)
-                        .text(&p.message),
-                );
-                if ui.button("Cancel task").clicked() {
-                    self.cancel();
+        if self.sync_mode {
+            // 同步视图本期不换肤：沿用旧行式布局。
+            ui.add_enabled_ui(!busy && self.child.is_none(), |ui| {
+                switch = self.toolbar(ui).map(|paths| (!self.sync_mode, paths));
+                let change = self.filters.ui_legacy(ui, !self.sync_mode);
+                if change.save_presets {
+                    self.send(Command::SavePresets(self.filters.presets.to_xml()));
                 }
-            } else {
-                ui.label(&self.message);
+                if change.apply {
+                    self.send(Command::Filters {
+                        names: self.filters.names.clone(),
+                        other: self.filters.other.clone(),
+                        content: self.filters.content.clone(),
+                        exclude_containing: self.filters.exclude_containing,
+                        view: self.filters.options,
+                    });
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(format!("{}  |  {}", self.paths.left, self.paths.right));
+            });
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "{} files, {} folders; {} visible rows; {} selected",
+                    self.snapshot.files,
+                    self.snapshot.folders,
+                    self.row_count(),
+                    self.selection.items.len()
+                ));
+                if busy {
+                    let p = self.shared.progress.lock().unwrap().clone();
+                    let fraction = p
+                        .total
+                        .filter(|n| *n > 0)
+                        .map_or(0.0, |n| p.current as f32 / n as f32);
+                    ui.add(
+                        egui::ProgressBar::new(fraction)
+                            .desired_width(180.0)
+                            .text(&p.message),
+                    );
+                    if ui.button("Cancel task").clicked() {
+                        self.cancel();
+                    }
+                } else {
+                    ui.label(&self.message);
+                }
+            });
+            if let Some(path) = self.log_panel.ui(ui, &self.shared.log) {
+                self.send(Command::SaveLog(path.into()));
             }
-        });
-        if let Some(path) = self.log_panel.ui(ui, &self.shared.log) {
-            self.send(Command::SaveLog(path.into()));
+            ui.add_enabled_ui(self.child.is_none(), |ui| self.draw_table(ui));
+        } else {
+            switch = self.chrome_ui(ui, busy);
         }
-        ui.add_enabled_ui(self.child.is_none(), |ui| self.draw_table(ui));
         if let Some(paths) = self.paths.show(&ctx) {
             self.reload(paths, true);
         }
@@ -2774,6 +2910,82 @@ impl DirCompareView {
             }
             if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::ArrowRight)) {
                 self.restrict_side(1);
+            }
+            if !self.sync_mode {
+                // 参考快捷键（比较视图）：导航/选择/刷新/查找。
+                let pressed = |key: egui::Key, ctrl: bool, shift: bool, alt: bool| {
+                    ctx.input(|i| {
+                        i.key_pressed(key)
+                            && i.modifiers.ctrl == ctrl
+                            && i.modifiers.shift == shift
+                            && i.modifiers.alt == alt
+                    })
+                };
+                if pressed(egui::Key::N, true, false, false) {
+                    self.navigate(false, false);
+                }
+                if pressed(egui::Key::P, true, false, false) {
+                    self.navigate(true, false);
+                }
+                if pressed(egui::Key::A, true, false, false) {
+                    self.selection.items.clear();
+                    self.select_visible("all", false);
+                }
+                if pressed(egui::Key::A, true, true, false) {
+                    self.selection.items.clear();
+                    self.select_visible("files", false);
+                }
+                if pressed(egui::Key::F, true, false, false) {
+                    self.find.open = true;
+                }
+                if pressed(egui::Key::F3, false, false, false) {
+                    self.find_next(false);
+                }
+                if pressed(egui::Key::F3, false, true, false) {
+                    self.find_next(true);
+                }
+                if pressed(egui::Key::F5, false, false, false) {
+                    self.send(Command::Refresh {
+                        selection: None,
+                        full: false,
+                    });
+                }
+                if pressed(egui::Key::F5, true, false, false) {
+                    self.send(Command::Refresh {
+                        selection: None,
+                        full: true,
+                    });
+                }
+                if pressed(egui::Key::F5, false, true, false) {
+                    self.send(Command::Refresh {
+                        selection: Some(self.selection.clone()),
+                        full: false,
+                    });
+                }
+                if pressed(egui::Key::ArrowLeft, false, false, true) && self.history_at > 0 {
+                    self.history_at -= 1;
+                    self.reload(self.history[self.history_at].clone(), false);
+                }
+                if pressed(egui::Key::ArrowRight, false, false, true)
+                    && self.history_at + 1 < self.history.len()
+                {
+                    self.history_at += 1;
+                    self.reload(self.history[self.history_at].clone(), false);
+                }
+                if pressed(egui::Key::F2, false, false, false) && !busy {
+                    let mut dialog = OperationDialog::new(Kind::Rename);
+                    dialog.include_hidden =
+                        self.handling.include_hidden || self.filters.options.suppress_filters;
+                    dialog.recent = self.paths.recent.clone();
+                    self.operation = Some(dialog);
+                }
+                if pressed(egui::Key::Insert, false, false, false) && !busy {
+                    let mut dialog = OperationDialog::new(Kind::NewFolder);
+                    dialog.include_hidden =
+                        self.handling.include_hidden || self.filters.options.suppress_filters;
+                    dialog.recent = self.paths.recent.clone();
+                    self.operation = Some(dialog);
+                }
             }
         }
         if let Some(child) = &mut self.child {
@@ -3134,8 +3346,2444 @@ impl DirCompareView {
         }
     }
 }
-impl Drop for DirCompareView {
-    fn drop(&mut self) {
+// ==================== 参考外观（文件夹比较 chrome 布局） ====================
+// 以下实现对齐 docs/visual-parity/tokens.json 的 inventories.folder 与 folder-basic/
+// folder-expanded/folder-diffs-filter 命名区域：菜单栏 27、工具栏 43、过滤栏 45、
+// 路径栏 26、列头 24、行高 20、列宽 Name 437 / Size 78 / Modified 150、中缝 37、
+// 右侧 18 px 平坦滚动条、日志区 106、状态栏 25。同步视图（sync_mode）保持旧布局。
+
+const CHROME_ROW: f32 = 20.0;
+const CHROME_HEADER: f32 = 24.0;
+const CHROME_FILTERBAR: f32 = 45.0;
+const CHROME_PATHBAR: f32 = 26.0;
+const CHROME_LOG: f32 = 106.0;
+const CHROME_GAP: f32 = 37.0;
+const CHROME_SCROLLBAR: f32 = 18.0;
+
+const TREE_STRIPE: egui::Color32 = egui::Color32::from_rgb(248, 250, 249);
+const TREE_SELECTED: egui::Color32 = egui::Color32::from_rgb(168, 205, 241);
+const TREE_LINE: egui::Color32 = egui::Color32::from_rgb(128, 128, 128);
+const HEADER_SEP: egui::Color32 = egui::Color32::from_rgb(229, 229, 229);
+const HEADER_EDGE: egui::Color32 = egui::Color32::from_rgb(160, 160, 160);
+const TREE_EDGE: egui::Color32 = egui::Color32::from_rgb(192, 192, 192);
+const LOG_FILL: egui::Color32 = egui::Color32::from_rgb(227, 231, 237);
+const COMBO_EDGE: egui::Color32 = egui::Color32::from_rgb(141, 141, 141);
+
+/// 每行树线标记：`continues` 位 l 表示 level l 的竖线穿过本行。
+#[derive(Clone, Copy, Default)]
+pub struct RowLine {
+    continues: u32,
+    connector: bool,
+    connector_last: bool,
+}
+
+/// 由可见行序计算树线标记：两次线性扫描（反向求“是否还有后续兄弟”，正向挂祖先链）。
+fn row_lines(rows: &[RenderRow]) -> Vec<RowLine> {
+    let n = rows.len();
+    let mut next_sibling = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    for i in (0..n).rev() {
+        let d = rows[i].depth;
+        while stack.last().is_some_and(|&t| rows[t].depth > d) {
+            stack.pop();
+        }
+        if let Some(&t) = stack.last() {
+            if rows[t].depth == d {
+                next_sibling[i] = true;
+            }
+        }
+        stack.push(i);
+    }
+    let mut out = Vec::with_capacity(n);
+    let mut ancestors: Vec<usize> = Vec::new();
+    for i in 0..n {
+        let d = rows[i].depth;
+        ancestors.truncate(d);
+        let mut flags = RowLine::default();
+        if d > 0 {
+            flags.connector = true;
+            flags.connector_last = !next_sibling[i];
+            for l in 0..(d - 1).min(ancestors.len()).min(31) {
+                if next_sibling[ancestors[l]] {
+                    flags.continues |= 1 << l;
+                }
+            }
+        }
+        out.push(flags);
+        ancestors.push(i);
+    }
+    out
+}
+
+/// 文件夹图标着色：未扫描（参考黄）> 含差异（红）> 含孤儿（紫）> 其余（灰）。
+fn folder_tint(row: &RenderRow) -> (egui::Color32, egui::Color32, egui::Color32, egui::Color32) {
+    let rgb = |r, g, b| egui::Color32::from_rgb(r, g, b);
+    if row.pending {
+        (
+            rgb(255, 232, 139),
+            rgb(247, 215, 87),
+            rgb(207, 196, 155),
+            rgb(179, 168, 121),
+        )
+    } else if row.red {
+        (
+            rgb(255, 187, 187),
+            rgb(246, 100, 100),
+            rgb(207, 155, 155),
+            rgb(91, 55, 55),
+        )
+    } else if row.purple {
+        (
+            rgb(160, 81, 251),
+            rgb(154, 80, 230),
+            rgb(169, 119, 221),
+            rgb(74, 63, 85),
+        )
+    } else {
+        (
+            rgb(134, 134, 134),
+            rgb(104, 104, 104),
+            rgb(118, 118, 118),
+            rgb(72, 72, 72),
+        )
+    }
+}
+
+fn paint_folder_icon(painter: &egui::Painter, rect: egui::Rect, row: &RenderRow) {
+    let (top, bottom, tab, outline) = folder_tint(row);
+    // 主体：四段垂直渐变 + 深色描边；左上角标签页。
+    let body = egui::Rect::from_min_max(
+        egui::pos2(rect.left(), rect.top() + 3.0),
+        rect.right_bottom(),
+    );
+    let bands = 4;
+    for i in 0..bands {
+        let y0 = body.top() + body.height() * i as f32 / bands as f32;
+        let y1 = body.top() + body.height() * (i + 1) as f32 / bands as f32;
+        let t = (i as f32 + 0.5) / bands as f32;
+        let color = egui::Color32::from_rgb(
+            (top.r() as f32 + (bottom.r() as f32 - top.r() as f32) * t) as u8,
+            (top.g() as f32 + (bottom.g() as f32 - top.g() as f32) * t) as u8,
+            (top.b() as f32 + (bottom.b() as f32 - top.b() as f32) * t) as u8,
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(body.left(), y0), egui::pos2(body.right(), y1)),
+            0.0,
+            color,
+        );
+    }
+    painter.rect_stroke(
+        body,
+        0.0,
+        egui::Stroke::new(1.0, outline),
+        egui::StrokeKind::Inside,
+    );
+    let tab_rect =
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 6.5, rect.top() + 3.5));
+    painter.rect_filled(tab_rect, 0.0, tab);
+    painter.rect_stroke(
+        tab_rect,
+        0.0,
+        egui::Stroke::new(1.0, outline),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// 文件图标：白底 8x8 方块 + 5 px 语义色实心芯（参考的“未知类型”小方块）。
+fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui::Color32) {
+    let outer = egui::Rect::from_min_size(egui::pos2(left, row_top + 7.0), egui::vec2(8.0, 8.0));
+    painter.rect_filled(outer, 0.0, egui::Color32::WHITE);
+    painter.rect_filled(
+        egui::Rect::from_min_size(
+            egui::pos2(outer.left() + 1.0, outer.top() + 1.0),
+            egui::vec2(5.0, 6.0),
+        ),
+        0.0,
+        color,
+    );
+}
+
+/// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
+fn dotted_v(painter: &egui::Painter, x: f32, y0: f32, y1: f32, color: egui::Color32) {
+    let mut y = y0;
+    while y < y1 {
+        painter.rect_filled(
+            egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.0, 1.0)),
+            0.0,
+            color,
+        );
+        y += 2.0;
+    }
+}
+fn dotted_h(painter: &egui::Painter, x0: f32, x1: f32, y: f32, color: egui::Color32) {
+    let mut x = x0;
+    while x < x1 {
+        painter.rect_filled(
+            egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.0, 1.0)),
+            0.0,
+            color,
+        );
+        x += 2.0;
+    }
+}
+
+/// 状态栏“Shows ...”文本：由显示过滤器推出可见类别。
+fn shows_legend(display: bc_engine_dir::filter::DisplayFilter) -> String {
+    use bc_engine_dir::filter::DisplayFilter;
+    if display == DisplayFilter::None {
+        return "Shows no items.".into();
+    }
+    let mut parts = Vec::new();
+    for (label, status) in [
+        ("same", CompareStatus::Same),
+        ("left orphan", CompareStatus::LeftOrphan),
+        ("right orphan", CompareStatus::RightOrphan),
+        ("left newer", CompareStatus::LeftNewer),
+        ("right newer", CompareStatus::RightNewer),
+        ("difference", CompareStatus::Different),
+    ] {
+        if display.shows(status) {
+            parts.push(label);
+        }
+    }
+    if parts.is_empty() {
+        return "Shows no items.".into();
+    }
+    let mut text = String::from("Shows ");
+    for (i, part) in parts.iter().enumerate() {
+        if i > 0 {
+            text.push_str(if i + 1 == parts.len() { " and " } else { ", " });
+        }
+        text.push_str(part);
+    }
+    text.push_str(" items.");
+    text
+}
+
+fn menu_entry(
+    label: &str,
+    mnemonic: Option<char>,
+    shortcut: Option<&str>,
+    children: Vec<MenuItem>,
+    id: &str,
+) -> MenuItem {
+    MenuItem {
+        label: label.into(),
+        mnemonic,
+        shortcut: shortcut.map(str::to_owned),
+        kind: if label.is_empty() {
+            MenuItemKind::Separator
+        } else if children.is_empty() {
+            MenuItemKind::Action
+        } else {
+            MenuItemKind::Submenu(children)
+        },
+        enabled: false,
+        action_id: id.into(),
+    }
+}
+
+/// 完整转录 inventories.folder 的七个菜单；未实现项保持禁用（外观库存，不是功能承诺）。
+fn folder_menu_inventory() -> Vec<MenuSpec> {
+    use crate::chrome::menubar::{MenuItem as MI, MenuSpec};
+    fn item(label: &str, mnemonic: Option<char>, shortcut: Option<&str>, id: &str) -> MI {
+        menu_entry(label, mnemonic, shortcut, vec![], id)
+    }
+    fn sep() -> MI {
+        menu_entry("", None, None, vec![], "")
+    }
+    fn sub(label: &str, mnemonic: Option<char>, children: Vec<MI>, id: &str) -> MI {
+        menu_entry(label, mnemonic, None, children, id)
+    }
+    let menu = |title: &str, mnemonic: char, items: Vec<MI>| MenuSpec {
+        title: title.into(),
+        mnemonic: Some(mnemonic),
+        items,
+    };
+    vec![
+        menu(
+            "Session",
+            's',
+            vec![
+                sub(
+                    "New Session",
+                    Some('n'),
+                    vec![
+                        item("Folder Compare", Some('f'), None, "new-folder"),
+                        item("Folder Sync", Some('o'), None, "new-sync"),
+                        item("Text Compare", Some('t'), None, "new-text"),
+                        item("Hex Compare", Some('h'), None, "new-hex"),
+                        item("Media Compare", Some('m'), None, "new-media"),
+                        item("Picture Compare", Some('p'), None, "new-picture"),
+                        item("Table Compare", Some('b'), None, "new-table"),
+                        item("Version Compare", Some('v'), None, "new-version"),
+                    ],
+                    "New Session",
+                ),
+                item("New Tab", Some('t'), Some("Ctrl+T"), "New Tab"),
+                item("New Window", Some('w'), None, "New Window"),
+                item(
+                    "Open Session",
+                    Some('o'),
+                    Some("Shift+Ctrl+O"),
+                    "Open Session",
+                ),
+                sep(),
+                sub(
+                    "Load Workspace",
+                    Some('k'),
+                    vec![item(
+                        "Manage Workspaces...",
+                        None,
+                        None,
+                        "Manage Workspaces",
+                    )],
+                    "Load Workspace",
+                ),
+                item("Save Workspace As...", Some('v'), None, "Save Workspace As"),
+                sep(),
+                item(
+                    "Save Session",
+                    Some('s'),
+                    Some("Shift+Ctrl+S"),
+                    "Save Session",
+                ),
+                item("Save Session As...", Some('a'), None, "Save Session As"),
+                item("Session Settings...", Some('e'), None, "Session Settings"),
+                item("Locked", Some('l'), None, "Locked"),
+                item(
+                    "Clear Session",
+                    Some('c'),
+                    Some("Shift+Ctrl+C"),
+                    "Clear Session",
+                ),
+                item("Close Tab", None, Some("Ctrl+W"), "Close Tab"),
+                sep(),
+                item("Swap Sides", Some('d'), None, "Swap Sides"),
+                item("Back", Some('b'), Some("Alt+Left"), "Back"),
+                item("Forward", Some('f'), Some("Alt+Right"), "Forward"),
+                sub(
+                    "Browse for Folder",
+                    Some('o'),
+                    vec![
+                        item("Left Side", Some('l'), None, "browse-left"),
+                        item("Right Side", Some('r'), None, "browse-right"),
+                    ],
+                    "Browse for Folder",
+                ),
+                sub(
+                    "Up One Level",
+                    Some('u'),
+                    vec![
+                        item("Left Side", Some('l'), None, "up-left"),
+                        item("Right Side", Some('r'), None, "up-right"),
+                        item("Both Sides", Some('b'), None, "up-both"),
+                    ],
+                    "Up One Level",
+                ),
+                sep(),
+                item(
+                    "Folder Compare Report...",
+                    Some('p'),
+                    None,
+                    "Folder Compare Report",
+                ),
+                item(
+                    "Folder Compare Info",
+                    Some('i'),
+                    Some("Ctrl+I"),
+                    "Folder Compare Info",
+                ),
+                sep(),
+                item("Sync Base Folders", Some('y'), None, "Sync Base Folders"),
+                item(
+                    "Compare Parent Folders",
+                    Some('f'),
+                    None,
+                    "Compare Parent Folders",
+                ),
+                sep(),
+                item("Exit", Some('x'), Some("Ctrl+Q"), "Exit"),
+            ],
+        ),
+        menu(
+            "Actions",
+            'a',
+            vec![
+                item("Open Folder", Some('o'), None, "Open Folder"),
+                item("Open Subfolders", Some('s'), None, "Open Subfolders"),
+                item("Close Subfolders", Some('c'), None, "Close Subfolders"),
+                item(
+                    "Set as Base Folders",
+                    Some('b'),
+                    None,
+                    "Set as Base Folders",
+                ),
+                item("Open in New View", Some('o'), None, "Open in New View"),
+                sub(
+                    "Open With",
+                    Some('w'),
+                    vec![
+                        item("Associated Application", None, None, "open-with-app"),
+                        sep(),
+                        item("Folder Compare", Some('f'), None, "open-with-folder"),
+                        item("Folder Sync", Some('o'), None, "open-with-sync"),
+                        sep(),
+                    ],
+                    "Open With",
+                ),
+                sub(
+                    "Compare Contents",
+                    Some('c'),
+                    vec![
+                        item("CRC", Some('c'), None, "compare-crc"),
+                        item("Binary", Some('b'), None, "compare-binary"),
+                        item("Rules-based", Some('r'), None, "compare-rules"),
+                    ],
+                    "Compare Contents",
+                ),
+                item("Copy to Side...", Some('y'), None, "Copy to Side"),
+                item("Move to Side...", Some('m'), None, "Move to Side"),
+                item("Copy to Folder...", Some('f'), None, "Copy to Folder"),
+                item("Move to Folder...", Some('v'), None, "Move to Folder"),
+                item("Delete...", Some('d'), None, "Delete"),
+                item("Rename...", Some('r'), Some("F2"), "Rename"),
+                item("Attributes...", Some('a'), None, "Attributes"),
+                item("Touch...", Some('t'), None, "Touch"),
+                item("Exclude", Some('e'), None, "Exclude"),
+                item("New Folder...", Some('n'), Some("Ins"), "New Folder"),
+                item("Copy Filename", Some('i'), None, "Copy Filename"),
+                item("Ignored", Some('g'), None, "Ignored"),
+                item(
+                    "Refresh Selection",
+                    Some('s'),
+                    Some("Shift+F5"),
+                    "Refresh Selection",
+                ),
+                sep(),
+                sub(
+                    "Synchronize",
+                    Some('z'),
+                    vec![
+                        item("Update Right...", Some('r'), None, "sync-update-right"),
+                        item("Update Left...", Some('l'), None, "sync-update-left"),
+                        item("Update Both...", Some('b'), None, "sync-update-both"),
+                        item(
+                            "Mirror to Right...",
+                            Some('g'),
+                            Some("Shift+Ctrl+R"),
+                            "sync-mirror-right",
+                        ),
+                        item(
+                            "Mirror to Left...",
+                            Some('f'),
+                            Some("Shift+Ctrl+L"),
+                            "sync-mirror-left",
+                        ),
+                    ],
+                    "Synchronize",
+                ),
+                sep(),
+                sub("Explorer", Some('x'), vec![], "Explorer"),
+            ],
+        ),
+        menu(
+            "Edit",
+            'e',
+            vec![
+                item("Expand All", Some('e'), None, "Expand All"),
+                item("Collapse All", Some('c'), None, "Collapse All"),
+                sep(),
+                item("Select All", Some('a'), Some("Ctrl+A"), "Select All"),
+                item(
+                    "Select All Files",
+                    Some('f'),
+                    Some("Shift+Ctrl+A"),
+                    "Select All Files",
+                ),
+                sub(
+                    "Select Newer",
+                    Some('n'),
+                    vec![
+                        item("Left Side", Some('l'), None, "select-newer-left"),
+                        item("Right Side", Some('r'), None, "select-newer-right"),
+                        item("Both Sides", Some('b'), None, "select-newer-both"),
+                    ],
+                    "Select Newer",
+                ),
+                sub(
+                    "Select Orphans",
+                    Some('o'),
+                    vec![
+                        item("Left Side", Some('l'), None, "select-orphan-left"),
+                        item("Right Side", Some('r'), None, "select-orphan-right"),
+                        item("Both Sides", Some('b'), None, "select-orphan-both"),
+                    ],
+                    "Select Orphans",
+                ),
+                item("Invert Selection", Some('i'), None, "Invert Selection"),
+                item("Refresh", Some('r'), Some("F5"), "Refresh"),
+                item("Full Refresh", Some('u'), Some("Ctrl+F5"), "Full Refresh"),
+            ],
+        ),
+        menu(
+            "Search",
+            's',
+            vec![
+                item(
+                    "Next Difference",
+                    Some('n'),
+                    Some("Ctrl+N"),
+                    "Next Difference",
+                ),
+                item(
+                    "Previous Difference",
+                    Some('p'),
+                    Some("Ctrl+P"),
+                    "Previous Difference",
+                ),
+                item(
+                    "Find Filename...",
+                    Some('f'),
+                    Some("Ctrl+F"),
+                    "Find Filename",
+                ),
+                item(
+                    "Find Next Filename",
+                    Some('x'),
+                    Some("F3"),
+                    "Find Next Filename",
+                ),
+                item(
+                    "Find Previous Filename",
+                    Some('v'),
+                    Some("Shift+F3"),
+                    "Find Previous Filename",
+                ),
+            ],
+        ),
+        menu(
+            "View",
+            'v',
+            vec![
+                item("Show All", None, None, "Show All"),
+                item("Show Differences", None, None, "Show Differences"),
+                item("Show Same", None, None, "Show Same"),
+                item("Show No Orphans", None, None, "Show No Orphans"),
+                item(
+                    "Show Differences but No Orphans",
+                    None,
+                    None,
+                    "Show Differences but No Orphans",
+                ),
+                item("Show Orphans", None, None, "Show Orphans"),
+                item("Show Left Newer", None, None, "Show Left Newer"),
+                item("Show Right Newer", None, None, "Show Right Newer"),
+                item(
+                    "Show Left Newer and Left Orphans",
+                    None,
+                    None,
+                    "Show Left Newer and Left Orphans",
+                ),
+                item(
+                    "Show Right Newer and Right Orphans",
+                    None,
+                    None,
+                    "Show Right Newer and Right Orphans",
+                ),
+                item("Show Left Orphans", None, None, "Show Left Orphans"),
+                item("Show Right Orphans", None, None, "Show Right Orphans"),
+                sep(),
+                item(
+                    "Always Show Folders",
+                    Some('a'),
+                    None,
+                    "Always Show Folders",
+                ),
+                item(
+                    "Compare Files and Folder Structure",
+                    Some('d'),
+                    None,
+                    "Compare Files and Folder Structure",
+                ),
+                item("Only Compare Files", Some('f'), None, "Only Compare Files"),
+                item(
+                    "Ignore Folder Structure",
+                    Some('i'),
+                    None,
+                    "Ignore Folder Structure",
+                ),
+                sep(),
+                item(
+                    "Ignore Unimportant Differences",
+                    Some('u'),
+                    None,
+                    "Ignore Unimportant Differences",
+                ),
+                item("Suppress Filters", Some('s'), None, "Suppress Filters"),
+                sep(),
+                sub(
+                    "Columns",
+                    Some('c'),
+                    vec![
+                        item("Ext", Some('e'), None, "column-ext"),
+                        item("Status", Some('s'), None, "column-status"),
+                        item("Revision", Some('i'), None, "column-revision"),
+                        item("Version", Some('v'), None, "column-version"),
+                        item("Size", Some('z'), None, "column-size"),
+                        item("CRC", Some('c'), None, "column-crc"),
+                        item("Modified", Some('m'), None, "column-modified"),
+                        item("Attributes", Some('a'), None, "column-attrs"),
+                        item("Owner", Some('o'), None, "column-owner"),
+                        item("Group", Some('g'), None, "column-group"),
+                    ],
+                    "Columns",
+                ),
+                item("Legend", Some('l'), Some("Ctrl+Alt+L"), "Legend"),
+                item("Log", Some('o'), None, "Log"),
+                item("Toolbar", Some('t'), None, "Toolbar"),
+            ],
+        ),
+        menu(
+            "Tools",
+            't',
+            vec![
+                item("Options...", Some('o'), None, "Options"),
+                item("File Formats...", Some('f'), None, "File Formats"),
+                item("Profiles...", Some('p'), None, "Profiles"),
+                sep(),
+                item("Export Settings...", Some('e'), None, "Export Settings"),
+                item("Import Settings...", Some('i'), None, "Import Settings"),
+                item(
+                    "Restore Factory Defaults...",
+                    Some('r'),
+                    None,
+                    "Restore Factory Defaults",
+                ),
+                sep(),
+                item("Save Snapshot...", Some('h'), None, "Save Snapshot"),
+                item("Edit Text File", Some('d'), None, "Edit Text File"),
+                item("View Patch...", Some('a'), None, "View Patch"),
+            ],
+        ),
+        menu(
+            "Help",
+            'h',
+            vec![
+                item("Contents", Some('c'), None, "Contents"),
+                item(
+                    "Context Sensitive Help",
+                    Some('h'),
+                    Some("F1"),
+                    "Context Sensitive Help",
+                ),
+                sep(),
+                item("Project Website", Some('w'), None, "Project Website"),
+                item("Check for Updates", Some('u'), None, "Check for Updates"),
+                item("Support", Some('s'), None, "Support"),
+                item("Enter Key...", Some('e'), None, "Enter Key"),
+                sep(),
+                item("About Matcha", Some('a'), None, "About Matcha"),
+            ],
+        ),
+    ]
+}
+
+/// 每帧同步菜单启用与勾选状态；子菜单容器有子项即启用，未实现的叶子保持禁用。
+struct MenuFlags<'a> {
+    view: ViewOptions,
+    columns: &'a [Column],
+    legend: bool,
+    log: bool,
+    toolbar: bool,
+    back: bool,
+    forward: bool,
+}
+fn update_folder_items(items: &mut [MenuItem], flags: &MenuFlags) {
+    use bc_engine_dir::filter::{DisplayFilter as D, FolderDisplay as F};
+    let view = flags.view;
+    let columns = flags.columns;
+    for item in items {
+        if let MenuItemKind::Submenu(children) = &mut item.kind {
+            item.enabled = !children.is_empty();
+            update_folder_items(children, flags);
+            continue;
+        }
+        if matches!(item.kind, MenuItemKind::Separator) {
+            continue;
+        }
+        let mut enabled = true;
+        match item.action_id.as_str() {
+            "Session Settings"
+            | "Swap Sides"
+            | "browse-left"
+            | "browse-right"
+            | "up-left"
+            | "up-right"
+            | "up-both"
+            | "Sync Base Folders"
+            | "Compare Parent Folders"
+            | "Exit" => {}
+            "Back" => enabled = flags.back,
+            "Forward" => enabled = flags.forward,
+            "Open Folder"
+            | "Open Subfolders"
+            | "Close Subfolders"
+            | "Set as Base Folders"
+            | "Open in New View"
+            | "compare-crc"
+            | "compare-binary"
+            | "compare-rules"
+            | "Copy to Side"
+            | "Move to Side"
+            | "Copy to Folder"
+            | "Move to Folder"
+            | "Delete"
+            | "Rename"
+            | "Attributes"
+            | "Touch"
+            | "Exclude"
+            | "New Folder"
+            | "Copy Filename"
+            | "Ignored"
+            | "Refresh Selection" => {}
+            "Expand All"
+            | "Collapse All"
+            | "Select All"
+            | "Select All Files"
+            | "select-newer-left"
+            | "select-newer-right"
+            | "select-newer-both"
+            | "select-orphan-left"
+            | "select-orphan-right"
+            | "select-orphan-both"
+            | "Invert Selection"
+            | "Refresh"
+            | "Full Refresh" => {}
+            "Next Difference"
+            | "Previous Difference"
+            | "Find Filename"
+            | "Find Next Filename"
+            | "Find Previous Filename" => {}
+            "Show All" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::All,
+                }
+            }
+            "Show Differences" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::Mismatches,
+                };
+            }
+            "Show Same" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::Matches,
+                }
+            }
+            "Show No Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::NoOrphans,
+                };
+            }
+            "Show Differences but No Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::MismatchesNoOrphans,
+                };
+            }
+            "Show Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::Orphans,
+                }
+            }
+            "Show Left Newer" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::LeftNewer,
+                };
+            }
+            "Show Right Newer" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::RightNewer,
+                };
+            }
+            "Show Left Newer and Left Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::LeftNewerOrphans,
+                };
+            }
+            "Show Right Newer and Right Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::RightNewerOrphans,
+                };
+            }
+            "Show Left Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::LeftOrphans,
+                };
+            }
+            "Show Right Orphans" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.display == D::RightOrphans,
+                };
+            }
+            "Always Show Folders" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.folders == F::AlwaysShow,
+                };
+            }
+            "Compare Files and Folder Structure" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.folders == F::FilesAndStructure,
+                };
+            }
+            "Only Compare Files" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.folders == F::FilesOnly,
+                };
+            }
+            "Ignore Folder Structure" => {
+                item.kind = MenuItemKind::Radio {
+                    selected: view.folders == F::Flatten,
+                };
+            }
+            "Ignore Unimportant Differences" => {
+                item.kind = MenuItemKind::Check {
+                    checked: view.ignore_unimportant,
+                };
+            }
+            "Suppress Filters" => {
+                item.kind = MenuItemKind::Check {
+                    checked: view.suppress_filters,
+                };
+            }
+            "column-size" => {
+                item.kind = MenuItemKind::Check {
+                    checked: columns.contains(&Column::Size),
+                };
+            }
+            "column-modified" => {
+                item.kind = MenuItemKind::Check {
+                    checked: columns.contains(&Column::Modified),
+                };
+            }
+            "column-crc" => {
+                item.kind = MenuItemKind::Check {
+                    checked: columns.contains(&Column::Crc),
+                };
+            }
+            "column-version" => {
+                item.kind = MenuItemKind::Check {
+                    checked: columns.contains(&Column::Version),
+                };
+            }
+            "column-attrs" => {
+                item.kind = MenuItemKind::Check {
+                    checked: columns.contains(&Column::Attrs),
+                };
+            }
+            "column-ext" | "column-status" | "column-revision" | "column-owner"
+            | "column-group" => enabled = false,
+            "Legend" => {
+                item.kind = MenuItemKind::Check {
+                    checked: flags.legend,
+                }
+            }
+            "Log" => item.kind = MenuItemKind::Check { checked: flags.log },
+            "Toolbar" => {
+                item.kind = MenuItemKind::Check {
+                    checked: flags.toolbar,
+                }
+            }
+            _ => enabled = false,
+        }
+        item.enabled = enabled;
+    }
+}
+
+/// 参考列宽：Size 78 / Modified 150；Name 吸收剩余宽度。附加列沿用旧宽度。
+fn chrome_column_width(column: Column) -> f32 {
+    match column {
+        Column::Size => 78.0,
+        Column::Modified => 150.0,
+        other => other.width().max(60.0),
+    }
+}
+
+impl DirCompareView {
+    pub fn take_home_request(&mut self) -> bool {
+        std::mem::take(&mut self.home_requested)
+    }
+    /// 快照预置：与参考操作等价（folder-expanded = Ctrl+A + Expand All；
+    /// folder-diffs-filter = 工具栏 Diffs；folder-basic = 折叠 + 首行选中）。
+    pub fn snapshot_preset(&mut self, scene: &str) {
+        match scene {
+            "folder-expanded" => {
+                // 参考操作序：Ctrl+A（只选中可见的顶层行）后 Edit > Expand All。
+                self.selection.items.clear();
+                for row in &self.snapshot.rows {
+                    if row.depth == 0 {
+                        for side in 0..2 {
+                            if let Some(item) = &row.sides[side] {
+                                self.selection.insert(item.node, side);
+                            }
+                        }
+                    }
+                }
+                if self.row_count() > 0 {
+                    self.focus = Some(0);
+                }
+                self.send(Command::ExpandAll(true));
+            }
+            "folder-diffs-filter" => {
+                self.filters.options.display = bc_engine_dir::filter::DisplayFilter::Mismatches;
+                self.apply_view_options();
+                if self.row_count() > 0 {
+                    self.focus_row(0, None);
+                }
+            }
+            _ => {
+                if self.row_count() > 0 {
+                    self.focus_row(0, None);
+                }
+            }
+        }
+    }
+    /// 以当前 filters 状态通知工作线程重算（显示过滤/文件夹模式/不重要/Peek）。
+    fn apply_view_options(&mut self) {
+        self.send(Command::Filters {
+            names: self.filters.effective_names(),
+            other: self.filters.other.clone(),
+            content: self.filters.content.clone(),
+            exclude_containing: self.filters.exclude_containing,
+            view: self.filters.options,
+        });
+    }
+    fn open_operation(&mut self, kind: Kind) {
+        let mut dialog = OperationDialog::new(kind);
+        dialog.include_hidden =
+            self.handling.include_hidden || self.filters.options.suppress_filters;
+        dialog.recent = self.paths.recent.clone();
+        self.operation = Some(dialog);
+    }
+    fn open_scope(&mut self, op: DirOp) {
+        let both = self
+            .selection
+            .items
+            .iter()
+            .map(|(_, s)| *s)
+            .collect::<BTreeSet<_>>()
+            .len()
+            > 1;
+        let direction = both && matches!(op, DirOp::CopyOther | DirOp::MoveOther);
+        self.scope = Some(dialogs::scope::ScopeDialog::new(
+            op,
+            self.handling.include_hidden || self.filters.options.suppress_filters,
+            direction,
+        ));
+    }
+    fn toggle_column(&mut self, column: Column) {
+        if self.columns.contains(&column) {
+            self.columns.retain(|c| *c != column);
+        } else {
+            self.columns.push(column);
+            if matches!(column, Column::Crc | Column::Version) {
+                self.send(Command::Details {
+                    selection: (!self.selection.items.is_empty()).then(|| self.selection.clone()),
+                    crc: column == Column::Crc,
+                    version: column == Column::Version,
+                });
+            }
+        }
+    }
+    /// Ignored 为切换：所选全部已忽略时清除，否则标记。
+    fn toggle_ignored(&mut self) {
+        let nodes: BTreeSet<_> = self.selection.items.iter().map(|(n, _)| *n).collect();
+        let all_ignored = !nodes.is_empty()
+            && self
+                .snapshot
+                .rows
+                .iter()
+                .filter(|r| r.node.is_some_and(|n| nodes.contains(&n)))
+                .all(|r| r.ignored);
+        self.open_scope(DirOp::Ignored(!all_ignored));
+    }
+    fn set_display(&mut self, display: bc_engine_dir::filter::DisplayFilter) {
+        self.filters.options.display = display;
+        self.apply_view_options();
+    }
+    fn set_folder_display(&mut self, folders: FolderDisplay) {
+        self.filters.options.folders = folders;
+        self.apply_view_options();
+    }
+    fn update_menus(&mut self) {
+        let flags = MenuFlags {
+            view: self.filters.options,
+            columns: &self.columns,
+            legend: self.legend_open,
+            log: self.log_panel.open,
+            toolbar: self.toolbar,
+            back: self.history_at > 0,
+            forward: self.history_at + 1 < self.history.len(),
+        };
+        let mut menus = std::mem::take(&mut self.menus);
+        for menu in &mut menus {
+            update_folder_items(&mut menu.items, &flags);
+        }
+        self.menus = menus;
+    }
+    /// 菜单与工具栏统一动作入口；返回 Some 表示要切换比较/同步视图。
+    fn folder_command(&mut self, id: &str) -> Option<FolderNavigation> {
+        use bc_engine_dir::filter::{DisplayFilter as D, FolderDisplay as F};
+        match id {
+            "Home" => {
+                if !self.request_text_close(false) {
+                    self.home_requested = true;
+                }
+            }
+            "Session Settings" => self.rules_open = true,
+            "Swap Sides" => self.reload([self.paths.right.clone(), self.paths.left.clone()], true),
+            "Back" => {
+                if self.history_at > 0 {
+                    self.history_at -= 1;
+                    self.reload(self.history[self.history_at].clone(), false);
+                }
+            }
+            "Forward" => {
+                if self.history_at + 1 < self.history.len() {
+                    self.history_at += 1;
+                    self.reload(self.history[self.history_at].clone(), false);
+                }
+            }
+            "browse-left" | "browse-right" => self.paths.open = true,
+            "up-left" => self.up(Target::Left),
+            "up-right" => self.up(Target::Right),
+            "up-both" => self.up(Target::All),
+            "Sync Base Folders" => return Some((true, self.paths())),
+            "Compare Parent Folders" => {
+                let paths = self
+                    .paths()
+                    .map(|p| p.parent().map(Path::to_path_buf).unwrap_or(p));
+                self.new_folder_view(paths);
+            }
+            "Exit" => self.exit_requested = true,
+            "Expand All" => self.send(Command::ExpandAll(true)),
+            "Collapse All" => self.send(Command::ExpandAll(false)),
+            "Select All" => {
+                self.selection.items.clear();
+                self.select_visible("all", false);
+            }
+            "Select All Files" => {
+                self.selection.items.clear();
+                self.select_visible("files", false);
+            }
+            "select-newer-left" | "select-newer-right" | "select-newer-both" => {
+                self.selection.items.clear();
+                let mask = match id {
+                    "select-newer-left" => "newer-left",
+                    "select-newer-right" => "newer-right",
+                    _ => "newer",
+                };
+                self.select_visible(mask, false);
+            }
+            "select-orphan-left" | "select-orphan-right" | "select-orphan-both" => {
+                self.selection.items.clear();
+                let mask = match id {
+                    "select-orphan-left" => "orphan-left",
+                    "select-orphan-right" => "orphan-right",
+                    _ => "orphans",
+                };
+                self.select_visible(mask, false);
+            }
+            "Invert Selection" => self.select_visible("all", true),
+            "Refresh" => self.send(Command::Refresh {
+                selection: None,
+                full: false,
+            }),
+            "Full Refresh" => self.send(Command::Refresh {
+                selection: None,
+                full: true,
+            }),
+            "Refresh Selection" => self.send(Command::Refresh {
+                selection: Some(self.selection.clone()),
+                full: false,
+            }),
+            "Next Difference" => self.navigate(false, false),
+            "Previous Difference" => self.navigate(true, false),
+            "Find Filename" => self.find.open = true,
+            "Find Next Filename" => self.find_next(false),
+            "Find Previous Filename" => self.find_next(true),
+            "Show All" => self.set_display(D::All),
+            "Show Differences" => self.set_display(D::Mismatches),
+            "Show Same" => self.set_display(D::Matches),
+            "Show No Orphans" => self.set_display(D::NoOrphans),
+            "Show Differences but No Orphans" => self.set_display(D::MismatchesNoOrphans),
+            "Show Orphans" => self.set_display(D::Orphans),
+            "Show Left Newer" => self.set_display(D::LeftNewer),
+            "Show Right Newer" => self.set_display(D::RightNewer),
+            "Show Left Newer and Left Orphans" => self.set_display(D::LeftNewerOrphans),
+            "Show Right Newer and Right Orphans" => self.set_display(D::RightNewerOrphans),
+            "Show Left Orphans" => self.set_display(D::LeftOrphans),
+            "Show Right Orphans" => self.set_display(D::RightOrphans),
+            "Always Show Folders" => self.set_folder_display(F::AlwaysShow),
+            "Compare Files and Folder Structure" => self.set_folder_display(F::FilesAndStructure),
+            "Only Compare Files" => self.set_folder_display(F::FilesOnly),
+            "Ignore Folder Structure" => self.set_folder_display(F::Flatten),
+            "Ignore Unimportant Differences" => {
+                self.filters.options.ignore_unimportant = !self.filters.options.ignore_unimportant;
+                self.apply_view_options();
+            }
+            "Suppress Filters" => {
+                self.filters.options.suppress_filters = !self.filters.options.suppress_filters;
+                self.apply_view_options();
+            }
+            "column-size" => self.toggle_column(Column::Size),
+            "column-modified" => self.toggle_column(Column::Modified),
+            "column-crc" => self.toggle_column(Column::Crc),
+            "column-version" => self.toggle_column(Column::Version),
+            "column-attrs" => self.toggle_column(Column::Attrs),
+            "Legend" => self.legend_open = !self.legend_open,
+            "Log" => self.log_panel.open = !self.log_panel.open,
+            "Toolbar" => self.toolbar = !self.toolbar,
+            "Open Folder" => self.expand_selection(true, false),
+            "Open Subfolders" => self.expand_selection(true, true),
+            "Close Subfolders" => self.expand_selection(false, true),
+            "Set as Base Folders" => self.set_base(false, true),
+            "Open in New View" => self.open_folder_selection(),
+            "compare-crc" => self.send(Command::Compare {
+                selection: self.selection.clone(),
+                mode: ContentCompare::Crc,
+            }),
+            "compare-binary" => self.send(Command::Compare {
+                selection: self.selection.clone(),
+                mode: ContentCompare::Binary,
+            }),
+            "compare-rules" => self.send(Command::Compare {
+                selection: self.selection.clone(),
+                mode: ContentCompare::RulesBased,
+            }),
+            "Copy to Side" => self.open_scope(DirOp::CopyOther),
+            "Move to Side" => self.open_scope(DirOp::MoveOther),
+            "Copy to Folder" => self.open_operation(Kind::CopyTo),
+            "Move to Folder" => self.open_operation(Kind::MoveTo),
+            "Delete" => self.open_operation(Kind::Delete),
+            "Rename" => self.open_operation(Kind::Rename),
+            "Attributes" => self.open_operation(Kind::Attributes),
+            "Touch" => self.open_operation(Kind::Touch),
+            "Exclude" => self.open_scope(DirOp::Exclude),
+            "New Folder" => self.open_operation(Kind::NewFolder),
+            "Copy Filename" => self.operate(DirOp::CopyFilename, false),
+            "Ignored" => self.toggle_ignored(),
+            "Stop" => self.cancel(),
+            "Show Files" => {
+                self.show_files = !self.show_files;
+                self.send(Command::ShowFiles(self.show_files));
+            }
+            _ => {}
+        }
+        None
+    }
+    fn chrome_toolbar_items(&self, busy: bool) -> Vec<crate::chrome::toolbar::ToolItem> {
+        use crate::chrome::{
+            icons::Icon,
+            toolbar::{ToolItem, ToolItemKind as Kind},
+        };
+        use bc_engine_dir::filter::DisplayFilter as D;
+        let display = self.filters.options.display;
+        let mk = |icon: Icon,
+                  label: &str,
+                  id: &str,
+                  kind: Kind,
+                  group: &str,
+                  enabled: bool,
+                  selected: bool| {
+            ToolItem {
+                label: label.into(),
+                action_id: id.into(),
+                kind,
+                enabled,
+                selected,
+                icon,
+                group: Some(group.into()),
+            }
+        };
+        vec![
+            mk(
+                Icon::Home,
+                "Home",
+                "Home",
+                Kind::Normal,
+                "home",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Sessions,
+                "Sessions",
+                "Sessions",
+                Kind::Dropdown,
+                "home",
+                true,
+                false,
+            ),
+            mk(
+                Icon::All,
+                "All",
+                "Show All",
+                Kind::Toggle,
+                "filter",
+                true,
+                display == D::All,
+            ),
+            mk(
+                Icon::Diffs,
+                "Diffs",
+                "Show Differences",
+                Kind::Split,
+                "filter",
+                true,
+                display == D::Mismatches,
+            ),
+            mk(
+                Icon::Same,
+                "Same",
+                "Show Same",
+                Kind::Toggle,
+                "filter",
+                true,
+                display == D::Matches,
+            ),
+            mk(
+                Icon::Files,
+                "Files",
+                "Show Files",
+                Kind::Split,
+                "minor",
+                true,
+                self.show_files,
+            ),
+            mk(
+                Icon::Minor,
+                "Minor",
+                "Ignore Unimportant Differences",
+                Kind::Toggle,
+                "minor",
+                true,
+                self.filters.options.ignore_unimportant,
+            ),
+            mk(
+                Icon::Rules,
+                "Rules",
+                "Session Settings",
+                Kind::Normal,
+                "rules",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Copy,
+                "Copy",
+                "Copy to Side",
+                Kind::Normal,
+                "copy",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Expand,
+                "Expand",
+                "Expand All",
+                Kind::Normal,
+                "tree",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Collapse,
+                "Collapse",
+                "Collapse All",
+                Kind::Normal,
+                "tree",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Select,
+                "Select",
+                "Select All",
+                Kind::Normal,
+                "tree",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Files,
+                "Files",
+                "Select All Files",
+                Kind::Normal,
+                "files",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Refresh,
+                "Refresh",
+                "Refresh",
+                Kind::Normal,
+                "files",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Swap,
+                "Swap",
+                "Swap Sides",
+                Kind::Normal,
+                "swap",
+                true,
+                false,
+            ),
+            mk(
+                Icon::Stop,
+                "Stop",
+                "Stop",
+                Kind::Normal,
+                "swap",
+                busy,
+                false,
+            ),
+        ]
+    }
+    /// 工具栏下拉（Sessions / Diffs / Files）：Area 弹出，选择后映射到同一动作入口。
+    fn chrome_dropdown(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
+        let (name, pos) = self.tool_dropdown.clone()?;
+        let mut picked: Option<String> = None;
+        let area = egui::Area::new(egui::Id::unique(("folder-tool-dropdown", self.window_id)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .movable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(egui::Color32::WHITE)
+                    .stroke(egui::Stroke::new(1.0, crate::chrome::theme::BORDER))
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        match name.as_str() {
+                            "Sessions" => {
+                                for (label, id, enabled) in [
+                                    ("Home", "Home", true),
+                                    ("Session Settings...", "Session Settings", true),
+                                    ("Open Session", "Open Session", false),
+                                    ("Save Session", "Save Session", false),
+                                ] {
+                                    if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                                        picked = Some(id.to_string());
+                                    }
+                                }
+                            }
+                            "Show Differences" => {
+                                use bc_engine_dir::filter::DisplayFilter as D;
+                                for (label, id, mode) in [
+                                    ("Show All", "Show All", D::All),
+                                    ("Show Differences", "Show Differences", D::Mismatches),
+                                    ("Show Same", "Show Same", D::Matches),
+                                    ("Show No Orphans", "Show No Orphans", D::NoOrphans),
+                                    (
+                                        "Show Differences but No Orphans",
+                                        "Show Differences but No Orphans",
+                                        D::MismatchesNoOrphans,
+                                    ),
+                                    ("Show Orphans", "Show Orphans", D::Orphans),
+                                    ("Show Left Newer", "Show Left Newer", D::LeftNewer),
+                                    ("Show Right Newer", "Show Right Newer", D::RightNewer),
+                                    (
+                                        "Show Left Newer and Left Orphans",
+                                        "Show Left Newer and Left Orphans",
+                                        D::LeftNewerOrphans,
+                                    ),
+                                    (
+                                        "Show Right Newer and Right Orphans",
+                                        "Show Right Newer and Right Orphans",
+                                        D::RightNewerOrphans,
+                                    ),
+                                    ("Show Left Orphans", "Show Left Orphans", D::LeftOrphans),
+                                    ("Show Right Orphans", "Show Right Orphans", D::RightOrphans),
+                                ] {
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.options.display == mode,
+                                            label,
+                                        )
+                                        .clicked()
+                                    {
+                                        picked = Some(id.to_string());
+                                    }
+                                }
+                            }
+                            "Show Files" => {
+                                if ui.selectable_label(self.show_files, "Show Files").clicked() {
+                                    picked = Some("Show Files".to_string());
+                                }
+                                ui.separator();
+                                for (label, id, mode) in [
+                                    (
+                                        "Always Show Folders",
+                                        "Always Show Folders",
+                                        FolderDisplay::AlwaysShow,
+                                    ),
+                                    (
+                                        "Compare Files and Folder Structure",
+                                        "Compare Files and Folder Structure",
+                                        FolderDisplay::FilesAndStructure,
+                                    ),
+                                    (
+                                        "Only Compare Files",
+                                        "Only Compare Files",
+                                        FolderDisplay::FilesOnly,
+                                    ),
+                                    (
+                                        "Ignore Folder Structure",
+                                        "Ignore Folder Structure",
+                                        FolderDisplay::Flatten,
+                                    ),
+                                ] {
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.options.folders == mode,
+                                            label,
+                                        )
+                                        .clicked()
+                                    {
+                                        picked = Some(id.to_string());
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    });
+            });
+        let mut switch = None;
+        if let Some(id) = picked {
+            switch = self.folder_command(&id);
+            self.tool_dropdown = None;
+        }
+        if ui.input(|i| {
+            i.key_pressed(egui::Key::Escape)
+                || (i.pointer.any_pressed()
+                    && i.pointer
+                        .interact_pos()
+                        .is_some_and(|p| !area.response.rect.contains(p)))
+        }) {
+            self.tool_dropdown = None;
+        }
+        switch
+    }
+    fn chrome_ui(&mut self, ui: &mut egui::Ui, busy: bool) -> Option<FolderNavigation> {
+        use crate::chrome::{menubar, theme, toolbar};
+        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        let mut switch = None;
+        // 绝对布局：子 ui 会推进父游标，所有条带改为从 full 直接计算。
+        let full = ui.available_rect_before_wrap();
+        let mut y = full.top();
+        // 菜单栏 27 px。
+        self.update_menus();
+        let menu_rect = egui::Rect::from_min_size(
+            egui::pos2(full.left(), y),
+            egui::vec2(full.width(), theme::MENU_HEIGHT),
+        );
+        let mut menu_action = None;
+        ui.scope_builder(egui::UiBuilder::new().max_rect(menu_rect), |ui| {
+            menu_action = menubar::show(ui, &self.menus);
+        });
+        y = menu_rect.bottom();
+        if let Some(action) = menu_action {
+            switch = self.folder_command(&action);
+        }
+        // 工具栏 43 px。
+        if self.toolbar {
+            let tool_rect = egui::Rect::from_min_size(
+                egui::pos2(full.left(), y),
+                egui::vec2(full.width(), theme::TOOLBAR_HEIGHT),
+            );
+            let items = self.chrome_toolbar_items(busy);
+            let mut response = toolbar::ToolbarResponse::default();
+            ui.scope_builder(egui::UiBuilder::new().max_rect(tool_rect), |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                response = toolbar::show(ui, &items);
+            });
+            y = tool_rect.bottom();
+            if let Some(action) = response.clicked {
+                switch = self.folder_command(&action).or(switch);
+            }
+            if let Some(action) = response.dropdown {
+                self.tool_dropdown = Some((
+                    action,
+                    ui.ctx().pointer_latest_pos().unwrap_or(ui.cursor().min),
+                ));
+            }
+        }
+        if let Some(action) = self.chrome_dropdown(ui) {
+            switch = Some(action);
+        }
+        // 过滤栏 45 px。
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(full.left(), y),
+            egui::vec2(full.width(), CHROME_FILTERBAR),
+        );
+        y = bar.bottom();
+        let change = self.filters.chrome(ui, bar);
+        if change.save_presets {
+            self.send(Command::SavePresets(self.filters.presets.to_xml()));
+        }
+        if change.apply {
+            self.apply_view_options();
+        }
+        // 路径栏 26 px。
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(full.left(), y),
+            egui::vec2(full.width(), CHROME_PATHBAR),
+        );
+        y = bar.bottom();
+        self.path_bar(ui, bar);
+        // 剩余：双树 + 日志 + 状态栏。
+        let avail = egui::Rect::from_min_max(egui::pos2(full.left(), y), full.max);
+        let log_h = if self.log_panel.open { CHROME_LOG } else { 0.0 };
+        let status_h = theme::STATUS_HEIGHT;
+        let grid_h = (avail.height() - log_h - status_h).max(80.0);
+        let grid = egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), grid_h));
+        let log_rect = egui::Rect::from_min_size(
+            egui::pos2(avail.left(), grid.bottom()),
+            egui::vec2(avail.width(), log_h),
+        );
+        let status = egui::Rect::from_min_size(
+            egui::pos2(avail.left(), grid.bottom() + log_h),
+            egui::vec2(avail.width(), status_h),
+        );
+        self.draw_grid(ui, grid);
+        if log_h > 0.0 {
+            self.draw_log(ui, log_rect);
+        }
+        self.draw_status(ui, status, busy);
+        ui.allocate_rect(full, egui::Sense::hover());
+        switch
+    }
+    /// 窗口总宽 → (左树宽, 右树宽)；中缝与右侧滚动条固定。
+    fn chrome_split(width: f32) -> (f32, f32) {
+        let content = (width - CHROME_GAP - CHROME_SCROLLBAR).max(2.0);
+        let left = (content / 2.0).ceil();
+        (left, content - left)
+    }
+    /// 参考路径栏（26 px）：可编辑组合框 + 内嵌历史下拉 + 小图标按钮。
+    /// 按钮接线全部复用既有动作：回退/浏览/上一级/两侧同级（左），右侧另有带回退列表的前进/回退。
+    fn path_bar(&mut self, ui: &mut egui::Ui, bar: egui::Rect) {
+        use crate::chrome::{icons, icons::Icon};
+        let painter = ui.painter().clone();
+        // 顶部 1 px 白色高光（参考 y115）。
+        painter.hline(
+            bar.left()..=bar.right(),
+            bar.top(),
+            egui::Stroke::new(1.0, egui::Color32::WHITE),
+        );
+        let (left_w, _) = Self::chrome_split(bar.width());
+        let split_x = bar.left() + left_w + CHROME_GAP;
+        let mut reload: Option<[String; 2]> = None;
+        for side in 0..2 {
+            let origin = if side == 0 { bar.left() } else { split_x };
+            let combo_w = if side == 0 { 592.0 } else { 542.0 };
+            let combo = egui::Rect::from_min_size(
+                egui::pos2(origin + 1.0, bar.top() + 1.0),
+                egui::vec2(combo_w, 25.0),
+            );
+            painter.rect_filled(combo, 0.0, egui::Color32::WHITE);
+            painter.rect_stroke(
+                combo,
+                0.0,
+                egui::Stroke::new(1.0, COMBO_EDGE),
+                egui::StrokeKind::Inside,
+            );
+            let edit_rect = egui::Rect::from_min_max(
+                combo.min + egui::vec2(1.0, 1.0),
+                egui::pos2(combo.right() - 15.0, combo.bottom() - 1.0),
+            );
+            let mut submitted = false;
+            let edit_id = egui::Id::unique(("folder-path-edit", self.window_id, side));
+            let text = if side == 0 {
+                &mut self.paths.left
+            } else {
+                &mut self.paths.right
+            };
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(edit_rect).id_salt(edit_id),
+                |ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(text)
+                            .frame(egui::Frame::NONE)
+                            .font(egui::FontId::proportional(crate::chrome::theme::UI_SIZE))
+                            .margin(egui::vec2(2.0, 5.0)),
+                    );
+                    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        submitted = true;
+                    }
+                },
+            );
+            if submitted {
+                reload = Some([self.paths.left.clone(), self.paths.right.clone()]);
+            }
+            // 内嵌历史下拉箭头。
+            let chevron = egui::Rect::from_min_size(
+                egui::pos2(combo.right() - 15.0, combo.top()),
+                egui::vec2(14.0, combo.height()),
+            );
+            icons::dropdown_triangle(
+                &painter,
+                chevron.center(),
+                egui::Color32::from_rgb(110, 110, 110),
+            );
+            let chev = ui.interact(chevron, edit_id.with("chevron"), egui::Sense::click());
+            let mut picked = None;
+            egui::Popup::from_toggle_button_response(&chev)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    if self.paths.recent.is_empty() {
+                        ui.add_enabled(false, egui::Label::new("No recent folders"));
+                    }
+                    for entry in &self.paths.recent {
+                        if ui.selectable_label(false, entry).clicked() {
+                            picked = Some(entry.clone());
+                            ui.close();
+                        }
+                    }
+                });
+            if let Some(path) = picked {
+                if side == 0 {
+                    self.paths.left = path;
+                } else {
+                    self.paths.right = path;
+                }
+                reload = Some([self.paths.left.clone(), self.paths.right.clone()]);
+            }
+            // 小图标按钮：位置按参考实测偏移（相对组合框右缘）。
+            struct Btn {
+                icon: Icon,
+                rel: f32,
+                id: &'static str,
+                enabled: bool,
+                chevron: bool,
+            }
+            let back = self.history_at > 0;
+            let forward = self.history_at + 1 < self.history.len();
+            let mut buttons = vec![
+                Btn {
+                    icon: Icon::UpLevel,
+                    rel: 5.0,
+                    id: "back",
+                    enabled: back,
+                    chevron: false,
+                },
+                Btn {
+                    icon: Icon::Browse,
+                    rel: 28.0,
+                    id: "browse",
+                    enabled: true,
+                    chevron: false,
+                },
+                Btn {
+                    icon: Icon::FolderUp,
+                    rel: 51.0,
+                    id: "up",
+                    enabled: true,
+                    chevron: false,
+                },
+            ];
+            if side == 0 {
+                buttons.push(Btn {
+                    icon: Icon::FolderUpBoth,
+                    rel: 81.0,
+                    id: "up-both",
+                    enabled: true,
+                    chevron: false,
+                });
+            } else {
+                buttons.push(Btn {
+                    icon: Icon::BackCircle,
+                    rel: 76.0,
+                    id: "back",
+                    enabled: back,
+                    chevron: true,
+                });
+                buttons.push(Btn {
+                    icon: Icon::ForwardCircle,
+                    rel: 113.0,
+                    id: "forward",
+                    enabled: forward,
+                    chevron: true,
+                });
+            }
+            let rel_shift = if side == 0 { 0.0 } else { 7.0 };
+            for button in buttons {
+                let slot = egui::Rect::from_min_size(
+                    egui::pos2(combo.right() + rel_shift + button.rel, bar.top() + 1.0),
+                    egui::vec2(22.0, 25.0),
+                );
+                let response = ui.interact(
+                    slot,
+                    edit_id.with(("btn", button.id)),
+                    if button.enabled {
+                        egui::Sense::click()
+                    } else {
+                        egui::Sense::hover()
+                    },
+                );
+                if response.hovered() && button.enabled {
+                    painter.rect_filled(slot, 0.0, crate::chrome::theme::HOVER_BLUE);
+                    painter.rect_stroke(
+                        slot,
+                        0.0,
+                        egui::Stroke::new(1.0, crate::chrome::theme::CLASSIC_BLUE),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                let mut icon_painter = painter.clone();
+                if !button.enabled {
+                    icon_painter.set_opacity(0.35);
+                }
+                icons::paint(
+                    &icon_painter,
+                    egui::Rect::from_center_size(
+                        egui::pos2(slot.left() + 8.0, slot.center().y),
+                        egui::vec2(16.0, 16.0),
+                    ),
+                    button.icon,
+                );
+                if button.chevron {
+                    icons::dropdown_triangle(
+                        &painter,
+                        egui::pos2(slot.right() + 5.0, slot.center().y),
+                        if button.enabled {
+                            egui::Color32::BLACK
+                        } else {
+                            egui::Color32::from_rgb(150, 150, 150)
+                        },
+                    );
+                }
+                let tip = match button.icon {
+                    Icon::UpLevel => "Back",
+                    Icon::Browse => "Browse for folder",
+                    Icon::FolderUp => "Up one level",
+                    Icon::FolderUpBoth => "Up one level (both sides)",
+                    Icon::BackCircle => "Back (with history)",
+                    _ => "Forward (with history)",
+                };
+                if response.clicked() {
+                    match button.id {
+                        "back" => {
+                            if back {
+                                self.history_at -= 1;
+                                reload = Some(self.history[self.history_at].clone());
+                            }
+                        }
+                        "forward" => {
+                            if forward {
+                                self.history_at += 1;
+                                reload = Some(self.history[self.history_at].clone());
+                            }
+                        }
+                        "browse" => self.paths.open = true,
+                        "up" => self.up(if side == 0 {
+                            Target::Left
+                        } else {
+                            Target::Right
+                        }),
+                        _ => self.up(Target::All),
+                    }
+                }
+                response.on_hover_text(tip);
+            }
+        }
+        if let Some(paths) = reload {
+            let remember = !self
+                .history
+                .get(self.history_at)
+                .is_some_and(|current| *current == paths);
+            self.reload(paths, remember);
+        }
+    }
+    /// 双树 + 列头 + 中缝 + 右侧平坦滚动条。绘制只访问可见行。
+    fn draw_grid(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let (left_w, right_w) = Self::chrome_split(rect.width());
+        let painter = ui.painter().clone();
+        let left = egui::Rect::from_min_size(rect.min, egui::vec2(left_w, rect.height()));
+        let right = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + left_w + CHROME_GAP, rect.top()),
+            egui::vec2(right_w, rect.height()),
+        );
+        let scroll = egui::Rect::from_min_size(
+            egui::pos2(right.right(), rect.top()),
+            egui::vec2(CHROME_SCROLLBAR, rect.height()),
+        );
+        // 列头（24 px）。
+        let mut sort = None;
+        for side in 0..2 {
+            let tree = if side == 0 { left } else { right };
+            let header =
+                egui::Rect::from_min_size(tree.min, egui::vec2(tree.width(), CHROME_HEADER));
+            painter.rect_filled(header, 0.0, egui::Color32::WHITE);
+            // 列布局：Name 吸收剩余宽度；Size 78 / Modified 150（参考列宽）。
+            let mut columns: Vec<(Column, f32, f32)> = Vec::new(); // (列, 左缘, 宽)
+            let optional: f32 = self.columns.iter().map(|c| chrome_column_width(*c)).sum();
+            let name_w = (tree.width() - optional).max(80.0);
+            let mut x = tree.left();
+            columns.push((Column::Name, x, name_w));
+            x += name_w;
+            for column in &self.columns {
+                let w = chrome_column_width(*column);
+                columns.push((*column, x, w));
+                x += w;
+            }
+            for (index, (column, cx, cw)) in columns.iter().enumerate() {
+                let cell = egui::Rect::from_min_size(
+                    egui::pos2(*cx, header.top()),
+                    egui::vec2(*cw, CHROME_HEADER),
+                );
+                let label = match column {
+                    Column::Name => "Name",
+                    Column::Modified => "Modified",
+                    other => other.label(),
+                };
+                painter.text(
+                    egui::pos2(cell.left() + 8.0, cell.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    egui::FontId::proportional(crate::chrome::theme::UI_SIZE),
+                    egui::Color32::BLACK,
+                );
+                // 排序箭头（小三角，居中于列）。
+                if self.sort.0 == *column {
+                    let c = egui::pos2(cell.center().x, header.top() + 7.0);
+                    let up = !self.sort.2;
+                    let (a, b) = if up { (7.0, -3.0) } else { (-7.0, 3.0) };
+                    painter.line_segment(
+                        [
+                            c + egui::vec2(-3.5, a * 0.29 + 2.0),
+                            c + egui::vec2(0.0, b * 0.29 + 2.0),
+                        ],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 90, 90)),
+                    );
+                    painter.line_segment(
+                        [
+                            c + egui::vec2(0.0, b * 0.29 + 2.0),
+                            c + egui::vec2(3.5, a * 0.29 + 2.0),
+                        ],
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 90, 90)),
+                    );
+                }
+                let response = ui.interact(
+                    cell,
+                    egui::Id::unique(("folder-header", self.window_id, side, index)),
+                    egui::Sense::click(),
+                );
+                if response.clicked() {
+                    sort = Some((*column, side));
+                }
+                // 列分隔线（参考：Name|Size 之间、Size 尾前一像素）。
+                if index > 0 {
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(cell.left(), header.top() + 2.0),
+                            egui::vec2(1.0, CHROME_HEADER - 2.0),
+                        ),
+                        0.0,
+                        HEADER_SEP,
+                    );
+                }
+            }
+            // 外缘：块右边 #A0A0A0；右树左缘同（起于顶两条高光之下）。
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(header.right() - 1.0, header.top() + 2.0),
+                    egui::vec2(1.0, CHROME_HEADER - 2.0),
+                ),
+                0.0,
+                HEADER_EDGE,
+            );
+            if side == 1 {
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(header.left(), header.top() + 2.0),
+                        egui::vec2(1.0, CHROME_HEADER - 2.0),
+                    ),
+                    0.0,
+                    HEADER_EDGE,
+                );
+            }
+        }
+        if let Some((column, side)) = sort {
+            let reverse = self.sort.0 == column && self.sort.1 == side && !self.sort.2;
+            self.sort = (column, side, reverse);
+            self.send(Command::Sort(column, side, reverse));
+        }
+        // 列头顶部两条高光线全宽贯通（参考 y141 #ECECEC / y142 #FEFEFE，覆盖中缝与滚动条槽）。
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 1.0)),
+            0.0,
+            egui::Color32::from_rgb(236, 236, 236),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                rect.min + egui::vec2(0.0, 1.0),
+                egui::vec2(rect.width(), 1.0),
+            ),
+            0.0,
+            egui::Color32::from_rgb(254, 254, 254),
+        );
+        // 行区。
+        let rows_area = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.top() + CHROME_HEADER),
+            egui::pos2(right.right(), rect.bottom()),
+        );
+        let rows_h = rows_area.height();
+        let total = self.snapshot.rows.len();
+        if let Some(row) = self.pending_scroll.take() {
+            self.scroll_y = row.min(total.saturating_sub(1)) as f32 * CHROME_ROW;
+        }
+        let max_scroll = (total as f32 * CHROME_ROW - rows_h).max(0.0);
+        self.scroll_y = self.scroll_y.clamp(0.0, max_scroll);
+        let first = (self.scroll_y / CHROME_ROW).floor().max(0.0) as usize;
+        let end = (first + (rows_h / CHROME_ROW).ceil() as usize + 1).min(total);
+        // 树线缓存按快照重建（O(n) 一次；滚动帧不重算）。
+        let key = Arc::as_ptr(&self.snapshot) as usize;
+        if self.grid_lines.as_ref().map(|(k, _)| *k) != Some(key) {
+            self.grid_lines = Some((key, Arc::new(row_lines(&self.snapshot.rows))));
+        }
+        let lines = self
+            .grid_lines
+            .as_ref()
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default();
+        // 行区白底（含中缝），滚动条槽保持面板灰。
+        painter.rect_filled(rows_area, 0.0, egui::Color32::WHITE);
+        painter.rect_filled(
+            egui::Rect::from_min_max(scroll.min, egui::pos2(scroll.right(), rect.bottom())),
+            0.0,
+            crate::chrome::theme::PANEL_BG,
+        );
+        let font = egui::FontId::proportional(crate::chrome::theme::UI_SIZE);
+        let mut drawn = 0;
+        for index in first..end {
+            let row = &self.snapshot.rows[index];
+            let y = rows_area.top() + index as f32 * CHROME_ROW - self.scroll_y;
+            let band = egui::Rect::from_min_max(
+                egui::pos2(left.left(), y),
+                egui::pos2(right.right(), y + CHROME_ROW),
+            );
+            if index % 2 == 1 {
+                painter.rect_filled(band, 0.0, TREE_STRIPE);
+            }
+            let selected = row.sides.iter().enumerate().any(|(s, item)| {
+                item.as_ref()
+                    .is_some_and(|item| self.selection.items.contains(&(item.node, s)))
+            });
+            if selected {
+                painter.rect_filled(band, 0.0, TREE_SELECTED);
+            }
+            let flags = lines.get(index).copied().unwrap_or_default();
+            for side in 0..2 {
+                let tree = if side == 0 { left } else { right };
+                let clip = painter.with_clip_rect(egui::Rect::from_min_max(
+                    egui::pos2(tree.left(), y),
+                    egui::pos2(tree.right(), y + CHROME_ROW),
+                ));
+                // 树线。
+                let depth = row.depth;
+                if depth > 0 {
+                    for level in 0..(depth - 1).min(31) {
+                        if flags.continues & (1 << level) != 0 {
+                            dotted_v(
+                                &clip,
+                                tree.left() + 15.0 + 21.0 * level as f32,
+                                y,
+                                y + CHROME_ROW,
+                                TREE_LINE,
+                            );
+                        }
+                    }
+                    if flags.connector {
+                        let level = depth - 1;
+                        let x = tree.left() + 15.0 + 21.0 * level as f32;
+                        let mid = y + CHROME_ROW / 2.0 - 0.5;
+                        let bottom = if flags.connector_last {
+                            mid
+                        } else {
+                            y + CHROME_ROW
+                        };
+                        dotted_v(&clip, x, y, bottom, TREE_LINE);
+                        let icon_left = tree.left()
+                            + 6.0
+                            + 19.0 * depth as f32
+                            + if row.directory { 0.0 } else { 2.0 };
+                        dotted_h(&clip, x, icon_left - 1.0, mid, TREE_LINE);
+                    }
+                }
+                let Some(item) = &row.sides[side] else {
+                    continue;
+                };
+                // 参考着色：文件夹名恒黑、其 Size/Modified 恒灰 #969696（颜色由图标承载）；
+                // 文件名与单元格用语义色（选中也不反色）。
+                let semantic = legend::side_color(self.palette, row.status, side, row.teal[side]);
+                let (name_color, cell_color) = if row.directory {
+                    (egui::Color32::BLACK, egui::Color32::from_rgb(150, 150, 150))
+                } else {
+                    (semantic, semantic)
+                };
+                let indent = 19.0 * depth as f32;
+                let mid = y + CHROME_ROW / 2.0;
+                if row.directory {
+                    paint_folder_icon(
+                        &clip,
+                        egui::Rect::from_min_size(
+                            egui::pos2(tree.left() + 6.0 + indent, y + 4.0),
+                            egui::vec2(15.0, 13.0),
+                        ),
+                        row,
+                    );
+                    clip.text(
+                        egui::pos2(tree.left() + 26.0 + indent, mid),
+                        egui::Align2::LEFT_CENTER,
+                        &item.name,
+                        font.clone(),
+                        name_color,
+                    );
+                } else {
+                    paint_file_icon(&clip, tree.left() + 8.0 + indent, y, semantic);
+                    clip.text(
+                        egui::pos2(tree.left() + 18.0 + indent, mid),
+                        egui::Align2::LEFT_CENTER,
+                        &item.name,
+                        font.clone(),
+                        name_color,
+                    );
+                }
+                // 列。
+                let optional: f32 = self.columns.iter().map(|c| chrome_column_width(*c)).sum();
+                let name_w = (tree.width() - optional).max(80.0);
+                let mut cx = tree.left() + name_w;
+                for column in &self.columns {
+                    let w = chrome_column_width(*column);
+                    let cell =
+                        egui::Rect::from_min_size(egui::pos2(cx, y), egui::vec2(w, CHROME_ROW));
+                    let at = Column::OPTIONAL.iter().position(|c| c == column).unwrap();
+                    let text = &item.cells[at];
+                    if !text.is_empty() {
+                        if *column == Column::Size {
+                            clip.text(
+                                egui::pos2(cell.right() - 5.0, mid),
+                                egui::Align2::RIGHT_CENTER,
+                                text,
+                                font.clone(),
+                                cell_color,
+                            );
+                        } else {
+                            clip.text(
+                                egui::pos2(cell.left() + 4.0, mid),
+                                egui::Align2::LEFT_CENTER,
+                                text,
+                                font.clone(),
+                                cell_color,
+                            );
+                        }
+                    }
+                    cx += w;
+                }
+            }
+            // 焦点虚框（跨双树与中缝）。
+            if self.focus == Some(index) && selected {
+                let r = egui::Rect::from_min_max(
+                    egui::pos2(rect.left() + 2.0, y),
+                    egui::pos2(right.right() - 1.0, y + CHROME_ROW),
+                );
+                let ink = egui::Color32::BLACK;
+                dotted_h(&painter, r.left(), r.right(), r.top(), ink);
+                dotted_h(&painter, r.left(), r.right(), r.bottom() - 1.0, ink);
+                dotted_v(&painter, r.left(), r.top(), r.bottom(), ink);
+                dotted_v(&painter, r.right(), r.top(), r.bottom(), ink);
+            }
+            drawn += 1;
+        }
+        self.last_stats = DirFrameStats {
+            rows_drawn: drawn,
+            top_row: first,
+        };
+        // 树区边线：左缘 #ECECEC/#FEFEFE 贯通整列；两树接缝 #C0C0C0 只到内容末行（参考如此）。
+        let content_bottom = (rows_area.top() + total as f32 * CHROME_ROW).min(rect.bottom());
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(1.0, rect.height())),
+            0.0,
+            egui::Color32::from_rgb(236, 236, 236),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                rect.min + egui::vec2(1.0, 0.0),
+                egui::vec2(1.0, rect.height()),
+            ),
+            0.0,
+            egui::Color32::from_rgb(254, 254, 254),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(left.right() - 1.0, rows_area.top()),
+                egui::vec2(1.0, content_bottom - rows_area.top()),
+            ),
+            0.0,
+            TREE_EDGE,
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(right.left(), rows_area.top()),
+                egui::vec2(1.0, content_bottom - rows_area.top()),
+            ),
+            0.0,
+            TREE_EDGE,
+        );
+        // 交互：点击/双击/右键/滚轮。
+        let response = ui.interact(
+            rows_area,
+            egui::Id::unique(("folder-grid", self.window_id)),
+            egui::Sense::click(),
+        );
+        let mut click = None;
+        if response.clicked() || response.double_clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let index =
+                    ((pos.y - rows_area.top() + self.scroll_y) / CHROME_ROW).floor() as usize;
+                if index < total {
+                    let side = if pos.x < left.right() {
+                        Some(0)
+                    } else if pos.x >= right.left() {
+                        Some(1)
+                    } else {
+                        None
+                    };
+                    click = Some((
+                        index,
+                        side,
+                        response.double_clicked(),
+                        ui.input(|i| i.modifiers),
+                    ));
+                }
+            }
+        }
+        let mut context_command = None;
+        response.context_menu(|ui| {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let index =
+                    ((pos.y - rows_area.top() + self.scroll_y) / CHROME_ROW).floor() as usize;
+                if index < total {
+                    if ui.button("Select row").clicked() {
+                        context_command = Some((index, 0));
+                        ui.close();
+                    }
+                    if ui.button("Open file pair").clicked() {
+                        context_command = Some((index, 1));
+                        ui.close();
+                    }
+                    let is_dir = self.snapshot.rows[index].directory;
+                    if is_dir && ui.button("Expand / collapse").clicked() {
+                        context_command = Some((index, 2));
+                        ui.close();
+                    }
+                }
+            }
+        });
+        if let Some((index, side, double, modifiers)) = click {
+            self.clicked(index, side, double, modifiers);
+        }
+        if let Some((index, kind)) = context_command {
+            self.focus_row(index, None);
+            if kind == 1 {
+                self.open_pair();
+            } else if kind == 2 {
+                let row = &self.snapshot.rows[index];
+                if let Some(node) = row.node {
+                    self.send(Command::Expand {
+                        nodes: vec![node],
+                        expanded: !row.expanded,
+                        recursive: false,
+                    });
+                }
+            }
+        }
+        if response.hovered() {
+            let delta = ui.input(|i| i.smooth_scroll_delta.y);
+            if delta != 0.0 {
+                self.scroll_y = (self.scroll_y - delta).clamp(0.0, max_scroll);
+            }
+        }
+        // 平坦滚动条（18 px）：内容放得下时只画轨道与顶端小灰块（参考如此）。
+        let track = egui::Rect::from_min_max(
+            egui::pos2(scroll.left(), rows_area.top()),
+            egui::pos2(scroll.right(), rect.bottom()),
+        );
+        if total as f32 * CHROME_ROW > rows_h {
+            let thumb_h = (rows_h * rows_h / (total as f32 * CHROME_ROW)).max(20.0);
+            let travel = (rows_h - thumb_h).max(1.0);
+            let frac = if max_scroll > 0.0 {
+                self.scroll_y / max_scroll
+            } else {
+                0.0
+            };
+            let thumb = egui::Rect::from_min_size(
+                egui::pos2(track.left() + 1.0, track.top() + travel * frac),
+                egui::vec2(track.width() - 2.0, thumb_h),
+            );
+            painter.rect_filled(thumb, 0.0, egui::Color32::from_rgb(192, 192, 192));
+            let bar_response = ui.interact(
+                track,
+                egui::Id::unique(("folder-scrollbar", self.window_id)),
+                egui::Sense::click_and_drag(),
+            );
+            if bar_response.dragged() || bar_response.clicked() {
+                if let Some(pos) = bar_response.interact_pointer_pos() {
+                    let f = ((pos.y - track.top() - thumb_h / 2.0) / travel).clamp(0.0, 1.0);
+                    self.scroll_y = f * max_scroll;
+                }
+            }
+        } else {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(track.left() + 7.0, track.top() + 17.0),
+                    egui::vec2(2.0, 17.0),
+                ),
+                0.0,
+                egui::Color32::from_rgb(133, 133, 133),
+            );
+        }
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(scroll.right() - 2.0, rect.top()),
+                egui::vec2(1.0, rect.height()),
+            ),
+            0.0,
+            egui::Color32::from_rgb(247, 247, 247),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(scroll.right() - 1.0, rect.top()),
+                egui::vec2(1.0, rect.height()),
+            ),
+            0.0,
+            egui::Color32::from_rgb(230, 230, 230),
+        );
+    }
+    /// 日志区（106 px）：左侧齿轮/保存图标，#E3E7ED 文本框，右侧面板灰条。
+    fn draw_log(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let painter = ui.painter().clone();
+        painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
+        painter.hline(
+            rect.left()..=rect.right(),
+            rect.top(),
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(254, 254, 254)),
+        );
+        painter.hline(
+            rect.left()..=rect.right(),
+            rect.top() + 1.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(131, 131, 131)),
+        );
+        // 左侧小图标（原创）：齿轮 = 收起日志；文档 = 保存日志。
+        let gear =
+            egui::Rect::from_min_size(rect.min + egui::vec2(6.0, 12.0), egui::vec2(16.0, 16.0));
+        let doc =
+            egui::Rect::from_min_size(rect.min + egui::vec2(6.0, 38.0), egui::vec2(16.0, 16.0));
+        let gray = egui::Color32::from_rgb(79, 79, 79);
+        let c = gear.center();
+        for i in 0..6 {
+            let v = egui::Vec2::angled(i as f32 * std::f32::consts::PI / 3.0);
+            painter.line_segment([c + v * 3.2, c + v * 5.4], egui::Stroke::new(1.4, gray));
+        }
+        painter.circle_stroke(c, 3.2, egui::Stroke::new(1.4, gray));
+        let d = doc.center();
+        painter.rect_stroke(
+            egui::Rect::from_center_size(d, egui::vec2(10.0, 12.0)),
+            0.0,
+            egui::Stroke::new(1.2, gray),
+            egui::StrokeKind::Inside,
+        );
+        for i in 0..3 {
+            let y = d.y - 3.0 + i as f32 * 3.0;
+            painter.line_segment(
+                [egui::pos2(d.x - 3.0, y), egui::pos2(d.x + 3.0, y)],
+                egui::Stroke::new(1.0, gray),
+            );
+        }
+        let gear_r = ui.interact(
+            gear,
+            egui::Id::unique(("folder-log-gear", self.window_id)),
+            egui::Sense::click(),
+        );
+        if gear_r.clicked() {
+            self.log_panel.open = false;
+        }
+        gear_r.on_hover_text("Close log panel");
+        let doc_r = ui.interact(
+            doc,
+            egui::Id::unique(("folder-log-save", self.window_id)),
+            egui::Sense::click(),
+        );
+        if doc_r.clicked() {
+            self.log_save_open = !self.log_save_open;
+        }
+        doc_r.on_hover_text("Save log");
+        // 文本框。
+        let text_box = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 29.0, rect.top() + 6.0),
+            egui::pos2(rect.right() - 19.0, rect.bottom() - 3.0),
+        );
+        painter.rect_filled(text_box, 0.0, LOG_FILL);
+        painter.rect_stroke(
+            text_box,
+            0.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(236, 236, 236)),
+            egui::StrokeKind::Inside,
+        );
+        // 底部边框行（参考 y934 #FEFEFE / y935 #838383）。
+        painter.hline(
+            rect.left()..=rect.right(),
+            rect.bottom() - 2.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(254, 254, 254)),
+        );
+        painter.hline(
+            rect.left()..=rect.right(),
+            rect.bottom() - 1.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(131, 131, 131)),
+        );
+        let mut lines = self.chrome_log.clone();
+        for entry in self.shared.log.snapshot() {
+            lines.push(format!(
+                "{:?} {:?}: {} -> {} {}",
+                entry.state,
+                entry.action,
+                entry
+                    .source
+                    .as_ref()
+                    .map_or(String::new(), ToString::to_string),
+                entry
+                    .destination
+                    .as_ref()
+                    .map_or(String::new(), ToString::to_string),
+                entry.message
+            ));
+        }
+        let clip = painter.with_clip_rect(text_box.shrink(1.0));
+        let pitch = 21.0;
+        let capacity = ((text_box.height() - 8.0) / pitch).max(1.0) as usize;
+        let start = lines.len().saturating_sub(capacity);
+        for (i, line) in lines[start..].iter().enumerate() {
+            let ly = text_box.top() + 7.0 + i as f32 * pitch;
+            clip.text(
+                egui::pos2(text_box.left() + 6.0, ly),
+                egui::Align2::LEFT_TOP,
+                line,
+                egui::FontId::proportional(crate::chrome::theme::UI_SIZE),
+                egui::Color32::BLACK,
+            );
+            // 首行（会话信息）下方的细分隔线。
+            if i == 0 && lines.len() > 1 {
+                clip.hline(
+                    text_box.left()..=text_box.right(),
+                    ly + 15.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(192, 192, 192)),
+                );
+            }
+        }
+        if self.log_save_open {
+            let mut save = None;
+            egui::Window::new("Save log")
+                .open(&mut self.log_save_open)
+                .show(ui.ctx(), |ui| {
+                    ui.label("Log file path");
+                    ui.text_edit_singleline(&mut self.log_panel.save_path);
+                    if ui.button("Save log").clicked() && !self.log_panel.save_path.is_empty() {
+                        save = Some(self.log_panel.save_path.clone());
+                    }
+                });
+            if let Some(path) = save {
+                self.send(Command::SaveLog(path.into()));
+            }
+        }
+    }
+    /// 状态栏（25 px）：空闲显示 “Shows ...” 图例；纯文件选择时显示每侧文件数/字节与剩余空间。
+    fn draw_status(&mut self, ui: &mut egui::Ui, rect: egui::Rect, busy: bool) {
+        use crate::chrome::statusbar::{self, StatusField};
+        let fields: Vec<StatusField>;
+        if busy {
+            let p = self.shared.progress.lock().unwrap().clone();
+            let text = if p.message.is_empty() {
+                self.message.clone()
+            } else if let Some(total) = p.total.filter(|n| *n > 0) {
+                format!("{} ({}/{})", p.message, p.current, total)
+            } else {
+                p.message
+            };
+            fields = vec![StatusField::flexible(text)];
+        } else {
+            let mut counts = [(0usize, 0u64); 2];
+            let mut any = false;
+            let mut only_files = true;
+            for row in &self.snapshot.rows {
+                for (side, count) in counts.iter_mut().enumerate() {
+                    if let Some(item) = &row.sides[side] {
+                        if self.selection.items.contains(&(item.node, side)) {
+                            any = true;
+                            if item.entry.kind == EntryKind::File {
+                                count.0 += 1;
+                                count.1 += item.entry.size.unwrap_or(0);
+                            } else {
+                                only_files = false;
+                            }
+                        }
+                    }
+                }
+            }
+            if any && only_files {
+                let free = |side: usize| {
+                    self.snapshot.free[side]
+                        .clone()
+                        .unwrap_or_else(|| "—".into())
+                };
+                let selected =
+                    |side: usize| format!("{} file(s), {} bytes", counts[side].0, counts[side].1);
+                fields = vec![
+                    StatusField::fixed(selected(0), 265.0),
+                    StatusField::fixed("", 131.0),
+                    StatusField::fixed(free(0), 268.0),
+                    StatusField::fixed("", CHROME_GAP),
+                    StatusField::fixed(selected(1), 265.0),
+                    StatusField::fixed("", 131.0),
+                    StatusField::flexible(free(1)),
+                ];
+            } else {
+                fields = vec![StatusField::flexible(shows_legend(
+                    self.filters.options.display,
+                ))];
+            }
+        }
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+            statusbar::show(ui, &fields);
+        });
+        // 右下角缩放把手（参考：三条斜向 2x2 灰点，#BFBFBF）。
+        let painter = ui.painter().clone();
+        let dot = egui::Color32::from_rgb(191, 191, 191);
+        for (dx, dy) in [(4, 15), (7, 18), (4, 18), (10, 21), (7, 21), (4, 21)] {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(rect.right() - dx as f32 - 2.0 + 2.0, rect.top() + dy as f32),
+                    egui::vec2(2.0, 2.0),
+                ),
+                0.0,
+                dot,
+            );
+        }
+    }
+    fn drop_impl(&mut self) {
         self.shared.closed.store(true, AtomicOrdering::Relaxed);
         self.cancel();
         let _ = self.commands.send(Work {
@@ -3149,6 +5797,11 @@ impl Drop for DirCompareView {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+    }
+}
+impl Drop for DirCompareView {
+    fn drop(&mut self) {
+        self.drop_impl();
     }
 }
 
@@ -3771,3 +6424,4 @@ mod tests {
         assert!(find.pattern().is_err());
     }
 }
+// touch

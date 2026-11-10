@@ -1,7 +1,7 @@
 # Matcha 确定性客户区快照；所有路径相对仓库根，与调用者当前目录无关。
 [CmdletBinding()]
 param(
-    [ValidateSet('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff')]
+    [ValidateSet('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter')]
     [string]$Scene = 'text-basic',
     [switch]$All,
     [switch]$Verify,
@@ -11,10 +11,12 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 Push-Location $root
 try {
+    # 语料 mtime 决定文件夹视图的 Modified 列文本；先复位再构建。
+    & (Join-Path $root 'tools/visual/set-corpus-mtime.ps1') | Out-Null
     & cargo build --release -p bcompare
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" }
     $exe = Join-Path $root 'target/release/matcha.exe'
-    $scenes = if ($All) { @('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff') } else { @($Scene) }
+    $scenes = if ($All) { @('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter') } else { @($Scene) }
     $outDir = Join-Path $root 'target/visual/matcha'
     New-Item -ItemType Directory -Force $outDir | Out-Null
     $results = @()

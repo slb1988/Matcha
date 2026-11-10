@@ -22,6 +22,8 @@ pub const SCENES: &[&str] = &[
     "folder-basic",
     "text-diffs-filter",
     "text-cursor-on-diff",
+    "folder-expanded",
+    "folder-diffs-filter",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -48,7 +50,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 6] = [
+pub const REGISTRY: [Scene; 8] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -67,7 +69,7 @@ pub const REGISTRY: [Scene; 6] = [
     Scene {
         name: "folder-basic",
         view: SceneView::Folder,
-        preset: Preset::ExpandAll,
+        preset: Preset::None,
     },
     Scene {
         name: "text-diffs-filter",
@@ -78,6 +80,16 @@ pub const REGISTRY: [Scene; 6] = [
         name: "text-cursor-on-diff",
         view: SceneView::Text,
         preset: Preset::CursorOnDifference,
+    },
+    Scene {
+        name: "folder-expanded",
+        view: SceneView::Folder,
+        preset: Preset::ExpandAll,
+    },
+    Scene {
+        name: "folder-diffs-filter",
+        view: SceneView::Folder,
+        preset: Preset::Differences,
     },
 ];
 pub fn is_scene(scene: Option<&str>) -> bool {

@@ -41,10 +41,16 @@ pub enum Icon {
     History,
     Browse,
     Save,
+    Peek,
+    UpLevel,
+    FolderUp,
+    FolderUpBoth,
+    BackCircle,
+    ForwardCircle,
 }
 
 impl Icon {
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 40] = [
         Self::Home,
         Self::Sessions,
         Self::All,
@@ -79,6 +85,12 @@ impl Icon {
         Self::History,
         Self::Browse,
         Self::Save,
+        Self::Peek,
+        Self::UpLevel,
+        Self::FolderUp,
+        Self::FolderUpBoth,
+        Self::BackCircle,
+        Self::ForwardCircle,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -117,6 +129,12 @@ impl Icon {
             Self::History => "History",
             Self::Browse => "Browse",
             Self::Save => "Save",
+            Self::Peek => "Peek",
+            Self::UpLevel => "Up One Level",
+            Self::FolderUp => "Up Folder",
+            Self::FolderUpBoth => "Up Both Sides",
+            Self::BackCircle => "Back",
+            Self::ForwardCircle => "Forward",
         }
     }
 }
@@ -604,6 +622,109 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon) {
                 StrokeKind::Inside,
             );
         }
+        Icon::Peek => {
+            // 漏斗（同 Filters）+ 右下角眼睛：参考 Peek 为漏斗加眼睛的组合图标。
+            let f = Rect::from_min_max(
+                Pos2::new(inset.left(), inset.top()),
+                Pos2::new(inset.right() - s * 0.3, c.y),
+            );
+            painter.line_segment([f.left_top(), f.right_top()], stroke);
+            painter.line_segment(
+                [
+                    Pos2::new(f.left() + s * 0.1, f.top()),
+                    Pos2::new(f.center().x, f.bottom()),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(f.right() - s * 0.1, f.top()),
+                    Pos2::new(f.center().x, f.bottom()),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(f.center().x, f.bottom()),
+                    Pos2::new(f.center().x, f.bottom() + s * 0.14),
+                ],
+                stroke,
+            );
+            let eye = c + Vec2::new(s * 0.18, s * 0.2);
+            painter.circle_stroke(eye, s * 0.2, thin);
+            painter.circle_filled(eye, s * 0.07, DARK);
+        }
+        Icon::UpLevel => {
+            // 向左上回转的灰箭头（参考路径栏第一个按钮）。
+            let gray = Stroke::new((s / 8.0).clamp(1.2, 1.8), GREY);
+            let points: Vec<Pos2> = (0..=10)
+                .map(|i| {
+                    let t = i as f32 / 10.0;
+                    Pos2::new(
+                        inset.right() - t * s * 0.62,
+                        inset.bottom()
+                            - s * 0.12
+                            - (t * std::f32::consts::FRAC_PI_2).sin() * s * 0.5,
+                    )
+                })
+                .collect();
+            painter.add(egui::Shape::line(points, gray));
+            arrow_head(
+                painter,
+                Pos2::new(inset.left() + s * 0.16, inset.bottom() - s * 0.62),
+                -2.2,
+                GREY,
+            );
+        }
+        Icon::FolderUp | Icon::FolderUpBoth => {
+            // 黄色文件夹 + 向上的蓝色箭头（UpBoth 为两个箭头）。
+            let body = Rect::from_min_max(
+                Pos2::new(inset.left(), c.y - s * 0.1),
+                Pos2::new(inset.right(), inset.bottom()),
+            );
+            painter.rect_filled(body, 1.0, YELLOW);
+            painter.rect_stroke(body, 1.0, thin, StrokeKind::Inside);
+            painter.rect_filled(
+                Rect::from_min_max(inset.left_top(), Pos2::new(c.x - s * 0.02, c.y - s * 0.1)),
+                1.0,
+                YELLOW,
+            );
+            let xs: &[(f32, f32)] = if icon == Icon::FolderUp {
+                &[(0.0, 0.0)]
+            } else {
+                &[(-s * 0.14, 0.0), (s * 0.14, 0.0)]
+            };
+            for (dx, _) in xs {
+                let tip = Pos2::new(c.x + dx, body.top() + s * 0.1);
+                painter.line_segment(
+                    [tip + Vec2::new(0.0, s * 0.42), tip],
+                    Stroke::new(1.5, BLUE),
+                );
+                arrow_head(painter, tip, -std::f32::consts::FRAC_PI_2, BLUE);
+            }
+        }
+        Icon::BackCircle | Icon::ForwardCircle => {
+            let direction = if icon == Icon::BackCircle { -1.0 } else { 1.0 };
+            painter.circle_stroke(c, s * 0.36, Stroke::new(1.4, GREY));
+            let y = c.y;
+            painter.line_segment(
+                [
+                    Pos2::new(c.x - direction * s * 0.18, y),
+                    Pos2::new(c.x + direction * s * 0.16, y),
+                ],
+                Stroke::new(1.5, GREY),
+            );
+            arrow_head(
+                painter,
+                Pos2::new(c.x + direction * s * 0.16, y),
+                if direction > 0.0 {
+                    0.0
+                } else {
+                    std::f32::consts::PI
+                },
+                GREY,
+            );
+        }
     }
 }
 
@@ -706,7 +827,7 @@ mod tests {
 
     #[test]
     fn every_catalog_icon_has_a_label() {
-        assert_eq!(Icon::ALL.len(), 34);
+        assert_eq!(Icon::ALL.len(), 40);
         assert!(Icon::ALL.iter().all(|icon| !icon.label().is_empty()));
     }
 
