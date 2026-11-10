@@ -26,6 +26,8 @@ pub mod legend;
 pub mod log_panel;
 pub mod filters_bar;
 pub mod dialogs;
+pub mod chrome;
+pub mod snapshot;
 
 use std::path::PathBuf;
 
@@ -42,6 +44,8 @@ pub struct LaunchOptions {
     pub bench_dir: bool,
     /// Capture this application's own framebuffer as BMP, even on a locked desktop.
     pub screenshot: Option<PathBuf>,
+    pub snapshot: Option<String>,
+    pub window_size: Option<[f32; 2]>,
 }
 
 /// Start the native window. Blocks until the window closes.
@@ -61,3 +65,5 @@ pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
 }
 
 pub use eframe::egui;
+
+

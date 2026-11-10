@@ -29,6 +29,8 @@ pub struct MatchaApp {
     frame_cpu_ms: Option<f64>,
     exit_confirmed: bool,
     screenshot: Option<std::path::PathBuf>,
+    snapshot: Option<String>,
+    snapshot_frames: u8,
     capture_requested: bool,
     table_perf_reported: bool,
 }
@@ -40,7 +42,8 @@ impl MatchaApp {
                 .text_styles
                 .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
         });
-        install_cjk_font(&cc.egui_ctx);
+        crate::chrome::fonts::install(&cc.egui_ctx);
+        crate::chrome::theme::apply(&cc.egui_ctx);
         crate::perf::mark("app:fonts-installed");
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
@@ -92,6 +95,8 @@ impl MatchaApp {
             frame_cpu_ms: None,
             exit_confirmed: false,
             screenshot: options.screenshot,
+            snapshot: options.snapshot,
+            snapshot_frames: 0,
             capture_requested: false,
             table_perf_reported: false,
         }
@@ -124,33 +129,10 @@ impl MatchaApp {
         });
     }
 }
-fn install_cjk_font(ctx: &egui::Context) {
-    // System fallback, never bundled: Chinese IME commits must have visible glyphs.
-    let Some(windows) = std::env::var_os("WINDIR") else {
-        return;
-    };
-    let path = std::path::PathBuf::from(windows)
-        .join("Fonts")
-        .join("msyh.ttc");
-    if let Ok(bytes) = std::fs::read(path) {
-        let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            "system-cjk".into(),
-            egui::FontData::from_owned(bytes).into(),
-        );
-        for family in [egui::FontFamily::Monospace, egui::FontFamily::Proportional] {
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .push("system-cjk".into());
-        }
-        ctx.set_fonts(fonts);
-    }
-}
 impl eframe::App for MatchaApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let started = Instant::now();
+        self.snapshot_frames = self.snapshot_frames.saturating_add(1);
         let ctx = ui.ctx().clone();
         self.frame_cpu_ms = frame.info().cpu_usage.map(|s| s as f64 * 1e3);
         if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
@@ -204,7 +186,7 @@ impl eframe::App for MatchaApp {
                 }
             }
         }
-        if benchmark_ready && !self.capture_requested {
+        if (benchmark_ready || (self.snapshot.is_some() && self.snapshot_frames >= 2)) && !self.capture_requested {
             if let Some(path) = self.screenshot.take() {
                 ctx.request_screenshot(move |image| {
                     if let Err(error) = crate::bench::save_screenshot(&path, &image) {
@@ -218,7 +200,8 @@ impl eframe::App for MatchaApp {
             view.poll(&ctx);
             bench.drive(view, &ctx);
         }
-        self.top_bar(ui);
+        if let Some(scene) = self.snapshot.clone() { crate::snapshot::demo(ui, &scene); } else { self.top_bar(ui);
+        }
         egui::Panel::bottom("performance_status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("update {:.2} ms", self.last_update_ms));
@@ -440,3 +423,5 @@ impl eframe::App for MatchaApp {
         }
     }
 }
+
+

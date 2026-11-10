@@ -36,6 +36,9 @@ fn main() -> ExitCode {
                 }
             }
             options.bench = Some(bench);
+        } else if let Some(scene) = arg.strip_prefix("--snapshot=") {
+            if !bc_gui::snapshot::is_scene(Some(scene)) { eprintln!("unknown snapshot scene: {scene}"); return ExitCode::FAILURE; }
+            options.snapshot = Some(scene.to_string());
         } else if let Some(path) = arg.strip_prefix("--screenshot=") {
             options.screenshot = Some(PathBuf::from(path));
         } else if arg == "--help" || arg == "/?" || arg == "-h" {
@@ -65,3 +68,5 @@ fn main() -> ExitCode {
         }
     }
 }
+
+
