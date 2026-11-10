@@ -49,17 +49,37 @@ fn windows_font_dir() -> PathBuf {
         .join("Fonts")
 }
 
-/// Install system fonts, preserving egui's bundled fonts as the final fallback.
-pub fn install(ctx: &egui::Context) {
+/// System font lookup and font-file reads, started off the UI thread by
+/// [`prefetch`] so they overlap window creation (the SPI query spawns a
+/// PowerShell helper that costs ~300 ms).
+type Resolved = (Option<SystemFont>, FontDefinitions);
+static PREFETCH: std::sync::Mutex<Option<std::thread::JoinHandle<Resolved>>> =
+    std::sync::Mutex::new(None);
+
+/// Start resolving the system fonts in the background; [`install`] joins it.
+pub fn prefetch() {
+    if let Ok(handle) = std::thread::Builder::new()
+        .name("matcha-fonts".into())
+        .spawn(resolve)
+    {
+        *PREFETCH.lock().unwrap() = Some(handle);
+    }
+}
+
+fn resolve() -> Resolved {
     let mut plan = FontPlan::from_dir(windows_font_dir());
+    let t = std::time::Instant::now();
     let system = system_message_font();
+    crate::perf::span("fonts:system-query", t);
     if let Some(font) = &system {
         plan.ui = font.path.clone();
         if font.family == "Microsoft YaHei UI" {
             plan.ui_bold = windows_font_dir().join("msyhbd.ttc");
         }
     }
+    let t = std::time::Instant::now();
     let mut definitions = load(&plan);
+    crate::perf::span("fonts:load-files", t);
     if let Some(font) = &system {
         // 微软雅黑 TTC 索引 0 是 Microsoft YaHei，索引 1 是 UI 家族。
         if font.family == "Microsoft YaHei UI" {
@@ -69,6 +89,19 @@ pub fn install(ctx: &egui::Context) {
                 }
             }
         }
+    }
+    (system, definitions)
+}
+
+/// Install system fonts, preserving egui's bundled fonts as the final fallback.
+pub fn install(ctx: &egui::Context) {
+    let t = std::time::Instant::now();
+    let prefetched = PREFETCH.lock().unwrap().take();
+    let (system, definitions) = prefetched
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_else(resolve);
+    crate::perf::span("fonts:resolved", t);
+    if let Some(font) = &system {
         eprintln!(
             "matcha.font message={:?} size_px={} path={} editor=Consolas size_pt=10",
             font.family,

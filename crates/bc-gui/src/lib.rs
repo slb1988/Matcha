@@ -53,6 +53,8 @@ pub struct LaunchOptions {
 /// Start the native window. Blocks until the window closes.
 pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
     perf::mark("run:enter");
+    // Overlap the system-font lookup with window creation.
+    chrome::fonts::prefetch();
     let options =
         snapshot::prepare_options(options).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
     let snapshot_mode = options.snapshot.is_some();
