@@ -398,19 +398,23 @@ impl Model {
             }
             self.tree.bases[side] = Some(path);
         }
+        // Local clock and free space come from one host query (~200 ms of
+        // process start-up) that runs while the tree is scanned.
+        let host = HostProbe::spawn(&paths);
         self.scan_one(0)?;
         self.apply_filters()?;
         self.publish(false);
-        self.clock = system_clock().unwrap_or_else(|e| {
+        if self.scan.automatic {
+            self.scan_descendants(0, false)?;
+        }
+        let (clock, free) = host.join();
+        self.clock = clock.unwrap_or_else(|e| {
             self.shared.notify(Notice::Message(format!(
                 "Local clock unavailable: {e}; UTC is shown explicitly"
             )));
             utc_clock()
         });
-        self.free = std::array::from_fn(|s| free_space_label(&paths[s]));
-        if self.scan.automatic {
-            self.scan_descendants(0, false)?;
-        }
+        self.free = free;
         self.tree.evaluate_quick(&self.criteria);
         if self.scan.expand_on_load {
             self.tree.set_expanded(None, true);
@@ -1630,26 +1634,6 @@ fn utc_clock() -> FilterClock {
         utc_offset_seconds: 0,
     }
 }
-fn system_clock() -> Result<FilterClock, String> {
-    #[cfg(windows)]
-    {
-        let output=std::process::Command::new("powershell").args(["-NoProfile","-Command","$m=[DateTimeOffset]::new([DateTime]::Today); Write-Output ($m.ToUnixTimeSeconds().ToString() + ';' + ([int][DateTimeOffset]::Now.Offset.TotalSeconds).ToString())"]).output().map_err(|e|e.to_string())?;
-        if !output.status.success() {
-            return Err("local time query failed".into());
-        }
-        let text = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
-        let (midnight, offset) = text.trim().split_once(';').ok_or("invalid clock result")?;
-        Ok(FilterClock {
-            today_midnight: UNIX_EPOCH
-                + Duration::from_secs(midnight.parse().map_err(|_| "invalid midnight")?),
-            utc_offset_seconds: offset.parse().map_err(|_| "invalid offset")?,
-        })
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(utc_clock())
-    }
-}
 fn presets_path() -> PathBuf {
     std::env::var_os("MATCHA_SETTINGS_DIR")
         .map(PathBuf::from)
@@ -1703,41 +1687,89 @@ fn civil(seconds: u64) -> (i64, i64, i64, u64, u64, u64) {
         seconds % 60,
     )
 }
-/// 根路径所在卷的剩余空间标签（一次性 PowerShell 查询；失败为 None，不逐帧查询）。
-fn free_space_label(path: &str) -> Option<String> {
+/// Local clock and per-side free space, resolved together by one host query
+/// on a helper thread (each PowerShell start costs ~200 ms; the three former
+/// serial queries held the descendant scan back by ~700 ms).
+struct HostProbe(Option<thread::JoinHandle<HostInfo>>, [String; 2]);
+type HostInfo = (Result<FilterClock, String>, [Option<String>; 2]);
+impl HostProbe {
+    fn spawn(paths: &[String; 2]) -> Self {
+        let owned = paths.clone();
+        let handle = thread::Builder::new()
+            .name("matcha-host-probe".into())
+            .spawn(move || {
+                let t = Instant::now();
+                let info = host_info(&owned);
+                crate::perf::span("folder:host-probe", t);
+                info
+            })
+            .ok();
+        Self(handle, paths.clone())
+    }
+    fn join(self) -> HostInfo {
+        self.0
+            .and_then(|h| h.join().ok())
+            .unwrap_or_else(|| host_info(&self.1))
+    }
+}
+/// 根路径所在卷的盘符（UNC 与相对路径无剩余空间标签）。
+fn drive_letter(path: &str) -> Option<String> {
+    let root = Path::new(path).components().next()?;
+    let prefix = root.as_os_str().to_string_lossy();
+    let drive = prefix.trim_end_matches(":\\").trim_end_matches(':');
+    (!drive.is_empty()
+        && !drive.starts_with("\\\\")
+        && drive.chars().all(|c| c.is_ascii_alphabetic()))
+    .then(|| drive.to_owned())
+}
+fn free_label(drive: &str, bytes: f64) -> String {
+    format!("{:.1} GB free on {}:\\", bytes / (1u64 << 30) as f64, drive)
+}
+fn host_info(paths: &[String; 2]) -> HostInfo {
     #[cfg(windows)]
     {
-        let text = Path::new(path);
-        let root = text.components().next()?;
-        let prefix = root.as_os_str().to_string_lossy();
-        let drive = prefix.trim_end_matches(":\\").trim_end_matches(':');
-        if drive.is_empty() || drive.starts_with("\\\\") {
-            return None;
+        let drives = paths.each_ref().map(|p| drive_letter(p));
+        let mut script = String::from("$m=[DateTimeOffset]::new([DateTime]::Today); Write-Output ($m.ToUnixTimeSeconds().ToString() + ';' + ([int][DateTimeOffset]::Now.Offset.TotalSeconds).ToString())");
+        for drive in &drives {
+            match drive {
+                Some(d) => script.push_str(&format!(
+                    "; try {{ Write-Output ((Get-PSDrive {d} -ErrorAction Stop).Free) }} catch {{ Write-Output '' }}"
+                )),
+                None => script.push_str("; Write-Output ''"),
+            }
         }
         let output = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!("Write-Output ((Get-PSDrive {drive}).Free)"),
-            ])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let text = String::from_utf8(output.stdout).ok()?;
-        let bytes: f64 = text.trim().parse().ok()?;
-        Some(format!(
-            "{:.1} GB free on {}:\\",
-            bytes / (1u64 << 30) as f64,
-            drive
-        ))
+            .args(["-NoProfile", "-Command", &script])
+            .output();
+        let output = match output {
+            Ok(o) if o.status.success() => o,
+            Ok(_) => return (Err("local time query failed".into()), Default::default()),
+            Err(e) => return (Err(e.to_string()), Default::default()),
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut lines = text.lines();
+        let clock = parse_clock(lines.next().unwrap_or_default());
+        let free = drives.map(|drive| {
+            let line = lines.next()?;
+            let bytes: f64 = line.trim().parse().ok()?;
+            Some(free_label(drive.as_deref()?, bytes))
+        });
+        (clock, free)
     }
     #[cfg(not(windows))]
     {
-        let _ = path;
-        None
+        let _ = paths;
+        (Ok(utc_clock()), Default::default())
     }
+}
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_clock(text: &str) -> Result<FilterClock, String> {
+    let (midnight, offset) = text.trim().split_once(';').ok_or("invalid clock result")?;
+    Ok(FilterClock {
+        today_midnight: UNIX_EPOCH
+            + Duration::from_secs(midnight.parse().map_err(|_| "invalid midnight")?),
+        utc_offset_seconds: offset.parse().map_err(|_| "invalid offset")?,
+    })
 }
 
 pub struct DirCompareView {
