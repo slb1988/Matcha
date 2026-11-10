@@ -37,7 +37,7 @@
 
 1. ~~**Wave 2b：收口任务 3.4**~~ **已完成**（见第 3 节，报告 `docs/worker-reports/visual-parity-wave2b.md`）。
 2. ~~**Wave 3：文件夹比较主视图（任务 4.1）**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave3.md`，提交 `9d438e6`+`e127a6d`）：菜单栏/工具栏/过滤栏/路径栏/双树/日志区/状态栏全部按参考换肤；三场景命名区域 ≤2 px（多数精确 0），颜色样本 basic 2/2、expanded 5 项为字形 AA 已知差异；Modified 本地时区格式（仅比较视图）；排序/聚合属比较行为未改（行序与参考不同，记为已知差异）；同步视图零改动。文件夹同步（4.2）与对照收口（4.3）未做。
-3. **7.1 收尾报告（核心版）**：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
+3. ~~**7.1 收尾报告（核心版）**~~ **已完成**（协调者，`docs/reference-parity/visual.md`）：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
 4. 后置项（第 1 节）等用户再开。
 
 ## 5. 跟进项（不在外观范围）

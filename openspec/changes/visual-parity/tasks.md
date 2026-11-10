@@ -46,4 +46,10 @@
 
 ## 7. 收尾
 
-- [ ] 7.1 全场景对照报告 `docs/reference-parity/visual.md`（每场景并排图链接、区域偏差表、已知差异及理由）；clippy/test/基准 A/B 回归；Workflow follow-up 记录
+- [x] 7.1 全场景对照报告 `docs/reference-parity/visual.md`（每场景并排图链接、区域偏差表、已知差异及理由）；clippy/test/基准 A/B 回归；Workflow follow-up 记录
+
+## Workflow follow-up
+
+- 2026-11-11 核心版收口：1A（参考采集）、1B（chrome）、2/2b（文本视图）、3（文件夹视图 4.1）完成；7.1 核心版报告 `docs/reference-parity/visual.md`（协调者复核 clippy 零警告、429 tests passed）。执行者：Codex（1A/1B/2，gpt-6-astra high）→ pi k3.1-pro（2b/3）。
+- 后置未做：4.2/4.3 同步视图、任务组 5（Home、表格）、任务组 6（对话框、右键菜单）、标签类、缩略图。change 不归档，等后置范围由用户决定。
+
