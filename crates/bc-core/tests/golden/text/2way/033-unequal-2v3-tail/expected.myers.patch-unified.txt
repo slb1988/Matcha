@@ -1,0 +1,10 @@
+--- D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\left.txt	2026-11-11 17:32:45.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\right.txt	2026-11-11 17:32:45.000000000 +0800
+@@ -1,4 +1,5 @@
+ begin
+-alpha = 1
+-beta = 2
++alpha = 10
++beta = 20
++gamma = 30
+ end

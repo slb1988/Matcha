@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/11/2026 5:32:26 PM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/11/2026 5:32:26 PM">
+		<filename1>D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">begin</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="2">abcdefghij</text>
+			<text rtid="2">0123456789</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="3">klmnopqrst</text>
+			<text rtid="3">9876543210</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="4">uvwxyzabcd</text>
+			<text rtid="4">5678901234</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="5" rtid="5">end</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

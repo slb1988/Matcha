@@ -37,7 +37,7 @@ python tools/golden/test_table_parity.py
 
 ## 文本线既有结果
 
-Wave 3b 已完成 **30 个合成用例 × Myers/Standard 两种策略 = 60 份原始 XML**。Myers 30/30（100%），Standard + closeness 29/30（96.67%）；唯一“不相似不强配”差异在 [KNOWN_DIFFS](../../crates/bc-core/tests/golden/KNOWN_DIFFS.md) 保存输入与双方完整输出，并由测试钉住，不能扩大成任意错误白名单。
+Wave 3b 完成 30 个合成用例，文本对齐规格又增加 031–034，现为 **34 个用例 × Myers/Standard 两种策略 = 68 份原始 XML**。Myers 34/34（100%）；按文本对齐规格实现 closeness DP 后 Standard + closeness 也是 34/34，原“不相似不强配”例外已撤销，[KNOWN_DIFFS](../../crates/bc-core/tests/golden/KNOWN_DIFFS.md) 无正式差异。`031`–`034` 是文本对齐规格的验收用例，2026-11-11 用本脚本采集了 XML 与 patch（8 份 XML 的行序列与规格推导的期望逐行一致）；`case.properties` 的 `never_align_diffs=true` 会让本脚本把两套会话的 `NeverAlignDiffs` 都设为 True。
 
 ### 正式模式
 
@@ -99,7 +99,7 @@ cargo test -p bc-engine-text --test golden_importance -- --nocapture
 ./tools/golden/gen_patch_expected.ps1 -CorpusRoot crates/bc-core/tests/golden/text/patch-extra -ReferenceExe '<…>' -WorkerId '<…>'
 ```
 
-语料：`text/2way` 30 例 × 2 套规则 × 3 种格式 = 180 份，另加 `005` 的 `title:` 样本与 `013/014/016/017/018/019/030` 的 `ignore-unimportant` 样本（`expected.<profile>.patch-unified.ignore-unimportant.txt`）共 15 份；`text/patch-extra/101–110` 是只为 patch 设计的探针（不进入 30 例 XML 回归，避免改变其“恰好 30 例”断言），各 6 份：101–104 定位差异块的上下文与合并规则，105–110 定位 normal 格式的空范围写法。2026-11-11 采集，参考进程退出码均为 0，每次运行后设置按字节恢复校验通过。
+语料：`text/2way` 34 例 × 2 套规则 × 3 种格式 = 204 份（031–034 于 2026-11-11 补采），另加 `005` 的 `title:` 样本与 `013/014/016/017/018/019/030` 的 `ignore-unimportant` 样本（`expected.<profile>.patch-unified.ignore-unimportant.txt`）共 15 份；`text/patch-extra/101–110` 是只为 patch 设计的探针（不进入 30 例 XML 回归，避免改变其“恰好 30 例”断言），各 6 份：101–104 定位差异块的上下文与合并规则，105–110 定位 normal 格式的空范围写法。2026-11-11 采集，参考进程退出码均为 0，每次运行后设置按字节恢复校验通过。
 
 由样本归纳的格式（每条后括号为证据样本，路径相对 `crates/bc-core/tests/golden/text/`）：
 

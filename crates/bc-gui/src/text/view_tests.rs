@@ -206,10 +206,17 @@ fn filters_navigation_context_and_public_alignment_options() {
     assert_eq!(v.map.left.to_bytes().unwrap(), bytes);
     let mut v = view("total = price * qty\n", "total = price * quantity\n");
     assert_eq!(v.map.row_count(), 1);
+    // Closeness off still pairs the block by position (no similarity check).
     v.map.rules.alignment.use_closeness = false;
     v.recompare();
     ready(&mut v);
+    assert_eq!(v.map.row_count(), 1);
+    v.map.rules.alignment.use_closeness = true;
+    v.map.rules.alignment.never_align_differences = true;
+    v.recompare();
+    ready(&mut v);
     assert_eq!(v.map.row_count(), 2);
+    v.map.rules.alignment.never_align_differences = false;
     v.map.rules.alignment.strategy = bc_core::align::AlignStrategy::Quick;
     v.recompare();
     ready(&mut v);

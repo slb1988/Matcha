@@ -214,7 +214,7 @@ try {
         foreach($mode in @('myers','standard')) {
             $align=if($mode -eq 'myers'){'alignQuick'}else{'alignSmart'}
             $closeness=if($mode -eq 'standard'){'True'}else{'False'}
-            $never=if($mode -eq 'myers' -and $MyersNeverAlignDifferences){'True'}else{'False'}
+            $never=if(($mode -eq 'myers' -and $MyersNeverAlignDifferences) -or (Get-Property $props 'never_align_diffs' 'false') -eq 'true'){'True'}else{'False'}
             $nodes+="`t<TTextCompareSession Value=`"matcha-golden-$mode`">`r`n"
             $nodes+="`t`t<LastModified Value=`"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`"/>`r`n`t`t<Specs>`r`n"
             $nodes+="`t`t`t<Left Value=`"$(Escape-Xml $left)`"/>`r`n`t`t`t<Right Value=`"$(Escape-Xml $right)`"/>`r`n`t`t</Specs>`r`n"

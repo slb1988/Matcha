@@ -1,15 +1,17 @@
 //! Alignment – BC `TBcAlign` hierarchy.
 //!
 //! * `TBcQuickAlign` – pure LCS alignment ([`QuickAlign`]).
-//! * `TBcSmartAlign` – heuristic re-pairing of isolated / similar lines ([`SmartAlign`]);
-//!   BC's default. Scoring rules are still being recovered from disassembly (spec §8).
-//! * `TBcPatienceDiffAlign` – `TBcSmartAlign` subclass using patience diff.
+//! * `TBcSmartAlign` – Myers skeleton plus difference-block resolution ([`SmartAlign`]);
+//!   BC's default ("Standard"). Blocks are left orphaned, paired by position, or paired
+//!   by the closeness DP depending on the session switches (see [`SmartAlignOptions`]).
+//! * `TBcPatienceDiffAlign` – the same block resolution on a patience skeleton
+//!   ([`PatienceAlign`]).
 //! * `TBcAlignLines` – the line-level driver (`TTextMapAlignLines`, `TTableMapAlignLines`).
 //! * `TBcByteAlign` / `TBcIntAlign` – byte/int sequence variants for Hex compare.
 
 use crate::cancel::{CancelCheck, NeverCancel};
-use crate::diff::{DiffOp, MyersDiff};
-use crate::hash::ContentHash;
+use crate::diff::{DiffOp, MyersDiff, PatienceDiff};
+use crate::hash::{ContentHash, U64KeyBuild};
 use crate::DiffKind;
 
 /// Alignment strategy selector exposed in the text session "Alignment" frame
@@ -290,7 +292,8 @@ pub struct LineWeight(pub u8);
 #[derive(Debug, Clone, Default)]
 pub struct AlignInput<'a> {
     pub hashes: &'a [ContentHash],
-    /// Borrowed text for Smart similarity; hashes-only callers retain Quick output.
+    /// Borrowed text for the closeness DP; hashes-only callers keep the orphan skeleton
+    /// when closeness is on.
     pub lines: Option<&'a crate::line::LineList>,
     pub weights: Option<&'a [LineWeight]>,
     /// Lines whose content is entirely unimportant (comments etc.).
@@ -384,60 +387,83 @@ impl QuickAlign {
         cancel: &dyn CancelCheck,
         pack: bool,
     ) -> Result<AlignMap, crate::CoreError> {
-        cancel.check()?;
-        let mut rows = Vec::new();
-        let (mut l, mut r) = (0, 0);
-        for &(li, ri) in overrides.pairs() {
-            if li >= left.hashes.len() || ri >= right.hashes.len() {
-                return Err(crate::CoreError::Invalid(
-                    "manual alignment anchor out of bounds".into(),
-                ));
-            }
-            quick_rows(
-                &left.hashes[l..li],
-                &right.hashes[r..ri],
-                l,
-                r,
-                &mut rows,
-                cancel,
-                pack,
-            )?;
-            rows.push(AlignRow {
-                left: Some(li),
-                right: Some(ri),
-                center: None,
-                kind: if left.hashes[li] == right.hashes[ri] {
-                    DiffKind::Same
-                } else {
-                    DiffKind::Changed
-                },
-            });
-            l = li + 1;
-            r = ri + 1;
+        skeleton(Backbone::Myers, &left, &right, overrides, cancel, pack)
+    }
+}
+
+/// LCS backbone used to find the equal-line anchors before difference blocks are resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backbone {
+    Myers,
+    Patience,
+}
+
+/// Anchor skeleton: equal lines become Same rows, manual anchors are honoured, and the
+/// remaining lines are orphans unless `pack` requests Myers display packing (ADR 006).
+fn skeleton(
+    backbone: Backbone,
+    left: &AlignInput<'_>,
+    right: &AlignInput<'_>,
+    overrides: &AlignmentOverrides,
+    cancel: &dyn CancelCheck,
+    pack: bool,
+) -> Result<AlignMap, crate::CoreError> {
+    cancel.check()?;
+    let mut rows = Vec::new();
+    let (mut l, mut r) = (0, 0);
+    for &(li, ri) in overrides.pairs() {
+        if li >= left.hashes.len() || ri >= right.hashes.len() {
+            return Err(crate::CoreError::Invalid(
+                "manual alignment anchor out of bounds".into(),
+            ));
         }
         quick_rows(
-            &left.hashes[l..],
-            &right.hashes[r..],
-            l,
-            r,
+            backbone,
+            &left.hashes[l..li],
+            &right.hashes[r..ri],
+            (l, r),
             &mut rows,
             cancel,
             pack,
         )?;
-        AlignMap::from_rows_cancellable(rows, cancel)
+        rows.push(AlignRow {
+            left: Some(li),
+            right: Some(ri),
+            center: None,
+            kind: if left.hashes[li] == right.hashes[ri] {
+                DiffKind::Same
+            } else {
+                DiffKind::Changed
+            },
+        });
+        l = li + 1;
+        r = ri + 1;
     }
+    quick_rows(
+        backbone,
+        &left.hashes[l..],
+        &right.hashes[r..],
+        (l, r),
+        &mut rows,
+        cancel,
+        pack,
+    )?;
+    AlignMap::from_rows_cancellable(rows, cancel)
 }
 
 fn quick_rows(
+    backbone: Backbone,
     left: &[ContentHash],
     right: &[ContentHash],
-    lo: usize,
-    ro: usize,
+    (lo, ro): (usize, usize),
     rows: &mut Vec<AlignRow>,
     cancel: &dyn CancelCheck,
     pack: bool,
 ) -> Result<(), crate::CoreError> {
-    let ops = MyersDiff::default().diff_cancellable(left, right, cancel)?;
+    let ops = match backbone {
+        Backbone::Myers => MyersDiff::default().diff_cancellable(left, right, cancel)?,
+        Backbone::Patience => PatienceDiff.diff_cancellable(left, right, cancel)?,
+    };
     if pack {
         return packed_rows(&ops, rows, (lo, ro), (left, right), cancel);
     }
@@ -569,37 +595,54 @@ fn packed_rows(
     Ok(())
 }
 
-/// Tunables for `TBcSmartAlign` (names provisional until scoring is recovered, spec §8).
-#[derive(Debug, Clone)]
+/// Closeness DP penalty for each orphan line (left or right).
+pub const CLOSENESS_GAP_PENALTY: i64 = -20;
+/// Degeneration guard: a block with more lines than this on either side skips the DP and
+/// falls back to sectioning.
+pub const CLOSENESS_MAX_SIDE: usize = 5000;
+/// Degeneration guard: this many repeated anchor lines in one block skips the DP.
+pub const CLOSENESS_MAX_REPEATED_ANCHORS: usize = 1001;
+/// Smart (Standard) emits block rows in slices of at most this many rows.
+pub const SMART_EMIT_SEGMENT: usize = 200;
+/// Patience emits block rows in slices of at most this many rows.
+pub const PATIENCE_EMIT_SEGMENT: usize = 2000;
+
+/// Session switches for `TBcSmartAlign` and its patience subclass.
+///
+/// How a difference block (orphan lines between two anchors) is resolved:
+/// * `never_align_diffs` – every line stays an orphan;
+/// * otherwise, `use_closeness == false` – the nth left line pairs with the nth right line
+///   (no similarity check), and the longer side's tail stays orphaned;
+/// * otherwise – the closeness DP pairs lines by byte-histogram similarity, unless the
+///   block trips a degeneration guard ([`CLOSENESS_MAX_SIDE`],
+///   [`CLOSENESS_MAX_REPEATED_ANCHORS`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmartAlignOptions {
-    /// Minimum similarity (0..=1) for two changed lines to be paired on one row.
-    pub pair_similarity_threshold: f32,
-    /// Allow re-pairing across this many unimportant lines.
+    /// Maximum number of lines examined when searching an anchor for a line.
     pub skew_tolerance: usize,
-    /// Treat whitespace-only differences as similar when scoring.
+    /// "Use closeness matching".
+    pub use_closeness: bool,
+    /// "Never align differences".
+    pub never_align_diffs: bool,
+    /// Drop whitespace from the closeness text.
     pub whitespace_tolerant: bool,
-    /// Treat case-only differences as similar when scoring.
+    /// Fold case in the closeness text (follows the importance "case" option).
     pub case_tolerant: bool,
-    /// Bounded Unicode-character prefix used by similarity, never whole-file copies.
-    pub max_line_chars: usize,
-    /// Character LCS share; the remainder is word Jaccard.
-    pub character_weight: f32,
 }
 
 impl Default for SmartAlignOptions {
     fn default() -> Self {
         Self {
-            pair_similarity_threshold: 0.5,
-            skew_tolerance: 8,
+            skew_tolerance: 2000,
+            use_closeness: true,
+            never_align_diffs: false,
             whitespace_tolerant: true,
             case_tolerant: false,
-            max_line_chars: 256,
-            character_weight: 0.7,
         }
     }
 }
 
-/// `TBcSmartAlign` – heuristic alignment (BC default).
+/// `TBcSmartAlign` – Standard alignment (BC default).
 #[derive(Debug, Default)]
 pub struct SmartAlign {
     pub options: SmartAlignOptions,
@@ -636,6 +679,8 @@ impl SmartAlign {
         self.align2_cancellable(left, right, overrides, &NeverCancel)
     }
 
+    /// Takes the unpacked Myers skeleton (`align2_unpaired`) and resolves each
+    /// difference block by the session switches.
     pub fn align2_cancellable(
         &self,
         left: AlignInput<'_>,
@@ -643,62 +688,136 @@ impl SmartAlign {
         overrides: &AlignmentOverrides,
         cancel: &dyn CancelCheck,
     ) -> Result<AlignMap, crate::CoreError> {
-        cancel.check()?;
-        validate_smart(&left, &right, &self.options)?;
-        let map = QuickAlign.align2_unpaired_cancellable(
-            left.clone(),
-            right.clone(),
+        resolve_aligned(
+            Backbone::Myers,
+            SMART_EMIT_SEGMENT,
+            &self.options,
+            &left,
+            &right,
             overrides,
             cancel,
-        )?;
-        if left.lines.is_none() || right.lines.is_none() {
-            return Ok(map);
-        }
-        // Consume reverse indices before rebuilding, and compact rows in place: no
-        // second multi-million-row array and no repeated tail-moving Vec::splice.
-        let mut rows = map.into_rows();
-        let (mut read, mut write) = (0, 0);
-        while read < rows.len() {
-            if read % 4096 == 0 {
-                cancel.check()?;
-            }
-            if rows[read].left.is_some() && rows[read].right.is_some() {
-                rows[write] = rows[read];
-                read += 1;
-                write += 1;
-                continue;
-            }
-            let start = read;
-            while read < rows.len() && (rows[read].left.is_none() || rows[read].right.is_none()) {
-                if read % 4096 == 0 {
-                    cancel.check()?;
-                }
-                read += 1;
-            }
-            let ls: Vec<_> = rows[start..read].iter().filter_map(|r| r.left).collect();
-            let rs: Vec<_> = rows[start..read].iter().filter_map(|r| r.right).collect();
-            // Bounded windows avoid an unbounded all-pairs matrix on large changes.
-            for window in 0..ls.len().max(rs.len()).div_ceil(128) {
-                let start = window * 128;
-                let l = &ls[start.min(ls.len())..(start + 128).min(ls.len())];
-                let r = &rs[start.min(rs.len())..(start + 128).min(rs.len())];
-                let matched = smart_window(l, r, &left, &right, &self.options, cancel)?;
-                for row in matched {
-                    rows[write] = row;
-                    write += 1;
-                }
-            }
-        }
-        rows.truncate(write);
-        AlignMap::from_rows_cancellable(rows, cancel)
+        )
     }
 }
 
-fn validate_smart(
+/// `TBcPatienceDiffAlign` – patience-diff anchors with Smart's difference-block resolution.
+#[derive(Debug, Default)]
+pub struct PatienceAlign {
+    pub options: SmartAlignOptions,
+}
+
+impl Aligner for PatienceAlign {
+    fn strategy(&self) -> AlignStrategy {
+        AlignStrategy::Patience
+    }
+
+    fn align2(&self, left: AlignInput<'_>, right: AlignInput<'_>) -> AlignMap {
+        self.align2_with_overrides(left, right, &AlignmentOverrides::default())
+            .expect("valid Patience alignment inputs")
+    }
+
+    #[allow(unused_variables)] // remaining scaffold entry point
+    fn align3(
+        &self,
+        left: AlignInput<'_>,
+        center: AlignInput<'_>,
+        right: AlignInput<'_>,
+    ) -> AlignMap {
+        todo!("bc-core::align: patience 3-way alignment")
+    }
+}
+
+impl PatienceAlign {
+    pub fn align2_with_overrides(
+        &self,
+        left: AlignInput<'_>,
+        right: AlignInput<'_>,
+        overrides: &AlignmentOverrides,
+    ) -> Result<AlignMap, crate::CoreError> {
+        self.align2_cancellable(left, right, overrides, &NeverCancel)
+    }
+
+    pub fn align2_cancellable(
+        &self,
+        left: AlignInput<'_>,
+        right: AlignInput<'_>,
+        overrides: &AlignmentOverrides,
+        cancel: &dyn CancelCheck,
+    ) -> Result<AlignMap, crate::CoreError> {
+        resolve_aligned(
+            Backbone::Patience,
+            PATIENCE_EMIT_SEGMENT,
+            &self.options,
+            &left,
+            &right,
+            overrides,
+            cancel,
+        )
+    }
+}
+
+fn resolve_aligned(
+    backbone: Backbone,
+    segment: usize,
+    options: &SmartAlignOptions,
     left: &AlignInput<'_>,
     right: &AlignInput<'_>,
-    options: &SmartAlignOptions,
-) -> Result<(), crate::CoreError> {
+    overrides: &AlignmentOverrides,
+    cancel: &dyn CancelCheck,
+) -> Result<AlignMap, crate::CoreError> {
+    cancel.check()?;
+    validate_smart(left, right)?;
+    let map = skeleton(backbone, left, right, overrides, cancel, false)?;
+    // Closeness needs line text; hashes-only callers keep the orphan skeleton.
+    let closeness_without_text =
+        options.use_closeness && (left.lines.is_none() || right.lines.is_none());
+    if options.never_align_diffs || closeness_without_text {
+        return Ok(map);
+    }
+    let resolver = BlockResolver {
+        left,
+        right,
+        options,
+        segment,
+        cancel,
+    };
+    // Consume reverse indices before rebuilding, and compact rows in place: a resolved
+    // block never has more rows than its orphan skeleton, so `write <= read` holds.
+    let mut rows = map.into_rows();
+    let (mut read, mut write) = (0, 0);
+    let mut resolved = Vec::new();
+    while read < rows.len() {
+        if read % 4096 == 0 {
+            cancel.check()?;
+        }
+        if rows[read].left.is_some() && rows[read].right.is_some() {
+            rows[write] = rows[read];
+            read += 1;
+            write += 1;
+            continue;
+        }
+        let start = read;
+        while read < rows.len() && (rows[read].left.is_none() || rows[read].right.is_none()) {
+            if read % 4096 == 0 {
+                cancel.check()?;
+            }
+            read += 1;
+        }
+        let ls: Vec<_> = rows[start..read].iter().filter_map(|r| r.left).collect();
+        let rs: Vec<_> = rows[start..read].iter().filter_map(|r| r.right).collect();
+        resolved.clear();
+        resolver.block(&ls, &rs, &mut resolved)?;
+        debug_assert!(resolved.len() <= read - start);
+        for &row in &resolved {
+            rows[write] = row;
+            write += 1;
+        }
+    }
+    rows.truncate(write);
+    AlignMap::from_rows_cancellable(rows, cancel)
+}
+
+fn validate_smart(left: &AlignInput<'_>, right: &AlignInput<'_>) -> Result<(), crate::CoreError> {
     for input in [left, right] {
         if input.lines.is_some_and(|l| l.len() != input.hashes.len())
             || input.weights.is_some_and(|w| w.len() != input.hashes.len())
@@ -711,168 +830,338 @@ fn validate_smart(
             ));
         }
     }
-    if !(0.0..=1.0).contains(&options.pair_similarity_threshold)
-        || !(0.0..=1.0).contains(&options.character_weight)
-        || !(1..=1024).contains(&options.max_line_chars)
-    {
-        return Err(crate::CoreError::Invalid(
-            "invalid Smart similarity options".into(),
-        ));
-    }
     Ok(())
 }
 
-struct SimilarityLine {
-    chars: Vec<char>,
-    words: std::collections::HashSet<u64>,
+/// Traceback directions of the closeness DP.
+const DIR_LEFT_ORPHAN: u8 = 1;
+const DIR_RIGHT_ORPHAN: u8 = 2;
+const DIR_PAIR: u8 = 3;
+
+struct BlockResolver<'a, 'b> {
+    left: &'a AlignInput<'b>,
+    right: &'a AlignInput<'b>,
+    options: &'a SmartAlignOptions,
+    segment: usize,
+    cancel: &'a dyn CancelCheck,
 }
 
-impl SimilarityLine {
-    fn new(bytes: &[u8], options: &SmartAlignOptions) -> Self {
-        let text = String::from_utf8_lossy(&bytes[..bytes.len().min(options.max_line_chars * 4)]);
-        let mut chars = Vec::new();
-        for c in text.chars() {
+impl BlockResolver<'_, '_> {
+    /// One difference block: `ls` / `rs` are the ordered unmatched lines of each side.
+    fn block(
+        &self,
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        if ls.is_empty() || rs.is_empty() || !self.options.use_closeness {
+            return self.positional(ls, rs, out);
+        }
+        if self.dp_allowed(ls, rs) {
+            self.closeness(ls, rs, out)
+        } else {
+            self.sectioned(ls, rs, out)
+        }
+    }
+
+    /// Degeneration guards: oversized sides or too many repeated anchors.
+    fn dp_allowed(&self, ls: &[usize], rs: &[usize]) -> bool {
+        if ls.len() > CLOSENESS_MAX_SIDE || rs.len() > CLOSENESS_MAX_SIDE {
+            return false;
+        }
+        let right: std::collections::HashSet<ContentHash, U64KeyBuild> =
+            rs.iter().map(|&r| self.right.hashes[r]).collect();
+        ls.iter()
+            .filter(|&&l| right.contains(&self.left.hashes[l]))
+            .take(CLOSENESS_MAX_REPEATED_ANCHORS)
+            .count()
+            < CLOSENESS_MAX_REPEATED_ANCHORS
+    }
+
+    fn pair(&self, l: usize, r: usize) -> AlignRow {
+        AlignRow {
+            left: Some(l),
+            right: Some(r),
+            center: None,
+            kind: if self.left.hashes[l] == self.right.hashes[r] {
+                DiffKind::Same
+            } else {
+                DiffKind::Changed
+            },
+        }
+    }
+
+    /// Pure positional pairing: nth ↔ nth, no similarity check, tail orphaned.
+    fn positional(
+        &self,
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        for i in 0..ls.len().max(rs.len()) {
+            if i % self.segment == 0 {
+                self.cancel.check()?;
+            }
+            out.push(match (ls.get(i), rs.get(i)) {
+                (Some(&l), Some(&r)) => self.pair(l, r),
+                (Some(&l), None) => left_only(l),
+                (None, Some(&r)) => right_only(r),
+                (None, None) => unreachable!(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Fallback for degenerate blocks: walk the left side in order, anchoring each line
+    /// on its first equal right line within `skew_tolerance` lines of the current right
+    /// position, and resolve the sub-blocks between anchors as leaves.
+    fn sectioned(
+        &self,
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        let mut positions: std::collections::HashMap<ContentHash, Vec<usize>, U64KeyBuild> =
+            Default::default();
+        for (j, &r) in rs.iter().enumerate() {
+            positions.entry(self.right.hashes[r]).or_default().push(j);
+        }
+        let (mut li, mut ri) = (0, 0);
+        let (mut seg_l, mut seg_r) = (0, 0);
+        while li < ls.len() && ri < rs.len() {
+            if li % 4096 == 0 {
+                self.cancel.check()?;
+            }
+            let hit = positions.get(&self.left.hashes[ls[li]]).and_then(|p| {
+                p.get(p.partition_point(|&j| j < ri))
+                    .copied()
+                    .filter(|&j| j - ri < self.options.skew_tolerance)
+            });
+            if let Some(j) = hit {
+                self.leaf(&ls[seg_l..li], &rs[seg_r..j], out)?;
+                out.push(self.pair(ls[li], rs[j]));
+                ri = j + 1;
+                seg_l = li + 1;
+                seg_r = ri;
+            }
+            li += 1;
+        }
+        self.leaf(&ls[seg_l..], &rs[seg_r..], out)
+    }
+
+    /// Sub-block of a sectioned block: closeness when the guards allow, else positional.
+    fn leaf(
+        &self,
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        if !ls.is_empty() && !rs.is_empty() && self.dp_allowed(ls, rs) {
+            self.closeness(ls, rs, out)
+        } else {
+            self.positional(ls, rs, out)
+        }
+    }
+
+    /// Monotone closeness DP maximizing summed pair scores plus gap penalties.
+    /// Ties keep the pair (diagonal); a gap direction wins only when strictly better,
+    /// and the right-orphan direction is tried before the left-orphan direction.
+    fn closeness(
+        &self,
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        self.cancel.check()?;
+        let features = |input: &AlignInput<'_>, side: &[usize]| {
+            let lines = input.lines.expect("closeness requires line text");
+            side.iter()
+                .map(|&i| ClosenessLine::new(input, lines, i, self.options))
+                .collect::<Vec<_>>()
+        };
+        let lf = features(self.left, ls);
+        let rf = features(self.right, rs);
+        let cols = rs.len() + 1;
+        let mut directions = vec![0u8; (ls.len() + 1) * cols];
+        directions[1..cols].fill(DIR_RIGHT_ORPHAN);
+        let mut previous: Vec<i64> = (0..cols as i64)
+            .map(|j| j * CLOSENESS_GAP_PENALTY)
+            .collect();
+        let mut current = vec![0i64; cols];
+        let mut dense = [0u32; 256];
+        for (i, a) in lf.iter().enumerate() {
+            self.cancel.check()?;
+            let i = i + 1;
+            for &(byte, count) in &a.histogram {
+                dense[usize::from(byte)] = count;
+            }
+            current[0] = i as i64 * CLOSENESS_GAP_PENALTY;
+            directions[i * cols] = DIR_LEFT_ORPHAN;
+            for (j, b) in rf.iter().enumerate() {
+                let j = j + 1;
+                let mut best = previous[j - 1] + a.score(b, &dense);
+                let mut direction = DIR_PAIR;
+                let right_gap = current[j - 1] + CLOSENESS_GAP_PENALTY;
+                if right_gap > best {
+                    best = right_gap;
+                    direction = DIR_RIGHT_ORPHAN;
+                }
+                let left_gap = previous[j] + CLOSENESS_GAP_PENALTY;
+                if left_gap > best {
+                    best = left_gap;
+                    direction = DIR_LEFT_ORPHAN;
+                }
+                current[j] = best;
+                directions[i * cols + j] = direction;
+            }
+            for &(byte, _) in &a.histogram {
+                dense[usize::from(byte)] = 0;
+            }
+            std::mem::swap(&mut previous, &mut current);
+        }
+        let (mut i, mut j) = (ls.len(), rs.len());
+        let mut path = Vec::with_capacity(i + j);
+        while i > 0 || j > 0 {
+            let direction = directions[i * cols + j];
+            path.push(direction);
+            match direction {
+                DIR_PAIR => {
+                    i -= 1;
+                    j -= 1;
+                }
+                DIR_LEFT_ORPHAN => i -= 1,
+                _ => j -= 1,
+            }
+        }
+        drop(directions);
+        path.reverse();
+        self.emit(&path, ls, rs, out)
+    }
+
+    /// Emit the traceback: each run of one direction is one block emission, sliced into
+    /// at most `segment` rows (slicing never changes the pairing).
+    fn emit(
+        &self,
+        path: &[u8],
+        ls: &[usize],
+        rs: &[usize],
+        out: &mut Vec<AlignRow>,
+    ) -> Result<(), crate::CoreError> {
+        let (mut l, mut r) = (0, 0);
+        for run in path.chunk_by(|a, b| a == b) {
+            for slice in run.chunks(self.segment) {
+                self.cancel.check()?;
+                for &direction in slice {
+                    out.push(match direction {
+                        DIR_PAIR => {
+                            l += 1;
+                            r += 1;
+                            self.pair(ls[l - 1], rs[r - 1])
+                        }
+                        DIR_LEFT_ORPHAN => {
+                            l += 1;
+                            left_only(ls[l - 1])
+                        }
+                        _ => {
+                            r += 1;
+                            right_only(rs[r - 1])
+                        }
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Closeness features of one line, built from its normalized text.
+struct ClosenessLine {
+    hash: ContentHash,
+    /// Sparse `(byte, count)` histogram of the normalized UTF-8 text.
+    histogram: Vec<(u8, u32)>,
+    /// Normalized text length in bytes.
+    len: i64,
+    /// Significant (normalized) character count.
+    significant: i64,
+    /// Raw line length in bytes.
+    raw_len: usize,
+    /// Format weight; equal weights add `4 * weight` (e.g. DFM `object` lines).
+    weight: u8,
+}
+
+impl ClosenessLine {
+    fn new(
+        input: &AlignInput<'_>,
+        lines: &crate::line::LineList,
+        index: usize,
+        options: &SmartAlignOptions,
+    ) -> Self {
+        let bytes = lines.line_bytes(index).unwrap_or_default();
+        let mut counts = [0u32; 256];
+        let (mut len, mut significant) = (0i64, 0i64);
+        let mut count = |c: char| {
+            let mut buffer = [0u8; 4];
+            significant += 1;
+            for &b in c.encode_utf8(&mut buffer).as_bytes() {
+                counts[usize::from(b)] += 1;
+                len += 1;
+            }
+        };
+        for c in String::from_utf8_lossy(bytes).chars() {
             if options.whitespace_tolerant && c.is_whitespace() {
                 continue;
             }
             if options.case_tolerant {
-                chars.extend(c.to_lowercase());
+                c.to_lowercase().for_each(&mut count);
             } else {
-                chars.push(c);
-            }
-            if chars.len() >= options.max_line_chars {
-                break;
+                count(c);
             }
         }
-        chars.truncate(options.max_line_chars);
-        // Words retain whitespace boundaries even when the character metric ignores it.
-        let prefix: String = text.chars().take(options.max_line_chars).collect();
-        let words = prefix
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|w| !w.is_empty())
-            .map(|word| {
-                if options.case_tolerant {
-                    xxhash_rust::xxh64::xxh64(word.to_lowercase().as_bytes(), 0)
-                } else {
-                    xxhash_rust::xxh64::xxh64(word.as_bytes(), 0)
-                }
-            })
+        let histogram = (0u8..=255)
+            .zip(counts)
+            .filter(|&(_, count)| count > 0)
             .collect();
-        Self { chars, words }
-    }
-
-    fn score(&self, other: &Self, character_weight: f32) -> f32 {
-        let mut row = vec![0usize; other.chars.len() + 1];
-        for a in &self.chars {
-            let mut diagonal = 0;
-            for (j, b) in other.chars.iter().enumerate() {
-                let old = row[j + 1];
-                row[j + 1] = if a == b {
-                    diagonal + 1
-                } else {
-                    row[j + 1].max(row[j])
-                };
-                diagonal = old;
-            }
+        Self {
+            hash: input.hashes[index],
+            histogram,
+            len,
+            significant,
+            raw_len: bytes.len(),
+            weight: input.weights.map_or(0, |w| w[index].0),
         }
-        let total = self.chars.len() + other.chars.len();
-        let character = if total == 0 {
-            1.0
-        } else {
-            2.0 * row[other.chars.len()] as f32 / total as f32
-        };
-        let intersection = self.words.intersection(&other.words).count();
-        let union = self.words.len() + other.words.len() - intersection;
-        let word = if union == 0 {
-            0.0
-        } else {
-            intersection as f32 / union as f32
-        };
-        character_weight * character + (1.0 - character_weight) * word
     }
-}
 
-fn smart_window(
-    ls: &[usize],
-    rs: &[usize],
-    left: &AlignInput<'_>,
-    right: &AlignInput<'_>,
-    options: &SmartAlignOptions,
-    cancel: &dyn CancelCheck,
-) -> Result<Vec<AlignRow>, crate::CoreError> {
-    cancel.check()?;
-    let (ll, rl) = (left.lines.unwrap(), right.lines.unwrap());
-    let ltext: Vec<_> = ls
-        .iter()
-        .map(|&i| SimilarityLine::new(ll.line_bytes(i).unwrap(), options))
-        .collect();
-    let rtext: Vec<_> = rs
-        .iter()
-        .map(|&i| SimilarityLine::new(rl.line_bytes(i).unwrap(), options))
-        .collect();
-    let cols = rs.len() + 1;
-    let mut directions = vec![0u8; (ls.len() + 1) * cols];
-    let mut previous = vec![0.0f32; cols];
-    for (i, &li) in ls.iter().enumerate() {
-        let mut current = vec![0.0f32; cols];
-        for (j, &ri) in rs.iter().enumerate() {
-            cancel.check()?;
-            let (mut score, mut direction) = if previous[j + 1] > current[j] {
-                (previous[j + 1], 1)
+    /// Pair score against `other`; `dense` holds `self`'s histogram indexed by byte.
+    fn score(&self, other: &Self, dense: &[u32; 256]) -> i64 {
+        let base = if self.hash == other.hash {
+            if self.significant == 0 && other.significant == 0 {
+                -10
             } else {
-                (current[j], 2)
-            };
-            if i.abs_diff(j) <= options.skew_tolerance {
-                let similarity = ltext[i].score(&rtext[j], options.character_weight);
-                if similarity >= options.pair_similarity_threshold && similarity > 0.0 {
-                    let lw = left.weights.map_or(0, |w| w[li].0);
-                    let rw = right.weights.map_or(0, |w| w[ri].0);
-                    let anchor = if lw == rw { f32::from(lw) * 4.0 } else { 0.0 };
-                    let candidate = previous[j] + similarity + anchor;
-                    if candidate >= score {
-                        score = candidate;
-                        direction = 3;
-                    }
-                }
+                2 * (self.significant + other.significant)
+                    - i64::from(self.raw_len != other.raw_len)
             }
-            current[j + 1] = score;
-            directions[(i + 1) * cols + j + 1] = direction;
-        }
-        previous = current;
-    }
-    let (mut i, mut j) = (ls.len(), rs.len());
-    let mut rows = Vec::with_capacity(i + j);
-    while i > 0 || j > 0 {
-        let direction = if i == 0 {
-            2
-        } else if j == 0 {
-            1
+        } else if self.len == 0 || other.len == 0 {
+            (-4 * (self.len + other.len) - 1).clamp(-40, -11)
         } else {
-            directions[i * cols + j]
+            let common: i64 = other
+                .histogram
+                .iter()
+                .map(|&(byte, count)| i64::from(dense[usize::from(byte)].min(count)))
+                .sum();
+            let t = 3 * common - self.len - other.len;
+            if t < 1 {
+                (4 * t - 1).max(-40)
+            } else {
+                25 * t / self.len.min(other.len)
+            }
         };
-        match direction {
-            3 => {
-                i -= 1;
-                j -= 1;
-                rows.push(AlignRow {
-                    left: Some(ls[i]),
-                    right: Some(rs[j]),
-                    center: None,
-                    kind: DiffKind::Changed,
-                });
-            }
-            1 => {
-                i -= 1;
-                rows.push(left_only(ls[i]));
-            }
-            _ => {
-                j -= 1;
-                rows.push(right_only(rs[j]));
-            }
-        }
+        let anchor = if self.weight == other.weight {
+            4 * i64::from(self.weight)
+        } else {
+            0
+        };
+        base + anchor
     }
-    rows.reverse();
-    Ok(rows)
 }
 
 /// Byte-sequence aligner for Hex compare – `TBcByteAlign` / `THexMapByteAlign`.
@@ -883,5 +1172,126 @@ impl ByteAlign {
     #[allow(unused_variables)] // remaining scaffold entry point
     pub fn align(&self, left: &[u8], right: &[u8]) -> AlignMap {
         todo!("bc-core::align: byte alignment")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{hash::LineHasher, line::LineList};
+
+    fn score_with(hasher: &LineHasher, a: &str, b: &str) -> i64 {
+        let lines = LineList::from_bytes(format!("{a}\n{b}\n").into_bytes());
+        let hashes = hasher.hash_lines(&lines);
+        let input = AlignInput {
+            hashes: &hashes,
+            lines: Some(&lines),
+            ..Default::default()
+        };
+        let options = SmartAlignOptions::default();
+        let a = ClosenessLine::new(&input, &lines, 0, &options);
+        let b = ClosenessLine::new(&input, &lines, 1, &options);
+        let mut dense = [0u32; 256];
+        for &(byte, count) in &a.histogram {
+            dense[usize::from(byte)] = count;
+        }
+        a.score(&b, &dense)
+    }
+
+    fn score(a: &str, b: &str) -> i64 {
+        score_with(&LineHasher::default(), a, b)
+    }
+
+    #[test]
+    fn closeness_score_follows_the_histogram_formula() {
+        // t = 3*common - lenL - lenR on whitespace-free text.
+        assert_eq!(score("foo one", "bar 2"), -40); // t = -10 -> floor
+        assert_eq!(score("foo one", "foo 1"), -5); // t = -1 -> 4t - 1
+        assert_eq!(score("bar two", "bar 2"), -5);
+        assert_eq!(score("bar two", "foo 1"), -29); // t = -7
+        assert_eq!(score("alpha = 1", "alpha = 10"), 21); // t = 6 -> 25*6/7
+        assert_eq!(score("abcdefghij", "0123456789"), -40);
+    }
+
+    #[test]
+    fn closeness_score_handles_featureless_and_equal_lines() {
+        assert_eq!(score("   ", "a"), -11); // -5 clamped up to -11
+        assert_eq!(score("", "abc"), -13);
+        assert_eq!(score("", "abcdefghijk"), -40);
+        assert_eq!(score("", ""), -10);
+        assert_eq!(score("xy", "xy"), 8); // 2 * (2 + 2)
+        let loose = LineHasher {
+            ignore_leading_whitespace: true,
+            ..Default::default()
+        };
+        assert_eq!(score_with(&loose, "  xy", "xy"), 7); // raw lengths differ: -1
+    }
+
+    fn resolve(left: &[&str], right: &[&str], options: &SmartAlignOptions) -> Vec<AlignRow> {
+        let hash = |side: &[&str]| -> Vec<ContentHash> {
+            let lines = LineList::from_bytes(side.join("\n").into_bytes());
+            LineHasher::default().hash_lines(&lines)
+        };
+        let (lt, rt) = (left.join("\n"), right.join("\n"));
+        let (ll, rl) = (
+            LineList::from_bytes(lt.into_bytes()),
+            LineList::from_bytes(rt.into_bytes()),
+        );
+        let (lh, rh) = (hash(left), hash(right));
+        let (li, ri) = (
+            AlignInput {
+                hashes: &lh,
+                lines: Some(&ll),
+                ..Default::default()
+            },
+            AlignInput {
+                hashes: &rh,
+                lines: Some(&rl),
+                ..Default::default()
+            },
+        );
+        let resolver = BlockResolver {
+            left: &li,
+            right: &ri,
+            options,
+            segment: SMART_EMIT_SEGMENT,
+            cancel: &NeverCancel,
+        };
+        let mut out = Vec::new();
+        let ls: Vec<_> = (0..left.len()).collect();
+        let rs: Vec<_> = (0..right.len()).collect();
+        resolver.block(&ls, &rs, &mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn repeated_anchor_blocks_fall_back_to_sectioning() {
+        let shared: Vec<String> = (0..CLOSENESS_MAX_REPEATED_ANCHORS)
+            .map(|i| format!("s{i}"))
+            .collect();
+        let left: Vec<&str> = shared.iter().map(String::as_str).collect();
+        let mut right = vec!["x", "y"];
+        right.extend(left.iter().copied());
+        let rows = resolve(&left, &right, &SmartAlignOptions::default());
+        assert_eq!(rows[0], right_only(0));
+        assert_eq!(rows[1], right_only(1));
+        assert!(rows[2..]
+            .iter()
+            .enumerate()
+            .all(|(i, r)| r.left == Some(i) && r.right == Some(i + 2) && r.kind == DiffKind::Same));
+        // Anchors further than the skew tolerance are not searched: positional leaf.
+        let rows = resolve(
+            &left,
+            &right,
+            &SmartAlignOptions {
+                skew_tolerance: 2,
+                ..Default::default()
+            },
+        );
+        assert_eq!(rows.len(), right.len());
+        assert!(rows[..left.len()]
+            .iter()
+            .enumerate()
+            .all(|(i, r)| r.left == Some(i) && r.right == Some(i) && r.kind == DiffKind::Changed));
     }
 }

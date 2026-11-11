@@ -1,4 +1,4 @@
-//! patch 黄金回归：对 `text/2way`（30 例）与 `text/patch-extra`（多差异块探针）逐份比对参考
+//! patch 黄金回归：对 `text/2way`（34 例，含 031–034 对齐规格验收用例）与 `text/patch-extra`（多差异块探针）逐份比对参考
 //! 工具的原始 patch 输出（协议见 `tools/golden/README.md` 的“patch 报告协议”）。只归一化两处：
 //! 文件头里的时间戳，以及采集时的工作目录前缀；其余字节严格比较。样本缺失即失败，不跳过。
 #[path = "../../bc-core/tests/golden/support/mod.rs"]
@@ -144,7 +144,7 @@ fn check(root: &Path, expected_cases: usize) -> (usize, Vec<String>) {
 #[test]
 fn patch_reports_match_the_reference_byte_for_byte() {
     let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("../bc-core/tests/golden/text");
-    let (two_way, mut failures) = check(&golden.join("2way"), 30);
+    let (two_way, mut failures) = check(&golden.join("2way"), 34);
     let (extra, more) = check(&golden.join("patch-extra"), 10);
     failures.extend(more);
     let total = two_way + extra;
@@ -152,8 +152,8 @@ fn patch_reports_match_the_reference_byte_for_byte() {
         "golden.patch={}/{total} (2way {two_way}, patch-extra {extra})",
         total - failures.len()
     );
-    // 30 x 2 x 3 + 1 title + 7 x 2 ignore-unimportant; 10 x 2 x 3.
-    assert_eq!((two_way, extra), (195, 60));
+    // 34 x 2 x 3 + 1 title + 7 x 2 ignore-unimportant; 10 x 2 x 3.
+    assert_eq!((two_way, extra), (219, 60));
     assert!(
         failures.is_empty(),
         "{} mismatch(es):\n{}",

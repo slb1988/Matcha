@@ -1,0 +1,7 @@
+diff -r D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\left.txt D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\right.txt
+3,4c3,4
+< foo one
+< bar two
+---
+> bar 2
+> foo 1

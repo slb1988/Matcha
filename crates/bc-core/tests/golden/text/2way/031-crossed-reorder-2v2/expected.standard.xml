@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/11/2026 5:32:26 PM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/11/2026 5:32:26 PM">
+		<filename1>D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">alpha</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="2" rtid="2">commonAnchor</text>
+		</linecomp>
+		<linecomp status="leftorphan">
+			<text ltid="3">foo one</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="4">bar two</text>
+			<text rtid="3">bar 2</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="4">foo 1</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="5" rtid="5">omega</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

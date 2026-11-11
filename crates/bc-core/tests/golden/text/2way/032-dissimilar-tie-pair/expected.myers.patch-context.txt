@@ -1,0 +1,15 @@
+*** D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\left.txt	2026-11-11 17:32:45.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\right.txt	2026-11-11 17:32:45.000000000 +0800
+***************
+*** 1,5 ****
+  begin
+! abcdefghij
+! klmnopqrst
+! uvwxyzabcd
+  end
+--- 1,5 ----
+  begin
+! 0123456789
+! 9876543210
+! 5678901234
+  end

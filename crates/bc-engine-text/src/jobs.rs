@@ -7,8 +7,8 @@ use crate::{
 };
 use bc_core::{
     align::{
-        AlignInput, AlignMap, AlignStrategy, AlignmentOverrides, LineWeight, QuickAlign,
-        SmartAlign, SmartAlignOptions,
+        AlignInput, AlignMap, AlignStrategy, AlignmentOverrides, LineWeight, PatienceAlign,
+        QuickAlign, SmartAlign, SmartAlignOptions,
     },
     cancel::CancelCheck,
     hash::{ContentHash, LineHasher},
@@ -230,69 +230,29 @@ fn align_range(
         weights: Some(&rw),
         ..Default::default()
     };
-    let unpaired = job.rules.alignment.never_align_differences
-        || (job.strategy == AlignStrategy::Smart && !job.rules.alignment.use_closeness);
-    let strategy = if unpaired && job.strategy == AlignStrategy::Smart {
-        AlignStrategy::Quick
-    } else {
-        job.strategy
+    let alignment = &job.rules.alignment;
+    let options = SmartAlignOptions {
+        skew_tolerance: alignment.skew_tolerance as usize,
+        use_closeness: alignment.use_closeness,
+        never_align_diffs: alignment.never_align_differences,
+        case_tolerant: job.rules.comparison.importance.case_unimportant,
+        ..Default::default()
     };
-    match strategy {
-        AlignStrategy::Quick if unpaired => {
+    match job.strategy {
+        // Myers never scores similarity: positional display packing unless
+        // "Never align differences" asks for the raw orphan rows.
+        AlignStrategy::Quick if alignment.never_align_differences => {
             QuickAlign.align2_unpaired_cancellable(l, r, &overrides, cancel)
         }
         AlignStrategy::Quick => QuickAlign.align2_cancellable(l, r, &overrides, cancel),
-        AlignStrategy::Smart => SmartAlign {
-            options: SmartAlignOptions {
-                skew_tolerance: job.rules.alignment.skew_tolerance as usize,
-                case_tolerant: job.rules.comparison.importance.case_unimportant,
-                ..Default::default()
-            },
+        AlignStrategy::Smart => SmartAlign { options }.align2_cancellable(l, r, &overrides, cancel),
+        AlignStrategy::Patience => {
+            PatienceAlign { options }.align2_cancellable(l, r, &overrides, cancel)
         }
-        .align2_cancellable(l, r, &overrides, cancel),
         AlignStrategy::None => {
             cancel.check()?;
             let map = AlignMap::unaligned(l.hashes, r.hashes);
             cancel.check()?;
-            Ok(map)
-        }
-        AlignStrategy::Patience => {
-            use bc_core::diff::{DiffOp, PatienceDiff};
-            let ops = PatienceDiff.diff_cancellable(l.hashes, r.hashes, cancel)?;
-            let mut rows = Vec::new();
-            for op in ops {
-                cancel.check()?;
-                match op {
-                    DiffOp::Equal {
-                        a_start,
-                        b_start,
-                        len,
-                    } => rows.extend((0..len).map(|i| bc_core::align::AlignRow {
-                        left: Some(a_start + i),
-                        right: Some(b_start + i),
-                        kind: DiffKind::Same,
-                        center: None,
-                    })),
-                    DiffOp::Delete { a_start, len, .. } => {
-                        rows.extend((0..len).map(|i| bc_core::align::AlignRow {
-                            left: Some(a_start + i),
-                            kind: DiffKind::LeftOnly,
-                            ..Default::default()
-                        }))
-                    }
-                    DiffOp::Insert { b_start, len, .. } => {
-                        rows.extend((0..len).map(|i| bc_core::align::AlignRow {
-                            right: Some(b_start + i),
-                            kind: DiffKind::RightOnly,
-                            ..Default::default()
-                        }))
-                    }
-                }
-            }
-            let mut map = AlignMap::from_rows_cancellable(rows, cancel)?;
-            for &(l, r) in overrides.pairs() {
-                map.force_pair(l, r)?;
-            }
             Ok(map)
         }
     }

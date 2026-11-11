@@ -1,0 +1,5 @@
+alpha
+commonAnchor
+bar 2
+foo 1
+omega

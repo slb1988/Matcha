@@ -1,4 +1,5 @@
 #[path = "golden/support/mod.rs"]
+#[allow(dead_code)] // exception helpers are shared with the engine harness
 mod support;
 use bc_core::{
     align::{AlignInput, Aligner, QuickAlign, SmartAlign, SmartAlignOptions},
@@ -58,10 +59,9 @@ fn reference_alignment_corpus() {
         return;
     }
     let known = std::fs::read_to_string(root.join("../../KNOWN_DIFFS.md")).unwrap_or_default();
-    assert_eq!(
-        support::documented_cases(&known, "standard").len(),
-        1,
-        "expected exactly one formal Standard exception"
+    assert!(
+        support::documented_cases(&known, "standard").is_empty(),
+        "the text-alignment spec leaves no formal Standard exception"
     );
     let mut failures = Vec::new();
     let mut checked = 0;
@@ -104,17 +104,20 @@ fn reference_alignment_corpus() {
                 lines: Some(&right),
                 ..Default::default()
             };
-            let map = if strategy == "myers" {
-                QuickAlign.align2(l, r)
-            } else {
-                SmartAlign {
+            let never_align = case.flag("never_align_diffs");
+            let map = match strategy {
+                "myers" if never_align => QuickAlign.align2_unpaired(l, r),
+                "myers" => QuickAlign.align2(l, r),
+                _ => SmartAlign {
                     options: SmartAlignOptions {
                         case_tolerant: case.flag("case_unimportant"),
                         skew_tolerance: 2000,
+                        use_closeness: true,
+                        never_align_diffs: never_align,
                         ..Default::default()
                     },
                 }
-                .align2(l, r)
+                .align2(l, r),
             };
             let actual: Vec<_> = map
                 .rows()
@@ -139,36 +142,10 @@ fn reference_alignment_corpus() {
                 })
                 .collect();
             if actual != expected {
-                let documented = strategy == "standard"
-                    && known.contains(&format!("| standard | {} |", case.name));
-                if documented {
-                    assert_eq!(
-                        expected_rows,
-                        support::documented_reference_rows(&known, strategy, &case.name)
-                            .unwrap()
-                            .expect("documented reference output"),
-                        "known reference changed {}",
-                        case.name
-                    );
-                    let recorded = support::documented_project_rows(&known, strategy, &case.name)
-                        .unwrap()
-                        .expect("documented full output");
-                    assert_eq!(
-                        actual,
-                        recorded
-                            .iter()
-                            .map(|r| (r.left, r.right, r.kind))
-                            .collect::<Vec<_>>(),
-                        "changed known exception {}",
-                        case.name
-                    );
-                }
-                if !documented {
-                    failures.push(format!(
-                        "{} {strategy}: actual {actual:?}, expected {expected:?}",
-                        case.name
-                    ));
-                }
+                failures.push(format!(
+                    "{} {strategy}: actual {actual:?}, expected {expected:?}",
+                    case.name
+                ));
             }
         }
     }
