@@ -2,30 +2,31 @@
 
 Dual launcher (FR-S2). One crate, one shared `launch` function, two executables:
 
-| binary | reference equivalent | behaviour |
-|---|---|---|
-| `matcha-comp` | GUI launcher (`.exe`) | starts the main program (or hands off to the running instance) and returns immediately – for VCS integrations |
-| `matcha-compc` | console launcher (`.com`) | requires a console, waits for the comparison/script to finish and returns its exit code – for CI and batch files |
+| binary | shipped as (Windows) | subsystem | behaviour |
+|---|---|---|---|
+| `matcha-comp` | `matcha-comp.exe` | GUI | starts the main program (or hands off to the running instance) and returns immediately – for VCS integrations |
+| `matcha-compc` | `matcha.com` | console | waits for the comparison/script to finish and returns its exit code – for the command line, CI and batch files |
+
+`cargo xtask dist` ships the console launcher as `matcha.com` next to the GUI-subsystem
+`matcha.exe`: typing `matcha …` in cmd/PowerShell resolves to the `.com` (`PATHEXT` lists
+`.COM` before `.EXE`), double-clicking `matcha.exe` opens the GUI without a console. On
+macOS the launchers live in `Matcha.app/Contents/MacOS/` and are reached through
+`bin/` symlinks. See `docs/decisions/301-windows-subsystem-split.md`.
 
 The crate directory keeps the spec's internal name; the executables do not use the
 reference product's name.
 
-## Scaffold behaviour
+## Behaviour
 
-`locate_main_executable` and `launch` are `todo!()`; running either binary panics.
-Exit codes `102` (cannot wait) and `103` (cannot find main) are reserved for the real
-implementation (`bc_script::ExitCode`).
+- Locate `matcha` next to the launcher (symlinks resolved), then on `PATH`, skipping the
+  launcher itself; exit `103` when missing.
+- Forward all arguments unchanged. The waiting launcher sets `bc_instance::WAIT_ENV`; the
+  main program then blocks until the comparison closes and exits with its code, which the
+  launcher propagates (`102` when the wait is lost).
+- `/?` is answered by the waiting launcher itself, named as invoked (`matcha` when shipped
+  as `matcha.com`).
 
 ## Dependency boundary
 
-`bc-script` only (for `ExitCode` and, later, usage text). No GUI dependency so that
-`matcha-compc` works on a headless build agent.
-
-## Open questions
-
-- Wait mechanism: the reference passes a handle/event to the main instance; options here
-  are an inherited event handle, a named pipe, or waiting on a child process when a new
-  instance was started. Must also work when the comparison is forwarded to an already
-  running instance.
-- Windows cannot produce a `.com`-style dual binary from one crate; two differently named
-  executables are the chosen equivalent.
+`bc-script` (exit codes, usage text) and `bc-instance` (wait marker). No GUI dependency so
+that the console launcher works on a headless build agent.

@@ -22,7 +22,8 @@ try {
     $results = @()
     foreach ($name in $scenes) {
         $path = Join-Path $outDir "$name.png"
-        & $exe "--snapshot=$name" "--snapshot-out=$path" "--window-size=$WindowSize"
+        # matcha.exe 是 GUI 子系统：管道输出才让 PowerShell 等它结束并设置 $LASTEXITCODE。
+        & $exe "--snapshot=$name" "--snapshot-out=$path" "--window-size=$WindowSize" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "$name snapshot failed: $LASTEXITCODE" }
         $bytes = [IO.File]::ReadAllBytes($path)
         if ([Convert]::ToHexString($bytes[0..7]) -ne '89504E470D0A1A0A') { throw "$path is not PNG" }
@@ -30,7 +31,7 @@ try {
         $repeatHash = $null
         if ($Verify) {
             $repeat = Join-Path $outDir "$name.repeat.png"
-            & $exe "--snapshot=$name" "--snapshot-out=$repeat" "--window-size=$WindowSize"
+            & $exe "--snapshot=$name" "--snapshot-out=$repeat" "--window-size=$WindowSize" | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "$name repeat failed: $LASTEXITCODE" }
             $repeatHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $repeat).Hash
             if ($hash -ne $repeatHash) { throw "$name not deterministic: $hash != $repeatHash" }

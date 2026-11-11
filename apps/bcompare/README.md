@@ -3,6 +3,15 @@
 Main GUI program. The crate directory keeps the spec's internal name; the executable is
 `matcha.exe` (no reference-product branding in shipped artefacts).
 
+## Subsystem and output
+
+On Windows `matcha.exe` is a GUI-subsystem program: double-click, Explorer menu and
+shortcuts open the window without a console. Command-line use goes through the console
+launcher shipped beside it as `matcha.com` (see `apps/bcomp`). `src/console.rs` attaches to
+the launcher's console when it is waiting (and for dev/perf runs), keeps redirected handles
+as they are, and falls back to a message box for user-facing errors when there is no
+console at all. Decision record: `docs/decisions/301-windows-subsystem-split.md`.
+
 ## Responsibilities (target)
 
 - Parse the full command line via `bc_script::cli::CliArgs` (switches + positional

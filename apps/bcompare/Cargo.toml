@@ -17,6 +17,9 @@ bc-session = { workspace = true }
 bc-instance = { workspace = true }
 bc-shell = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
 [dev-dependencies]
 bc-instance = { workspace = true }
 bc-shell = { workspace = true }

@@ -51,8 +51,8 @@ impl Reply {
     }
 }
 
-/// `matcha-compc` 设置此环境变量启动 `matcha`，要求等待会话结束（相当于参考实现的
-/// 隐藏完成句柄；命令行参数本身原样转发）。`matcha` 读取后立即删除，不让子进程继承。
+/// 控制台启动器（`matcha-compc`，发行名 `matcha.com`）设置此环境变量启动 `matcha`，
+/// 要求等待会话结束（相当于参考实现的隐藏完成句柄；命令行参数本身原样转发）。`matcha` 读取后立即删除，不让子进程继承。
 pub const WAIT_ENV: &str = "MATCHA_LAUNCHER_WAIT";
 
 /// 请求一行的上限：防止本机其他进程塞入无界数据。

@@ -7,8 +7,8 @@
 //! 工作目录与原始参数转交过去后退出，常驻实例把比较开成新标签页（无路径时只把窗口
 //! 提到前台）。`/solo`、开发开关与 `MATCHA_*PERF*` 计时运行不参与单实例，总是自己开窗口。
 //!
-//! 等待：环境变量 `MATCHA_LAUNCHER_WAIT`（`matcha-compc` 设置，参数本身原样转发）使转交
-//! 方阻塞到常驻实例关闭该标签页，并以回复的退出码结束。本进程自己成为首个实例时，
+//! 等待：环境变量 `MATCHA_LAUNCHER_WAIT`（控制台启动器 `matcha.com`/`matcha-compc` 设置，
+//! 参数本身原样转发）使转交方阻塞到常驻实例关闭该标签页，并以回复的退出码结束。本进程自己成为首个实例时，
 //! 等待即等本进程退出（关闭唯一的标签页会关闭窗口）。
 //!
 //! Explorer 右键菜单（`bc-shell`）：成为 GUI 的进程（开发开关与计时运行除外）在后台
@@ -17,15 +17,23 @@
 //! 得到一对路径时改写为普通的 `<left> <right>` 参数，再走上面的单实例转交（开新标签页）。
 //! `/shellmenu=on|off` 写设置并注册/注销后退出。
 //!
+//! 子系统（[`console`]）：Windows 上本程序是 GUI 子系统，双击不弹控制台。命令行用法走
+//! 同目录的控制台启动器 `matcha.com`（`PATHEXT` 让 `matcha …` 优先解析到 `.com`），它设置
+//! 等待标记并等本进程结束，本进程据此附着到它的控制台输出文本、以退出码结束。
+//!
 //! ```text
 //! matcha [<switches>] [<left> <right>] [--bench[=<frames>]] [--snapshot=<scene>] ...
 //! ```
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+mod console;
 mod routing;
 
 use bc_gui::remote::{Outcome, RemoteOpen, RemoteSender};
 use bc_instance::{Reply, Request, Responder, Role, WAIT_ENV};
 use bc_script::cli::{self, CliArgs};
 use bc_script::ExitCode as Code;
+use console::Kind;
 use routing::Route;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -48,18 +56,23 @@ fn main() -> ExitCode {
     // 读后即删：GUI 再启动的外部程序不应继承。
     let wait = std::env::var_os(WAIT_ENV).is_some();
     std::env::remove_var(WAIT_ENV);
+    let perf_env = bc_gui::perf::enabled() || bc_gui::perf::exit_after_ready();
 
     let (dev, args) = match routing::split_dev_flags(std::env::args().skip(1)) {
         Ok(split) => split,
         Err(message) => {
-            eprintln!("{message}");
+            console::tell(Kind::Error, &message);
             return ExitCode::FAILURE;
         }
     };
+    // 控制台启动器在等（或开发/计时运行要看输出）：诊断与结果都应进终端。
+    if wait || dev.any() || perf_env {
+        console::attach();
+    }
     let cli = match CliArgs::parse(&args) {
         Ok(cli) => cli,
         Err(e) => {
-            eprintln!("{e}\n\n{}", cli::usage());
+            console::tell(Kind::Error, &format!("{e}\n\n{}", cli::usage()));
             return exit(Code::UnknownError);
         }
     };
@@ -75,34 +88,34 @@ fn main() -> ExitCode {
                 match CliArgs::parse(&args) {
                     Ok(cli) => (cli, args),
                     Err(e) => {
-                        eprintln!("{e}");
+                        console::tell(Kind::Error, &e.to_string());
                         return exit(Code::UnknownError);
                     }
                 }
             }
             Ok(None) => return ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("explorer menu: {e}");
+                console::tell(Kind::Error, &format!("explorer menu: {e}"));
                 return exit(Code::UnknownError);
             }
         },
     };
-    let perf_env = bc_gui::perf::enabled() || bc_gui::perf::exit_after_ready();
     let route = routing::route(&dev, &cli, perf_env);
     let pair = routing::comparison_pair(&cli.invocation);
     match route {
         Route::Help => {
-            print!("{}\n{}", cli::usage(), routing::DEV_USAGE);
-            println!("scenes: {}", bc_gui::snapshot::SCENES.join(", "));
+            let scenes = bc_gui::snapshot::SCENES.join(", ");
+            let text = format!("{}\n{}scenes: {scenes}\n", cli::usage(), routing::DEV_USAGE);
+            console::tell(Kind::Info, &text);
             ExitCode::SUCCESS
         }
         Route::Unsupported(message) => {
-            eprintln!("{message}");
+            console::tell(Kind::Error, &message);
             exit(Code::UnknownError)
         }
         Route::Standalone => {
             if dev.bench_dir && !matches!(&pair, Some((l, r)) if l.is_dir() && r.is_dir()) {
-                eprintln!("--bench-dir requires two readable folders");
+                console::tell(Kind::Error, "--bench-dir requires two readable folders");
                 return ExitCode::FAILURE;
             }
             if !dev.any() && !perf_env {
@@ -131,21 +144,22 @@ fn sync_shell_menu() {
 /// `/shellmenu=on|off`：写设置并注册/注销，然后退出。
 fn shell_menu(on: bool) -> ExitCode {
     let Some(mut registry) = bc_shell::system_registry() else {
-        eprintln!("the Explorer context menu is only available on Windows");
+        console::tell(
+            Kind::Error,
+            "the Explorer context menu is only available on Windows",
+        );
         return exit(Code::UnknownError);
     };
     match bc_shell::Shell::from_env()
         .and_then(|shell| bc_shell::set_enabled(&shell, &mut *registry, on))
     {
         Ok(_) => {
-            println!(
-                "Explorer context menu {}",
-                if on { "registered" } else { "removed" }
-            );
+            let what = if on { "registered" } else { "removed" };
+            console::tell(Kind::Info, &format!("Explorer context menu {what}"));
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("explorer menu: {e}");
+            console::tell(Kind::Error, &format!("explorer menu: {e}"));
             exit(Code::UnknownError)
         }
     }
@@ -182,7 +196,7 @@ fn run_gui(
     match bc_gui::run_with_remote(options, remote) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("gui error: {e}");
+            console::tell(Kind::Error, &format!("gui error: {e}"));
             exit(Code::UnknownError)
         }
     }
@@ -236,13 +250,16 @@ fn hand_off(name: &str, args: Vec<String>, wait: bool) -> Option<ExitCode> {
     Some(match client.send(&request) {
         Ok(reply) => {
             if let Some(message) = reply.message {
-                eprintln!("{message}");
+                console::tell(Kind::Error, &message);
             }
             exit_raw(reply.exit_code)
         }
         // 常驻实例在回复前消失：无从得知会话结果。
         Err(e) => {
-            eprintln!("lost the running instance while waiting ({e})");
+            console::tell(
+                Kind::Error,
+                &format!("lost the running instance while waiting ({e})"),
+            );
             exit(Code::LauncherCannotWait)
         }
     })
