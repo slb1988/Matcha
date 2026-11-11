@@ -3,6 +3,7 @@ pub mod fonts;
 pub mod icons;
 pub mod menubar;
 pub mod pathbar;
+pub mod popup;
 pub mod scrollbar;
 pub mod splitter;
 pub mod statusbar;

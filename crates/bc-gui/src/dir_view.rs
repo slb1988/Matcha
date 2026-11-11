@@ -1827,6 +1827,8 @@ pub struct DirCompareView {
     chrome_log_logged: bool,
     log_save_open: bool,
     grid_lines: Option<(usize, Arc<Vec<RowLine>>)>,
+    /// Row the right-click menu was opened on.
+    context_row: Option<usize>,
     /// Status-bar selection totals keyed by snapshot and selection fingerprint.
     selection_totals: Option<(usize, (usize, u64), SelectionTotals)>,
 }
@@ -1929,6 +1931,7 @@ impl DirCompareView {
             chrome_log_logged: false,
             log_save_open: false,
             grid_lines: None,
+            context_row: None,
             selection_totals: None,
         };
         if !sync_mode {
@@ -2394,22 +2397,53 @@ impl DirCompareView {
         for column in Column::OPTIONAL {
             let mut enabled = self.columns.contains(&column);
             if ui.checkbox(&mut enabled, column.label()).changed() {
-                if enabled {
-                    self.columns.push(column);
-                    if matches!(column, Column::Crc | Column::Version) {
-                        self.send(Command::Details {
-                            selection: (!self.selection.items.is_empty())
-                                .then(|| self.selection.clone()),
-                            crc: column == Column::Crc,
-                            version: column == Column::Version,
-                        });
-                    }
-                } else {
-                    self.columns.retain(|c| *c != column);
-                }
+                self.set_column(column, enabled);
             }
         }
-        ui.small("Owner/group/VCS require providers not shipped in this wave.");
+        ui.small(COLUMNS_NOTE);
+    }
+    fn set_column(&mut self, column: Column, enabled: bool) {
+        if enabled {
+            self.columns.push(column);
+            if matches!(column, Column::Crc | Column::Version) {
+                self.send(Command::Details {
+                    selection: (!self.selection.items.is_empty()).then(|| self.selection.clone()),
+                    crc: column == Column::Crc,
+                    version: column == Column::Version,
+                });
+            }
+        } else {
+            self.columns.retain(|c| *c != column);
+        }
+    }
+    /// Header right-click menu: the same column toggles as `columns_menu`.
+    fn column_items(&self) -> Vec<crate::chrome::menubar::MenuItem> {
+        use crate::chrome::menubar::{MenuItem, MenuItemKind};
+        let mut items: Vec<_> = Column::OPTIONAL
+            .iter()
+            .enumerate()
+            .map(|(i, column)| MenuItem {
+                kind: MenuItemKind::Check {
+                    checked: self.columns.contains(column),
+                },
+                ..MenuItem::action(column.label(), format!("column:{i}"))
+            })
+            .collect();
+        items.push(MenuItem {
+            enabled: false,
+            ..MenuItem::action(COLUMNS_NOTE, "")
+        });
+        items
+    }
+    fn column_action(&mut self, action: &str) {
+        if let Some(column) = action
+            .strip_prefix("column:")
+            .and_then(|i| i.parse::<usize>().ok())
+            .and_then(|i| Column::OPTIONAL.get(i).copied())
+        {
+            let enabled = !self.columns.contains(&column);
+            self.set_column(column, enabled);
+        }
     }
     fn action_menu(&mut self, ui: &mut egui::Ui) {
         if ui.button("Open folders in new view").clicked() {
@@ -3074,6 +3108,7 @@ impl DirCompareView {
         let half = (width - center_width) / 2.0;
         let name_width = half - data_width;
         let mut sort = None;
+        let mut column_action = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             for side in 0..2 {
@@ -3087,17 +3122,28 @@ impl DirCompareView {
                 if header.clicked() {
                     sort = Some((Column::Name, side));
                 }
-                header.context_menu(|ui| self.columns_menu(ui));
+                if let Some(action) =
+                    crate::chrome::popup::context_menu(&header, || self.column_items())
+                {
+                    column_action = Some(action);
+                }
                 for column in &columns {
                     let header =
                         ui.add_sized([column.width(), 20.0], egui::Button::new(column.label()));
                     if header.clicked() {
                         sort = Some((*column, side));
                     }
-                    header.context_menu(|ui| self.columns_menu(ui));
+                    if let Some(action) =
+                        crate::chrome::popup::context_menu(&header, || self.column_items())
+                    {
+                        column_action = Some(action);
+                    }
                 }
             }
         });
+        if let Some(action) = column_action {
+            self.column_action(&action);
+        }
         if let Some((column, side)) = sort {
             let reverse = self.sort.0 == column && self.sort.1 == side && !self.sort.2;
             self.sort = (column, side, reverse);
@@ -3288,20 +3334,13 @@ impl DirCompareView {
                             ui.input(|i| i.modifiers),
                         ));
                     }
-                    response.context_menu(|ui| {
-                        if ui.button("Select row").clicked() {
-                            context_command = Some((index, 0));
-                            ui.close();
-                        }
-                        if ui.button("Open file pair").clicked() {
-                            context_command = Some((index, 1));
-                            ui.close();
-                        }
-                        if row.directory && ui.button("Expand / collapse").clicked() {
-                            context_command = Some((index, 2));
-                            ui.close();
-                        }
-                    });
+                    let directory = row.directory;
+                    if let Some(kind) =
+                        crate::chrome::popup::context_menu(&response, || row_menu(directory))
+                            .and_then(|a| row_command(&a))
+                    {
+                        context_command = Some((index, kind));
+                    }
                 }
             });
         self.scroll_y = result.state.clamped_offset().y;
@@ -3541,6 +3580,28 @@ fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui
 }
 
 /// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
+const COLUMNS_NOTE: &str = "Owner/group/VCS require providers not shipped in this wave.";
+/// Row right-click menu (same entries as before the re-skin).
+fn row_menu(directory: bool) -> Vec<crate::chrome::menubar::MenuItem> {
+    use crate::chrome::menubar::MenuItem;
+    let mut items = vec![
+        MenuItem::action("Select row", "row:select"),
+        MenuItem::action("Open file pair", "row:open"),
+    ];
+    if directory {
+        items.push(MenuItem::action("Expand / collapse", "row:expand"));
+    }
+    items
+}
+/// Row menu action -> the view's context command kind.
+fn row_command(action: &str) -> Option<usize> {
+    match action {
+        "row:select" => Some(0),
+        "row:open" => Some(1),
+        "row:expand" => Some(2),
+        _ => None,
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SelectionTotals {
     /// Per side: selected files and their bytes.
@@ -5545,27 +5606,23 @@ impl DirCompareView {
             }
         }
         let mut context_command = None;
-        response.context_menu(|ui| {
-            if let Some(pos) = response.interact_pointer_pos() {
+        // The row under the pointer when the menu opened.
+        if response.secondary_clicked() {
+            self.context_row = response.interact_pointer_pos().and_then(|pos| {
                 let index =
                     ((pos.y - rows_area.top() + self.scroll_y) / CHROME_ROW).floor() as usize;
-                if index < total {
-                    if ui.button("Select row").clicked() {
-                        context_command = Some((index, 0));
-                        ui.close();
-                    }
-                    if ui.button("Open file pair").clicked() {
-                        context_command = Some((index, 1));
-                        ui.close();
-                    }
-                    let is_dir = self.snapshot.rows[index].directory;
-                    if is_dir && ui.button("Expand / collapse").clicked() {
-                        context_command = Some((index, 2));
-                        ui.close();
-                    }
-                }
+                (index < total).then_some(index)
+            });
+        }
+        if let Some(index) = self.context_row.filter(|i| *i < total) {
+            let directory = self.snapshot.rows[index].directory;
+            if let Some(kind) =
+                crate::chrome::popup::context_menu(&response, || row_menu(directory))
+                    .and_then(|a| row_command(&a))
+            {
+                context_command = Some((index, kind));
             }
-        });
+        }
         if let Some((index, side, double, modifiers)) = click {
             self.clicked(index, side, double, modifiers);
         }
@@ -6004,6 +6061,58 @@ mod tests {
             });
         })
         .drop_without_applying_deltas();
+    }
+    #[test]
+    fn row_context_menu_uses_the_classic_popup_and_keeps_commands() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        frame(&mut view, &ctx);
+        let press = |pos, button, pressed| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let pos = egui::pos2(300.0, 200.0);
+        frame_with(
+            &mut view,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                press(pos, egui::PointerButton::Secondary, true),
+                press(pos, egui::PointerButton::Secondary, false),
+            ],
+        );
+        let index = view
+            .context_row
+            .expect("right-click picks the row under the pointer");
+        view.selection.items.clear();
+        // egui lays a new popup area out once before it takes input.
+        frame(&mut view, &ctx);
+        // First item "Select row": popup border at the pointer, 1 px pad.
+        let item = pos + egui::vec2(40.0, 2.0 + 10.0);
+        frame_with(
+            &mut view,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(item),
+                press(item, egui::PointerButton::Primary, true),
+                press(item, egui::PointerButton::Primary, false),
+            ],
+        );
+        let row = &view.snapshot.rows[index];
+        let expected = row
+            .sides
+            .iter()
+            .enumerate()
+            .filter_map(|(s, item)| item.as_ref().map(|i| (i.node, s)))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(view.selection.items, expected);
+        assert_eq!(row_menu(false).len(), 2);
+        assert_eq!(row_menu(true).len(), 3);
+        assert_eq!(row_command("row:expand"), Some(2));
     }
     #[test]
     fn wheel_scroll_tracks_input_immediately() {

@@ -70,6 +70,20 @@ fn open(state: &mut MenuState, menus: &[MenuSpec], index: usize) {
     state.open = Some(index);
     state.path = vec![first(&menus[index].items)];
 }
+/// Mouse-opened menus start with no highlighted item (reference behavior);
+/// keyboard-opened ones highlight the first selectable item.
+fn open_by_mouse(state: &mut MenuState, index: usize) {
+    state.open = Some(index);
+    state.path = vec![super::popup::NONE];
+}
+fn request_id() -> egui::Id {
+    egui::Id::unique("classic-menubar-open-request")
+}
+/// Open the menu titled `title` on the next `show` as if clicked
+/// (deterministic snapshots of an open dropdown).
+pub fn request_open(ctx: &egui::Context, title: &str) {
+    ctx.data_mut(|d| d.insert_temp(request_id(), title.to_string()));
+}
 fn activate(state: &mut MenuState, menus: &[MenuSpec]) -> Option<ActionId> {
     let depth = state.path.len().checked_sub(1)?;
     let item = items_at(menus, state, depth).get(state.path[depth])?;
@@ -131,7 +145,11 @@ fn keyboard(ctx: &egui::Context, menus: &[MenuSpec], state: &mut MenuState) -> O
     let down = ctx.input(|i| i.key_pressed(Key::ArrowDown));
     let up = ctx.input(|i| i.key_pressed(Key::ArrowUp));
     if down || up {
-        let current = state.path[depth].min(items.len() - 1);
+        let current = match state.path[depth] {
+            super::popup::NONE if down => items.len() - 1,
+            super::popup::NONE => 0,
+            current => current.min(items.len() - 1),
+        };
         for step in 1..=items.len() {
             let next = if down {
                 (current + step) % items.len()
@@ -167,8 +185,9 @@ fn keyboard(ctx: &egui::Context, menus: &[MenuSpec], state: &mut MenuState) -> O
     }
     None
 }
+const OPEN_TITLE: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
 /// 仅在指定助记字符下画线，保留 UTF-8 字符边界。
-fn label_job(
+pub(crate) fn label_job(
     text: &str,
     mnemonic: Option<char>,
     alt: bool,
@@ -203,6 +222,11 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
     let ctx = ui.ctx().clone();
     let id = ui.scope_id().with("classic-menubar");
     let mut state = ctx.data(|d| d.get_temp::<MenuState>(id).unwrap_or_default());
+    if let Some(title) = ctx.data_mut(|d| d.remove_temp::<String>(request_id())) {
+        if let Some(index) = menus.iter().position(|m| m.title == title) {
+            open_by_mouse(&mut state, index);
+        }
+    }
     let mut action = keyboard(&ctx, menus, &mut state);
     let alt = ctx.input(|i| i.modifiers.alt);
     let moved = ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO);
@@ -226,16 +250,26 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
                         if state.open == Some(index) {
                             state.open = None;
                         } else {
-                            open(&mut state, menus, index);
+                            open_by_mouse(&mut state, index);
                         }
                     } else if response.hovered()
                         && moved
                         && state.open.is_some()
                         && state.open != Some(index)
                     {
-                        open(&mut state, menus, index);
+                        open_by_mouse(&mut state, index);
                     }
-                    if response.hovered() || state.open == Some(index) {
+                    if state.open == Some(index) {
+                        // Reference open title: #F9F9F9, rows 2..24, no border.
+                        ui.painter().rect_filled(
+                            Rect::from_min_max(
+                                rect.min + egui::vec2(0.0, 2.0),
+                                egui::pos2(rect.right(), rect.top() + 25.0),
+                            ),
+                            0.0,
+                            OPEN_TITLE,
+                        );
+                    } else if response.hovered() {
                         ui.painter()
                             .rect_filled(rect, 0.0, super::theme::HOVER_BLUE);
                         ui.painter().rect_stroke(
@@ -257,141 +291,21 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
         .rect;
     let mut popup_rects = Vec::new();
     if let Some(index) = state.open.filter(|i| *i < anchors.len()) {
-        let mut position = anchors[index].left_bottom();
-        let mut depth = 0;
-        while depth < state.path.len() && state.open.is_some() {
-            let items = items_at(menus, &state, depth).to_vec();
-            let mut child_anchor = None;
-            let popup = egui::Area::new(id.with(("popup", depth)))
-                .order(egui::Order::Foreground)
-                .fixed_pos(position)
-                .movable(false)
-                .show(&ctx, |ui| {
-                    egui::Frame::popup(ui.style())
-                        .fill(Color32::WHITE)
-                        .stroke(Stroke::new(1.0, super::theme::BORDER))
-                        .corner_radius(0)
-                        .show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            let width = items
-                                .iter()
-                                .map(|item| {
-                                    let label = ui
-                                        .painter()
-                                        .layout_no_wrap(
-                                            item.label.replace('&', ""),
-                                            FontId::proportional(12.0),
-                                            Color32::BLACK,
-                                        )
-                                        .size()
-                                        .x;
-                                    let shortcut = ui
-                                        .painter()
-                                        .layout_no_wrap(
-                                            item.shortcut.clone().unwrap_or_default(),
-                                            FontId::proportional(12.0),
-                                            Color32::BLACK,
-                                        )
-                                        .size()
-                                        .x;
-                                    label + shortcut + 76.0
-                                })
-                                .fold(220.0, f32::max);
-                            for (row, item) in items.iter().enumerate() {
-                                if matches!(item.kind, MenuItemKind::Separator) {
-                                    let (rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(width, 7.0),
-                                        Sense::hover(),
-                                    );
-                                    ui.painter().line_segment(
-                                        [
-                                            rect.left_center() + egui::vec2(24.0, 0.0),
-                                            rect.right_center(),
-                                        ],
-                                        Stroke::new(1.0, super::theme::BORDER),
-                                    );
-                                    continue;
-                                }
-                                let (rect, response) =
-                                    ui.allocate_exact_size(egui::vec2(width, 22.0), Sense::click());
-                                if item.selectable()
-                                    && response.hovered()
-                                    && (moved || response.clicked())
-                                {
-                                    if state.path[depth] != row {
-                                        state.path.truncate(depth + 1);
-                                    }
-                                    state.path[depth] = row;
-                                    if let MenuItemKind::Submenu(children) = &item.kind {
-                                        if state.path.len() == depth + 1 {
-                                            state.path.push(first(children));
-                                        }
-                                    }
-                                }
-                                if state.path[depth] == row {
-                                    if item.selectable() {
-                                        ui.painter().rect_filled(
-                                            rect,
-                                            0.0,
-                                            super::theme::HOVER_BLUE,
-                                        );
-                                    }
-                                    child_anchor = Some(rect.right_top());
-                                }
-                                let color = if item.enabled {
-                                    Color32::BLACK
-                                } else {
-                                    Color32::GRAY
-                                };
-                                let galley = ui.fonts_mut(|f| {
-                                    f.layout_job(label_job(&item.label, item.mnemonic, alt, color))
-                                });
-                                ui.painter().galley(
-                                    rect.left_center() + egui::vec2(26.0, -galley.size().y / 2.0),
-                                    galley,
-                                    color,
-                                );
-                                let marker = match item.kind {
-                                    MenuItemKind::Check { checked: true } => "✓",
-                                    MenuItemKind::Radio { selected: true } => "●",
-                                    _ => "",
-                                };
-                                ui.painter().text(
-                                    rect.left_center() + egui::vec2(12.0, 0.0),
-                                    egui::Align2::CENTER_CENTER,
-                                    marker,
-                                    FontId::proportional(12.0),
-                                    color,
-                                );
-                                let right = if matches!(item.kind, MenuItemKind::Submenu(_)) {
-                                    "▸"
-                                } else {
-                                    item.shortcut.as_deref().unwrap_or_default()
-                                };
-                                ui.painter().text(
-                                    rect.right_center() - egui::vec2(10.0, 0.0),
-                                    egui::Align2::RIGHT_CENTER,
-                                    right,
-                                    FontId::proportional(12.0),
-                                    color,
-                                );
-                                if response.clicked()
-                                    && item.selectable()
-                                    && !matches!(item.kind, MenuItemKind::Submenu(_))
-                                {
-                                    action = Some(item.action_id.clone());
-                                    state.open = None;
-                                }
-                            }
-                        });
-                });
-            popup_rects.push(popup.response.rect);
-            if let Some(anchor) = child_anchor {
-                position = anchor;
-            } else {
-                break;
-            }
-            depth += 1;
+        // Reference: the dropdown's border starts 25 px below the bar top,
+        // left-aligned with its title.
+        let position = egui::pos2(anchors[index].left(), bar.top() + 25.0);
+        let (clicked, rects) = super::popup::cascade(
+            &ctx,
+            id,
+            position,
+            &menus[index].items,
+            &mut state.path,
+            alt,
+        );
+        popup_rects = rects;
+        if clicked.is_some() {
+            action = clicked;
+            state.open = None;
         }
     }
     if ctx.input(|i| {
@@ -500,6 +414,9 @@ mod tests {
             ..Default::default()
         };
         frame(&ctx, click(egui::pos2(15.0, 12.0)));
+        // A mouse-opened menu highlights nothing: Enter is inert until ↓.
+        assert_eq!(frame(&ctx, key(Key::Enter, false)).0, None);
+        frame(&ctx, key(Key::ArrowDown, false));
         assert_eq!(
             frame(&ctx, key(Key::Enter, false)).0.as_deref(),
             Some("open")
