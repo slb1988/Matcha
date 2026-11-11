@@ -5,7 +5,7 @@
 //!
 //! | module | BC classes |
 //! |---|---|
-//! | [`hex`] | `THexContent`, `THexMap`, `THexMapAlign`, `THexMapByteAlign` (`TBcByteAlign`), `THexRules`, `THexCompareSession`, `THexFiltered` |
+//! | [`hex`] | `THexContent`, `THexMap`, `THexMapAlign`, `THexMapByteAlign`, `THexRules`, `THexCompareSession`, `THexFiltered` — 全部经 REA 符号表/RTTI 证实（macOS 5.0.4.30422 arm64，2026-11-11）；`TBcByteAlign` 为 BCALIGN 单元的独立字节级 differ，Complete 档 <5000 字节区间细化调用之 |
 //! | [`pix`] | `TPixContent` (`TTagContent`), `TPixMapTree`, `TPixRules`, `TPixReplacementItem/List`, `TPixColors`, `TPixProcessorThread` |
 //! | [`ver`] | `TVerContent`, `TVerMapTree`, `TVerRules`, `TVerCompareSession`, `TVfsGetExeVersionJob` |
 //! | [`reg`] | `TRegSession`, `TRegCompareSession`, `TRegRules`, `TRegMapTree`, `TRegistry`, `TRegGroup(s)` |
@@ -66,12 +66,17 @@ pub mod hex {
         pub align_bytes: bool,
         pub bytes_per_line: u16,
         /// Skew tolerance for `THexMapByteAlign`.
+        ///
+        /// REA 证据（`THEXMAPALIGN.RUN` 反汇编）：Complete 档 mismatch 区间两侧均 < 5000 字节时走
+        /// `TBcByteAlign` 字节级 diff，否则走 `RUNRANGE` 锚点重同步（skew 硬编码 = 10）；
+        /// Fast 档区间不细化，直接逐位对齐。设计 D6 将区间上限归入本规则集。
         pub skew_tolerance: usize,
     }
 
     impl Default for HexRules {
         fn default() -> Self {
-            Self { align_bytes: true, bytes_per_line: 16, skew_tolerance: 256 }
+            // skew=10 为 BC 硬编码实测值（RUNRANGE 第 5 参数）
+            Self { align_bytes: true, bytes_per_line: 16, skew_tolerance: 10 }
         }
     }
 

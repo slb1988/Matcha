@@ -11,7 +11,7 @@
 
 边界声明：
 
-- REA 对 `BCompare.exe` 的静态符号核对（THex* 类名与对齐例程）在采集时仍在分析中，未纳入本清单；`crates/bc-engine-bin` 骨架注释中的 BC 类名映射沿用既有结论。
+- REA 静态核对已完成（macOS 版 5.0.4.30422 arm64 切片，符号表 + RTTI + 反汇编；该版为 Lazarus/FPC 构建，未裁剪符号），结论见文末「后续补充项」。Windows PE 侧分析因超时未完成，由 macOS 证据替代；两侧为同一代码库，类名与算法常量一致。
 - 首次采集中一个实例因按键误投产生过内存态字节污染（0x410 处渲染异常），该实例其余截图仅保留已逐字节核对过的可视区域（`01-main.png`，0x000–0x220 区间与生成器一致）。后续采集均在干净实例上完成。
 - 截图仅作内部工程证据（私有仓库）；不把参考工具图标/位图描摹进产品。
 
@@ -114,5 +114,20 @@
 
 ## 后续补充项
 
-- REA 静态分析完成后：核对 `THexCompareSession`/`THexMap`/`THexMapByteAlign` 类名与 Fast/Complete 对齐例程边界，回填本清单与 `bc-engine-bin` 注释。
+### REA 静态核对结论（2026-11-11，macOS 5.0.4.30422 arm64，`BCompare` 切片 SHA-256 `a1bad5f7…`）
+
+分析工件在 `tmp/hex-ref-mac/`（未提交脚手架，随机器临时目录；结论已全部落在本文档）。
+
+1. **类名映射全部证实**（FPC mangled 符号 + RTTI）：`THexContent`（HEXCONTENT 单元）、`THexMap`、`THexMapAlign`、`THexMapByteAlign`（HEXMAP 单元）、`THexRules`（HEXRULES 单元，`SetAlignKind(THexAlignKind)`）、`THexCompareSession`、`THexFiltered`。注意 `THexMapByteAlign` 与 `TBcByteAlign`（BCALIGN 单元）是**两个并存类**：Complete 的小区间字节级细化实际调用 `TBcByteAlign.Run(job, [左段, 右段])`。另有完整辅助生态可对名：`THexSideBySideLayouter`/`THexSummaryLayouter`/`THexInterleavedLayouter`（正好对应报告三布局）、`THexActions`/`THexCompareActions`/`THexCompareCommands`、`THexFind*`、`THexMap*Item` 编辑操作族、`THexSession*`/`THexView*`。
+2. **对齐策略枚举与算法边界**（反汇编 `THEXMAPALIGN.RUN` 及其嵌套例程证实）：
+   - `THexAlignKind = (alignNone=0, alignFast=1, alignComplete=2)`（RTTI o2s 表逐字证实）；None → 全文件 `RUNNONE` 逐位；Fast/Complete 共享同一锚块主干（64 KB 分块读取；**50 字节锚窗**，Rabin 滚动哈希 base 257、mod 2¹⁶——`EXPMOD(257,50)` 逐指令验证；EOF 侧 50 字节余量；mismatch 前先输出公共前缀 same 段）。
+   - **Complete**（默认）：mismatch 区间两侧均 **< 5000 字节** → `TBcByteAlign` 字节级 diff；任一侧 ≥ 5000 → `RUNRANGE` 锚点重同步（递归二分 + `SEQFIND` 顺序搜索，**skew = 10**，第 5 参数立即数证实）。
+   - **Fast**：mismatch 区间不做字节级细化，直接 `RUNNONE` 逐位对齐（即锚块之间按位置对应）。
+   - skew 值 10 为硬编码、UI 不暴露；设计 D6「skew_tolerance 归入 Complete 区间上限参数」维持不变，校准值以此为准（5000 为字节级细化上限、10 为大区间重同步 skew）。
+3. **View 菜单两个子菜单完整项集合**（macOS 5.0.4 运行时 AX 枚举，zh-CN 界面；与截图 `13-menu-view.png` 互证）：
+   - `Little Endian Values` / `Big Endian Values` 各 5 项：`1 字节`（负值时带括号有符号表示，如 `165 (或 -91)`）、`2 字节`、`4 字节`、`浮点单精度`、`浮点双精度`；数值随当前光标位置实时计算填入标签。
+   - `字节地址 = 00000000`（Current Byte Address）为动态标签菜单项，显示当前字节地址。
+   - View 菜单全序：显示全部/显示差异/显示相同 ｜ 字节地址=xxx ｜ 小尾值 ▸ ｜ 大端字节序值 ▸ ｜ ─ ｜ 字节地址 ｜ 布局... ｜ ─ ｜ 边并排布局 / 上-下布局 / 缩略图 / 文件信息 / 工具栏。
+4. **`hex-report` 脚本 token 集**（字符串表证实）：`layout:side-by-side|summary|interleaved`；`options:display-all|display-matches|display-mismatches|display-mismatches-no-orphans|line-numbers`（`display-mismatches-no-orphans` 为 CHM 未载、二进制实有多出的选项）；报告对话框控件集与之一一对应（布局三选、选项下拉、包含字节地址、报告标题、输出=打印机/HTML/纯文本、加亮差异=使用颜色、折行=无/词组/字符，纯文本默认折行字符）。**输出文本样例未采集**：本机 BC 为 Standard 版（`IsPro=0`），`@script` 被禁（exit 107），GUI 报告采集因用户占用机器中止；不影响 tasks 3.2——黄金期望本就约定在 Windows Pro 实例用脚本生成。
+
 - `shot_hexcompare.png`（CHM 官方截图）与上述运行时截图行为一致，可作为交叉佐证。
