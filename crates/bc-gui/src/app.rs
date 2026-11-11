@@ -325,7 +325,11 @@ impl eframe::App for MatchaApp {
             if ready && !self.snapshot_preset_applied {
                 match &mut self.view {
                     View::TextCompare(v) => {
-                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                        let scene = self.snapshot.as_deref().unwrap_or_default();
+                        v.snapshot_preset(scene);
+                        if scene == "text-menu-edit" {
+                            crate::chrome::menubar::request_open(&ctx, "Edit");
+                        }
                     }
                     View::TableCompare(v) => v.scroll_to_row(0),
                     View::FolderCompare(v) => {

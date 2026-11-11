@@ -26,6 +26,7 @@ pub const SCENES: &[&str] = &[
     "folder-diffs-filter",
     "text-long-scrolled",
     "home",
+    "text-menu-edit",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -57,7 +58,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 10] = [
+pub const REGISTRY: [Scene; 11] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -108,6 +109,12 @@ pub const REGISTRY: [Scene; 10] = [
         name: "home",
         view: SceneView::Home,
         preset: Preset::None,
+    },
+    // Reference: "open top-level edit menu" (mouse-opened, nothing highlighted).
+    Scene {
+        name: "text-menu-edit",
+        view: SceneView::Text,
+        preset: Preset::FirstRow,
     },
 ];
 pub fn is_scene(scene: Option<&str>) -> bool {
