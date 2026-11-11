@@ -1,0 +1,4 @@
+diff -r D:\Github\Matcha\target\golden-work\110-delete-two-after-first\left.txt D:\Github\Matcha\target\golden-work\110-delete-two-after-first\right.txt
+2,3d0
+< old1
+< old2

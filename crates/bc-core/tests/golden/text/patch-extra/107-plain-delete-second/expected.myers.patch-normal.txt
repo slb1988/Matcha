@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\107-plain-delete-second\left.txt D:\Github\Matcha\target\golden-work\107-plain-delete-second\right.txt
+2d0
+< old

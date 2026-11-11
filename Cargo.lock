@@ -230,8 +230,10 @@ dependencies = [
  "bc-engine-dir",
  "bc-engine-table",
  "bc-engine-text",
+ "bc-formats",
  "bc-jobs",
  "bc-session",
+ "quick-xml 0.41.0",
 ]
 
 [[package]]

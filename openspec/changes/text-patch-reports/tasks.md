@@ -10,13 +10,13 @@
 
 ## 2. 报告模型与 patch 渲染（bc-report）
 
-- [ ] 2.1 `ReportRequest` 增加 `comparison: Option<Comparison>`（`Files`/`Session`），`Output` 增加 `Stdout`；移除 crate 级 `allow(unused_variables)` 中已不再需要的部分；验证单测：`Layout::parse` 的弃用别名、`Output`/`Comparison` 构造与相等性
-- [ ] 2.2 实现差异块提取：从 `TextMap` 行序列得到编辑段，`ignore_unimportant` 时把不重要行当作相同，按 1.3 确定的上下文行数合并为块；验证单测：插入/删除/改动/首尾差异/相邻块合并/全同/仅不重要差异（开与关）
-- [ ] 2.3 实现 normal / context / unified 三个格式器（文件头、块头、行前缀、无末尾换行、换行符集中在一处），接入 `TextReportRenderer::render`（非 `patch` 布局返回 `UnsupportedLayout`）；验证单测用手写小例逐字节断言三种格式
-- [ ] 2.4 实现报告编码（按 1.3 的规则把渲染文本编码为字节）；验证单测覆盖 ASCII、非 ASCII UTF-8、UTF-16 输入三类样本的字节一致
-- [ ] 2.5 新增黄金回归测试：用与 XML 黄金测试相同的规则模板构造 `TextMap`，渲染 30 × 2 × 3 份并与入库样本比对（只归一化头部时间戳与 `target/golden-work` 路径前缀），`KNOWN_DIFFS` 登记项按登记断言；验证 `cargo test -p bc-report` 全部通过且样本缺失时报错而非跳过
-- [ ] 2.6 实现 `deliver`：文件目标写同目录临时文件后重命名覆盖、失败删除临时文件；标准输出目标写入调用方提供的写出器并 flush，`BrokenPipe` 作为写出失败返回；`printer`/`clipboard` 返回不支持；验证单测：覆盖已有文件、目录不存在时无残留、标准输出字节与文件字节相同、BrokenPipe 不 panic
-- [ ] 2.7 更新 `crates/bc-report/README.md`：patch 布局、`Output::Stdout`、本阶段不支持项；验证 README 与 `report-output`/`text-reports` 规格的范围一致
+- [x] 2.1 `ReportRequest` 增加 `comparison: Option<Comparison>`（`Files`/`Session`），`Output` 增加 `Stdout`；移除 crate 级 `allow(unused_variables)` 中已不再需要的部分；验证单测：`Layout::parse` 的弃用别名、`Output`/`Comparison` 构造与相等性
+- [x] 2.2 实现差异块提取：从 `TextMap` 行序列得到编辑段，`ignore_unimportant` 时把不重要行当作相同，按 1.3 确定的上下文行数合并为块；验证单测：插入/删除/改动/首尾差异/相邻块合并/全同/仅不重要差异（开与关）
+- [x] 2.3 实现 normal / context / unified 三个格式器（文件头、块头、行前缀、无末尾换行、换行符集中在一处），接入 `TextReportRenderer::render`（非 `patch` 布局返回 `UnsupportedLayout`）；验证单测用手写小例逐字节断言三种格式
+- [x] 2.4 实现报告编码（按 1.3 的规则把渲染文本编码为字节）；验证单测覆盖 ASCII、非 ASCII UTF-8、UTF-16 输入三类样本的字节一致
+- [x] 2.5 新增黄金回归测试：用与 XML 黄金测试相同的规则模板构造 `TextMap`，渲染 30 × 2 × 3 份并与入库样本比对（只归一化头部时间戳与 `target/golden-work` 路径前缀），`KNOWN_DIFFS` 登记项按登记断言；验证 `cargo test -p bc-report` 全部通过且样本缺失时报错而非跳过
+- [x] 2.6 实现 `deliver`：文件目标写同目录临时文件后重命名覆盖、失败删除临时文件；标准输出目标写入调用方提供的写出器并 flush，`BrokenPipe` 作为写出失败返回；`printer`/`clipboard` 返回不支持；验证单测：覆盖已有文件、目录不存在时无残留、标准输出字节与文件字节相同、BrokenPipe 不 panic
+- [x] 2.7 更新 `crates/bc-report/README.md`：patch 布局、`Output::Stdout`、本阶段不支持项；验证 README 与 `report-output`/`text-reports` 规格的范围一致
 
 ## 3. 脚本解析（bc-script）
 

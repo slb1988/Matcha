@@ -1,0 +1,4 @@
+int w;
+int x;
+// old comment
+int y;

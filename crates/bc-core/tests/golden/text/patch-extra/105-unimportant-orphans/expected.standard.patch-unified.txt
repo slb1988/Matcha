@@ -1,0 +1,21 @@
+--- D:\Github\Matcha\target\golden-work\105-unimportant-orphans\left.cpp	2026-11-11 15:54:39.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\105-unimportant-orphans\right.cpp	2026-11-11 15:54:39.000000000 +0800
+@@ -1,17 +1,16 @@
+ int a;
+ int b;
+ int c;
+-// old comment
+ int d;
+ int e;
+ int f;
+ int g;
+ int h;
++// new comment
+ int i;
+ int j;
+ int k;
+ int l;
+-int m;
+ int n;
+ int o;
+ int p;

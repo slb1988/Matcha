@@ -99,7 +99,7 @@ cargo test -p bc-engine-text --test golden_importance -- --nocapture
 ./tools/golden/gen_patch_expected.ps1 -CorpusRoot crates/bc-core/tests/golden/text/patch-extra -ReferenceExe '<…>' -WorkerId '<…>'
 ```
 
-语料：`text/2way` 30 例 × 2 套规则 × 3 种格式 = 180 份，另加 `005` 的 `title:` 样本与 `013/016/017/018/019/030` 的 `ignore-unimportant` 样本（`expected.<profile>.patch-unified.ignore-unimportant.txt`）共 13 份；`text/patch-extra/101–104` 是只为 patch 设计的多差异块探针（不进入 30 例 XML 回归，避免改变其“恰好 30 例”断言），各 6 份。2026-11-11 采集，参考进程退出码均为 0，每次运行后设置按字节恢复校验通过。
+语料：`text/2way` 30 例 × 2 套规则 × 3 种格式 = 180 份，另加 `005` 的 `title:` 样本与 `013/014/016/017/018/019/030` 的 `ignore-unimportant` 样本（`expected.<profile>.patch-unified.ignore-unimportant.txt`）共 15 份；`text/patch-extra/101–110` 是只为 patch 设计的探针（不进入 30 例 XML 回归，避免改变其“恰好 30 例”断言），各 6 份：101–104 定位差异块的上下文与合并规则，105–110 定位 normal 格式的空范围写法。2026-11-11 采集，参考进程退出码均为 0，每次运行后设置按字节恢复校验通过。
 
 由样本归纳的格式（每条后括号为证据样本，路径相对 `crates/bc-core/tests/golden/text/`）：
 
@@ -114,8 +114,8 @@ cargo test -p bc-engine-text --test golden_importance -- --nocapture
 - **文件末尾**：末个差异之后剩余不变行 ≤ 12 时，该块一直延伸到文件末尾；≥ 13 时只带 6 行（`patch-extra/102…` 剩 12 行 → 块至第 70 行；`patch-extra/104-hunk-tail/…` 剩 13 行 → 只到 27+6=33）。文件开头没有对应规则（`patch-extra/103…` 首个差异前 10 行，块仍从第 5 行开始）。
 - **unified 块头**：`@@ -<起>,<行数> +<起>,<行数> @@`，行数为 1 时省略 `,1`（`2way/013-comment-change/…`：`@@ -1 +1 @@`），空范围写 `<起>,0` 且起始为前一行（`2way/003-empty-left/…`：`@@ -0,0 +1,2 @@`）；块内先列全部 `-` 行再列 `+` 行（`2way/012-unrelated-replacement/…`），行前缀为 ` `/`-`/`+` 后直接接正文。
 - **context 块**：每块以 `***************` 开头，`*** <范围> ****` 与 `--- <范围> ----` 两段；范围为 `起,止`，单行只写一个数，空范围写 `0`（`2way/003…`：`*** 0 ****`）；行前缀 `  `、`- `、`+ `、`! `（两个字符）；某一侧只有上下文时该侧只写范围行、不列内容（`2way/005…` 左侧、`2way/006-delete-middle-three/…` 右侧）；同一差异段两侧都有行时两侧都用 `! `（`2way/012…`、`2way/013…`）。
-- **normal 块**：`<左范围><a|c|d><右范围>`，范围为 `起,止` 或单行一个数，`a` 的左范围与 `d` 的右范围写前一行号（`2way/003…`：`0a1,2`；`2way/004-empty-right/…`：`1,2d0`）；左行 `< `、右行 `> `，`c` 块两侧之间一行 `---`（`2way/012…`）；不带上下文，每个差异段各成一块（`patch-extra/102…`）。
-- **不重要差异**：默认按普通差异输出（`2way/013…patch-normal.txt`）；`ignore-unimportant` 时仅含不重要差异的段不输出，结果只剩文件头（`2way/013、016、017、018、019、030 …patch-unified.ignore-unimportant.txt`）。
+- **normal 块**：`<左范围><a|c|d><右范围>`，范围为 `起,止` 或单行一个数，`a` 的左范围与 `d` 的右范围写前一行号（`2way/003…`：`0a1,2`；`2way/004-empty-right/…`：`1,2d0`；`2way/006…`：`3,5d2`；`patch-extra/108…`：`3d2`）。**例外**：前一行号恰为 1 时写 `0`，与 GNU 不同，且与重要性无关（`2way/014…`、`patch-extra/106…`：`2d0`；`patch-extra/107-plain-delete-second/…`：普通文本的重要删除也是 `2d0`；`patch-extra/109-insert-after-first/…`：`0a2`；`patch-extra/110…`：`2,3d0`）；context/unified 的空范围只在整侧为空时出现，不受影响；左行 `< `、右行 `> `，`c` 块两侧之间一行 `---`（`2way/012…`）；不带上下文，每个差异段各成一块（`patch-extra/102…`）。
+- **不重要差异**：默认按普通差异输出（`2way/013…patch-normal.txt`）；`ignore-unimportant` 时仅含不重要差异的段不输出，结果只剩文件头（`2way/013、016、017、018、019、030 …patch-unified.ignore-unimportant.txt`）；只在一侧存在的不重要行（整行注释被删除）同样不输出（`2way/014-comment-deletion/…ignore-unimportant.txt`）。被忽略的单侧行落在其他差异块的上下文范围内时如何显示**未采样**。
 - **`title:`**：不出现在纯文本 patch 中，输出与不带标题时逐字节相同（`2way/005…/expected.myers.patch-unified.title.txt` 对比 `expected.myers.patch-unified.txt`，仅时间戳相同）。
 - **两套规则**：去掉文件头时间戳后，`2way` 全部 30 例与 `patch-extra` 4 例的 myers/standard 输出逐字节相同（含 XML 中唯一对齐差异用例 `2way/012…`：参考在两套规则下都按“改动”输出）。
 

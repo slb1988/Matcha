@@ -14,3 +14,7 @@ bc-engine-dir = { workspace = true }
 bc-engine-table = { workspace = true }
 bc-engine-bin = { workspace = true }
 bc-jobs = { workspace = true }
+
+[dev-dependencies]
+bc-formats = { workspace = true }
+quick-xml = { workspace = true }

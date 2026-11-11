@@ -33,7 +33,7 @@ if(!$CorpusRoot){$CorpusRoot=Join-Path $scriptRoot '../../crates/bc-core/tests/g
 $PatchExtras=@{
     '005-insert-middle-three'=@(@{Mode='myers';Suffix='patch-unified.title';Options='patch-unified';Title='Matcha Golden Title'})
 }
-foreach($name in @('013-comment-change','016-indent-ignored','017-embedded-whitespace','018-trailing-whitespace','019-case-ignored','030-multiline-comment')){
+foreach($name in @('013-comment-change','014-comment-deletion','016-indent-ignored','017-embedded-whitespace','018-trailing-whitespace','019-case-ignored','030-multiline-comment')){
     $PatchExtras[$name]=@(foreach($mode in @('myers','standard')){@{Mode=$mode;Suffix='patch-unified.ignore-unimportant';Options='patch-unified,ignore-unimportant';Title=''}})
 }
 # Every report one case produces: target leaf name + the text-report line that writes it.
