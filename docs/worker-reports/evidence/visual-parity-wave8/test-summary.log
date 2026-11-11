@@ -1,0 +1,150 @@
+     Running unittests src\lib.rs (target\debug\deps\bc_core-83bf4853ee6fbbc9.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\align.rs (target\debug\deps\align-77e0b268b70cb4c9.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests\baseline.rs (target\debug\deps\baseline-8151549801ec72fb.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\diff.rs (target\debug\deps\diff-71518bc294a817a8.exe)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running tests\edit.rs (target\debug\deps\edit-b4c12968b2f3a56e.exe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\encoding.rs (target\debug\deps\encoding-e08332744ebe54ad.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\golden_align.rs (target\debug\deps\golden_align-08ebba4722174f87.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests\hash.rs (target\debug\deps\hash-16d113bf2b16f36e.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\line.rs (target\debug\deps\line-ab6b6fbee3c0ca69.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\line_edit.rs (target\debug\deps\line_edit-7c0b10e1556cf0b5.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\mmap.rs (target\debug\deps\mmap-5898e6900265672a.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\pattern.rs (target\debug\deps\pattern-c9be99a170d873e7.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\persist.rs (target\debug\deps\persist-7ba9a31e616cf0c0.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\smart_align.rs (target\debug\deps\smart_align-b8a76010bcad76c1.exe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_engine_bin-330ebd2b42d8c71a.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_engine_dir-dca06aa5fddddf53.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\content.rs (target\debug\deps\content-510789ca87f26f37.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+     Running tests\filters.rs (target\debug\deps\filters-20a365fc02412705.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests\golden_dir.rs (target\debug\deps\golden_dir-d8c1a72951c5c4cd.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+     Running tests\op_script.rs (target\debug\deps\op_script-9b63232d969bf56c.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\operations.rs (target\debug\deps\operations-5f802d9410313381.exe)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.21s
+     Running tests\sync.rs (target\debug\deps\sync-bc1f286342895d7f.exe)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests\tree_criteria.rs (target\debug\deps\tree_criteria-9cf898e0477e6eed.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\view_integration.rs (target\debug\deps\view_integration-6a19186a0b19d72c.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running unittests src\lib.rs (target\debug\deps\bc_engine_table-aed2d2d1847a3e48.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.93s
+     Running tests\alignment_comparison.rs (target\debug\deps\alignment_comparison-7ec22a49432b28ec.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\batch_copy.rs (target\debug\deps\batch_copy-94e32681c460dccc.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\columns_keys_sheets.rs (target\debug\deps\columns_keys_sheets-0cb7ad7d59fe83c7.exe)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\deferred_editing.rs (target\debug\deps\deferred_editing-788366ee6a87f5e1.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\demand_access.rs (target\debug\deps\demand_access-a7e3caa6c28dc44a.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\edge_cases.rs (target\debug\deps\edge_cases-bcd3d078500fc97b.exe)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests\golden_table.rs (target\debug\deps\golden_table-1cc2acd0e38c68dd.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests\map_jobs_summary.rs (target\debug\deps\map_jobs_summary-104d498485e38ac1.exe)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\mixed_store.rs (target\debug\deps\mixed_store-235e0b39acb9071a.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.15s
+     Running tests\session_history.rs (target\debug\deps\session_history-45797e4fbbe10032.exe)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\sorting.rs (target\debug\deps\sorting-4ab0e41f9a28206e.exe)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\sources.rs (target\debug\deps\sources-ed19f3aa4c95f69d.exe)
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\swap_orientation.rs (target\debug\deps\swap_orientation-92c74153d8b59e24.exe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\workbooks.rs (target\debug\deps\workbooks-040649f0cd06489a.exe)
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_engine_text-84fe610680e4c49e.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\baseline.rs (target\debug\deps\baseline-bea617efb55811cc.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\conflict.rs (target\debug\deps\conflict-813e2d60d1fb00b9.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\content.rs (target\debug\deps\content-1ff9c0791123fb41.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests\golden_importance.rs (target\debug\deps\golden_importance-4f366be1b986f5ef.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+     Running tests\importance.rs (target\debug\deps\importance-3c4a88431c006cbc.exe)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests\inline.rs (target\debug\deps\inline-9e8a41865f106351.exe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests\map_jobs.rs (target\debug\deps\map_jobs-a78ec96f312f6d61.exe)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests\search.rs (target\debug\deps\search-c77d58f3a8893a96.exe)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src\lib.rs (target\debug\deps\bc_formats-1dfcc11ea002639d.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests\baseline.rs (target\debug\deps\baseline-3142cbfb75f3789a.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\builtin_patterns.rs (target\debug\deps\builtin_patterns-a0b4bf337cc4bc6f.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+     Running tests\builtin_tokenizer_fixtures.rs (target\debug\deps\builtin_tokenizer_fixtures-4860cfc4fba394e9.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+     Running tests\registry.rs (target\debug\deps\registry-4bb41e7d6b199476.exe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+     Running tests\table_options.rs (target\debug\deps\table_options-50a7dec9126afcfd.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests\tokenizer.rs (target\debug\deps\tokenizer-79ffee3be78e7291.exe)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+     Running tests\xml_roundtrip.rs (target\debug\deps\xml_roundtrip-b2ec7cf6b4c88fa1.exe)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running unittests src\lib.rs (target\debug\deps\bc_gui-cfce396d4ba4ed88.exe)
+test result: ok. 200 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 5.67s
+     Running unittests src\lib.rs (target\debug\deps\bc_jobs-9d4f2659c3e06633.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\alignment_cancel.rs (target\debug\deps\alignment_cancel-f52291764db1142a.exe)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_report-3e23d98c6b79f4d6.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_script-729c349d94436903.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_session-c626c44fa5cb82f7.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\lib.rs (target\debug\deps\bc_vfs-8bcf561b92996b3e.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\local.rs (target\debug\deps\local-01f4a8b3213c8c12.exe)
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running unittests src\lib.rs (target\debug\deps\bcomp-19052f982ff49dbc.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\bin\matcha-comp.rs (target\debug\deps\matcha_comp-746b385f57a056f0.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\bin\matcha-compc.rs (target\debug\deps\matcha_compc-6283ff29f7c43efa.exe)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\main.rs (target\debug\deps\matcha-1fe75f218fef3d92.exe)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit=0

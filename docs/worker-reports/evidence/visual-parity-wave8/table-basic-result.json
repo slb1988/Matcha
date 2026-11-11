@@ -1,0 +1,426 @@
+{
+  "regions": [
+    {
+      "region": "details",
+      "ambiguous": false,
+      "samples": 806,
+      "edgeDeltas": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "score": 5.256,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 2.0,
+      "actual": [
+        52,
+        855,
+        1334,
+        81
+      ],
+      "reference": [
+        52,
+        855,
+        1332,
+        81
+      ],
+      "dy": 0
+    },
+    {
+      "region": "grid.left",
+      "ambiguous": false,
+      "samples": 960,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 5.728,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        52,
+        151,
+        648,
+        685
+      ],
+      "reference": [
+        52,
+        151,
+        648,
+        685
+      ],
+      "dy": 0
+    },
+    {
+      "region": "grid.right",
+      "ambiguous": false,
+      "samples": 990,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 4.358,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        722,
+        151,
+        644,
+        685
+      ],
+      "reference": [
+        722,
+        151,
+        644,
+        685
+      ],
+      "dy": 0
+    },
+    {
+      "region": "headers.left",
+      "ambiguous": false,
+      "samples": 737,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 11.516,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        52,
+        123,
+        181,
+        28
+      ],
+      "reference": [
+        52,
+        123,
+        181,
+        28
+      ],
+      "dy": 0
+    },
+    {
+      "region": "headers.right",
+      "ambiguous": false,
+      "samples": 737,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 3.419,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        722,
+        123,
+        181,
+        28
+      ],
+      "reference": [
+        722,
+        123,
+        181,
+        28
+      ],
+      "dy": 0
+    },
+    {
+      "region": "info.left",
+      "ambiguous": false,
+      "samples": 750,
+      "edgeDeltas": [
+        2,
+        0,
+        1,
+        0
+      ],
+      "score": 0.44,
+      "pass": true,
+      "dx": 2,
+      "maxDeviation": 2.0,
+      "actual": [
+        54,
+        96,
+        665,
+        27
+      ],
+      "reference": [
+        52,
+        96,
+        666,
+        27
+      ],
+      "dy": 0
+    },
+    {
+      "region": "info.right",
+      "ambiguous": false,
+      "samples": 696,
+      "edgeDeltas": [
+        8,
+        0,
+        -1,
+        0
+      ],
+      "score": 0.47,
+      "pass": false,
+      "dx": 8,
+      "maxDeviation": 8.0,
+      "actual": [
+        730,
+        96,
+        653,
+        27
+      ],
+      "reference": [
+        722,
+        96,
+        662,
+        27
+      ],
+      "dy": 0
+    },
+    {
+      "region": "menubar",
+      "ambiguous": false,
+      "samples": 546,
+      "edgeDeltas": [
+        -2,
+        0,
+        -2,
+        0
+      ],
+      "score": 0.012,
+      "pass": true,
+      "dx": -2,
+      "maxDeviation": 2.0,
+      "actual": [
+        -2,
+        0,
+        1384,
+        27
+      ],
+      "reference": [
+        0,
+        0,
+        1384,
+        27
+      ],
+      "dy": 0
+    },
+    {
+      "region": "paneStatus.left",
+      "ambiguous": false,
+      "samples": 669,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 4.516,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        52,
+        836,
+        666,
+        19
+      ],
+      "reference": [
+        52,
+        836,
+        666,
+        19
+      ],
+      "dy": 0
+    },
+    {
+      "region": "paneStatus.right",
+      "ambiguous": false,
+      "samples": 632,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 5.312,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        722,
+        836,
+        662,
+        19
+      ],
+      "reference": [
+        722,
+        836,
+        662,
+        19
+      ],
+      "dy": 0
+    },
+    {
+      "region": "pathbar.left",
+      "ambiguous": false,
+      "samples": 740,
+      "edgeDeltas": [
+        0,
+        0,
+        -2,
+        0
+      ],
+      "score": 6.843,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 2.0,
+      "actual": [
+        52,
+        70,
+        664,
+        26
+      ],
+      "reference": [
+        52,
+        70,
+        666,
+        26
+      ],
+      "dy": 0
+    },
+    {
+      "region": "pathbar.right",
+      "ambiguous": false,
+      "samples": 688,
+      "edgeDeltas": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "score": 1.683,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 2.0,
+      "actual": [
+        722,
+        70,
+        664,
+        26
+      ],
+      "reference": [
+        722,
+        70,
+        662,
+        26
+      ],
+      "dy": 0
+    },
+    {
+      "region": "statusbar",
+      "ambiguous": false,
+      "samples": 530,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "score": 0.091,
+      "pass": true,
+      "dx": 0,
+      "maxDeviation": 0.0,
+      "actual": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "reference": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "dy": 0
+    },
+    {
+      "region": "toolbar",
+      "ambiguous": false,
+      "samples": 737,
+      "edgeDeltas": [
+        -2,
+        0,
+        0,
+        0
+      ],
+      "score": 0.156,
+      "pass": true,
+      "dx": -2,
+      "maxDeviation": 2.0,
+      "actual": [
+        -2,
+        27,
+        1386,
+        43
+      ],
+      "reference": [
+        0,
+        27,
+        1384,
+        43
+      ],
+      "dy": 0
+    }
+  ],
+  "colors": [
+    {
+      "delta": 0,
+      "expected": "#FFE3E3",
+      "pass": true,
+      "name": "tableDiff",
+      "actual": "#FFE3E3",
+      "point": [
+        130,
+        215
+      ]
+    },
+    {
+      "delta": 0,
+      "expected": "#A0A0A0",
+      "pass": true,
+      "name": "tableGrid",
+      "actual": "#A0A0A0",
+      "point": [
+        132,
+        175
+      ]
+    }
+  ],
+  "scene": "table-basic",
+  "dimensionMatch": true,
+  "pixelDifferences": 97385,
+  "actual": "D:\\Github\\Matcha\\target\\visual\\matcha\\table-basic.png",
+  "reference": "D:\\Github\\Matcha\\docs\\visual-parity\\reference\\table-basic.png",
+  "maxDeviation": 8
+}

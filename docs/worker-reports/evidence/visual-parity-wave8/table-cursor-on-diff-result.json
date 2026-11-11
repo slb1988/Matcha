@@ -1,0 +1,403 @@
+{
+  "pixelDifferences": 98785,
+  "dimensionMatch": true,
+  "actual": "D:\\Github\\Matcha\\target\\visual\\matcha\\table-cursor-on-diff.png",
+  "reference": "D:\\Github\\Matcha\\docs\\visual-parity\\reference\\table-cursor-on-diff.png",
+  "scene": "table-cursor-on-diff",
+  "maxDeviation": 8,
+  "colors": [],
+  "regions": [
+    {
+      "region": "details",
+      "actual": [
+        52,
+        855,
+        1334,
+        81
+      ],
+      "samples": 806,
+      "score": 3.826,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        855,
+        1332,
+        81
+      ]
+    },
+    {
+      "region": "grid.left",
+      "actual": [
+        52,
+        151,
+        648,
+        685
+      ],
+      "samples": 959,
+      "score": 3.341,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        151,
+        648,
+        685
+      ]
+    },
+    {
+      "region": "grid.right",
+      "actual": [
+        722,
+        151,
+        644,
+        685
+      ],
+      "samples": 989,
+      "score": 4.362,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        722,
+        151,
+        644,
+        685
+      ]
+    },
+    {
+      "region": "headers.left",
+      "actual": [
+        52,
+        123,
+        181,
+        28
+      ],
+      "samples": 737,
+      "score": 0.098,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        123,
+        181,
+        28
+      ]
+    },
+    {
+      "region": "headers.right",
+      "actual": [
+        722,
+        123,
+        181,
+        28
+      ],
+      "samples": 737,
+      "score": 3.419,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        722,
+        123,
+        181,
+        28
+      ]
+    },
+    {
+      "region": "info.left",
+      "actual": [
+        54,
+        96,
+        665,
+        27
+      ],
+      "samples": 750,
+      "score": 0.44,
+      "dx": 2,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        2,
+        0,
+        1,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        96,
+        666,
+        27
+      ]
+    },
+    {
+      "region": "info.right",
+      "actual": [
+        730,
+        96,
+        653,
+        27
+      ],
+      "samples": 696,
+      "score": 0.47,
+      "dx": 8,
+      "pass": false,
+      "maxDeviation": 8.0,
+      "dy": 0,
+      "edgeDeltas": [
+        8,
+        0,
+        -1,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        722,
+        96,
+        662,
+        27
+      ]
+    },
+    {
+      "region": "menubar",
+      "actual": [
+        -2,
+        0,
+        1384,
+        27
+      ],
+      "samples": 546,
+      "score": 0.012,
+      "dx": -2,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        -2,
+        0,
+        -2,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        0,
+        0,
+        1384,
+        27
+      ]
+    },
+    {
+      "region": "paneStatus.left",
+      "actual": [
+        52,
+        836,
+        666,
+        19
+      ],
+      "samples": 669,
+      "score": 4.516,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        836,
+        666,
+        19
+      ]
+    },
+    {
+      "region": "paneStatus.right",
+      "actual": [
+        722,
+        836,
+        662,
+        19
+      ],
+      "samples": 632,
+      "score": 5.312,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        722,
+        836,
+        662,
+        19
+      ]
+    },
+    {
+      "region": "pathbar.left",
+      "actual": [
+        52,
+        70,
+        664,
+        26
+      ],
+      "samples": 740,
+      "score": 1.686,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        -2,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        52,
+        70,
+        666,
+        26
+      ]
+    },
+    {
+      "region": "pathbar.right",
+      "actual": [
+        722,
+        70,
+        664,
+        26
+      ],
+      "samples": 688,
+      "score": 1.683,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        722,
+        70,
+        662,
+        26
+      ]
+    },
+    {
+      "region": "statusbar",
+      "actual": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "samples": 534,
+      "score": 0.09,
+      "dx": 0,
+      "pass": true,
+      "maxDeviation": 0.0,
+      "dy": 0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        0,
+        936,
+        1384,
+        25
+      ]
+    },
+    {
+      "region": "toolbar",
+      "actual": [
+        -2,
+        27,
+        1386,
+        43
+      ],
+      "samples": 737,
+      "score": 0.156,
+      "dx": -2,
+      "pass": true,
+      "maxDeviation": 2.0,
+      "dy": 0,
+      "edgeDeltas": [
+        -2,
+        0,
+        0,
+        0
+      ],
+      "ambiguous": false,
+      "reference": [
+        0,
+        27,
+        1384,
+        43
+      ]
+    }
+  ]
+}
