@@ -2,7 +2,7 @@
 //! 纯逻辑，无 I/O，便于单测。
 use bc_gui::bench::BenchOptions;
 use bc_script::cli::{CliArgs, Invocation, Switch};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 开发/测试用开关（不属于参考命令行）：`--bench[=N]`、`--bench-dir`、`--bench-table`、
 /// `--snapshot=<scene>`、`--snapshot-out=<png>`、`--window-size=WxH`、`--screenshot=<bmp>`。
@@ -172,10 +172,38 @@ pub fn comparison_pair(invocation: &Invocation) -> Option<(PathBuf, PathBuf)> {
     }
 }
 
+/// Explorer 菜单动词解析出一对路径后的参数：保留其余开关（如 `/solo`、`/ro`），
+/// 去掉菜单开关与它的单个路径，追加 `<left> <right>`。
+pub fn shell_comparison_args(args: &[String], left: &Path, right: &Path) -> Vec<String> {
+    let keep = |arg: &&String| {
+        CliArgs::parse_in([arg.as_str()], Path::new(".")).is_ok_and(
+            |one| matches!(one.switches.as_slice(), [s] if !matches!(s, Switch::Shell(_))),
+        )
+    };
+    args.iter()
+        .filter(keep)
+        .cloned()
+        .chain([left.display().to_string(), right.display().to_string()])
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+
+    #[test]
+    fn shell_verbs_become_a_plain_comparison_keeping_other_switches() {
+        let args = strings(&["/solo", "/compareto", r"C:\w\b.txt", "/ro"]);
+        let rewritten =
+            shell_comparison_args(&args, Path::new(r"C:\w\a.txt"), Path::new(r"C:\w\b.txt"));
+        assert_eq!(
+            rewritten,
+            strings(&["/solo", "/ro", r"C:\w\a.txt", r"C:\w\b.txt"])
+        );
+        let cli = CliArgs::parse_in(&rewritten, Path::new("C:/w")).unwrap();
+        assert!(cli.solo() && cli.shell_verb().is_none());
+        assert!(comparison_pair(&cli.invocation).is_some());
+    }
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()

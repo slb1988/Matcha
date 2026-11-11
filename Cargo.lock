@@ -294,6 +294,7 @@ dependencies = [
  "bc-instance",
  "bc-script",
  "bc-session",
+ "bc-shell",
 ]
 
 [[package]]

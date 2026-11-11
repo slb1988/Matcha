@@ -11,6 +11,12 @@
 //! 方阻塞到常驻实例关闭该标签页，并以回复的退出码结束。本进程自己成为首个实例时，
 //! 等待即等本进程退出（关闭唯一的标签页会关闭窗口）。
 //!
+//! Explorer 右键菜单（`bc-shell`）：成为 GUI 的进程（开发开关与计时运行除外）在后台
+//! 线程同步 HKCU 动词（幂等，修复 exe 路径；失败只记日志）。菜单命令 `/selectleft`、
+//! `/compareto`、`/comparepair` 在本进程就地处理左侧状态：只需记住左侧时直接退出；
+//! 得到一对路径时改写为普通的 `<left> <right>` 参数，再走上面的单实例转交（开新标签页）。
+//! `/shellmenu=on|off` 写设置并注册/注销后退出。
+//!
 //! ```text
 //! matcha [<switches>] [<left> <right>] [--bench[=<frames>]] [--snapshot=<scene>] ...
 //! ```
@@ -21,6 +27,7 @@ use bc_instance::{Reply, Request, Responder, Role, WAIT_ENV};
 use bc_script::cli::{self, CliArgs};
 use bc_script::ExitCode as Code;
 use routing::Route;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -56,6 +63,30 @@ fn main() -> ExitCode {
             return exit(Code::UnknownError);
         }
     };
+    let help = cli.has(|s| matches!(s, cli::Switch::Help));
+    if let Some(on) = cli.shell_menu().filter(|_| !help) {
+        return shell_menu(on);
+    }
+    let (cli, args) = match cli.shell_verb().filter(|_| !help) {
+        None => (cli, args),
+        Some((verb, path)) => match shell_verb(verb, path) {
+            Ok(Some((left, right))) => {
+                let args = routing::shell_comparison_args(&args, &left, &right);
+                match CliArgs::parse(&args) {
+                    Ok(cli) => (cli, args),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return exit(Code::UnknownError);
+                    }
+                }
+            }
+            Ok(None) => return ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("explorer menu: {e}");
+                return exit(Code::UnknownError);
+            }
+        },
+    };
     let perf_env = bc_gui::perf::enabled() || bc_gui::perf::exit_after_ready();
     let route = routing::route(&dev, &cli, perf_env);
     let pair = routing::comparison_pair(&cli.invocation);
@@ -74,10 +105,74 @@ fn main() -> ExitCode {
                 eprintln!("--bench-dir requires two readable folders");
                 return ExitCode::FAILURE;
             }
+            if !dev.any() && !perf_env {
+                sync_shell_menu();
+            }
             run_gui(dev.into_launch(pair), None)
         }
         Route::SingleInstance => single_instance(dev.into_launch(pair), args, wait),
     }
+}
+
+/// GUI 启动时同步 Explorer 菜单：后台线程，不拖慢启动；失败只记日志、不影响启动。
+fn sync_shell_menu() {
+    std::thread::spawn(|| {
+        let Some(mut registry) = bc_shell::system_registry() else {
+            return;
+        };
+        match bc_shell::Shell::from_env().and_then(|shell| bc_shell::sync(&shell, &mut *registry)) {
+            Ok(0) => {}
+            Ok(n) => eprintln!("explorer menu: updated {n} registry value(s)"),
+            Err(e) => eprintln!("explorer menu registration failed: {e}"),
+        }
+    });
+}
+
+/// `/shellmenu=on|off`：写设置并注册/注销，然后退出。
+fn shell_menu(on: bool) -> ExitCode {
+    let Some(mut registry) = bc_shell::system_registry() else {
+        eprintln!("the Explorer context menu is only available on Windows");
+        return exit(Code::UnknownError);
+    };
+    match bc_shell::Shell::from_env()
+        .and_then(|shell| bc_shell::set_enabled(&shell, &mut *registry, on))
+    {
+        Ok(_) => {
+            println!(
+                "Explorer context menu {}",
+                if on { "registered" } else { "removed" }
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("explorer menu: {e}");
+            exit(Code::UnknownError)
+        }
+    }
+}
+
+/// 菜单动词：`Some((left, right))` = 要打开的比较；`None` = 已记住左侧（或配对方会打开）。
+fn shell_verb(verb: cli::ShellVerb, path: &Path) -> std::io::Result<Option<(PathBuf, PathBuf)>> {
+    let shell = bc_shell::Shell::from_env()?;
+    // 非 Windows 没有注册表：只维护左侧状态。
+    let mut memory = bc_shell::MemRegistry::default();
+    let mut system = bc_shell::system_registry();
+    let registry: &mut dyn bc_shell::Registry = match system.as_deref_mut() {
+        Some(registry) => registry,
+        None => &mut memory,
+    };
+    let verb = match verb {
+        cli::ShellVerb::SelectLeft => bc_shell::Verb::SelectLeft,
+        cli::ShellVerb::CompareTo => bc_shell::Verb::CompareTo,
+        cli::ShellVerb::ComparePair => bc_shell::Verb::Compare,
+    };
+    Ok(match bc_shell::invoke(&shell, registry, verb, path)? {
+        bc_shell::Outcome::Compare(left, right) => Some((left, right)),
+        bc_shell::Outcome::Stored(message) => {
+            eprintln!("{message}");
+            None
+        }
+    })
 }
 
 fn run_gui(
@@ -105,6 +200,7 @@ fn single_instance(options: bc_gui::LaunchOptions, args: Vec<String>, wait: bool
             run_gui(options, None)
         }
         Ok(Role::Primary(_guard)) => {
+            sync_shell_menu();
             let (sender, inbox) = bc_gui::remote::channel();
             match bc_instance::serve(&name, move |request, responder| {
                 accept(&sender, request, responder)
