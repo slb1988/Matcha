@@ -103,6 +103,9 @@ pub fn details(
     rect: egui::Rect,
     contents: [&TextContent; 2],
     editors: &[Editor; 2],
+    // Current row's difference (fill, ink); `None` for an equal row.
+    style: Option<(egui::Color32, egui::Color32)>,
+    active: usize,
 ) {
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
@@ -139,54 +142,76 @@ pub fn details(
         let lines = contents[s].lines.borrow();
         let line = editors[s].caret.line;
         let text = std::str::from_utf8(lines.line_bytes(line).unwrap_or_default()).unwrap();
-        let end = match lines.ending(line) {
-            Some(LineEnding::CrLf) => "¶",
-            Some(LineEnding::Lf) => "↵",
-            Some(LineEnding::Cr) => "←",
+        let ending = lines.ending(line);
+        // CRLF uses the drawn box marker; other endings keep a text glyph.
+        let end = match ending {
+            Some(LineEnding::Lf) => "\u{21b5}",
+            Some(LineEnding::Cr) => "\u{2190}",
             _ => "",
         };
         let mut limit = text.len().min(4096);
         while !text.is_char_boundary(limit) {
             limit -= 1;
         }
-        let galley = painter.layout_no_wrap(
-            format!("{}{end}", &text[..limit]),
-            egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE),
-            egui::Color32::BLACK,
-        );
-        // 收缩包裹的文本框：第一行纯白，第二行 #FCFCFC。
-        let text_x = rect.left() + 20.0;
+        let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
+        let ink = style.map_or(egui::Color32::BLACK, |(_, ink)| ink);
+        let galley = painter.layout_no_wrap(text[..limit].to_string(), font.clone(), ink);
+        let marker = painter.layout_no_wrap(end.to_string(), font.clone(), MARKER);
+        // Reference: text ink starts 20 px in, one row below the box top.
+        let text_x = rect.left() + 19.0;
+        // Snap to the hinted cell grid: GDI renders this monospace font at a
+        // whole-pixel advance (7 px), egui at ~7.33 px.
+        let advance = painter
+            .layout_no_wrap("0".to_string(), font.clone(), ink)
+            .size()
+            .x
+            .max(1.0);
+        let cell = advance.round() / advance;
+        let marker_x = (text_x + galley.size().x * cell).round();
+        let marker_w = if ending == Some(LineEnding::CrLf) {
+            7.0
+        } else {
+            marker.size().x
+        };
+        // 收缩包裹的文本框：第一行纯白，第二行 #FCFCFC；右缘紧贴行尾符。
         let box_rect = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 19.0, top),
-            egui::pos2(
-                text_x + galley.size().x + 3.0,
-                (top + 15.0).min(rect.bottom()),
-            ),
+            egui::pos2(marker_x + marker_w, (top + 15.0).min(rect.bottom())),
         );
-        painter.rect_filled(
-            box_rect,
-            0.0,
-            if s == 0 {
-                egui::Color32::WHITE
-            } else {
-                egui::Color32::from_rgb(252, 252, 252)
-            },
-        );
-        painter.line_segment(
-            [box_rect.left_top(), box_rect.left_bottom()],
-            egui::Stroke::new(1.0, egui::Color32::from_gray(192)),
-        );
-        // 参考箭头：灰描边浅蓝填充。
-        let c = egui::pos2(rect.left() + 8.0, top + 7.5);
+        // Equal rows: white / #FCFCFC with a #C0C0C0 left edge; difference
+        // rows take the pane's row fill (second row: channel-wise min with
+        // #FCFCFC, reference #EEEEFC) and no edge.
+        let base = if s == 0 {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_rgb(252, 252, 252)
+        };
+        let fill = style.map_or(base, |(fill, _)| {
+            egui::Color32::from_rgb(
+                fill.r().min(base.r()),
+                fill.g().min(base.g()),
+                fill.b().min(base.b()),
+            )
+        });
+        painter.rect_filled(box_rect, 0.0, fill);
+        if style.is_none() {
+            painter.line_segment(
+                [box_rect.left_top(), box_rect.left_bottom()],
+                egui::Stroke::new(1.0, CARET),
+            );
+        }
+        // Side arrow (original vector): shaft 6 px, head 5 px and 10 rows,
+        // spanning x+4..+15 around the row's center line.
+        let c = egui::pos2(rect.left() + 10.0, top + 8.0);
         let dir = if s == 0 { 1.0 } else { -1.0 };
         let points = [
-            (-5.0, -2.0),
-            (1.0, -2.0),
-            (1.0, -4.0),
-            (6.0, 0.0),
-            (1.0, 4.0),
-            (1.0, 2.0),
-            (-5.0, 2.0),
+            (-5.5, -1.5),
+            (0.5, -1.5),
+            (0.5, -4.5),
+            (5.5, 0.0),
+            (0.5, 4.5),
+            (0.5, 1.5),
+            (-5.5, 1.5),
         ]
         .into_iter()
         .map(|(x, y)| c + egui::vec2(x * dir, y))
@@ -196,16 +221,64 @@ pub fn details(
             egui::Color32::from_rgb(215, 233, 249),
             egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
         ));
-        painter.galley(egui::pos2(text_x, top + 1.0), galley, egui::Color32::BLACK);
+        if s == active {
+            // Caret: a 2 px #C0C0C0 bar left of the caret column, clipped to the box.
+            let mut byte = editors[s].caret.byte.min(limit);
+            while !text.is_char_boundary(byte) {
+                byte -= 1;
+            }
+            let prefix = painter
+                .layout_no_wrap(
+                    text[..byte].to_string(),
+                    egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE),
+                    ink,
+                )
+                .size()
+                .x;
+            let x = (text_x + prefix * cell - 1.0).round();
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(x.max(box_rect.left()), top),
+                egui::pos2(x + 2.0, (top + 15.0).min(rect.bottom())),
+            );
+            painter.rect_filled(bar, 0.0, CARET);
+        }
+        painter.galley(egui::pos2(text_x, top + 2.0), galley, ink);
+        if ending == Some(LineEnding::CrLf) {
+            crlf_marker(&painter, egui::pos2(marker_x, top + 4.0));
+        } else {
+            painter.galley(egui::pos2(marker_x, top + 2.0), marker, MARKER);
+        }
     }
-    // 参考第三行是静态占位「—」。
-    painter.text(
-        rect.left_center() + egui::vec2(21.0, 8.0),
-        egui::Align2::LEFT_CENTER,
-        "\u{2014}",
-        egui::FontId::proportional(12.0),
-        egui::Color32::BLACK,
+    // 参考第三行是静态占位：2 px 灰色短横。
+    painter.rect_filled(
+        egui::Rect::from_min_size(
+            egui::pos2(rect.left() + 18.0, rect.top() + 39.0),
+            egui::vec2(17.0, 2.0),
+        ),
+        0.0,
+        DASH,
     );
+}
+/// Details caret bar and equal-row box edge.
+const CARET: egui::Color32 = egui::Color32::from_rgb(0xC0, 0xC0, 0xC0);
+/// Visible line-end ink (reference gray).
+const MARKER: egui::Color32 = egui::Color32::from_rgb(0xA0, 0xA0, 0xA0);
+const DASH: egui::Color32 = egui::Color32::from_rgb(0x85, 0x85, 0x85);
+/// CRLF marker in a 7x7 cell at `cell` (top-left): a 5x5 square with
+/// corner ticks, drawn as unfeathered pixels.
+fn crlf_marker(painter: &egui::Painter, cell: egui::Pos2) {
+    let mut mesh = egui::Mesh::default();
+    let mut px = |x: f32, y: f32, w: f32, h: f32| {
+        mesh.add_colored_rect(
+            egui::Rect::from_min_size(cell + egui::vec2(x, y), egui::vec2(w, h)),
+            MARKER,
+        );
+    };
+    px(1.0, 0.0, 1.0, 7.0);
+    px(5.0, 0.0, 1.0, 7.0);
+    px(2.0, 1.0, 3.0, 1.0);
+    px(2.0, 5.0, 3.0, 1.0);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 pub fn encoding_label(content: &TextContent) -> String {

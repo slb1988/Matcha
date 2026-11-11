@@ -903,3 +903,39 @@ fn filtered_lines_separators_are_thin_rows_and_jumps_follow_them() {
     assert_eq!(v.scroll.y.min(v.projection.y_of(row, g)), v.scroll.y);
     assert!(v.top_row(v.row_height()) <= row);
 }
+
+#[test]
+fn details_take_the_current_rows_difference_colors_and_caret_bar() {
+    let ctx = egui::Context::default();
+    let mut v = view("same\nleft\n", "same\nright\n");
+    let details_rects = |out: &egui::FullOutput, below: f32| -> Vec<(egui::Rect, egui::Color32)> {
+        out.shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(r) if r.rect.top() >= below => Some((r.rect, r.fill)),
+                _ => None,
+            })
+            .collect()
+    };
+    let out = frame(&ctx, &mut v, vec![]);
+    let below = v.pane_rects[0].bottom() + 19.0;
+    // Equal row: white box, no difference fill.
+    let fill = crate::chrome::theme::Theme::default().difference_fill;
+    assert!(!details_rects(&out, below).iter().any(|(_, f)| *f == fill));
+    v.goto_row(1);
+    v.editors[v.active].caret.byte = 2;
+    let out = frame(&ctx, &mut v, vec![]);
+    let rects = details_rects(&out, below);
+    assert!(
+        rects.iter().any(|(r, f)| *f == fill && r.height() == 15.0),
+        "{rects:?}"
+    );
+    // 2 px caret bar on the active side.
+    let caret = egui::Color32::from_gray(0xC0);
+    assert!(
+        rects
+            .iter()
+            .any(|(r, f)| *f == caret && r.width() == 2.0 && r.height() == 15.0),
+        "{rects:?}"
+    );
+}

@@ -935,11 +935,29 @@ impl TextCompareView {
             egui::pos2(panes.left(), body.bottom()),
             egui::vec2(panes.width(), 49.0),
         );
+        let style = {
+            let row = self.row(self.current_row);
+            let importance = row
+                .importance
+                .with_ignore_unimportant(self.map.rules.ignore_unimportant);
+            let orphan = matches!(
+                row.kind,
+                bc_core::DiffKind::LeftOnly | bc_core::DiffKind::RightOnly
+            );
+            (importance != Importance::Same).then(|| {
+                (
+                    super::render::row_fill(&prefs.colors, importance, orphan),
+                    super::render::diff_ink(&prefs.colors, importance),
+                )
+            })
+        };
         status_bar::details(
             ui,
             details,
             [&self.map.left, &self.map.right],
             &self.editors,
+            style,
+            self.active,
         );
         let status = egui::Rect::from_min_size(
             egui::pos2(available.left(), details.bottom()),

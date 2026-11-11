@@ -678,7 +678,7 @@ fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
-fn row_fill(colors: &DiffColors, importance: Importance, orphan: bool) -> egui::Color32 {
+pub(super) fn row_fill(colors: &DiffColors, importance: Importance, orphan: bool) -> egui::Color32 {
     let defaults = DiffColors::default();
     let custom = if orphan {
         colors.inserted != defaults.inserted
@@ -697,7 +697,7 @@ fn row_fill(colors: &DiffColors, importance: Importance, orphan: bool) -> egui::
         crate::chrome::theme::Theme::default().difference_fill
     }
 }
-fn diff_ink(colors: &DiffColors, importance: Importance) -> egui::Color32 {
+pub(super) fn diff_ink(colors: &DiffColors, importance: Importance) -> egui::Color32 {
     let defaults = DiffColors::default();
     if importance == Importance::Unimportant {
         if colors.unimportant == defaults.unimportant {
