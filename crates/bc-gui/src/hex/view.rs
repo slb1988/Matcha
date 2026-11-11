@@ -4,18 +4,47 @@
 #[path = "view_tests.rs"]
 mod tests;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bc_core::{CoreError, DiffKind};
 use bc_engine_bin::hex::{DisplayFilter, HexAlignJob, HexContent, HexMap, HexStats};
 use eframe::egui;
 
 use crate::chrome::icons::Icon;
+use crate::chrome::menubar;
 use crate::chrome::statusbar::{self, StatusField};
 use crate::chrome::toolbar::{self, ToolItem, ToolItemKind};
 
+use super::menu;
 use super::render::{self, GridRowModel, GridStyle};
 use super::worker::Worker;
+
+/// 视图上报给应用外壳的动作。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HexAction {
+    Home,
+    Close,
+    NewTab,
+    Exit,
+    /// Compare Files Using 互切（H10）：同一对文件以 Text/Table Compare 原位重开。
+    CompareAsText { left: PathBuf, right: PathBuf },
+    CompareAsTable { left: PathBuf, right: PathBuf },
+}
+
+/// 退出/关闭确认对话框的状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitConfirm {
+    Close,
+    Exit,
+}
+
+/// 打开/另存路径对话框（应用内实现，与 text 视图同款）。
+#[derive(Debug, Clone)]
+pub struct HexFileDialog {
+    pub side: usize,
+    pub save_as: bool,
+    pub path: String,
+}
 
 /// 网格行模型缓存：revision + 行宽 + 过滤变化时重算。
 #[derive(Debug)]
@@ -63,6 +92,9 @@ pub struct HexCompareView {
     pub layout_open: bool,
     /// Session Settings 对话框开关（任务 6.1 填充三页内容）。
     pub settings_open: bool,
+    /// Session Settings 草稿与页签。
+    pub(crate) settings_draft: Option<super::settings::SessionDraft>,
+    pub(crate) settings_page: super::settings::Page,
     /// Groups per item（Layout 对话框；非 Fit 时每行格数 = bytes_per_group × groups_per_item）。
     pub groups_per_item: u16,
     /// 每侧选区（字节偏移半开区间）。
@@ -88,6 +120,18 @@ pub struct HexCompareView {
     pub pending_scroll: Option<usize>,  // 目标对齐行
     /// 待写入系统剪贴板的文本（ui() 帧内 flush）。
     pub pending_copy_text: Option<String>,
+    /// 上报动作（互切/Home/Close/Exit 等）。
+    pub action: Option<HexAction>,
+    /// 退出/关闭确认。
+    exit_confirm: Option<ExitConfirm>,
+    /// Reload 脏确认。
+    reload_confirm: bool,
+    /// 打开/另存对话框。
+    pub file_dialog: Option<HexFileDialog>,
+    /// Open Clipboard 目标侧（等待 Paste 回送）。
+    clipboard_side: Option<usize>,
+    /// Ctrl+V/菜单 Paste：等待系统剪贴板回送。
+    paste_pending: bool,
     cache: Option<GridCache>,
     scroll: f32,
 }
@@ -126,6 +170,8 @@ impl HexCompareView {
             active_side: 0,
             layout_open: false,
             settings_open: false,
+            settings_draft: None,
+            settings_page: super::settings::Page::default(),
             groups_per_item: 2,
             selection: [None, None],
             dirty: [false, false],
@@ -144,6 +190,12 @@ impl HexCompareView {
             info_open: false,
             pending_scroll: None,
             pending_copy_text: None,
+            action: None,
+            exit_confirm: None,
+            reload_confirm: false,
+            file_dialog: None,
+            clipboard_side: None,
+            paste_pending: false,
             cache: None,
             scroll: 0.0,
         }
@@ -267,6 +319,144 @@ impl HexCompareView {
             usize::from(self.map.rules.bytes_per_group.max(1)) * usize::from(self.groups_per_item.max(1))
         }
     }
+
+    // ---- 任务 6.2：应用外壳契约与命令分派 ----
+
+    /// 两侧路径（空会话/剪贴板侧为 None）。
+    pub fn paths(&self) -> [Option<PathBuf>; 2] {
+        [
+            self.map.left.source().map(|p| p.to_path_buf()),
+            self.map.right.source().map(|p| p.to_path_buf()),
+        ]
+    }
+
+    /// 退出/关闭确认框是否开着（app.rs step_exit 契约）。
+    pub fn prompt_open(&self) -> bool {
+        self.exit_confirm.is_some()
+    }
+
+    pub fn request_exit(&mut self) {
+        if self.is_dirty() {
+            self.exit_confirm = Some(ExitConfirm::Exit);
+        }
+    }
+
+    pub fn request_close(&mut self) {
+        if self.is_dirty() {
+            self.exit_confirm = Some(ExitConfirm::Close);
+        } else {
+            self.action = Some(HexAction::Close);
+        }
+    }
+
+    /// Open Clipboard（H14）：把剪贴板字节载入一侧（无来源路径，保存走另存）。
+    pub fn open_clipboard(&mut self, side: usize, bytes: Vec<u8>) {
+        *self.content_mut(side) = HexContent::from_bytes(bytes);
+        self.dirty[side] = false;
+        self.recompare();
+    }
+
+    /// 单侧另存（H16）。
+    pub fn save_side_as(&mut self, side: usize, path: &Path) {
+        match self.content_mut(side).save_as(path) {
+            Ok(()) => {
+                self.dirty[side] = false;
+                self.message = "已保存".into();
+            }
+            Err(e) => self.message = e.to_string(),
+        }
+    }
+
+    /// 菜单/命令统一分派（命令 id = 菜单项 label 或显式 `Using:*`）。
+    pub fn command(&mut self, id: &str) {
+        match id {
+            "Session Settings..." => self.settings_open = true,
+            "Swap Sides" => self.swap(),
+            "Reload Files" => {
+                if self.is_dirty() {
+                    self.reload_confirm = true;
+                } else {
+                    self.reload();
+                }
+            }
+            "Recompare Files" => self.recompare(),
+            "Hex Compare Info" => self.info_open = true,
+            "Using:Text Compare" | "Using:Table Compare" => {
+                let [left, right] = self.paths();
+                match (left, right) {
+                    (Some(left), Some(right)) => {
+                        self.action = Some(if id.ends_with("Text Compare") {
+                            HexAction::CompareAsText { left, right }
+                        } else {
+                            HexAction::CompareAsTable { left, right }
+                        });
+                    }
+                    _ => self.message = "两侧均为文件路径才能互切".into(),
+                }
+            }
+            "Close Tab" => self.request_close(),
+            "Open File..." => {
+                self.file_dialog = Some(HexFileDialog { side: self.active_side, save_as: false, path: String::new() });
+            }
+            "Open Clipboard" => self.clipboard_side = Some(self.active_side),
+            "Save File" => {
+                let side = self.active_side;
+                if self.content(side).source().is_some() {
+                    self.save_side(side);
+                } else {
+                    self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                }
+            }
+            "Save File As..." => {
+                self.file_dialog = Some(HexFileDialog { side: self.active_side, save_as: true, path: String::new() });
+            }
+            "Undo" => {
+                let _ = self.undo(self.active_side);
+            }
+            "Redo" => {
+                let _ = self.redo(self.active_side);
+            }
+            "Cut" => {
+                if let Some(bytes) = self.cut(self.active_side) {
+                    self.pending_copy_text = Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                }
+            }
+            "Copy" => {
+                if let Some(bytes) = self.copy_selection(self.active_side) {
+                    self.pending_copy_text = Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                }
+            }
+            "Paste" => self.paste_pending = true,
+            "Delete" => {
+                let _ = self.delete(self.active_side);
+            }
+            "Select All" => self.select_all(self.active_side),
+            "Copy to Other Side" => {
+                let _ = self.copy_to_other_side();
+            }
+            "Next Difference Bytes" => self.next_difference(true),
+            "Previous Difference Bytes" => self.next_difference(false),
+            "Find..." => self.find_open = true,
+            "Replace..." => {
+                self.find_open = true;
+                self.replace_open = true;
+            }
+            "Go To..." => self.goto_open = true,
+            "Show All" => self.filter = DisplayFilter::All,
+            "Show Differences" => self.filter = DisplayFilter::Differences,
+            "Show Same" => self.filter = DisplayFilter::Same,
+            "Byte Addresses" => self.show_byte_addresses = !self.show_byte_addresses,
+            "Layout..." => self.layout_open = true,
+            "Side-by-Side Layout" => self.side_by_side = true,
+            "Over-Under Layout" => self.side_by_side = false,
+            "Thumbnail" => self.show_thumbnail = !self.show_thumbnail,
+            "File Info" => self.show_file_info = !self.show_file_info,
+            "Toolbar" => self.show_toolbar = !self.show_toolbar,
+            _ => self.message = format!("{id}: 不可用"),
+        }
+        self.cache = None;
+    }
+
 
     // ---- 任务 5.1：差异导航与定位（H23/H26） ----
 
@@ -788,6 +978,16 @@ impl HexCompareView {
     fn keyboard(&mut self, ctx: &egui::Context) {
         let events = ctx.input(|i| i.events.clone());
         for event in events {
+            if let egui::Event::Paste(text) = &event {
+                // Open Clipboard：作为该侧内容载入；否则在当前光标处粘贴字节。
+                if let Some(side) = self.clipboard_side.take() {
+                    self.open_clipboard(side, text.clone().into_bytes());
+                } else {
+                    let bytes = text.clone().into_bytes();
+                    let _ = self.type_bytes(self.active_side, &bytes);
+                }
+                continue;
+            }
             let egui::Event::Key { key, pressed: true, modifiers, .. } = &event else {
                 continue;
             };
@@ -811,6 +1011,19 @@ impl HexCompareView {
                     let _ = self.redo(self.active_side);
                 }
                 (egui::Key::A, true, false) => self.select_all(self.active_side),
+                (egui::Key::C, true, false) => {
+                    if let Some(bytes) = self.copy_selection(self.active_side) {
+                        self.pending_copy_text =
+                            Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                    }
+                }
+                (egui::Key::X, true, false) => {
+                    if let Some(bytes) = self.cut(self.active_side) {
+                        self.pending_copy_text =
+                            Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                    }
+                }
+                (egui::Key::V, true, false) => self.paste_pending = true,
                 (egui::Key::Insert, false, _) => self.insert_mode = !self.insert_mode,
                 (egui::Key::Delete, false, _) => {
                     let _ = self.delete(self.active_side);
@@ -919,14 +1132,150 @@ impl HexCompareView {
         self.info_open = open;
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// 退出/重载确认与打开/另存对话框。
+    fn modal_dialogs(&mut self, ctx: &egui::Context) {
+        if let Some(kind) = self.exit_confirm {
+            let mut open = true;
+            let mut choice = None;
+            egui::Window::new("未保存的编辑")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("两侧有未保存的字节编辑。");
+                    ui.horizontal(|ui| {
+                        if ui.button("保存").clicked() {
+                            choice = Some("save");
+                        }
+                        if ui.button("放弃").clicked() {
+                            choice = Some("discard");
+                        }
+                        if ui.button("取消").clicked() {
+                            choice = Some("cancel");
+                        }
+                    });
+                });
+            match choice {
+                Some("save") => {
+                    for side in 0..2 {
+                        if self.dirty[side] {
+                            if self.content(side).source().is_some() {
+                                self.save_side(side);
+                            } else {
+                                // 无来源侧先另存；完成后再关。
+                                self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                            }
+                        }
+                    }
+                    if !self.is_dirty() && self.file_dialog.is_none() {
+                        self.exit_confirm = None;
+                        self.action = Some(match kind {
+                            ExitConfirm::Close => HexAction::Close,
+                            ExitConfirm::Exit => HexAction::Exit,
+                        });
+                    } else {
+                        self.exit_confirm = None;
+                    }
+                }
+                Some("discard") => {
+                    self.dirty = [false, false];
+                    self.exit_confirm = None;
+                    self.action = Some(match kind {
+                        ExitConfirm::Close => HexAction::Close,
+                        ExitConfirm::Exit => HexAction::Exit,
+                    });
+                }
+                _ => {
+                    if !open || choice == Some("cancel") {
+                        self.exit_confirm = None;
+                    }
+                }
+            }
+        }
+        if self.reload_confirm {
+            let mut open = true;
+            let mut confirm = false;
+            let mut cancel = false;
+            egui::Window::new("确认重载")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("有未保存的编辑，重载将从磁盘重读并丢弃编辑。");
+                    ui.horizontal(|ui| {
+                        if ui.button("重载").clicked() {
+                            confirm = true;
+                        }
+                        if ui.button("取消").clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            self.reload_confirm = open && !cancel && !confirm;
+            if confirm {
+                self.reload_guarded(true);
+            }
+        }
+        if let Some(dialog) = self.file_dialog.clone() {
+            let mut open = true;
+            let mut apply = false;
+            let mut cancel = false;
+            let mut path = dialog.path.clone();
+            egui::Window::new(if dialog.save_as { "另存为" } else { "打开文件" })
+                .open(&mut open)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("路径:");
+                        ui.add(egui::TextEdit::singleline(&mut path).desired_width(360.0));
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("确定").clicked() {
+                            apply = true;
+                        }
+                        if ui.button("取消").clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            if apply {
+                let p = PathBuf::from(path.trim());
+                if dialog.save_as {
+                    self.save_side_as(dialog.side, &p);
+                } else if let Err(e) = self.open_path(dialog.side, &p) {
+                    self.message = e.to_string();
+                }
+                self.file_dialog = None;
+            } else if !open || cancel {
+                self.file_dialog = None;
+            } else {
+                self.file_dialog = Some(HexFileDialog { path, ..dialog });
+            }
+        }
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<HexAction> {
         self.poll();
         if self.worker.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
         }
-        let modal = self.goto_open || self.info_open || self.layout_open || self.settings_open;
+        // 菜单栏（BC 会话菜单结构；命令分派见 command()）。
+        if let Some(id) = menubar::show(ui, &menu::menus(self)) {
+            self.command(&id);
+        }
+        let modal = self.goto_open
+            || self.info_open
+            || self.layout_open
+            || self.settings_open
+            || self.exit_confirm.is_some()
+            || self.reload_confirm
+            || self.file_dialog.is_some();
         if !modal {
             self.keyboard(ui.ctx());
+        }
+        if self.paste_pending {
+            self.paste_pending = false;
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         }
         if let Some(text) = self.pending_copy_text.take() {
             ui.ctx().copy_text(text);
@@ -997,6 +1346,9 @@ impl HexCompareView {
         self.layout_dialog(ui.ctx());
         self.goto_dialog(ui.ctx());
         self.info_dialog(ui.ctx());
+        self.settings_dialog(ui.ctx());
+        self.modal_dialogs(ui.ctx());
         let _ = self.scroll;
+        self.action.take()
     }
 }

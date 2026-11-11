@@ -18,6 +18,10 @@ pub enum HomeAction {
         left: PathBuf,
         right: PathBuf,
     },
+    OpenHexCompare {
+        left: PathBuf,
+        right: PathBuf,
+    },
     OpenFolderCompare {
         left: PathBuf,
         right: PathBuf,
@@ -44,9 +48,18 @@ pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
         .iter()
         .any(|path| crate::table::formats::table_path(path, &registry))
 }
+/// 内置 hex 格式掩码（初版 `*.bin`；其余未知扩展仍走 Text）。
+pub fn hex_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
+    [left, right].iter().any(|path| {
+        path.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+    })
+}
 pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
     if left.is_dir() && right.is_dir() {
         HomeAction::OpenFolderCompare { left, right }
+    } else if hex_paths(&left, &right) {
+        HomeAction::OpenHexCompare { left, right }
     } else if table_paths(&left, &right) {
         HomeAction::OpenTableCompare { left, right }
     } else {
@@ -56,24 +69,27 @@ pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
 /// Session types offered on Home, in icon-grid order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionKind {
-    /// Routed by the paths (folders / table formats / text).
+    /// Routed by the paths (folders / hex mask / table formats / text).
     Auto,
     FolderCompare,
     FolderSync,
     TextCompare,
     TableCompare,
+    HexCompare,
 }
-const KINDS: [SessionKind; 4] = [
+const KINDS: [SessionKind; 5] = [
     SessionKind::FolderCompare,
     SessionKind::FolderSync,
     SessionKind::TextCompare,
     SessionKind::TableCompare,
+    SessionKind::HexCompare,
 ];
 impl SessionKind {
     /// Auto 按预填路径定型（文件夹 / 表格格式 / 文本）；无路径时取图标网格首项。
     fn resolve(self, path: Option<&std::path::Path>) -> Self {
         match (self, path) {
             (Self::Auto, Some(p)) if p.is_dir() => Self::FolderCompare,
+            (Self::Auto, Some(p)) if hex_paths(p, p) => Self::HexCompare,
             (Self::Auto, Some(p)) if table_paths(p, p) => Self::TableCompare,
             (Self::Auto, Some(_)) => Self::TextCompare,
             (Self::Auto, None) => Self::FolderCompare,
@@ -93,6 +109,7 @@ impl SessionKind {
             Self::FolderSync => "Folder Sync",
             Self::TextCompare => "Text Compare",
             Self::TableCompare => "Table Compare",
+            Self::HexCompare => "Hex Compare",
         }
     }
     pub fn icon(self) -> SessionIcon {
@@ -101,6 +118,7 @@ impl SessionKind {
             Self::FolderSync => SessionIcon::FolderSync,
             Self::TextCompare => SessionIcon::TextCompare,
             Self::TableCompare => SessionIcon::TableCompare,
+            Self::HexCompare => SessionIcon::HexCompare,
         }
     }
 }
@@ -253,6 +271,7 @@ impl HomeView {
                             item("Media Compare", "", false),
                             item("Picture Compare", "", false),
                             item("Table Compare", "new:table", true),
+                            item("Hex Compare", "new:hex", true),
                             item("Version Compare", "", false),
                         ],
                     ),
@@ -323,6 +342,7 @@ impl HomeView {
             "new:sync" => return Some(SessionKind::FolderSync.new_session(None)),
             "new:text" => return Some(SessionKind::TextCompare.new_session(None)),
             "new:table" => return Some(SessionKind::TableCompare.new_session(None)),
+            "new:hex" => return Some(SessionKind::HexCompare.new_session(None)),
             "new-tab" => return Some(HomeAction::NewTab),
             "close-tab" => return Some(HomeAction::CloseTab),
             "options" => return Some(HomeAction::Options),
@@ -981,6 +1001,40 @@ mod tests {
             SessionKind::FolderSync
         );
     }
+    #[test]
+    fn bin_mask_routes_to_hex_and_unknown_to_text() {
+        let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+        let (bin_l, bin_r) = (
+            PathBuf::from(format!("{corpus}l2.bin")),
+            PathBuf::from(format!("{corpus}r2.bin")),
+        );
+        assert!(matches!(
+            routed(bin_l.clone(), bin_r.clone()),
+            HomeAction::OpenHexCompare { .. }
+        ));
+        // 未知扩展（非目录、非 hex 掩码、非表格格式）仍路由到 Text。
+        let dir = std::env::temp_dir().join(format!("matcha-route-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.xyz123"), dir.join("b.xyz123"));
+        std::fs::write(&a, b"x").unwrap();
+        std::fs::write(&b, b"y").unwrap();
+        assert!(matches!(
+            routed(a.clone(), b.clone()),
+            HomeAction::OpenTextCompare { .. }
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Home 会话网格与 New Session 菜单含 Hex Compare。
+        assert!(KINDS.contains(&SessionKind::HexCompare));
+        let mut home = HomeView::default();
+        assert_eq!(
+            home.command("new:hex"),
+            Some(HomeAction::NewSession {
+                kind: SessionKind::HexCompare,
+                left: None
+            })
+        );
+    }
+
     #[test]
     fn session_kinds_menus_and_tree_keep_home_actions() {
         let (l, r) = (PathBuf::from("a"), PathBuf::from("b"));

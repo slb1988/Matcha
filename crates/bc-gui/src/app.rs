@@ -14,6 +14,7 @@ use crate::{
     home::{HomeAction, HomeView, SessionKind},
     remote::{Completion, Outcome, RemoteInbox, RemoteOpen},
     sync_view::SyncView,
+    hex::{HexAction, HexCompareView},
     table::{TableAction, TableCompareView},
     text::{TextCompareView, ViewAction},
     LaunchOptions,
@@ -26,6 +27,7 @@ pub enum View {
     Home(HomeView),
     TextCompare(Box<TextCompareView>),
     TableCompare(Box<TableCompareView>),
+    HexCompare(Box<HexCompareView>),
     FolderCompare(Box<DirCompareView>),
     FolderSync(Box<SyncView>),
 }
@@ -35,6 +37,7 @@ impl View {
             View::Home(_) => "Home",
             View::TextCompare(_) => "Text Compare",
             View::TableCompare(_) => "Table Compare",
+            View::HexCompare(_) => "Hex Compare",
             View::FolderCompare(_) => "Folder Compare",
             View::FolderSync(_) => "Folder Sync",
         }
@@ -44,6 +47,7 @@ impl View {
             View::Home(_) => Icon::Home,
             View::TextCompare(_) => Icon::File,
             View::TableCompare(_) => Icon::Structure,
+            View::HexCompare(_) => Icon::File,
             View::FolderCompare(_) => Icon::Folder,
             View::FolderSync(_) => Icon::Sync,
         }
@@ -63,6 +67,7 @@ impl View {
             View::Home(_) => [None, None],
             View::TextCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
             View::TableCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
+            View::HexCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
             View::FolderCompare(v) => texts(v.path_texts()),
             View::FolderSync(v) => texts(v.folder.path_texts()),
         }
@@ -90,6 +95,7 @@ impl View {
             View::Home(_) => false,
             View::TextCompare(v) => v.is_dirty(),
             View::TableCompare(v) => v.is_dirty(),
+            View::HexCompare(v) => v.is_dirty(),
             View::FolderCompare(v) => v.text_dirty(),
             View::FolderSync(v) => v.folder.text_dirty(),
         }
@@ -99,6 +105,7 @@ impl View {
             View::Home(_) => false,
             View::TextCompare(v) => v.prompt_open(),
             View::TableCompare(v) => v.prompt_open(),
+            View::HexCompare(v) => v.prompt_open(),
             View::FolderCompare(v) => v.prompt_open(),
             View::FolderSync(v) => v.folder.prompt_open(),
         }
@@ -109,6 +116,7 @@ impl View {
             View::Home(_) => {}
             View::TextCompare(v) => v.request_exit(),
             View::TableCompare(v) => v.request_exit(),
+            View::HexCompare(v) => v.request_exit(),
             View::FolderCompare(v) => {
                 v.request_text_close(true);
             }
@@ -123,6 +131,7 @@ impl View {
             View::Home(_) => {}
             View::TextCompare(v) => v.request_close(),
             View::TableCompare(v) => v.request_close(),
+            View::HexCompare(v) => v.request_close(),
             View::FolderCompare(v) => v.request_tab_close(),
             View::FolderSync(v) => v.folder.request_tab_close(),
         }
@@ -317,6 +326,33 @@ impl MatchaApp {
     /// 命令行给了两个路径时直接打开比较（唯一标签页，不附带 Home）；否则为 Home。
     fn launch_view(ctx: &egui::Context, options: &LaunchOptions) -> View {
         let home = HomeView::new;
+        // `/fv=` 强制会话类型（仅文件对；其它类型继续走格式路由）。
+        if let (Some(l), Some(r)) = (&options.left, &options.right) {
+            let forced = match options.force_view {
+                Some(bc_session::SessionKind::HexCompare) => Some("hex"),
+                Some(bc_session::SessionKind::TextCompare) => Some("text"),
+                Some(bc_session::SessionKind::TableCompare) => Some("table"),
+                _ => None,
+            };
+            if let Some(which) = forced {
+                let opened = match which {
+                    "hex" => HexCompareView::open(l, r).map(|v| View::HexCompare(Box::new(v))),
+                    "table" => TableCompareView::open(l, r).map(|v| View::TableCompare(Box::new(v))),
+                    _ => TextCompareView::open(l, r).map(|v| View::TextCompare(Box::new(v))),
+                };
+                return match opened {
+                    Ok(view) => {
+                        HomeView::record(l, r);
+                        view
+                    }
+                    Err(e) => {
+                        let mut home = home();
+                        home.set_error(format!("Cannot open: {e}"));
+                        View::Home(home)
+                    }
+                };
+            }
+        }
         match (&options.left, &options.right) {
             (Some(l), Some(r))
                 if l.is_dir()
@@ -328,6 +364,21 @@ impl MatchaApp {
             (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
                 DirCompareView::open(ctx, l, r, false, options.bench_dir),
             )),
+            (Some(l), Some(r)) if !options.bench_table && crate::home::hex_paths(l, r) => {
+                match HexCompareView::open(l, r) {
+                    Ok(v) => {
+                        if options.snapshot.is_none() {
+                            HomeView::record(l, r);
+                        }
+                        View::HexCompare(Box::new(v))
+                    }
+                    Err(e) => {
+                        let mut home = home();
+                        home.set_error(format!("Cannot open: {e}"));
+                        View::Home(home)
+                    }
+                }
+            }
             (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
                 match TableCompareView::open(l, r) {
                     Ok(mut v) => {
@@ -507,6 +558,15 @@ impl MatchaApp {
                 }
                 View::TableCompare(Box::new(v))
             }
+            SessionKind::HexCompare => {
+                let mut v = HexCompareView::empty();
+                if let Some(path) = &left {
+                    if let Err(e) = v.open_path(0, path) {
+                        v.message = e.to_string();
+                    }
+                }
+                View::HexCompare(Box::new(v))
+            }
         };
         self.open_tab(view);
     }
@@ -539,6 +599,12 @@ impl MatchaApp {
                     View::TableCompare(Box::new(v))
                 })
                 .map_err(|e| e.to_string()),
+            HomeAction::OpenHexCompare { left, right } => HexCompareView::open(&left, &right)
+                .map(|v| {
+                    HomeView::record(&left, &right);
+                    View::HexCompare(Box::new(v))
+                })
+                .map_err(|e| e.to_string()),
             HomeAction::OpenFolderCompare { left, right } => Ok(View::FolderCompare(Box::new(
                 DirCompareView::open(ctx, &left, &right, false, false),
             ))),
@@ -567,6 +633,7 @@ impl MatchaApp {
             self.active_view(),
             View::TextCompare(_)
                 | View::TableCompare(_)
+                | View::HexCompare(_)
                 | View::FolderCompare(_)
                 | View::FolderSync(_)
                 | View::Home(_)
@@ -631,6 +698,9 @@ impl MatchaApp {
             v.poll();
         }
         if let View::TableCompare(v) = self.view_mut() {
+            v.poll();
+        }
+        if let View::HexCompare(v) = self.view_mut() {
             v.poll();
         }
         let benchmark_ready = matches!(self.active_view(), View::TextCompare(v) if v.is_ready())
@@ -737,6 +807,7 @@ impl MatchaApp {
         let mut home_action = None;
         let mut view_action = None;
         let mut table_action = None;
+        let mut hex_action = None;
         let mut folder_switch = None;
         let panel = if self.has_own_chrome() {
             egui::CentralPanel::default()
@@ -755,11 +826,13 @@ impl MatchaApp {
             }
             View::TextCompare(view) => view_action = view.ui(ui, prefs),
             View::TableCompare(view) => table_action = view.ui(ui, prefs),
+            View::HexCompare(view) => hex_action = view.ui(ui),
             View::FolderCompare(view) => folder_switch = view.ui(ui),
             View::FolderSync(view) => folder_switch = view.ui(ui),
         });
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.tabs[self.active].view {
+                View::HexCompare(v) => v.is_ready(),
                 View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::FolderCompare(v) => !v.busy(),
@@ -862,6 +935,14 @@ impl MatchaApp {
                         None
                     }
                 },
+                // Using: Hex Compare 原位换会话类型。
+                TableAction::Hex { left, right } => match HexCompareView::open(&left, &right) {
+                    Ok(v) => Some(TabCommand::Replace(View::HexCompare(Box::new(v)))),
+                    Err(e) => {
+                        eprintln!("Cannot open hex: {e}");
+                        None
+                    }
+                },
             };
             commands.extend(command);
         }
@@ -886,7 +967,38 @@ impl MatchaApp {
                         }
                     }
                 }
+                // Session > Compare Files Using > Hex Compare：原位换会话类型。
+                ViewAction::CompareAsHex { left, right } => match HexCompareView::open(&left, &right) {
+                    Ok(v) => Some(TabCommand::Replace(View::HexCompare(Box::new(v)))),
+                    Err(e) => {
+                        eprintln!("Cannot open hex: {e}");
+                        None
+                    }
+                },
             });
+        }
+        if let Some(action) = hex_action {
+            let command = match action {
+                HexAction::Home => Some(TabCommand::Home),
+                HexAction::Close => Some(TabCommand::Close),
+                HexAction::NewTab => Some(TabCommand::NewTab),
+                HexAction::Exit => Some(TabCommand::Exit(true)),
+                HexAction::CompareAsText { left, right } => match TextCompareView::open(&left, &right) {
+                    Ok(v) => Some(TabCommand::Replace(View::TextCompare(Box::new(v)))),
+                    Err(e) => {
+                        eprintln!("Cannot open text: {e}");
+                        None
+                    }
+                },
+                HexAction::CompareAsTable { left, right } => match TableCompareView::open(&left, &right) {
+                    Ok(v) => Some(TabCommand::Replace(View::TableCompare(Box::new(v)))),
+                    Err(e) => {
+                        eprintln!("Cannot open table: {e}");
+                        None
+                    }
+                },
+            };
+            commands.extend(command);
         }
         if let Some((sync, paths)) = folder_switch {
             // 比较/同步互切沿用原位替换（同一会话换类型）。
@@ -926,6 +1038,7 @@ impl MatchaApp {
                 View::Home(_) => "home",
                 View::TextCompare(_) => "text",
                 View::TableCompare(_) => "table",
+                View::HexCompare(_) => "hex",
                 View::FolderCompare(_) => "folder",
                 View::FolderSync(_) => "sync",
             };

@@ -30,12 +30,17 @@ impl DevFlags {
             || self.screenshot.is_some()
     }
 
-    /// 合成 GUI 启动选项。
-    pub fn into_launch(self, pair: Option<(PathBuf, PathBuf)>) -> bc_gui::LaunchOptions {
+    /// 合成 GUI 启动选项并携带强制会话类型（`/fv=` 由调用方从 `CliArgs` 注入）。
+    pub fn into_launch_with(
+        self,
+        pair: Option<(PathBuf, PathBuf)>,
+        force_view: Option<bc_session::SessionKind>,
+    ) -> bc_gui::LaunchOptions {
         let (left, right) = pair.unzip();
         bc_gui::LaunchOptions {
             left,
             right,
+            force_view,
             bench: self.bench,
             bench_table: self.bench_table,
             bench_dir: self.bench_dir,

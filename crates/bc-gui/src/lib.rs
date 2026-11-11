@@ -38,6 +38,8 @@ use std::path::PathBuf;
 pub struct LaunchOptions {
     pub left: Option<PathBuf>,
     pub right: Option<PathBuf>,
+    /// `/fv=<type>` 强制会话类型（hex-compare 起生效；None = 按格式路由）。
+    pub force_view: Option<bc_session::SessionKind>,
     /// Run the scroll benchmark and exit.
     pub bench: Option<bench::BenchOptions>,
     /// Run the 600-frame two-dimensional table benchmark.

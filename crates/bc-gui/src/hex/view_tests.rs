@@ -24,7 +24,7 @@ fn frame(ctx: &egui::Context, v: &mut HexCompareView) {
         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
         ..Default::default()
     };
-    let mut out = ctx.run_ui(input, |ui| v.ui(ui));
+    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
     out.textures_delta.clear();
 }
 
@@ -198,7 +198,7 @@ fn key(ctx: &egui::Context, v: &mut HexCompareView, k: egui::Key, modifiers: egu
         }],
         ..Default::default()
     };
-    let mut out = ctx.run_ui(input, |ui| v.ui(ui));
+    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
     out.textures_delta.clear();
 }
 
@@ -449,4 +449,108 @@ fn same_filter_shows_only_same_cells() {
     v.filter = bc_engine_bin::hex::DisplayFilter::Same;
     let rows = v.grid_rows_for_test(16);
     assert!(rows.iter().flat_map(|r| &r.cells).all(|c| c.kind == DiffKind::Same));
+}
+
+// ---- 任务 6.1：会话设置三页 ----
+
+#[test]
+fn session_settings_apply_alignment_and_disable_editing() {
+    use bc_core::align::ByteAlignStrategy;
+    let mut v = HexCompareView::from_bytes(corpus("l2.bin"), corpus("r2.bin"));
+    ready(&mut v);
+    assert_eq!(v.stats().same, 2048);
+    let mut draft = v.session_draft();
+    assert_eq!(draft.alignment, ByteAlignStrategy::Complete); // 默认 Complete
+    draft.alignment = ByteAlignStrategy::None;
+    draft.disable_editing[0] = true;
+    v.settings_open = true;
+    v.apply_session_draft(draft);
+    ready(&mut v);
+    assert!(!v.settings_open);
+    assert!(v.map.left.read_only());
+    assert!(v.type_bytes(0, &[0]).is_err());
+    assert_eq!(v.map.rules.alignment, ByteAlignStrategy::None);
+    // None 档逐位对齐：插入点后错位放大为 difference。
+    assert!(v.stats().difference > 5);
+    // "Use for this view only"：其它会话不受影响。
+    let mut other = HexCompareView::from_bytes(corpus("l2.bin"), corpus("r2.bin"));
+    ready(&mut other);
+    assert_eq!(other.map.rules.alignment, ByteAlignStrategy::Complete);
+    // 切回 Complete 恢复精确对齐。
+    let mut draft = v.session_draft();
+    draft.alignment = ByteAlignStrategy::Complete;
+    draft.disable_editing[0] = false;
+    v.apply_session_draft(draft);
+    ready(&mut v);
+    assert_eq!(v.stats().same, 2048);
+    assert_eq!(v.stats().right_orphan, 5);
+}
+
+// ---- 任务 6.3：空会话流程 ----
+
+#[test]
+fn empty_session_opens_sides_independently() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-empty-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (lp, rp) = (dir.join("l.bin"), dir.join("r.bin"));
+    std::fs::write(&lp, corpus("l2.bin")).unwrap();
+    std::fs::write(&rp, corpus("r2.bin")).unwrap();
+    // 先建空视图，再逐侧打开。
+    let mut v = HexCompareView::empty();
+    ready(&mut v);
+    assert_eq!(v.stats(), bc_engine_bin::hex::HexStats::default());
+    v.open_path(0, &lp).unwrap();
+    ready(&mut v);
+    assert_eq!(v.map.left.len(), 2048);
+    assert_eq!(v.map.right.len(), 0);
+    v.open_path(1, &rp).unwrap();
+    ready(&mut v);
+    assert_eq!(v.stats().same, 2048);
+    assert_eq!(v.stats().right_orphan, 5);
+    // 标题与路径反映两侧。
+    let paths = v.paths();
+    assert_eq!(paths[0].as_deref(), Some(lp.as_path()));
+    assert_eq!(paths[1].as_deref(), Some(rp.as_path()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- 任务 6.2：互切动作与菜单命令 ----
+
+#[test]
+fn compare_files_using_emits_hex_switch_action() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-switch-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (lp, rp) = (dir.join("l.bin"), dir.join("r.bin"));
+    std::fs::write(&lp, corpus("l2.bin")).unwrap();
+    std::fs::write(&rp, corpus("r2.bin")).unwrap();
+    let mut v = HexCompareView::open(&lp, &rp).unwrap();
+    ready(&mut v);
+    v.command("Using:Text Compare");
+    assert!(matches!(
+        v.action,
+        Some(super::HexAction::CompareAsText { .. })
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn menu_commands_drive_view_state() {
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    v.command("Show Differences");
+    assert_eq!(v.filter, bc_engine_bin::hex::DisplayFilter::Differences);
+    v.command("Show All");
+    v.command("Thumbnail");
+    assert!(!v.show_thumbnail);
+    v.command("Over-Under Layout");
+    assert!(!v.side_by_side);
+    v.command("Side-by-Side Layout");
+    assert!(v.side_by_side);
+    v.command("Hex Compare Info");
+    assert!(v.info_open);
+    frame(&ctx, &mut v); // Info 对话框渲染
+    v.info_open = false;
+    // 菜单栏渲染（menubar::show）。
+    frame(&ctx, &mut v);
 }

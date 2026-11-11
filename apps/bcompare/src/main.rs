@@ -137,9 +137,9 @@ fn main() -> ExitCode {
             if !dev.any() && !perf_env {
                 sync_shell_menu();
             }
-            run_gui(dev.into_launch(pair), None)
+            run_gui(dev.into_launch_with(pair, cli.force_view()), None)
         }
-        Route::SingleInstance => single_instance(dev.into_launch(pair), args, wait),
+        Route::SingleInstance => single_instance(dev.into_launch_with(pair, cli.force_view()), args, wait),
     }
 }
 

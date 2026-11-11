@@ -34,6 +34,11 @@ pub enum TableAction {
         left: PathBuf,
         right: PathBuf,
     },
+    /// Using: Hex Compare 原位换会话类型。
+    Hex {
+        left: PathBuf,
+        right: PathBuf,
+    },
 }
 #[derive(Clone)]
 pub(super) enum Pending {
@@ -44,6 +49,7 @@ pub(super) enum Pending {
     Clipboard(usize, String),
     Settings(Box<Draft>),
     Text,
+    Hex,
 }
 /// A destructive load staged on the worker: files/options/rules/pairs of the
 /// running session are replaced only after the load succeeds; a failure keeps

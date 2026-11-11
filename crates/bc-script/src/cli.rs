@@ -218,6 +218,14 @@ impl CliArgs {
         self.has(|s| matches!(s, Switch::Silent))
     }
 
+    /// `/fv=<type>` 开关（若有）。
+    pub fn force_view(&self) -> Option<SessionKind> {
+        self.switches.iter().find_map(|s| match s {
+            Switch::ForceView(kind) => Some(*kind),
+            _ => None,
+        })
+    }
+
     /// `/solo` – force a new instance.
     pub fn solo(&self) -> bool {
         self.has(|s| matches!(s, Switch::Solo))
@@ -657,6 +665,8 @@ mod tests {
         assert!(bad(&["-bogus"]));
         assert!(bad(&["/solo=1"]));
         assert!(bad(&["/fv=Nope"]));
+        let cli = CliArgs::parse(["/fv=Hex Compare", "x/a", "x/b"]).unwrap();
+        assert_eq!(cli.force_view(), Some(SessionKind::HexCompare));
         assert!(bad(&["/qc=fast"]));
         assert!(bad(&["/mergeoutput"]));
         assert!(bad(&["a", "b", "c", "d", "e"]));

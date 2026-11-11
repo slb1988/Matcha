@@ -2,11 +2,13 @@
 //!
 //! 网格渲染/交互与会话设置分布在 `render`/`view` 等模块；后台对齐见 [`worker`]。
 
+pub mod menu;
 pub mod render;
+pub mod settings;
 pub mod view;
 pub mod worker;
 
-pub use view::HexCompareView;
+pub use view::{HexAction, HexCompareView};
 
 /// 默认文件锁阈值（2 MB，对齐参考工具）。
 pub fn default_lock_threshold() -> u64 {

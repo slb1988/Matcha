@@ -36,9 +36,9 @@
 
 ## 6. 会话设置与入口接线
 
-- [ ] 6.1 实现 Session Settings 三页（Specs/Format/Comparison，作用域至少 "Use for this view only"）；验证：RawInput 回归切策略触发重对齐、禁编辑生效
-- [ ] 6.2 `app.rs` 加 `View::HexCompare`，`home.rs` 加会话卡与 `*.bin` 掩码路由，接入 `/fv="Hex Compare"`，text/table 的 Compare Files Using 增加 Hex 互切；验证：路由单测 + RawInput 打开/互切回归
-- [ ] 6.3 空会话流程（先建视图再逐侧打开）；验证：RawInput 回归
+- [x] 6.1 实现 Session Settings 三页（Specs/Format/Comparison，作用域至少 "Use for this view only"）；验证：RawInput 回归切策略触发重对齐、禁编辑生效
+- [x] 6.2 `app.rs` 加 `View::HexCompare`，`home.rs` 加会话卡与 `*.bin` 掩码路由，接入 `/fv="Hex Compare"`，text/table 的 Compare Files Using 增加 Hex 互切；验证：路由单测 + RawInput 打开/互切回归
+- [x] 6.3 空会话流程（先建视图再逐侧打开）；验证：RawInput 回归
 
 ## 7. 验收
 

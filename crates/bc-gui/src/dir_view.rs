@@ -2687,6 +2687,8 @@ impl DirCompareView {
                     }
                 }
                 None => {}
+                // 内嵌文本窗口不切到 hex（属主会话是文件夹比较；互切仅限主视图）。
+                Some(ViewAction::CompareAsHex { .. }) => {}
             }
             // 保存确认被取消：放弃挂起的关闭标签页。
             if self.text.as_ref().is_some_and(|t| !t.prompt_open()) {

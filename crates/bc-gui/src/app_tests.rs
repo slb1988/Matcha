@@ -405,3 +405,43 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
     assert_eq!(outcomes.lock().unwrap().len(), 4);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn fv_hex_compare_opens_hex_view() {
+    let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+    let options = LaunchOptions {
+        left: Some(PathBuf::from(format!("{corpus}l2.bin"))),
+        right: Some(PathBuf::from(format!("{corpus}r2.bin"))),
+        force_view: Some(bc_session::SessionKind::HexCompare),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&egui::Context::default(), &options);
+    assert!(matches!(view, View::HexCompare(_)));
+    // 强制 Text 覆盖格式路由（用文本文件，.bin 的 NUL 内容会被文本加载拒绝）。
+    let dir = std::env::temp_dir().join(format!("matcha-fv-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (a, b) = (dir.join("a.txt"), dir.join("b.txt"));
+    std::fs::write(&a, b"one\n").unwrap();
+    std::fs::write(&b, b"two\n").unwrap();
+    let options = LaunchOptions {
+        left: Some(a.clone()),
+        right: Some(b.clone()),
+        force_view: Some(bc_session::SessionKind::TextCompare),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&egui::Context::default(), &options);
+    assert!(matches!(view, View::TextCompare(_)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bin_mask_routes_to_hex_compare_view() {
+    let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+    let options = LaunchOptions {
+        left: Some(PathBuf::from(format!("{corpus}l2.bin"))),
+        right: Some(PathBuf::from(format!("{corpus}r2.bin"))),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&egui::Context::default(), &options);
+    assert!(matches!(view, View::HexCompare(_)));
+}

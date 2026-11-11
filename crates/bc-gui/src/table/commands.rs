@@ -1492,6 +1492,14 @@ impl TableCompareView {
                     self.message = "Save clipboard sources before opening Text Compare".into();
                 }
             }
+            Pending::Hex => {
+                if let [Some(left), Some(right)] = self.paths() {
+                    self.cancel();
+                    self.action = Some(TableAction::Hex { left, right });
+                } else {
+                    self.message = "Save clipboard sources before opening Hex Compare".into();
+                }
+            }
             Pending::Settings(draft) => {
                 let reload = draft.options != self.options
                     || draft.paths

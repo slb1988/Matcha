@@ -56,6 +56,11 @@ pub enum ViewAction {
         left: String,
         right: String,
     },
+    /// Session > Compare Files Using > Hex Compare：同一对文件原位以 Hex Compare 重开。
+    CompareAsHex {
+        left: std::path::PathBuf,
+        right: std::path::PathBuf,
+    },
 }
 #[derive(Clone)]
 enum Pending {
@@ -1745,6 +1750,15 @@ impl TextCompareView {
                 None => self.message = "This side has no file on disk".into(),
             },
             "Swap Sides" => self.swap(),
+            "Hex Compare" => {
+                let [left, right] = self.paths();
+                match (left, right) {
+                    (Some(left), Some(right)) => {
+                        self.action = Some(ViewAction::CompareAsHex { left, right })
+                    }
+                    _ => self.message = "Save clipboard sides before opening Hex Compare".into(),
+                }
+            }
             "Recompare Files" => self.recompare(),
             "Reload Files" => self.request(Pending::ReloadBoth),
             "Find..." => self.find.show(),

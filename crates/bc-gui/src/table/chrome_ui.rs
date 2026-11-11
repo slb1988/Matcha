@@ -278,6 +278,7 @@ impl TableCompareView {
             "Export Summary as CSV..." => self.file_dialog(FileMode::Summary(true)),
             "Table Compare Info" => self.show_statistics = true,
             "Using:Text Compare" => self.request(Pending::Text),
+            "Using:Hex Compare" => self.request(Pending::Hex),
             "Open File..." => self.file_dialog(FileMode::Open(s)),
             "Open Clipboard" => {
                 self.clipboard_side = Some(s);
