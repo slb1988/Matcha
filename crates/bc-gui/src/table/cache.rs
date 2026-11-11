@@ -75,10 +75,10 @@ impl Cache {
                     d.importance(rules.layers, rules.ignore_unimportant) != Importance::Same
                 }) || !column.changes.is_empty(),
             );
-            let mut length = 8;
+            let mut length = 1;
             for (sheet, col) in [(left, column.left), (right, column.right)] {
                 if let Some(col) = col {
-                    length = length.max(sheet.column_name(col).chars().count());
+                    length = length.max(header_length(sheet, col));
                     for r in 0..sheet.row_count().min(128) {
                         length = length.max(
                             sheet
@@ -92,9 +92,7 @@ impl Cache {
                     }
                 }
             }
-            cache
-                .widths
-                .push((length as f32 * 7.3 + 20.0).clamp(90.0, 420.0));
+            cache.widths.push(fit_width(length).min(420.0));
         }
         cache.statistics.structural_columns = rules
             .columns
@@ -112,10 +110,10 @@ impl Cache {
         cancel: &dyn CancelCheck,
     ) -> Result<()> {
         for (c, column) in output.rules.columns.0.iter().enumerate() {
-            let mut length = 8;
+            let mut length = 1;
             for (sheet, col) in [(left, column.left), (right, column.right)] {
                 if let Some(col) = col {
-                    length = length.max(sheet.column_name(col).chars().count());
+                    length = length.max(header_length(sheet, col));
                     for row in 0..sheet.row_count() {
                         if row.is_multiple_of(1024) {
                             cancel.check()?;
@@ -132,7 +130,7 @@ impl Cache {
                     }
                 }
             }
-            self.widths[c] = (length as f32 * 7.3 + 20.0).clamp(90.0, 1_000_000.0);
+            self.widths[c] = fit_width(length);
         }
         Ok(())
     }
@@ -152,6 +150,21 @@ impl Cache {
             0,
             &[],
         )
+    }
+}
+/// Reference column fit (tokens `tableColumnWidths` [47,33,67] for 5/3/8
+/// character columns): 7 px per Consolas character plus 12 px padding and
+/// grid line, never narrower than a lettered header with its marker.
+fn fit_width(length: usize) -> f32 {
+    (length as f32 * 7.0 + 12.0).max(33.0)
+}
+/// Header names count toward the fit only when the sheet has a header row
+/// (otherwise the header shows a column letter).
+fn header_length(sheet: &SheetStore, col: usize) -> usize {
+    if bc_engine_table::TableData::headers(sheet).is_some() {
+        sheet.column_name(col).chars().count()
+    } else {
+        1
     }
 }
 pub fn layer_index(layer: bc_engine_table::rules::Layers) -> usize {

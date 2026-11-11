@@ -474,13 +474,17 @@ fn inferred_keys_are_annotated_with_column_names_in_status_and_settings() {
     );
     ready(&mut v);
     let ctx = egui::Context::default();
+    // Wave 8: the old statistics line moved to Session › Table Compare Info (Ctrl+I).
+    frame(&ctx, &mut v, vec![key(egui::Key::I, true)]);
+    frame(&ctx, &mut v, vec![]); // 窗口首帧布局
     let out = frame(&ctx, &mut v, vec![]);
     assert!(
         out.shapes.iter().any(
             |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("id（自动）"))
         ),
-        "status bar names the inferred key columns"
+        "Table Compare Info names the inferred key columns"
     );
+    v.show_statistics = false;
     v.settings_open();
     frame(&ctx, &mut v, vec![]); // 窗口首帧布局
     let out = frame(&ctx, &mut v, vec![]);
@@ -1068,8 +1072,10 @@ fn swap_mirrors_orphan_counts_and_statistics() {
 #[test]
 fn open_two_real_xlsx_files_compares_via_parallel_load() {
     // 真实 xlsx 走 LoadJob 的并行双侧/三段解析路径；统计与内容必须与串行一致。
-    let left = std::env::temp_dir().join(format!("matcha-xlsx-par-left-{}.xlsx", std::process::id()));
-    let right = std::env::temp_dir().join(format!("matcha-xlsx-par-right-{}.xlsx", std::process::id()));
+    let left =
+        std::env::temp_dir().join(format!("matcha-xlsx-par-left-{}.xlsx", std::process::id()));
+    let right =
+        std::env::temp_dir().join(format!("matcha-xlsx-par-right-{}.xlsx", std::process::id()));
     std::fs::write(
         &left,
         super::sheets::xlsx(&[("Data", "id,name\n1,apple\n2,banana\n3,cherry")]),

@@ -22,10 +22,28 @@ fn nav_view() -> TableCompareView {
     ready(&mut v);
     v
 }
+/// Wave 8 moved the old toolbar rows into the classic menus/toolbar; the
+/// legacy labels used by these tests resolve to their new entry paths.
+fn legacy_path(label: &str) -> Vec<&str> {
+    match label {
+        "Differences" => vec!["Diffs"],
+        "None" => vec!["View", "Show None"],
+        "Ignore Unimportant" => vec!["Minor"],
+        "Go" => vec!["Search", "Go To...", "Go"],
+        "Hide Same Columns" => vec!["View", "Hide Same Columns"],
+        "Over-Under" => vec!["View", "Over-Under Layout"],
+        "+ Formulas" => vec!["View", "Compare Values + Formulas"],
+        "+ Number formats" => vec!["View", "Compare Values + Formulas + Number Formats"],
+        "Values" => vec!["View", "Compare Values"],
+        other => vec![other],
+    }
+}
 fn choose(ctx: &egui::Context, v: &mut TableCompareView, label: &str) {
-    frame(ctx, v, vec![]);
-    let out = frame(ctx, v, vec![]);
-    click(ctx, v, button(&out, label));
+    for label in legacy_path(label) {
+        frame(ctx, v, vec![]);
+        let out = frame(ctx, v, vec![]);
+        click(ctx, v, button(&out, label));
+    }
 }
 fn search(ctx: &egui::Context, v: &mut TableCompareView, label: &str) {
     choose(ctx, v, "Search");

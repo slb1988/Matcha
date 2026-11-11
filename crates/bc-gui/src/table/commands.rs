@@ -25,7 +25,7 @@ fn invalid(message: &str) -> CoreError {
     CoreError::Invalid(message.into())
 }
 impl TableCompareView {
-    fn source_row(&self, side: usize, row: usize) -> Result<usize, CoreError> {
+    pub(super) fn source_row(&self, side: usize, row: usize) -> Result<usize, CoreError> {
         let pair = self
             .pair
             .as_ref()
@@ -126,7 +126,9 @@ impl TableCompareView {
             } else {
                 pair.map.right.borrow()
             };
-            if sheet.cell_snapshot(editor.source.row, editor.source.column).as_ref()
+            if sheet
+                .cell_snapshot(editor.source.row, editor.source.column)
+                .as_ref()
                 != Some(&editor.original_cell)
                 || sheet
                     .display_at(editor.source.row, editor.source.column)
@@ -350,7 +352,7 @@ impl TableCompareView {
             })
             .collect()
     }
-    fn clipboard_text(&self) -> Option<String> {
+    pub(super) fn clipboard_text(&self) -> Option<String> {
         let pair = self.pair.as_ref()?;
         let selected = self.selection();
         if selected.rows.is_empty() || selected.columns.is_empty() {
@@ -472,7 +474,9 @@ impl TableCompareView {
             .edit_sheet(side(s), "Paste cells", |sheet, rules, anchors| {
                 for (row, cells) in values.iter_mut().enumerate() {
                     for (col, cell) in cells.iter_mut().enumerate() {
-                        cell.style = sheet.cell_snapshot(r + row, c + col).and_then(|cell| cell.style);
+                        cell.style = sheet
+                            .cell_snapshot(r + row, c + col)
+                            .and_then(|cell| cell.style);
                     }
                 }
                 sheet.paste_cells(r, c, values)?;
@@ -646,94 +650,7 @@ impl TableCompareView {
         self.edited();
         Ok(())
     }
-    pub(super) fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
-            if ui.button("Undo").clicked() {
-                self.undo(false);
-                ui.close();
-            }
-            if ui.button("Redo").clicked() {
-                self.undo(true);
-                ui.close();
-            }
-            if ui.button("Modify cell (F2)").clicked() {
-                self.begin_edit(self.grid.active, self.grid.cursor, None);
-                ui.close();
-            }
-            if ui.button("Copy to Other Side").clicked() {
-                self.copy(false);
-                ui.close();
-            }
-            if ui.button("Copy Row to Other Side").clicked() {
-                self.copy(true);
-                ui.close();
-            }
-            if ui.button("Cut").clicked() {
-                if let Some(text) = self.clipboard_text() {
-                    ui.ctx().copy_text(text);
-                    self.clear_selected();
-                }
-                ui.close();
-            }
-            if ui.button("Copy").clicked() {
-                if let Some(text) = self.clipboard_text() {
-                    ui.ctx().copy_text(text);
-                }
-                ui.close();
-            }
-            if ui.button("Paste").clicked() {
-                self.paste_requested = true;
-                self.focus_grid = Some(self.grid.active);
-                ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                ui.close();
-            }
-            if ui.button("Delete").clicked() {
-                self.clear_selected();
-                ui.close();
-            }
-            for (name, op) in [
-                ("Insert Row Before", 0),
-                ("Insert Row After", 1),
-                ("Delete Row", 2),
-                ("Insert Column Before", 3),
-                ("Insert Column After", 4),
-                ("Delete Column", 5),
-                ("Sort descending", 6),
-                ("Sort ascending", 7),
-            ] {
-                let response = ui.button(name);
-                let response = if matches!(op, 6 | 7) {
-                    response.on_hover_text("Stable sort by selected visible columns. Multi-row selection: selected visible rows only; otherwise: whole active table.")
-                } else {
-                    response
-                };
-                if response.clicked() {
-                    if let Err(e) = self.structure(op) {
-                        self.message = e.to_string();
-                    }
-                    ui.close();
-                }
-            }
-            if ui.button("Select All").clicked() {
-                self.select_all();
-                ui.close();
-            }
-            if ui.button("Align With — click opposite row").clicked() {
-                if !self.is_ready() {
-                    self.message = "Wait for comparison before aligning rows".into();
-                } else if let Ok(r) = self.source_row(self.grid.active, self.grid.cursor.row) {
-                    self.align_with = Some((self.grid.active, r));
-                }
-                ui.close();
-            }
-            if ui.button("Clear alignment overrides").clicked() {
-                self.clear_alignment();
-                ui.close();
-            }
-        });
-    }
-    fn clear_alignment(&mut self) {
+    pub(super) fn clear_alignment(&mut self) {
         if !self.is_ready() {
             self.message = "Wait for comparison before clearing alignment".into();
             return;
@@ -757,7 +674,7 @@ impl TableCompareView {
             }
         }
     }
-    fn select_all(&mut self) {
+    pub(super) fn select_all(&mut self) {
         if let Some(p) = &self.pair {
             let rows = if p.map.is_stale() {
                 p.map
@@ -912,9 +829,7 @@ impl TableCompareView {
         // clicked (find box, toolbar, settings, thumbnail...).
         for event in &events {
             if let egui::Event::PointerButton {
-                pos,
-                pressed: true,
-                ..
+                pos, pressed: true, ..
             } = event
             {
                 if !self.grid.pane_rects.iter().any(|r| r.contains(*pos)) {
@@ -1789,6 +1704,7 @@ impl TableCompareView {
             }
         }
         if self.show_statistics {
+            let keys = self.keys_description();
             egui::Window::new("Table Compare Info")
                 .open(&mut self.show_statistics)
                 .show(ctx, |ui| {
@@ -1799,6 +1715,7 @@ impl TableCompareView {
                             ui.label(format!("Sheet {}: {} same / {} unimportant / {} important / {} left-only / {} right-only / {} columns",i+1,s.same,s.unimportant,s.important,s.left_only,s.right_only,s.columns));
                         }else{ui.label(format!("Sheet {}: comparison pending",i+1));}
                     }
+                    ui.label(format!("Keys: {keys}"));
                     if let Some(p) = &self.pair {
                         ui.label(format!(
                             "Current sheet: {:?}; duplicate keys {:?}",

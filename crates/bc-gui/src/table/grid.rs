@@ -1,12 +1,25 @@
 use super::cache::projected;
 use crate::text::projection::Projection;
 use bc_core::DiffKind;
-use bc_engine_table::{compare::Importance, map::TableMapRow, TableMap};
+use bc_engine_table::{compare::Importance, map::TableMapRow, TableData, TableMap};
 use bc_session::prefs::DiffColors;
 use eframe::egui;
 use std::ops::Range;
-pub const ROW_HEIGHT: f32 = 22.0;
-pub const GUTTER: f32 = 62.0;
+/// Reference grid metrics (tokens `tableRowHeight` / `tableNumberGutterWidth` /
+/// `tableHeaderHeight`): 18 px rows, 34 px row-number gutter, 28 px header.
+pub const ROW_HEIGHT: f32 = 18.0;
+pub const GUTTER: f32 = 34.0;
+pub const HEADER_HEIGHT: f32 = 28.0;
+/// Consolas 10 pt advance at 96 dpi (horizontal preview offset only).
+const CHAR_WIDTH: f32 = 7.33;
+pub const GRID_LINE: egui::Color32 = egui::Color32::from_rgb(0xA0, 0xA0, 0xA0);
+pub const GRID_LINE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xB0, 0xB0, 0xB0);
+pub const PANE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xFC, 0xFC);
+pub const SELECTION: egui::Color32 = egui::Color32::from_rgb(0xA8, 0xCD, 0xF1);
+pub const INDICATOR: egui::Color32 = egui::Color32::from_rgb(0x00, 0x78, 0xD7);
+const DIFF_FILL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xE3, 0xE3);
+const DIFF_FILL_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xE6, 0xE6);
+const MINOR_FILL: egui::Color32 = egui::Color32::from_rgb(0xEE, 0xEE, 0xFF);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Cursor {
     pub row: usize,
@@ -29,6 +42,10 @@ pub struct GridState {
     pub cells_drawn: usize,
     pub edit_target: Option<(usize, Cursor)>,
     pub edit_rect: Option<egui::Rect>,
+    /// The cursor cell is painted as a selection (blue) only after the user
+    /// placed it (click/keyboard/select-all); a freshly loaded comparison shows
+    /// just the focus frame, like the reference.
+    pub selection_visible: bool,
 }
 impl Default for GridState {
     fn default() -> Self {
@@ -49,6 +66,7 @@ impl Default for GridState {
             cells_drawn: 0,
             edit_target: None,
             edit_rect: None,
+            selection_visible: false,
         }
     }
 }
@@ -72,6 +90,158 @@ pub fn color(
     };
     egui::Color32::from_rgba_unmultiplied(r, g, b, alpha)
 }
+/// Cell background of a differing cell in the active / inactive pane; user
+/// colors from Options are blended like the text view does.
+pub fn cell_fill(
+    colors: &DiffColors,
+    importance: Importance,
+    orphan: bool,
+    active: bool,
+) -> egui::Color32 {
+    let defaults = DiffColors::default();
+    let custom = if orphan {
+        colors.inserted != defaults.inserted
+    } else if importance == Importance::Unimportant {
+        colors.unimportant != defaults.unimportant
+    } else {
+        colors.important != defaults.important
+    };
+    if custom {
+        color(colors, importance, orphan, 38)
+    } else if importance == Importance::Unimportant {
+        MINOR_FILL
+    } else if active {
+        DIFF_FILL
+    } else {
+        DIFF_FILL_INACTIVE
+    }
+}
+/// Text color of a differing cell (red / blue by importance).
+pub fn cell_ink(colors: &DiffColors, importance: Importance) -> egui::Color32 {
+    let defaults = DiffColors::default();
+    if importance == Importance::Unimportant {
+        if colors.unimportant == defaults.unimportant {
+            egui::Color32::BLUE
+        } else {
+            color(colors, importance, false, 255)
+        }
+    } else if colors.important == defaults.important {
+        egui::Color32::RED
+    } else {
+        color(colors, importance, false, 255)
+    }
+}
+/// Small difference marker: 9 px square, white rim, shaded 7 px colored core.
+pub fn marker(painter: &egui::Painter, min: egui::Pos2, ink: egui::Color32) {
+    let rect = egui::Rect::from_min_size(min, egui::vec2(9.0, 9.0));
+    painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
+    let core = rect.shrink(1.0);
+    // Lighten each channel toward white by `num/den`.
+    let tint = |num: u16, den: u16| {
+        let lift = |c: u8| (c as u16 + (255 - c as u16) * num / den) as u8;
+        egui::Color32::from_rgb(lift(ink.r()), lift(ink.g()), lift(ink.b()))
+    };
+    painter.rect_filled(core, 0.0, tint(1, 3));
+    painter.rect_filled(
+        egui::Rect::from_min_max(core.min, egui::pos2(core.right(), core.center().y)),
+        0.0,
+        tint(2, 7),
+    );
+}
+/// Marker ink of a row/column with differences.
+pub fn marker_ink(colors: &DiffColors, importance: Importance) -> egui::Color32 {
+    if importance == Importance::Unimportant {
+        cell_ink(colors, importance)
+    } else {
+        egui::Color32::from_rgb(0xE0, 0x10, 0x10)
+    }
+}
+/// Blue current-row (▶) indicator: 6 px wide, 11 px tall, pixel-built and
+/// centered on the pixel row `center_y`.
+pub fn row_indicator(painter: &egui::Painter, left: f32, center_y: f32) {
+    let mut mesh = egui::Mesh::default();
+    for i in 0..6 {
+        let half = 5.0 - i as f32;
+        mesh.add_colored_rect(
+            egui::Rect::from_min_max(
+                egui::pos2(left + i as f32, center_y - half),
+                egui::pos2(left + i as f32 + 1.0, center_y + half + 1.0),
+            ),
+            INDICATOR,
+        );
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+/// Blue current-column (▼) indicator: 11 px wide, 6 px tall, centered on the
+/// pixel column `center_x`.
+pub fn column_indicator(painter: &egui::Painter, center_x: f32, top: f32) {
+    let center_x = center_x.floor();
+    let mut mesh = egui::Mesh::default();
+    for i in 0..6 {
+        let half = 5.0 - i as f32;
+        mesh.add_colored_rect(
+            egui::Rect::from_min_max(
+                egui::pos2(center_x - half, top + i as f32),
+                egui::pos2(center_x + half + 1.0, top + i as f32 + 1.0),
+            ),
+            INDICATOR,
+        );
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+/// 1 px focus frame: dotted black for the active pane, solid dark otherwise.
+pub fn focus_frame(painter: &egui::Painter, rect: egui::Rect, dotted: bool) {
+    if !dotted {
+        painter.rect_stroke(
+            rect,
+            0.0,
+            egui::Stroke::new(1.0, egui::Color32::from_gray(0x30)),
+            egui::StrokeKind::Inside,
+        );
+        return;
+    }
+    // One unfeathered mesh: alternating 1 px dots along the four edges.
+    let ink = egui::Color32::BLACK;
+    let (l, t, r, b) = (
+        rect.left(),
+        rect.top(),
+        rect.right() - 1.0,
+        rect.bottom() - 1.0,
+    );
+    let mut mesh = egui::Mesh::default();
+    let mut dot = |x: f32, y: f32| {
+        mesh.add_colored_rect(
+            egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.0, 1.0)),
+            ink,
+        )
+    };
+    let mut x = l;
+    while x <= r {
+        dot(x, t);
+        dot(x, b);
+        x += 2.0;
+    }
+    let mut y = t + 2.0;
+    while y < b {
+        dot(l, y);
+        dot(r, y);
+        y += 2.0;
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+/// Spreadsheet column letters: 0 → A, 25 → Z, 26 → AA.
+pub fn column_letter(mut column: usize) -> String {
+    let mut out = Vec::new();
+    loop {
+        out.push(b'A' + (column % 26) as u8);
+        if column < 26 {
+            break;
+        }
+        column = column / 26 - 1;
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap()
+}
 impl GridState {
     pub fn rebuild_columns(&mut self, count: usize, different: &[bool], hide: bool) {
         self.columns = (0..count)
@@ -80,7 +250,7 @@ impl GridState {
         self.offsets = vec![0.0];
         for &c in &self.columns {
             self.offsets
-                .push(self.offsets.last().unwrap() + self.widths.get(c).copied().unwrap_or(130.0));
+                .push(self.offsets.last().unwrap() + self.widths.get(c).copied().unwrap_or(68.0));
         }
     }
     pub fn selected(&self, row: usize, col: usize) -> bool {
@@ -120,30 +290,57 @@ pub fn wheel(ctx: &egui::Context, state: &mut GridState, enabled: bool) {
     state.scroll.y = (state.scroll.y - delta.y).max(0.0);
     // Upper-bound clamping happens in `pane` later this same frame.
 }
+/// One comparison pane: 28 px column header plus the virtualized rows.
+/// `rect` starts at the pane's left border and the header's top line.
+#[allow(clippy::too_many_arguments)]
 pub fn pane(
     ui: &mut egui::Ui,
+    rect: egui::Rect,
     map: &TableMap,
     projection: &Projection,
     state: &mut GridState,
     side: usize,
-    height: f32,
+    different: &[bool],
     colors: &DiffColors,
 ) -> Option<GridAction> {
-    let height = (height - 25.0).max(35.0);
+    let active = state.active == side;
+    let background = if active {
+        egui::Color32::WHITE
+    } else {
+        PANE_INACTIVE
+    };
+    let line = if active {
+        GRID_LINE
+    } else {
+        GRID_LINE_INACTIVE
+    };
+    ui.painter().rect_filled(rect, 0.0, background);
+    let rows_rect = egui::Rect::from_min_max(rect.min + egui::vec2(0.0, HEADER_HEIGHT), rect.max);
+    let view_height = rows_rect.height().max(ROW_HEIGHT);
+    let width = GUTTER + state.offsets.last().copied().unwrap_or(0.0);
+    // The vertical scrollbar column is 18 px (16 px bar plus margins).
+    let need_hscroll = width > rows_rect.width() - 18.0;
+    let visible_height = view_height - if need_hscroll { 18.0 } else { 0.0 };
     state.scroll.y = state
         .scroll
         .y
-        .min((projection.len() as f32 * ROW_HEIGHT - height + 16.0).max(0.0));
-    let width = GUTTER + state.offsets.last().copied().unwrap_or(0.0);
+        .min((projection.len() as f32 * ROW_HEIGHT - visible_height).max(0.0));
     state.scroll.x = state
         .scroll
         .x
-        .min((width - ui.available_width() + 16.0).max(0.0));
-    super::header::ui(ui, map, state, side);
+        .min((width - (rows_rect.width() - 18.0)).max(0.0));
+    super::header::paint(
+        ui,
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rows_rect.top())),
+        map,
+        state,
+        side,
+        different,
+        colors,
+    );
     let scroll = state.scroll;
     let mut action = None;
-    state.pane_rects[side] =
-        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), height));
+    state.pane_rects[side] = rows_rect;
     let focus_id = egui::Id::unique(("table_grid_focus", side));
     // Arrow keys and Tab drive the grid cursor (see `commands::keyboard`):
     // lock them onto the pane, otherwise egui's focus navigation moves focus
@@ -159,147 +356,58 @@ pub fn pane(
             },
         )
     });
-    let pane_response = ui.interact(
-        state.pane_rects[side],
-        focus_id,
-        egui::Sense::click_and_drag(),
+    let pane_response = ui.interact(rows_rect, focus_id, egui::Sense::click_and_drag());
+    let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
+    let cursor = state.cursor;
+    let output = ui
+        .scope_builder(
+            egui::UiBuilder::new()
+                .id_salt(("table_grid_area", side))
+                .max_rect(rows_rect),
+            |ui| {
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                ui.spacing_mut().scroll.bar_width = 16.0;
+                ui.spacing_mut().scroll.bar_inner_margin = 1.0;
+                ui.spacing_mut().scroll.bar_outer_margin = 1.0;
+                egui::ScrollArea::new([need_hscroll, true])
+                    .id_salt(("table_grid", side))
+                    // Wheel deltas are consumed by `grid::wheel` (immediate,
+                    // unsmoothed); scrollbars and touch drag keep the framework
+                    // behavior.
+                    .scroll_source(crate::chrome::wheel::scroll_source())
+                    .auto_shrink([false, false])
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                    .max_height(view_height)
+                    .vertical_scroll_offset(scroll.y)
+                    .horizontal_scroll_offset(scroll.x)
+                    .show_rows(ui, ROW_HEIGHT, projection.len(), |ui, range| {
+                        rows(
+                            ui,
+                            range,
+                            map,
+                            projection,
+                            state,
+                            RowStyle {
+                                side,
+                                active,
+                                line,
+                                width,
+                                scroll,
+                                cursor,
+                                font: &font,
+                                colors,
+                            },
+                        );
+                    })
+            },
+        )
+        .inner;
+    // Pane border: left edge (the header draws the top line).
+    ui.painter().rect_filled(
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 1.0, rect.bottom())),
+        0.0,
+        GRID_LINE,
     );
-    ui.spacing_mut().item_spacing.y = 0.0;
-    let output = egui::ScrollArea::both()
-        .id_salt(("table_grid", side))
-        // Wheel deltas are consumed by `grid::wheel` (immediate, unsmoothed);
-        // scrollbars and touch drag keep the framework behavior.
-        .scroll_source(crate::chrome::wheel::scroll_source())
-        .auto_shrink([false, false])
-        .max_height(height)
-        .vertical_scroll_offset(scroll.y)
-        .horizontal_scroll_offset(scroll.x)
-        .show_rows(ui, ROW_HEIGHT, projection.len(), |ui, range| {
-            let rules = map.rules();
-            let sheet = if side == 0 {
-                map.left.borrow()
-            } else {
-                map.right.borrow()
-            };
-            state.visible = projected(projection, range.start).unwrap_or(0)
-                ..projected(projection, range.end.saturating_sub(1)).map_or(0, |r| r + 1);
-            for display in range {
-                let Some(row) = projected(projection, display) else {
-                    continue;
-                };
-                let pair = mapped(map, row);
-                let source = if side == 0 { pair.left } else { pair.right };
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(width.max(ui.available_width()), ROW_HEIGHT),
-                    egui::Sense::hover(),
-                );
-                let clip = ui.clip_rect();
-                let gutter = egui::Rect::from_min_size(
-                    egui::pos2(clip.left(), rect.top()),
-                    egui::vec2(GUTTER, ROW_HEIGHT),
-                );
-                let start = state
-                    .offsets
-                    .partition_point(|&x| x < scroll.x)
-                    .saturating_sub(1);
-                for d in start..state.columns.len() {
-                    let c = state.columns[d];
-                    let x = rect.left() + GUTTER + state.offsets[d];
-                    if x > clip.right() {
-                        break;
-                    }
-                    let cell_rect = egui::Rect::from_min_size(
-                        egui::pos2(x, rect.top()),
-                        egui::vec2(state.offsets[d + 1] - state.offsets[d], ROW_HEIGHT),
-                    );
-                    if cell_rect.right() < gutter.right() {
-                        continue;
-                    }
-                    let paint_rect = cell_rect
-                        .intersect(clip)
-                        .intersect(egui::Rect::from_min_max(
-                            egui::pos2(gutter.right(), clip.top()),
-                            clip.max,
-                        ));
-                    if state.edit_target == Some((side, Cursor { row, column: c })) {
-                        state.edit_rect = Some(paint_rect);
-                    }
-                    if !paint_rect.is_positive() {
-                        continue;
-                    }
-                    let imp = if map.is_stale() {
-                        Importance::Same
-                    } else {
-                        map.cell_importance(row, c).unwrap_or(Importance::Same)
-                    };
-                    if imp != Importance::Same {
-                        ui.painter().rect_filled(
-                            paint_rect,
-                            0.0,
-                            color(colors, imp, source.is_none(), 42),
-                        );
-                    }
-                    if state.active == side && state.selected(row, c) {
-                        ui.painter().rect_filled(
-                            paint_rect,
-                            0.0,
-                            ui.visuals().selection.bg_fill.gamma_multiply(0.45),
-                        );
-                    }
-                    let col = if side == 0 {
-                        rules.columns.0.get(c).and_then(|c| c.left)
-                    } else {
-                        rules.columns.0.get(c).and_then(|c| c.right)
-                    };
-                    let start_char = ((paint_rect.left() - cell_rect.left() - 5.0).max(0.0) / 7.8)
-                        .floor() as usize;
-                    let mut text = source
-                        .and_then(|r| col.and_then(|c| sheet.preview(r, c, start_char, 256)))
-                        .unwrap_or_else(|| "·".into());
-                    if state.whitespace {
-                        text = text.replace(' ', "·").replace('\t', "→").replace('\n', "↵");
-                    } else {
-                        text = text.replace(['\n', '\r'], " ↵ ");
-                    }
-                    ui.painter().with_clip_rect(paint_rect).text(
-                        cell_rect.left_center() + egui::vec2(5.0 + start_char as f32 * 7.8, 0.0),
-                        egui::Align2::LEFT_CENTER,
-                        text,
-                        egui::FontId::monospace(13.0),
-                        ui.visuals().text_color(),
-                    );
-                    ui.painter().line_segment(
-                        [cell_rect.right_top(), cell_rect.right_bottom()],
-                        egui::Stroke::new(0.5, ui.visuals().widgets.noninteractive.bg_stroke.color),
-                    );
-                    state.cells_drawn += 1;
-                }
-                ui.painter()
-                    .rect_filled(gutter, 0.0, ui.visuals().faint_bg_color);
-                if pair.importance != Importance::Same {
-                    ui.painter().circle_filled(
-                        gutter.left_center() + egui::vec2(6.0, 0.0),
-                        3.0,
-                        color(
-                            colors,
-                            pair.importance,
-                            matches!(pair.kind, DiffKind::LeftOnly | DiffKind::RightOnly),
-                            255,
-                        ),
-                    );
-                }
-                if state.row_numbers {
-                    ui.painter().text(
-                        gutter.right_center() - egui::vec2(5.0, 0.0),
-                        egui::Align2::RIGHT_CENTER,
-                        source.map_or("—".into(), |r| (r + 1).to_string()),
-                        egui::FontId::monospace(11.0),
-                        ui.visuals().weak_text_color(),
-                    );
-                }
-                state.rows_drawn += 1;
-            }
-        });
     let offset = output.state.clamped_offset();
     if offset != scroll {
         state.scroll = offset;
@@ -337,4 +445,208 @@ pub fn pane(
         }
     }
     action
+}
+struct RowStyle<'a> {
+    side: usize,
+    active: bool,
+    line: egui::Color32,
+    width: f32,
+    scroll: egui::Vec2,
+    cursor: Cursor,
+    font: &'a egui::FontId,
+    colors: &'a DiffColors,
+}
+fn rows(
+    ui: &mut egui::Ui,
+    range: Range<usize>,
+    map: &TableMap,
+    projection: &Projection,
+    state: &mut GridState,
+    style: RowStyle,
+) {
+    let RowStyle {
+        side,
+        active,
+        line,
+        width,
+        scroll,
+        cursor,
+        font,
+        colors,
+    } = style;
+    let rules = map.rules();
+    let sheet = if side == 0 {
+        map.left.borrow()
+    } else {
+        map.right.borrow()
+    };
+    let painter = ui.painter().clone();
+    let clip = ui.clip_rect();
+    state.visible = projected(projection, range.start).unwrap_or(0)
+        ..projected(projection, range.end.saturating_sub(1)).map_or(0, |r| r + 1);
+    for display in range {
+        let Some(row) = projected(projection, display) else {
+            continue;
+        };
+        let pair = mapped(map, row);
+        let source = if side == 0 { pair.left } else { pair.right };
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(width.max(ui.available_width()), ROW_HEIGHT),
+            egui::Sense::hover(),
+        );
+        let gutter = egui::Rect::from_min_size(
+            egui::pos2(clip.left(), rect.top()),
+            egui::vec2(GUTTER, ROW_HEIGHT),
+        );
+        let start = state
+            .offsets
+            .partition_point(|&x| x < scroll.x)
+            .saturating_sub(1);
+        for d in start..state.columns.len() {
+            let c = state.columns[d];
+            let x = rect.left() + GUTTER + state.offsets[d];
+            if x > clip.right() {
+                break;
+            }
+            let cell_rect = egui::Rect::from_min_size(
+                egui::pos2(x, rect.top()),
+                egui::vec2(state.offsets[d + 1] - state.offsets[d], ROW_HEIGHT),
+            );
+            if cell_rect.right() < gutter.right() {
+                continue;
+            }
+            let paint_rect = cell_rect
+                .intersect(clip)
+                .intersect(egui::Rect::from_min_max(
+                    egui::pos2(gutter.right(), clip.top()),
+                    clip.max,
+                ));
+            if state.edit_target == Some((side, Cursor { row, column: c })) {
+                state.edit_rect = Some(paint_rect);
+            }
+            if !paint_rect.is_positive() {
+                continue;
+            }
+            let imp = if map.is_stale() {
+                Importance::Same
+            } else {
+                map.cell_importance(row, c).unwrap_or(Importance::Same)
+            };
+            let selected = active && state.selection_visible && state.selected(row, c);
+            let fill = if selected {
+                Some(SELECTION)
+            } else if imp != Importance::Same {
+                Some(cell_fill(colors, imp, source.is_none(), active))
+            } else {
+                None
+            };
+            if let Some(fill) = fill {
+                painter.rect_filled(paint_rect, 0.0, fill);
+            }
+            let col = if side == 0 {
+                rules.columns.0.get(c).and_then(|c| c.left)
+            } else {
+                rules.columns.0.get(c).and_then(|c| c.right)
+            };
+            let start_char = ((paint_rect.left() - cell_rect.left() - 6.0).max(0.0) / CHAR_WIDTH)
+                .floor() as usize;
+            let numeric = source.zip(col).is_some_and(|(r, c)| {
+                matches!(
+                    TableData::cell_info(&*sheet, r, c).map(|i| i.value),
+                    Some(bc_engine_table::CellData::Number(_))
+                )
+            });
+            let mut text = source
+                .and_then(|r| col.and_then(|c| sheet.preview(r, c, start_char, 256)))
+                .unwrap_or_default();
+            if state.whitespace {
+                text = text.replace(' ', "·").replace('\t', "→").replace('\n', "↵");
+            } else {
+                text = text.replace(['\n', '\r'], " ↵ ");
+            }
+            let ink = if imp != Importance::Same {
+                cell_ink(colors, imp)
+            } else {
+                egui::Color32::BLACK
+            };
+            let cell_painter = painter.with_clip_rect(paint_rect);
+            if numeric && start_char == 0 {
+                cell_painter.text(
+                    egui::pos2(cell_rect.right() - 6.0, cell_rect.center().y),
+                    egui::Align2::RIGHT_CENTER,
+                    text,
+                    font.clone(),
+                    ink,
+                );
+            } else {
+                cell_painter.text(
+                    egui::pos2(
+                        cell_rect.left() + 6.0 + start_char as f32 * CHAR_WIDTH,
+                        cell_rect.center().y,
+                    ),
+                    egui::Align2::LEFT_CENTER,
+                    text,
+                    font.clone(),
+                    ink,
+                );
+            }
+            // Grid lines: right and bottom edge of every cell.
+            cell_painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(cell_rect.right() - 1.0, cell_rect.top()),
+                    cell_rect.max,
+                ),
+                0.0,
+                line,
+            );
+            cell_painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(cell_rect.left(), cell_rect.bottom() - 1.0),
+                    cell_rect.max,
+                ),
+                0.0,
+                line,
+            );
+            if row == cursor.row && c == cursor.column {
+                focus_frame(
+                    &cell_painter,
+                    egui::Rect::from_min_max(cell_rect.min, cell_rect.max - egui::vec2(1.0, 1.0)),
+                    active,
+                );
+            }
+            state.cells_drawn += 1;
+        }
+        painter.rect_filled(gutter, 0.0, crate::chrome::theme::PANEL_BG);
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(gutter.right() - 1.0, gutter.top()), gutter.max),
+            0.0,
+            line,
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(gutter.left(), gutter.bottom() - 1.0), gutter.max),
+            0.0,
+            line,
+        );
+        let center = gutter.center().y;
+        if row == cursor.row {
+            row_indicator(&painter, gutter.left() + 2.0, gutter.top() + 8.0);
+        }
+        if pair.importance != Importance::Same {
+            marker(
+                &painter,
+                egui::pos2(gutter.left() + 11.0, gutter.top() + 3.0),
+                marker_ink(colors, pair.importance),
+            );
+        }
+        if state.row_numbers {
+            painter.text(
+                egui::pos2(gutter.right() - 4.0, center),
+                egui::Align2::RIGHT_CENTER,
+                source.map_or("—".into(), |r| (r + 1).to_string()),
+                egui::FontId::proportional(crate::chrome::theme::UI_SIZE),
+                egui::Color32::from_gray(0x6D),
+            );
+        }
+        state.rows_drawn += 1;
+    }
 }

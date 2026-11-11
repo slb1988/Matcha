@@ -180,7 +180,8 @@ fn grid_tessellation_cell_colours_two_dimensional_virtualization_and_stacked_syn
     v.scroll_to_row(700);
     v.scroll_to_column(70);
     let out = frame(&ctx, &mut v, vec![]);
-    assert!(v.grid.cells_drawn < 600);
+    // 2 panes × ~35 visible rows × ~11 visible 61 px columns of 100 000 cells.
+    assert!(v.grid.cells_drawn < 1200);
     assert!(v.grid.rows_drawn < 100);
     assert!(!ctx.tessellate(out.shapes, out.pixels_per_point).is_empty());
     assert_eq!(v.grid.visible.start, 700);
@@ -403,8 +404,10 @@ fn home_masks_and_unsaved_cancel_do_not_discard() {
 }
 
 fn tall_view() -> TableCompareView {
-    let mut left = String::from("id,name,code,note,tag
-");
+    let mut left = String::from(
+        "id,name,code,note,tag
+",
+    );
     for i in 0..5000 {
         left.push_str(&format!(
             "{i},item-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,code-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,note-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz,tag-{i}-padding-abcdefghijklmnopqrstuvwxyz-0123456789-abcdefghijklmnopqrstuvwxyz
@@ -453,7 +456,10 @@ fn wheel_scroll_tracks_input_immediately() {
     }
     frame(&ctx, &mut v, events);
     let target = 10.0 * 3.0 * 40.0;
-    assert_eq!(v.grid.scroll.y, target, "full delta applies in the same frame");
+    assert_eq!(
+        v.grid.scroll.y, target,
+        "full delta applies in the same frame"
+    );
     // No residual motion afterwards (no smoothing backlog).
     for _ in 0..10 {
         frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
@@ -572,7 +578,11 @@ fn arrow_keys_keep_focus_and_track_cursor_into_view() {
         });
     }
     frame(&ctx, &mut v, events);
-    assert_eq!(v.grid.cursor.row, start + 60, "every arrow press moves the cursor");
+    assert_eq!(
+        v.grid.cursor.row,
+        start + 60,
+        "every arrow press moves the cursor"
+    );
     assert!(
         v.key_focus,
         "grid keeps the keyboard across arrow keys (egui focus may still roam)"

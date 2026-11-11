@@ -10,7 +10,6 @@ use bc_core::{edit::EditStack, CoreError};
 use bc_engine_table::{
     compare::Importance,
     jobs::{TableAlignJob, TableRealignJob},
-    rules::Layers,
     sheets::SheetPairs,
     source::ReadOptions,
     Sheet, TableMap, TableRules,
@@ -140,6 +139,15 @@ pub struct TableCompareView {
     /// the pane after one press (and `set_focus_lock_filter` cannot be armed
     /// before the first frame of focus), freezing arrow navigation.
     pub(super) key_focus: bool,
+    pub(super) menus: Vec<crate::chrome::menubar::MenuSpec>,
+    pub(super) tool_dropdown: Option<(String, egui::Pos2)>,
+    pub(super) window_title: String,
+    pub(super) show_goto: bool,
+    pub(super) path_edits: [String; 2],
+    pub(super) path_sources: [Option<PathBuf>; 2],
+    pub(super) labels: [super::chrome_ui::FileLabels; 2],
+    /// Snapshot scenes reproduce the reference "path selected on open" state.
+    pub(super) snapshot_select_paths: bool,
 }
 impl TableCompareView {
     pub(super) fn blank() -> Self {
@@ -168,7 +176,7 @@ impl TableCompareView {
             },
             filter: Filter::All,
             hide_same: false,
-            show_details: false,
+            show_details: true,
             show_info: true,
             show_thumbnail: true,
             show_toolbar: true,
@@ -186,6 +194,14 @@ impl TableCompareView {
             paste_requested: false,
             focus_grid: None,
             key_focus: false,
+            menus: Vec::new(),
+            tool_dropdown: None,
+            window_title: String::new(),
+            show_goto: false,
+            path_edits: Default::default(),
+            path_sources: Default::default(),
+            labels: Default::default(),
+            snapshot_select_paths: false,
         }
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
@@ -891,7 +907,7 @@ impl TableCompareView {
             self.message = format!("Row {}, column {}", cursor.row + 1, cursor.column + 1);
         }
     }
-    fn go_to(&mut self) {
+    pub(super) fn go_to(&mut self) {
         if !self.is_ready() || self.editor.is_some() {
             self.message = "Wait for comparison / finish editing before Go To".into();
             return;
@@ -928,15 +944,29 @@ impl TableCompareView {
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<TableAction> {
         self.poll();
         let ctx = ui.ctx().clone();
-        if self.worker.is_some() || self.scan.is_some() || self.edited_at.is_some() {
+        let title = self.title();
+        if self.window_title != title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
+        if self.worker.is_some()
+            || self.scan.is_some()
+            || self.edited_at.is_some()
+            || self.labels_pending()
+        {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
-        if self.pending.is_some() || self.dialog.is_some() || self.editor.is_some() {
+        let blocked = self.pending.is_some() || self.dialog.is_some() || self.editor.is_some();
+        if blocked {
             ui.disable();
         }
         self.restore_grid_focus(&ctx);
+        if !blocked && !self.settings.open {
+            self.shortcuts(&ctx, prefs);
+        }
         self.keyboard(&ctx, prefs);
-        self.toolbar(ui, prefs);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        self.chrome_top(ui, prefs);
         if let Some(action) = self.find.ui(ui) {
             if let Err(e) = self.find_action(action) {
                 self.message = e.to_string();
@@ -948,30 +978,26 @@ impl TableCompareView {
                 self.request(Pending::Settings(Box::new(draft)));
             }
         }
-        if self.show_details {
-            if let Some(p) = &self.pair {
-                super::details::ui(ui, &p.map, self.grid.cursor);
+        self.goto_window(&ctx);
+        // Sheet tabs are not re-skinned yet (deferred); single-sheet sources
+        // (CSV/TSV) show none, like the reference.
+        if self.pairs.0.len() > 1 {
+            let tab_states = self
+                .states
+                .iter()
+                .map(|s| s.map(|s| s.projected(self.default_rules.ignore_unimportant)))
+                .collect::<Vec<_>>();
+            if let Some(index) = super::sheet_tabs::ui(
+                ui,
+                &self.names,
+                &self.pairs,
+                &tab_states,
+                self.active_pair,
+                &prefs.colors,
+            ) {
+                self.select_sheet(index);
             }
         }
-        let tab_states = self
-            .states
-            .iter()
-            .map(|s| s.map(|s| s.projected(self.default_rules.ignore_unimportant)))
-            .collect::<Vec<_>>();
-        if let Some(index) = super::sheet_tabs::ui(
-            ui,
-            &self.names,
-            &self.pairs,
-            &tab_states,
-            self.active_pair,
-            &prefs.colors,
-        ) {
-            self.select_sheet(index);
-        }
-        egui::Panel::bottom("table_status").show(ui,|ui|{
-            if let Some(p)=&self.pair{let s=p.cache.statistics;ui.label(format!("{} same · {} unimportant · {} important · {} left-only · {} right-only · {} columns · keys: {}{}",s.same,s.unimportant,s.important,s.left_only,s.right_only,s.columns,self.keys_description(),if p.map.is_stale(){" · stale (recomparing)"}else{""}));}
-            ui.label(self.worker.as_ref().map(Worker::progress).filter(|s|!s.is_empty()).unwrap_or_else(||self.message.clone()));
-        });
         self.grid.rows_drawn = 0;
         self.grid.cells_drawn = 0;
         self.grid.edit_target = self.editor.as_ref().map(|e| (e.side, e.display));
@@ -984,74 +1010,119 @@ impl TableCompareView {
             &mut self.grid,
             self.editor.is_none() && self.pending.is_none() && self.dialog.is_none(),
         );
+        // Reference layout below the toolbar: 52 px thumbnail column, two
+        // panes (path bar 26 + info 27 + header/grid + pane status 19), the
+        // 81 px details strip and the 25 px status bar.
+        let available = ui.available_rect_before_wrap();
+        let status = egui::Rect::from_min_max(
+            egui::pos2(available.left(), available.bottom() - 25.0),
+            available.max,
+        );
+        let thumb = if self.show_thumbnail { 52.0 } else { 0.0 };
+        let details_height = if self.show_details && self.pair.is_some() {
+            super::details::HEIGHT
+        } else {
+            0.0
+        };
+        let details = egui::Rect::from_min_max(
+            egui::pos2(available.left() + thumb, status.top() - details_height),
+            egui::pos2(available.right(), status.top()),
+        );
+        let body =
+            egui::Rect::from_min_max(available.min, egui::pos2(available.right(), details.top()));
+        let panes = egui::Rect::from_min_max(body.min + egui::vec2(thumb, 0.0), body.max);
         let mut grid_action = None;
         let mut nav_target = None;
         if let Some(p) = &self.pair {
-            ui.horizontal_top(|ui| {
-                if self.show_thumbnail {
-                    nav_target = super::details::thumbnail(
-                        ui,
-                        &p.cache.bins,
-                        p.cache.total,
-                        self.grid.visible.clone(),
-                        &prefs.colors,
-                    );
-                }
-                let available = ui.available_size();
-                ui.allocate_ui_with_layout(
-                    available,
-                    egui::Layout::top_down(egui::Align::Min),
+            if self.show_thumbnail {
+                nav_target = super::details::thumbnail(
+                    ui,
+                    egui::Rect::from_min_max(body.min, egui::pos2(panes.left(), body.bottom())),
+                    &p.cache.bins,
+                    p.cache.total,
+                    self.grid.visible.clone(),
+                    &prefs.colors,
+                );
+            }
+        }
+        let width = (panes.width() - 4.0) / 2.0 + 2.0;
+        let half = (panes.height() - 4.0) / 2.0;
+        for s in 0..2 {
+            let rect = if self.grid.stacked {
+                egui::Rect::from_min_size(
+                    panes.min + egui::vec2(0.0, s as f32 * (half + 4.0)),
+                    egui::vec2(panes.width(), half),
+                )
+            } else if s == 0 {
+                egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
+            } else {
+                egui::Rect::from_min_max(panes.min + egui::vec2(width + 4.0, 0.0), panes.max)
+            };
+            let header = if self.show_info { 53.0 } else { 0.0 };
+            if self.show_info {
+                self.file_header(ui, rect, s, prefs);
+            }
+            let pane_status =
+                egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 19.0), rect.max);
+            let grid_rect = egui::Rect::from_min_max(
+                rect.min + egui::vec2(0.0, header),
+                egui::pos2(rect.right(), pane_status.top()),
+            );
+            if let Some(p) = &self.pair {
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .id_salt(("table-pane", s))
+                        .max_rect(grid_rect),
                     |ui| {
-                        if self.grid.stacked {
-                            for s in 0..2 {
-                                ui.allocate_ui(
-                                    egui::vec2(available.x, (available.y - 8.0) / 2.0),
-                                    |ui| {
-                                        if let Some(a) = grid::pane(
-                                            ui,
-                                            &p.map,
-                                            &p.projection,
-                                            &mut self.grid,
-                                            s,
-                                            (available.y - 8.0) / 2.0,
-                                            &prefs.colors,
-                                        ) {
-                                            grid_action = Some(a);
-                                        }
-                                    },
-                                );
-                            }
-                        } else {
-                            ui.columns(2, |columns| {
-                                for (s, ui) in columns.iter_mut().enumerate() {
-                                    if let Some(a) = grid::pane(
-                                        ui,
-                                        &p.map,
-                                        &p.projection,
-                                        &mut self.grid,
-                                        s,
-                                        available.y,
-                                        &prefs.colors,
-                                    ) {
-                                        grid_action = Some(a);
-                                    }
-                                }
-                            });
+                        ui.set_clip_rect(grid_rect.intersect(ui.clip_rect()));
+                        if let Some(a) = grid::pane(
+                            ui,
+                            grid_rect,
+                            &p.map,
+                            &p.projection,
+                            &mut self.grid,
+                            s,
+                            &p.cache.different_columns,
+                            &prefs.colors,
+                        ) {
+                            grid_action = Some(a);
                         }
                     },
                 );
-            });
-        } else if self.worker.is_none() {
-            // Initial load failed: show the error with an explicit retry entry
-            // instead of spinning forever.
-            ui.label(format!("Load failed: {}", self.message));
-            if ui.button("Retry load").clicked() {
-                self.reload();
+            } else if s == 0 {
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(grid_rect.shrink(8.0)),
+                    |ui| {
+                        if self.worker.is_none() {
+                            // Initial load failed: show the error with an explicit
+                            // retry entry instead of spinning forever.
+                            ui.label(format!("Load failed: {}", self.message));
+                            if ui.button("Retry load").clicked() {
+                                self.reload();
+                            }
+                        } else {
+                            ui.spinner();
+                            ui.label("Loading table sources on worker…");
+                        }
+                    },
+                );
             }
-        } else {
-            ui.spinner();
-            ui.label("Loading table sources on worker…");
+            self.pane_status(ui, pane_status, s);
         }
+        if details_height > 0.0 {
+            if let Some(p) = &self.pair {
+                super::details::paint(
+                    ui,
+                    details,
+                    &p.map,
+                    &self.grid,
+                    &p.cache.different_columns,
+                    &prefs.colors,
+                );
+            }
+        }
+        self.status_bar(ui, status);
+        ui.allocate_rect(available, egui::Sense::hover());
         if let Some(row) = nav_target {
             self.goto_cell(Cursor {
                 row,
@@ -1074,6 +1145,33 @@ impl TableCompareView {
         }
         self.action.take()
     }
+    /// Snapshot scenes: the reference shows the CSV header row as data with
+    /// lettered columns and aligns rows without a key column; Matcha's own
+    /// defaults (Auto header detection, inferred keys) are unchanged outside
+    /// snapshots (follow-up: verify the reference defaults offline).
+    pub fn snapshot_options(&mut self) {
+        for options in &mut self.options {
+            options.header = Some(bc_formats::model::HeaderMode::Data);
+        }
+        // Reference rows pair positionally (no inferred key column).
+        self.default_rules.keys = bc_engine_table::rules::KeySelection::Manual(Vec::new());
+        self.default_rules.strategy = bc_core::align::AlignStrategy::None;
+        self.reload();
+    }
+    /// Deterministic state of the table snapshot scenes.
+    pub fn snapshot_preset(&mut self, scene: &str) {
+        self.scroll_to_row(0);
+        self.grid.active = 0;
+        self.grid.anchor = None;
+        if scene == "table-cursor-on-diff" {
+            // Reference operation: click the left grid's differing cell (C3).
+            self.grid.cursor = Cursor { row: 2, column: 2 };
+            self.grid.selection_visible = true;
+        } else {
+            self.grid.cursor = Cursor::default();
+            self.snapshot_select_paths = true;
+        }
+    }
     fn restore_grid_focus(&mut self, ctx: &egui::Context) {
         if self.editor.is_none() && self.pending.is_none() && self.dialog.is_none() {
             if let Some(side) = self.focus_grid.take() {
@@ -1083,231 +1181,5 @@ impl TableCompareView {
                 self.key_focus = true;
             }
         }
-    }
-    fn view_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("View", |ui| {
-            ui.checkbox(&mut self.show_toolbar, "Toolbar");
-            ui.checkbox(&mut self.grid.row_numbers, "Row Numbers");
-            ui.checkbox(&mut self.grid.whitespace, "Visible Whitespace");
-            ui.checkbox(&mut self.show_details, "Text Details");
-            ui.checkbox(&mut self.show_info, "File Info");
-            ui.checkbox(&mut self.show_thumbnail, "Thumbnail");
-            if ui.button("Resize Columns to Fit").clicked() {
-                self.project_with_fit(true);
-                ui.close();
-            }
-        });
-    }
-    fn toolbar(&mut self, ui: &mut egui::Ui, prefs: &Prefs) {
-        egui::Panel::top("table_commands").show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.menu_button("Session", |ui| {
-                    ui.add_enabled(false, egui::Button::new("Save Session — session-and-cli"));
-                    ui.add_enabled(
-                        false,
-                        egui::Button::new("Save Session As — session-and-cli"),
-                    );
-                    if ui.button("Session Settings").clicked() {
-                        self.settings_open();
-                        ui.close();
-                    }
-                    if ui.button("Swap Sides").clicked() {
-                        self.swap();
-                        ui.close();
-                    }
-                    if ui.button("Reload Files").clicked() {
-                        self.request(Pending::Reload);
-                        ui.close();
-                    }
-                    if ui.button("Recompare Files").clicked() {
-                        self.recompare();
-                        ui.close();
-                    }
-                    if ui.button("Table Compare Info").clicked() {
-                        self.show_statistics = true;
-                        ui.close();
-                    }
-                    if ui.button("Compare Files Using Text Compare").clicked() {
-                        self.request(Pending::Text);
-                        ui.close();
-                    }
-                    ui.add_enabled(
-                        false,
-                        egui::Button::new("Compare Parent Folders — pending folder integration"),
-                    );
-                    if ui.button("Export summary (Text)").clicked() {
-                        self.dialog = Some(PathDialog {
-                            mode: FileMode::Summary(false),
-                            path: String::new(),
-                        });
-                        ui.close();
-                    }
-                    if ui.button("Export summary (CSV)").clicked() {
-                        self.dialog = Some(PathDialog {
-                            mode: FileMode::Summary(true),
-                            path: String::new(),
-                        });
-                        ui.close();
-                    }
-                });
-                ui.menu_button("File", |ui| {
-                    for (s, name) in [(0, "Left"), (1, "Right")] {
-                        ui.menu_button(name, |ui| {
-                            if ui.button("Open File…").clicked() {
-                                self.dialog = Some(PathDialog {
-                                    mode: FileMode::Open(s),
-                                    path: String::new(),
-                                });
-                                ui.close();
-                            }
-                            if ui
-                                .button("Open Clipboard (paste after closing menu)")
-                                .clicked()
-                            {
-                                self.clipboard_side = Some(s);
-                                ui.ctx()
-                                    .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                                ui.close();
-                            }
-                            let workbook = self.pair.as_ref().is_some_and(|p| {
-                                if s == 0 {
-                                    p.map.left.borrow().source_is_workbook()
-                                } else {
-                                    p.map.right.borrow().source_is_workbook()
-                                }
-                            });
-                            if ui
-                                .add_enabled(!workbook, egui::Button::new("Save"))
-                                .on_disabled_hover_text("Workbook is read-only; export as CSV")
-                                .clicked()
-                            {
-                                if let Err(e) = self.save(s, prefs) {
-                                    self.message = e.to_string();
-                                }
-                                ui.close();
-                            }
-                            if ui
-                                .add_enabled(!workbook, egui::Button::new("Save As…"))
-                                .clicked()
-                            {
-                                self.dialog = Some(PathDialog {
-                                    mode: FileMode::Save(s),
-                                    path: String::new(),
-                                });
-                                ui.close();
-                            }
-                            if ui.button("Export as CSV…").clicked() {
-                                self.dialog = Some(PathDialog {
-                                    mode: FileMode::Export(s),
-                                    path: String::new(),
-                                });
-                                ui.close();
-                            }
-                        });
-                    }
-                });
-                self.edit_menu(ui);
-                ui.menu_button("Search", |ui| {
-                    for (name, forward, kind) in [
-                        ("Next Difference Cell", true, 0),
-                        ("Previous Difference Cell", false, 0),
-                        ("Next Difference Row", true, 1),
-                        ("Previous Difference Row", false, 1),
-                        ("Next Edit", true, 2),
-                        ("Previous Edit", false, 2),
-                    ] {
-                        if ui.button(name).clicked() {
-                            self.navigate(forward, kind);
-                            ui.close();
-                        }
-                    }
-                    if ui.button("Find / Replace").clicked() {
-                        self.find.open = true;
-                        ui.close();
-                    }
-                });
-                self.view_menu(ui);
-            });
-            if self.show_toolbar {
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("◀ Difference").clicked() {
-                        self.navigate(false, 0);
-                    }
-                    if ui.button("Difference ▶").clicked() {
-                        self.navigate(true, 0);
-                    }
-                    if ui.button("Copy cell → other").clicked() {
-                        self.copy(false);
-                    }
-                    if ui.button("Settings").clicked() {
-                        self.settings_open();
-                    }
-                    ui.label("Go To");
-                    ui.add(egui::DragValue::new(&mut self.goto[0]).range(1..=usize::MAX));
-                    ui.add(egui::DragValue::new(&mut self.goto[1]).range(1..=usize::MAX));
-                    if ui.button("Go").clicked() {
-                        self.go_to();
-                    }
-                });
-                ui.horizontal_wrapped(|ui| {
-                    let old = self.filter;
-                    for f in [Filter::All, Filter::Differences, Filter::Same, Filter::None] {
-                        ui.selectable_value(&mut self.filter, f, format!("{f:?}"));
-                    }
-                    if old != self.filter {
-                        if let Some(p) = &mut self.pair {
-                            p.projection = p.cache.project(self.filter);
-                        }
-                        self.grid.scroll.y = 0.0;
-                    }
-                    let mut changed = false;
-                    if let Some(p) = &self.pair {
-                        let mut rules = p.map.rules_mut();
-                        changed |= ui
-                            .checkbox(&mut rules.ignore_unimportant, "Ignore Unimportant")
-                            .changed();
-                        for (layer, label) in [
-                            (Layers::Values, "Values"),
-                            (Layers::ValuesAndFormulas, "+ Formulas"),
-                            (Layers::All, "+ Number formats"),
-                        ] {
-                            changed |= ui
-                                .selectable_value(&mut rules.layers, layer, label)
-                                .changed();
-                        }
-                    }
-                    if changed {
-                        self.project();
-                    }
-                    if ui
-                        .checkbox(&mut self.hide_same, "Hide Same Columns")
-                        .changed()
-                    {
-                        self.refresh_grid();
-                    }
-                    ui.checkbox(&mut self.grid.stacked, "Over-Under");
-                });
-            }
-            if self.show_info {
-                for s in 0..2 {
-                    let dirty = self.pair.as_ref().is_some_and(|p| p.history[s].is_dirty());
-                    ui.label(format!(
-                        "{}: {} · {} B · {}{}",
-                        if s == 0 { "L" } else { "R" },
-                        self.files[s]
-                            .path
-                            .as_ref()
-                            .map_or("Clipboard".into(), |p| p.display().to_string()),
-                        self.files[s].byte_len,
-                        if self.files[s].readonly {
-                            "editing disabled"
-                        } else {
-                            "editable"
-                        },
-                        if dirty { " · modified" } else { "" }
-                    ));
-                }
-            }
-        });
     }
 }

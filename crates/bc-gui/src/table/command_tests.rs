@@ -150,7 +150,7 @@ fn align_with_opposite_row_clear_and_keyboard_undo_redo_target_the_correct_histo
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
     click_cell(&ctx, &mut v, 0, 0, 0);
-    edit(&ctx, &mut v, "Align With — click opposite row");
+    edit(&ctx, &mut v, "Align With...");
     click_cell(&ctx, &mut v, 0, 1, 0);
     assert_eq!(v.align_with, Some((0, 0)));
     click_cell(&ctx, &mut v, 1, 2, 0);
@@ -164,7 +164,7 @@ fn align_with_opposite_row_clear_and_keyboard_undo_redo_target_the_correct_histo
     frame(&ctx, &mut v, vec![key(egui::Key::Y, true)]);
     ready(&mut v);
     assert_eq!(v.pair.as_ref().unwrap().map.overrides().pairs(), &[(0, 0)]);
-    edit(&ctx, &mut v, "Clear alignment overrides");
+    edit(&ctx, &mut v, "Clear Alignment Overrides");
     ready(&mut v);
     assert!(v.pair.as_ref().unwrap().map.overrides().pairs().is_empty());
     v.undo(false);

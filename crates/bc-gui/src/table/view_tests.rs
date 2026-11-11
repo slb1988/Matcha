@@ -29,10 +29,28 @@ impl Drop for Temp {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+/// Wave 8 moved the old toolbar rows into the classic menus/toolbar; the
+/// legacy labels used by these tests resolve to their new entry paths.
+fn legacy_path(label: &str) -> Vec<&str> {
+    match label {
+        "Differences" => vec!["Diffs"],
+        "None" => vec!["View", "Show None"],
+        "Ignore Unimportant" => vec!["Minor"],
+        "Go" => vec!["Search", "Go To...", "Go"],
+        "Hide Same Columns" => vec!["View", "Hide Same Columns"],
+        "Over-Under" => vec!["View", "Over-Under Layout"],
+        "+ Formulas" => vec!["View", "Compare Values + Formulas"],
+        "+ Number formats" => vec!["View", "Compare Values + Formulas + Number Formats"],
+        "Values" => vec!["View", "Compare Values"],
+        other => vec![other],
+    }
+}
 fn choose(ctx: &egui::Context, v: &mut TableCompareView, label: &str) {
-    frame(ctx, v, vec![]);
-    let out = frame(ctx, v, vec![]);
-    click(ctx, v, button(&out, label));
+    for label in legacy_path(label) {
+        frame(ctx, v, vec![]);
+        let out = frame(ctx, v, vec![]);
+        click(ctx, v, button(&out, label));
+    }
 }
 fn option(ctx: &egui::Context, v: &mut TableCompareView, label: &str) {
     choose(ctx, v, "View");
@@ -121,11 +139,11 @@ fn toolbar_can_be_hidden_and_restored_without_losing_menu_access() {
     option(&ctx, &mut v, "Toolbar");
     let out = frame(&ctx, &mut v, vec![]);
     assert!(!v.show_toolbar);
-    assert!(!has(&out, "Copy cell → other"));
+    assert!(!has(&out, "Copy"));
     assert!(has(&out, "Session") && has(&out, "Edit") && has(&out, "Search") && has(&out, "View"));
     option(&ctx, &mut v, "Toolbar");
     let out = frame(&ctx, &mut v, vec![]);
-    assert!(v.show_toolbar && has(&out, "Copy cell → other"));
+    assert!(v.show_toolbar && has(&out, "Copy"));
     assert!(!v.is_dirty());
 }
 
@@ -152,12 +170,17 @@ fn visible_whitespace_details_file_info_and_row_numbers_are_independent_view_opt
             .unwrap(),
         "a b\tc\nd"
     );
+    // Text Details (on by default) shows the current row of both sides.
+    assert_eq!(
+        out.shapes
+            .iter()
+            .filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "a b	c ↵ d"))
+            .count(),
+        2
+    );
     option(&ctx, &mut v, "Text Details");
     let out = frame(&ctx, &mut v, vec![]);
-    assert!(has(
-        &out,
-        "Text Details — full cell text / cached formula / number format"
-    ));
+    assert!(!v.show_details && !has(&out, "a b	c ↵ d"));
     option(&ctx, &mut v, "File Info");
     let out = frame(&ctx, &mut v, vec![]);
     assert!(!out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("synthetic-left.csv"))));
@@ -237,21 +260,20 @@ fn raw_scroll_on_either_pane_is_synchronized_in_both_layouts_and_row_dot_ignores
         },
     );
     ready(&mut v);
+    // Pane synchronization only: the details strip repeats the cursor row.
+    v.show_details = false;
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
     let out = frame(&ctx, &mut v, vec![]);
-    let dot = super::super::grid::color(
-        &Prefs::default().colors,
-        bc_engine_table::compare::Importance::Important,
-        false,
-        255,
-    );
+    // Row difference markers: 9 px white-rimmed squares in each pane's gutter.
     assert_eq!(
         out.shapes
             .iter()
-            .filter(
-                |s| matches!(&s.shape, egui::Shape::Circle(c) if c.radius == 3.0 && c.fill == dot)
-            )
+            .filter(|s| matches!(&s.shape, egui::Shape::Rect(r)
+                if r.rect.size() == egui::vec2(9.0, 9.0)
+                    && r.fill == egui::Color32::WHITE
+                    && v.grid.pane_rects.iter().any(|p| p.contains(r.rect.min)
+                        && r.rect.min.x < p.left() + GUTTER)))
             .count(),
         2
     );
@@ -324,6 +346,7 @@ fn thumbnail_click_maps_to_the_comparison_row() {
             |ui| {
                 result = super::super::details::thumbnail(
                     ui,
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(52.0, 500.0)),
                     &[bc_engine_table::compare::Importance::Same; 512],
                     1000,
                     0..20,
@@ -340,8 +363,9 @@ fn thumbnail_click_maps_to_the_comparison_row() {
         .shapes
         .iter()
         .find_map(|s| match &s.shape {
-            egui::Shape::Rect(r) if r.rect.width() == 20.0 && r.rect.height() > 400.0 => {
-                Some(r.rect)
+            // The miniature frame (38 px wide, one line per row up to the column).
+            egui::Shape::Rect(r) if r.rect.width() == 38.0 && r.rect.height() > 400.0 => {
+                Some(r.rect.shrink(1.0))
             }
             _ => None,
         })
@@ -359,4 +383,71 @@ fn thumbnail_click_maps_to_the_comparison_row() {
         ]);
     }
     assert!(result.is_some_and(|r| (699..=701).contains(&r)));
+}
+
+#[test]
+fn reference_layout_geometry_title_and_menu_inventory() {
+    let mut v = view();
+    v.files[0].path = Some(PathBuf::from("table-left.csv"));
+    v.files[1].path = Some(PathBuf::from("table-right.csv"));
+    let ctx = egui::Context::default();
+    crate::chrome::theme::apply(&ctx);
+    for _ in 0..2 {
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1384.0, 961.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                v.ui(ui, &mut Prefs::default());
+            },
+        );
+        out.textures_delta.clear();
+    }
+    // tokens `table-basic` regions: grid rows below the 28 px header at
+    // y151, pane status at y836, details 81 px, status bar 25 px.
+    assert_eq!(
+        v.grid.pane_rects[0],
+        egui::Rect::from_min_max(egui::pos2(52.0, 151.0), egui::pos2(718.0, 836.0))
+    );
+    assert_eq!(
+        v.grid.pane_rects[1],
+        egui::Rect::from_min_max(egui::pos2(722.0, 151.0), egui::pos2(1384.0, 836.0))
+    );
+    assert_eq!(
+        v.title(),
+        "table-left.csv <--> table-right.csv - Table Compare - Matcha"
+    );
+    // Menu titles and leaf labels follow `inventories.table.menus`; product
+    // names never appear in Help.
+    let tokens: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/visual-parity/tokens.json"),
+        )
+        .unwrap()
+        .trim_start_matches('\u{feff}'),
+    )
+    .unwrap();
+    let menus = super::super::menu::inventory();
+    let reference = tokens["inventories"]["table"]["menus"].as_array().unwrap();
+    assert_eq!(menus.len(), reference.len());
+    for (menu, expected) in menus.iter().zip(reference) {
+        assert_eq!(menu.title, expected["name"].as_str().unwrap());
+        let items = expected["items"].as_array().unwrap();
+        assert_eq!(menu.items.len(), items.len(), "{}", menu.title);
+        for (item, expected) in menu.items.iter().zip(items) {
+            let name = expected["name"].as_str().unwrap_or_default();
+            if menu.title != "Help" {
+                assert_eq!(item.label, name);
+            }
+        }
+    }
+    assert!(menus[6]
+        .items
+        .iter()
+        .any(|i| i.label == "About Matcha" || i.label == "Project Website"));
 }

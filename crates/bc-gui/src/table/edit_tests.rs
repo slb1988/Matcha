@@ -151,7 +151,13 @@ fn clean_commit_keeps_formula_style_type_and_commit_error_keeps_the_draft() {
     assert!(!v.is_dirty());
     v.commit_edit().unwrap();
     assert_eq!(
-        v.pair.as_ref().unwrap().map.right.borrow().cell_snapshot(0, 1),
+        v.pair
+            .as_ref()
+            .unwrap()
+            .map
+            .right
+            .borrow()
+            .cell_snapshot(0, 1),
         Some(original)
     );
     assert!(!v.pair.as_ref().unwrap().history[1].can_undo());
@@ -447,7 +453,7 @@ fn copy_button_restores_destination_keyboard_undo_and_redo() {
         + egui::vec2(super::super::grid::GUTTER + v.grid.offsets[2] + 10.0, 10.0);
     click(&ctx, &mut v, pos);
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "Copy cell → other"));
+    click(&ctx, &mut v, button(&out, "Copy"));
     ready(&mut v);
     assert_eq!(v.grid.active, 1);
     assert_eq!(text(&v, 1, 0, 2), "1.0");
@@ -473,8 +479,11 @@ fn raw_key_edit_commits_without_newline_and_realigns_then_undo_restores_orphans(
     assert_eq!(v.pair.as_ref().unwrap().map.row_count(), 2);
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
-    let pos =
-        v.grid.pane_rects[1].left_top() + egui::vec2(80.0, super::super::grid::ROW_HEIGHT + 10.0);
+    let pos = v.grid.pane_rects[1].left_top()
+        + egui::vec2(
+            super::super::grid::GUTTER + 10.0,
+            super::super::grid::ROW_HEIGHT + 10.0,
+        );
     click(&ctx, &mut v, pos);
     frame(&ctx, &mut v, vec![key(egui::Key::F2, false)]);
     frame(

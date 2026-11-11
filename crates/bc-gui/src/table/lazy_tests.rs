@@ -181,7 +181,7 @@ fn lazy_copy_cell_and_export() {
     v.grid.cursor = Cursor { row: 0, column: 2 };
     frame(&ctx, &mut v, vec![]); // settle panel geometry before button targeting
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "Copy cell → other"));
+    click(&ctx, &mut v, button(&out, "Copy"));
     ready(&mut v);
     assert_eq!(text(&v, 1, 0, 2), "1.0");
     assert_eq!(

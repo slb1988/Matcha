@@ -35,9 +35,9 @@ fn menu_sort(ctx: &egui::Context, v: &mut TableCompareView, descending: bool) {
         ctx,
         v,
         if descending {
-            "Sort descending"
+            "Sort Descending"
         } else {
-            "Sort ascending"
+            "Sort Ascending"
         },
     );
     ready(v);

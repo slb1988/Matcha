@@ -48,7 +48,7 @@ fn ctrl_f_and_search_menu_open_panel_literal_next_locates_cell() {
         .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Whole words")));
     v.find.open = false;
     menu(&ctx, &mut v, "Search");
-    menu(&ctx, &mut v, "Find / Replace");
+    menu(&ctx, &mut v, "Find...");
     assert!(v.find.open, "Search menu reopens the find panel");
 
     v.find.query = "pear".into();

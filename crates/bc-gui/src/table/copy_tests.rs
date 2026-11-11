@@ -53,13 +53,19 @@ fn copy_cells_uses_visible_projection_and_does_not_touch_hidden_formulas() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]); // Settle the initial panel geometry before targeting a button.
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "Copy cell → other"));
+    click(&ctx, &mut v, button(&out, "Copy"));
     ready(&mut v);
     assert_eq!(right_values(&v, 1), ["A", "same", "C"]);
     {
         let s = v.pair.as_ref().unwrap().map.right.borrow();
-        assert_eq!(s.cell_snapshot(1, 1).unwrap().formula.as_deref(), Some("=9"));
-        assert_eq!(s.cell_snapshot(0, 2).unwrap().formula.as_deref(), Some("=9"));
+        assert_eq!(
+            s.cell_snapshot(1, 1).unwrap().formula.as_deref(),
+            Some("=9")
+        );
+        assert_eq!(
+            s.cell_snapshot(0, 2).unwrap().formula.as_deref(),
+            Some("=9")
+        );
     }
     v.undo(false);
     ready(&mut v);

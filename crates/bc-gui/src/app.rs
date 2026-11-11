@@ -73,7 +73,10 @@ impl MatchaApp {
             )),
             (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
                 match TableCompareView::open(l, r) {
-                    Ok(v) => {
+                    Ok(mut v) => {
+                        if options.snapshot.is_some() {
+                            v.snapshot_options();
+                        }
                         if options.snapshot.is_none() {
                             HomeView::record(l, r);
                         }
@@ -159,11 +162,11 @@ impl MatchaApp {
             });
         });
     }
-    /// 文本/文件夹/Home 视图自带 chrome 菜单栏，不再绘制应用顶条。
+    /// 文本/表格/文件夹/Home 视图自带 chrome 菜单栏，不再绘制应用顶条。
     fn has_own_chrome(&self) -> bool {
         matches!(
             self.view,
-            View::TextCompare(_) | View::FolderCompare(_) | View::Home(_)
+            View::TextCompare(_) | View::TableCompare(_) | View::FolderCompare(_) | View::Home(_)
         )
     }
 }
@@ -226,7 +229,7 @@ impl eframe::App for MatchaApp {
         if benchmark_ready {
             if let (Some(bench), View::TableCompare(view)) = (&mut self.bench, &mut self.view) {
                 match bench.next_step(view.row_count()) {
-                    Step::Smooth(n) => view.scroll_to_row(view.top_row(22.0) + n),
+                    Step::Smooth(n) => view.scroll_to_row(view.top_row(18.0) + n),
                     Step::Jump(row) => {
                         view.scroll_to_row(row);
                         view.scroll_to_column(row % 10);
@@ -317,7 +320,7 @@ impl eframe::App for MatchaApp {
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.view {
                 View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
-                View::TableCompare(v) => v.is_ready(),
+                View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::FolderCompare(v) => !v.busy(),
                 View::Home(_) => true,
                 _ => false,
@@ -331,7 +334,9 @@ impl eframe::App for MatchaApp {
                             crate::chrome::menubar::request_open(&ctx, "Edit");
                         }
                     }
-                    View::TableCompare(v) => v.scroll_to_row(0),
+                    View::TableCompare(v) => {
+                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                    }
                     View::FolderCompare(v) => {
                         v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
                     }
