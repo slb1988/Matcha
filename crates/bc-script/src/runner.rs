@@ -20,10 +20,60 @@ pub struct Script {
     pub lines: Vec<ScriptLine>,
 }
 
+/// A failure that ends the process: the exit code plus the message for standard error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    pub code: ExitCode,
+    pub message: String,
+}
+
+impl Failure {
+    pub fn new(code: ExitCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 impl Script {
-    /// Read and parse a script file (`@file`). Errors map to exit 105/106.
-    pub fn load(path: &std::path::Path, args: &[String]) -> Result<Script, ExitCode> {
-        todo!("bc-script::runner: read file, parse_script, map errors to exit codes")
+    /// Read and parse a script file (`@file`): unreadable → 105, syntax → 106, a command
+    /// this build does not run → 100. `args` are the arguments after the script name.
+    pub fn load(path: &std::path::Path, args: &[String]) -> Result<Script, Failure> {
+        let bytes = std::fs::read(path).map_err(|e| {
+            Failure::new(
+                ExitCode::ScriptLoadError,
+                format!("cannot read script {}: {e}", path.display()),
+            )
+        })?;
+        let source = Self::decode(&bytes).map_err(|e| {
+            Failure::new(
+                ExitCode::ScriptLoadError,
+                format!("cannot read script {}: {e}", path.display()),
+            )
+        })?;
+        let lines = crate::parser::parse_script(&source, args)
+            .map_err(|e| Failure::new(e.exit_code(), format!("{}: {e}", path.display())))?;
+        Ok(Script {
+            path: Some(path.to_path_buf()),
+            lines,
+        })
+    }
+
+    /// Script text: a BOM selects UTF-8/UTF-16; without one the text is UTF-8, or the
+    /// system ANSI code page when it is not valid UTF-8.
+    pub fn decode(bytes: &[u8]) -> Result<String, String> {
+        let detection = bc_core::encoding::detect(bytes, crate::platform::ansi_code_page());
+        if detection.encoding == bc_core::encoding::Encoding::Binary {
+            return Err("not a text file".into());
+        }
+        bc_core::encoding::decode(bytes, detection.encoding).map_err(|e| e.to_string())
     }
 }
 
@@ -206,5 +256,76 @@ pub fn auto_merge_exit_code(outcome: &bc_engine_text::merge::AutoMergeOutcome) -
         ExitCode::ConflictsMergeNotWritten
     } else {
         ExitCode::ConflictsDetected
+    }
+}
+
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+
+    fn write(tag: &str, bytes: &[u8]) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("matcha-script-{tag}-{}.txt", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn first_title(path: &std::path::Path) -> String {
+        let script = Script::load(path, &[]).unwrap();
+        let _ = std::fs::remove_file(path);
+        match &script.lines[0].command {
+            Command::TextReport(request) => request.title.clone().unwrap(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    const LINE: &str = "text-report layout:patch title:\"Ünïcode 比较\" output-to:- a b\r\n";
+
+    #[test]
+    fn utf8_with_and_without_bom() {
+        let mut bom = b"\xef\xbb\xbf".to_vec();
+        bom.extend_from_slice(LINE.as_bytes());
+        assert_eq!(first_title(&write("bom", &bom)), "Ünïcode 比较");
+        assert_eq!(
+            first_title(&write("plain", LINE.as_bytes())),
+            "Ünïcode 比较"
+        );
+    }
+
+    #[test]
+    fn utf16le_with_bom() {
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(LINE.encode_utf16().flat_map(u16::to_le_bytes));
+        assert_eq!(first_title(&write("utf16", &bytes)), "Ünïcode 比较");
+    }
+
+    #[test]
+    fn invalid_utf8_falls_back_to_the_ansi_code_page() {
+        // 0xE9 is "é" in 1252 and invalid as UTF-8 on its own.
+        let path = write(
+            "ansi",
+            b"text-report layout:patch title:caf\xe9 output-to:- a b\r\n",
+        );
+        let title = first_title(&path);
+        assert!(
+            title.starts_with("caf") && title.chars().count() == 4,
+            "{title:?}"
+        );
+        if crate::platform::ansi_code_page() == 1252 {
+            assert_eq!(title, "café");
+        }
+    }
+
+    #[test]
+    fn missing_script_is_105_and_syntax_errors_are_106() {
+        let missing = std::env::temp_dir().join("matcha-no-such-script.txt");
+        let failure = Script::load(&missing, &[]).unwrap_err();
+        assert_eq!(failure.code, ExitCode::ScriptLoadError);
+        assert!(failure.message.contains("matcha-no-such-script.txt"));
+        let path = write("syntax", b"text-reprot layout:patch output-to:- a b\n");
+        let failure = Script::load(&path, &[]).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(failure.code, ExitCode::ScriptSyntaxError);
+        assert!(failure.message.contains("line 1"), "{}", failure.message);
     }
 }

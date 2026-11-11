@@ -20,13 +20,13 @@
 
 ## 3. 脚本解析（bc-script）
 
-- [ ] 3.1 实现 `Script::load` 的读取与解码（`bc-core::encoding::detect`，BOM/UTF-8/ANSI 回退），读取失败映射 105；验证单测：UTF-8 BOM、UTF-16LE、含 ANSI 字节的脚本、文件不存在
-- [ ] 3.2 实现 `tokenize` 与 `parse_script` 的行处理：`#` 注释（引号内的 `#` 保留）、行末 `&` 续行（逻辑行号取首行）、双引号分组、空行；验证单测覆盖 script-execution 规格“脚本基本语法”的场景
-- [ ] 3.3 实现变量替换：`%1`…`%9`（排除 `/` 开关）、`%date%`/`%time%`/`%fn_time%`（Windows 经 `windows-sys` 的 `GetLocalTime`/`GetTimeFormatEx`，其他平台 UTC 兜底）、`%NAME%` 环境变量（大小写敏感、未定义保持原文）；为 `bc-script` 加 `cfg(windows)` 的 `windows-sys` 依赖（启用所需特性）；验证单测：参数缺失为空串、`/silent` 不计入、未定义变量原样、日期格式 `yyyy-mm-dd`
-- [ ] 3.4 解析错误分 `Syntax`（106）与 `Unsupported`（100）两类并带行号；`parse_arguments` 对本阶段范围外的 25 个命令（含 `file-report`）返回 `Unsupported`；验证单测：拼错命令 → 106、`load` → 100 且报出行号与命令名
-- [ ] 3.5 实现 `parse_report_arguments`：`layout:`（仅 `patch` 可执行，其他参考布局 → `Unsupported`，未知 → `Syntax`）、`options:`（patch 格式、`ignore-unimportant`、可接受但无效果的选项、弃用选项、未知 → `Syntax`）、`title:`、`output-to:`（文件名、`-`；`printer`/`clipboard` → `Unsupported`；缺失 → `Syntax`）、`output-options:`（`html-*` → `Unsupported`，print/wrap 接受）、比较对象（两个 → `Files`，一个/无 → `Unsupported`）；验证单测逐条覆盖 text-reports 与 report-output 规格中的参数场景
-- [ ] 3.6 实现 `log`、`option`（`stop-on-error`、`confirm:` 三值）、`beep` 的参数解析；验证单测：`log normal`、`log verbose append:run.log`、`option confirm:yes-to-all`、非法取值 → 106
-- [ ] 3.7 更新 `crates/bc-script/README.md`：本阶段支持的命令、两类错误与退出码、变量替换规则、`output-to:-` 为 Matcha 扩展；验证 README 的命令清单与 `parse_arguments` 一致
+- [x] 3.1 实现 `Script::load` 的读取与解码（`bc-core::encoding::detect`，BOM/UTF-8/ANSI 回退），读取失败映射 105；验证单测：UTF-8 BOM、UTF-16LE、含 ANSI 字节的脚本、文件不存在
+- [x] 3.2 实现 `tokenize` 与 `parse_script` 的行处理：`#` 注释（引号内的 `#` 保留）、行末 `&` 续行（逻辑行号取首行）、双引号分组、空行；验证单测覆盖 script-execution 规格“脚本基本语法”的场景
+- [x] 3.3 实现变量替换：`%1`…`%9`（排除 `/` 开关）、`%date%`/`%time%`/`%fn_time%`（Windows 经 `windows-sys` 的 `GetLocalTime`/`GetTimeFormatEx`，其他平台 UTC 兜底）、`%NAME%` 环境变量（大小写敏感、未定义保持原文）；为 `bc-script` 加 `cfg(windows)` 的 `windows-sys` 依赖（启用所需特性）；验证单测：参数缺失为空串、`/silent` 不计入、未定义变量原样、日期格式 `yyyy-mm-dd`
+- [x] 3.4 解析错误分 `Syntax`（106）与 `Unsupported`（100）两类并带行号；`parse_arguments` 对本阶段范围外的 25 个命令（含 `file-report`）返回 `Unsupported`；验证单测：拼错命令 → 106、`load` → 100 且报出行号与命令名
+- [x] 3.5 实现 `parse_report_arguments`：`layout:`（仅 `patch` 可执行，其他参考布局 → `Unsupported`，未知 → `Syntax`）、`options:`（patch 格式、`ignore-unimportant`、可接受但无效果的选项、弃用选项、未知 → `Syntax`）、`title:`、`output-to:`（文件名、`-`；`printer`/`clipboard` → `Unsupported`；缺失 → `Syntax`）、`output-options:`（`html-*` → `Unsupported`，print/wrap 接受）、比较对象（两个 → `Files`，一个/无 → `Unsupported`）；验证单测逐条覆盖 text-reports 与 report-output 规格中的参数场景
+- [x] 3.6 实现 `log`、`option`（`stop-on-error`、`confirm:` 三值）、`beep` 的参数解析；验证单测：`log normal`、`log verbose append:run.log`、`option confirm:yes-to-all`、非法取值 → 106
+- [x] 3.7 更新 `crates/bc-script/README.md`：本阶段支持的命令、两类错误与退出码、变量替换规则、`output-to:-` 为 Matcha 扩展；验证 README 的命令清单与 `parse_arguments` 一致
 
 ## 4. 脚本执行（bc-script runner）
 

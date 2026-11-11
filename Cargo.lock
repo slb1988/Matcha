@@ -250,6 +250,7 @@ dependencies = [
  "bc-report",
  "bc-session",
  "bc-vfs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
