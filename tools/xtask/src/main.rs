@@ -264,11 +264,29 @@ fn dist(args: &[String]) -> Result<PathBuf, String> {
     let out = target_dir
         .join("dist")
         .join(format!("matcha-{VERSION}-{}-{arch}", platform.tag()));
-    if out.exists() {
-        std::fs::remove_dir_all(&out).map_err(|e| format!("clean {}: {e}", out.display()))?;
-    }
+    clean(&out)?;
     assemble(&layout(platform), platform, &bins, &out)?;
     Ok(out)
+}
+
+/// Empty `out` but keep the folder: an Explorer window or a shell sitting in it holds the
+/// directory open, which would make removing the folder itself fail.
+fn clean(out: &Path) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(out) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let path = entry
+            .map_err(|e| format!("clean {}: {e}", out.display()))?
+            .path();
+        let removed = if path.is_dir() && !path.is_symlink() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        removed.map_err(|e| format!("clean {}: {e}", path.display()))?;
+    }
+    Ok(())
 }
 
 const USAGE: &str = "usage: cargo xtask dist [--debug] [--target <triple>] [--no-build]";
