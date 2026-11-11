@@ -133,7 +133,10 @@ pub struct HexCompareView {
     /// Ctrl+V/菜单 Paste：等待系统剪贴板回送。
     paste_pending: bool,
     cache: Option<GridCache>,
+    /// 纵向滚动偏移（视图状态的一部分；pending_scroll 换算后写入，ScrollArea 回读保持）。
     scroll: f32,
+    /// 当前首可见网格行（RawInput 回归断言滚动到位）。
+    pub visible_first_row: usize,
 }
 
 impl HexCompareView {
@@ -198,6 +201,7 @@ impl HexCompareView {
             paste_pending: false,
             cache: None,
             scroll: 0.0,
+            visible_first_row: 0,
         }
     }
 
@@ -297,17 +301,14 @@ impl HexCompareView {
         &self.cache.as_ref().unwrap().rows
     }
 
-    /// 按过滤模式构建网格行模型（Diffs 带 context_count 上下文，区域起点重打包）。
+    /// 按过滤模式构建网格行模型（Diffs 带 context_count 上下文；区域连续流入同一打包序列）。
     fn build_grid_rows(&self, per_line: usize) -> Vec<GridRowModel> {
         let per_line = per_line as u16;
         if self.filter == DisplayFilter::All {
             return render::grid_rows(&self.map, usize::from(per_line));
         }
-        let regions = bc_engine_bin::hex::filtered_regions(&self.map.align, self.filter, self.map.rules.context_count);
-        let mut packed = Vec::new();
-        for region in regions {
-            packed.extend(bc_engine_bin::hex::pack_slice(&self.map.align.rows()[region], per_line));
-        }
+        let rows = bc_engine_bin::hex::filtered_rows(&self.map.align, self.filter, self.map.rules.context_count);
+        let packed = bc_engine_bin::hex::pack_slice(&rows, per_line);
         render::models_from_packed(&self.map.left, &self.map.right, &packed)
     }
 
@@ -317,6 +318,24 @@ impl HexCompareView {
             style.fit_per_line(pane_width)
         } else {
             usize::from(self.map.rules.bytes_per_group.max(1)) * usize::from(self.groups_per_item.max(1))
+        }
+    }
+
+    /// 快照场景预设（任务 7.3）：hex-basic 默认首屏；hex-insertion 滚到 0x400 插入区；
+    /// hex-diffs-filter 切 Diffs 过滤。
+    pub fn snapshot_preset(&mut self, scene: &str) {
+        match scene {
+            "hex-diffs-filter" => {
+                self.filter = DisplayFilter::Differences;
+                self.cache = None;
+            }
+            "hex-insertion" => {
+                self.set_cursor(0, 0x400);
+                if let Some(row) = self.align_row_of(0, 0x400) {
+                    self.pending_scroll = Some(row);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1300,46 +1319,50 @@ impl HexCompareView {
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
         let row_count = self.grid_rows(width, ui).len();
         // 待滚动目标换算为像素（需在取出 cache 前完成借用）。
-        let pending_y = self
-            .pending_scroll
-            .take()
-            .and_then(|row| self.grid_y_of_align_row(row, style.row_height));
+        let pending_row = self.pending_scroll.take();
+        if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
+            self.scroll = y;
+        }
         let cache = self.cache.take().unwrap();
         let rows_ref = &cache.rows;
         let pane_h = row_count as f32 * style.row_height;
 
-        let mut area = egui::ScrollArea::vertical();
-        if let Some(y) = pending_y {
-            area = area.vertical_scroll_offset(y);
-        }
-        area.show(ui, |ui| {
-            let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), pane_h.max(ui.available_height())),
-                egui::Sense::hover(),
+        // 手工虚拟化滚动（沿用 text 视图约定：自身持有像素偏移 + chrome::wheel）。
+        let available = ui.available_rect_before_wrap();
+        let body = egui::Rect::from_min_max(
+            available.min,
+            egui::pos2(available.right(), (available.bottom() - 26.0).max(available.top() + 60.0)),
+        );
+        let delta = crate::chrome::wheel::delta(ui.ctx(), &[body]);
+        let max_scroll = (pane_h - body.height()).max(0.0);
+        self.scroll = (self.scroll - delta.y).clamp(0.0, max_scroll);
+        ui.advance_cursor_after_rect(body);
+
+        let mut grid_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
+        let top = body.min - egui::vec2(0.0, self.scroll);
+        let origins = if self.side_by_side {
+            [top, egui::pos2(top.x + body.width() / 2.0, top.y)]
+        } else {
+            [top, egui::pos2(top.x, top.y + pane_h / 2.0 + style.row_height)]
+        };
+        self.visible_first_row =
+            render::paint_pane(&mut grid_ui, rows_ref, 0, &style, origins[0], dark, self.show_byte_addresses);
+        render::paint_pane(&mut grid_ui, rows_ref, 1, &style, origins[1], dark, self.show_byte_addresses);
+        // 缩略图条（右侧窄条贴视口，不随内容滚动）。
+        if self.show_thumbnail {
+            let strip = egui::Rect::from_min_size(
+                egui::pos2(body.right() - 10.0, body.top()),
+                egui::vec2(10.0, body.height()),
             );
-            let origins = if self.side_by_side {
-                [rect.min, egui::pos2(rect.min.x + rect.width() / 2.0, rect.min.y)]
-            } else {
-                [rect.min, egui::pos2(rect.min.x, rect.min.y + pane_h / 2.0 + style.row_height)]
-            };
-            render::paint_pane(ui, rows_ref, 0, &style, origins[0], dark, self.show_byte_addresses);
-            render::paint_pane(ui, rows_ref, 1, &style, origins[1], dark, self.show_byte_addresses);
-            // 缩略图条（右侧窄条，差异标刻）。
-            if self.show_thumbnail {
-                let strip = egui::Rect::from_min_size(
-                    egui::pos2(rect.right() - 10.0, rect.top()),
-                    egui::vec2(10.0, rect.height().min(ui.clip_rect().height())),
+            grid_ui.painter().rect_filled(strip, 0.0, egui::Color32::from_rgb(245, 245, 245));
+            for mark in self.thumbnail_marks() {
+                let y = strip.top() + mark * strip.height();
+                grid_ui.painter().line_segment(
+                    [egui::pos2(strip.left(), y), egui::pos2(strip.right(), y)],
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 50, 50)),
                 );
-                ui.painter().rect_filled(strip, 0.0, egui::Color32::from_rgb(245, 245, 245));
-                for mark in self.thumbnail_marks() {
-                    let y = strip.top() + mark * strip.height();
-                    ui.painter().line_segment(
-                        [egui::pos2(strip.left(), y), egui::pos2(strip.right(), y)],
-                        egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 50, 50)),
-                    );
-                }
             }
-        });
+        }
         self.cache = Some(cache);
 
         statusbar::show(ui, &self.status_fields());
@@ -1348,7 +1371,6 @@ impl HexCompareView {
         self.info_dialog(ui.ctx());
         self.settings_dialog(ui.ctx());
         self.modal_dialogs(ui.ctx());
-        let _ = self.scroll;
         self.action.take()
     }
 }

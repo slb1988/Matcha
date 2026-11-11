@@ -166,6 +166,7 @@ fn paint_placeholder(painter: &egui::Painter, rect: egui::Rect) {
 }
 
 /// 单侧窗格的可见行绘制。只画 `ui.clip_rect()` 内的行。
+/// 返回首个可见行索引（RawInput 回归断言滚动用）。
 #[allow(clippy::too_many_arguments)]
 pub fn paint_pane(
     ui: &mut egui::Ui,
@@ -175,7 +176,7 @@ pub fn paint_pane(
     origin: egui::Pos2,
     dark: bool,
     show_addresses: bool,
-) {
+) -> usize {
     let painter = ui.painter();
     let font = egui::FontId::monospace(12.0);
     let label_color = egui::Color32::from_rgb(105, 105, 105);
@@ -187,6 +188,7 @@ pub fn paint_pane(
     let clip = ui.clip_rect();
     let first = ((clip.top() - origin.y) / style.row_height).floor().max(0.0) as usize;
     let last = (((clip.bottom() - origin.y) / style.row_height).ceil() as usize).min(rows.len());
+    let _ = last;
     for (row_ix, row) in rows.iter().enumerate().take(last).skip(first) {
         let y = origin.y + row_ix as f32 * style.row_height;
         let mut x = origin.x;
@@ -247,4 +249,5 @@ pub fn paint_pane(
             }
         }
     }
+    first
 }

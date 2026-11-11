@@ -429,7 +429,7 @@ fn differences_filter_packs_regions_with_context() {
     let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
     ready(&mut v);
     v.filter = bc_engine_bin::hex::DisplayFilter::Differences;
-    // 默认 context=16：首个差异区域从 0x100-16=0x0F0 开始（区域起点重打包）。
+    // 默认 context=16：首行从 0x100-16=0x0F0 开始。
     let rows = v.grid_rows_for_test(16);
     assert_eq!(rows[0].left_label, Some("000000F0".to_owned()));
     assert!(rows.len() < 260); // 远小于全量 260+ 行，中间大段相同被隐藏
@@ -440,6 +440,10 @@ fn differences_filter_packs_regions_with_context() {
         .filter(|c| c.kind == DiffKind::Changed)
         .count();
     assert_eq!(diff_cells, 8);
+    // 区域连续流入同一打包序列（参考 22-diffs-only.png）：第一簇（0xF0 起 41 格）
+    // 余 9 格与第二簇前 7 格同行 → 第 3 行标签 0x110、第 4 行 0x1F7。
+    assert_eq!(rows[2].left_label, Some("00000110".to_owned()));
+    assert_eq!(rows[3].left_label, Some("000001F7".to_owned()));
 }
 
 #[test]
@@ -553,4 +557,39 @@ fn menu_commands_drive_view_state() {
     v.info_open = false;
     // 菜单栏渲染（menubar::show）。
     frame(&ctx, &mut v);
+}
+
+#[test]
+fn snapshot_preset_insertion_scrolls_to_the_insert_region() {
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    v.snapshot_preset("hex-insertion");
+    assert!(v.pending_scroll.is_some());
+    frame(&ctx, &mut v);
+    assert!(v.pending_scroll.is_none()); // 被 ui() 消费
+    frame(&ctx, &mut v);
+}
+
+#[test]
+fn snapshot_preset_diffs_filter_switches_filter() {
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    v.snapshot_preset("hex-diffs-filter");
+    assert_eq!(v.filter, bc_engine_bin::hex::DisplayFilter::Differences);
+}
+
+#[test]
+fn scroll_offset_shifts_the_visible_window() {
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    assert_eq!(v.visible_first_row, 0);
+    v.pending_scroll = Some(0x400);
+    frame(&ctx, &mut v);
+    assert!(v.visible_first_row > 0, "滚动后首可见行应离开 0");
+    let at = v.visible_first_row;
+    frame(&ctx, &mut v); // 下一帧不得回弹（快照在该状态截图）
+    assert_eq!(v.visible_first_row, at, "滚动状态未保持");
 }

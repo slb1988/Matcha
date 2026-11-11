@@ -204,6 +204,20 @@ pub fn pack_slice(rows: &[AlignRow], bytes_per_line: u16) -> Vec<HexRow> {
     out
 }
 
+/// 显示过滤后的对齐行（连续拼接）。
+///
+/// Diffs：每个差异游程向两侧各扩 `context` 行 Same（重叠合并）；Same：仅 Same 游程。
+/// **区域不重置打包相位**（证据：`22-diffs-only.png` 左侧标签 0x1F7 = 前一区域 9 格余量
+/// 与后一区域前 7 格同行）；调用方对拼接结果用 [`pack_rows`] 一次性打包。
+pub fn filtered_rows(map: &AlignMap, filter: DisplayFilter, context: usize) -> Vec<AlignRow> {
+    let regions = filtered_regions(map, filter, context);
+    let mut out = Vec::new();
+    for region in regions {
+        out.extend_from_slice(&map.rows()[region]);
+    }
+    out
+}
+
 /// 显示过滤后的对齐行区间集合（align 行号区间）。
 ///
 /// Diffs：每个差异游程向两侧各扩 `context` 行 Same（重叠合并）；Same：仅 Same 游程。

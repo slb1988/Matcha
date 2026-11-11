@@ -23,7 +23,7 @@
 
 - 配对字节同格相邻；一侧的孤儿字节占格，另一侧同位置画**斜纹占位格**（可出现在行中间，见标注 ①②）。
 - 每侧行标签 = 该侧本行**首个真实字节**的文件偏移；某行该侧全是占位格时标签留空（整行斜纹，见 `06-insertion-closeup.png` ②）。
-- 奇数长度插入后，后续行的地址相位可整体偏移（左栏插入点后按 …B 相位分行，右栏保持 16 对齐，见 ③④）；Diffs 模式下每个差异区域连同上下文按区域起点重新打包，行标签同样非 16 对齐（`22-diffs-only.png` ④）。
+- 奇数长度插入后，后续行的地址相位可整体偏移（左栏插入点后按 …B 相位分行，右栏保持 16 对齐，见 ③④）；Diffs 模式下各差异区域连同上下文的单元格**连续流入同一打包序列**（区域不打断行相位：左栏标签 0x1F7 = 前一区域 9 格余量与后一区域前 7 格同行，见 `22-diffs-only.png` ④）。
 - 状态栏左右角各有一个**当前字节地址**（如左 `00000123` / 右 `00000128`），光标跨侧同步到同一逻辑字节（`23-odd-insert.png` ④）。
 
 ### 字节状态四分类
@@ -131,3 +131,7 @@
 4. **`hex-report` 脚本 token 集**（字符串表证实）：`layout:side-by-side|summary|interleaved`；`options:display-all|display-matches|display-mismatches|display-mismatches-no-orphans|line-numbers`（`display-mismatches-no-orphans` 为 CHM 未载、二进制实有多出的选项）；报告对话框控件集与之一一对应（布局三选、选项下拉、包含字节地址、报告标题、输出=打印机/HTML/纯文本、加亮差异=使用颜色、折行=无/词组/字符，纯文本默认折行字符）。**输出文本样例未采集**：本机 BC 为 Standard 版（`IsPro=0`），`@script` 被禁（exit 107），GUI 报告采集因用户占用机器中止；不影响 tasks 3.2——黄金期望本就约定在 Windows Pro 实例用脚本生成。
 
 - `shot_hexcompare.png`（CHM 官方截图）与上述运行时截图行为一致，可作为交叉佐证。
+
+## 实现对照补记（2026-11-12，hex-compare 任务 7.3）
+
+Matcha 快照场景 `hex-basic` / `hex-insertion` / `hex-diffs-filter`（无头采集，与本目录语料同字节）与参考截图 `01-main.png` / `06-insertion-closeup.png` / `22-diffs-only.png` 逐区域对照：命令结构、行打包、着色、占位格、行标签相位、过滤行为全部吻合；每行格数随 Fit-to-window 窗口宽度（参考截图 16 格源于其窗口宽度，行为一致）、缩略图条位置（左 vs 右缘）与光标格着色框为已知几何差异。细节见 `openspec/changes/hex-compare/worker-report.md`。

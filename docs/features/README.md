@@ -23,7 +23,7 @@
 | [text-compare.md](text-compare.md) | 文本比较 / 编辑（FR-T1…T8） | 双向比较已实现；三路合并为脚手架 | `bc-engine-text` |
 | [folder-compare-sync.md](folder-compare-sync.md) | 文件夹比较与同步（FR-D1…D5） | 已实现（wave A/B/C 完成） | `bc-engine-dir` |
 | [table-compare.md](table-compare.md) | 表格比较 CSV/XLSX（FR-C1） | 已实现 | `bc-engine-table` |
-| [hex-compare.md](hex-compare.md) | 十六进制 / 图片等二进制比较（P2–P4） | 未开始（数据模型占位，`todo!()`） | `bc-engine-bin` |
+| [hex-compare.md](hex-compare.md) | 十六进制比较（hex-compare change 已落地） | 21/23（3.2 待参考机生成期望；7.2 Mac 侧 4 个无关既有夹具失败） | `bc-engine-bin` |
 | [cli-and-scripting.md](cli-and-scripting.md) | 命令行三件套、脚本引擎、退出码（FR-S1/S2） | 无窗口子集已实现 | `bc-script` + `apps/` |
 | [reports.md](reports.md) | 报告输出（patch 四种布局等，FR-R1） | patch 布局已实现 | `bc-report` |
 | [sessions-and-formats.md](sessions-and-formats.md) | 会话 / 工作区、文件格式库（FR-X1） | 数据模型与格式库已实现 | `bc-session`、`bc-formats` |

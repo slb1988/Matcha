@@ -1361,13 +1361,17 @@ fn anchored_rows(
         emit_gap(&mut rows, left, right, 0, left.len(), 0, right.len(), refine, cancel)?;
         return Ok(rows);
     }
-    // 右侧锚窗哈希 → 升序位置表。
+    // 右侧锚窗哈希 → 升序位置表。大文件按哈希量化采样（h % S == 0 才入库）：
+    // 采样按哈希值对齐两侧，不破坏相位语义，小文件 S=1 与逐字节入库完全一致。
+    let sample_mod = if right.len() > 64 * 1024 * 1024 { 8u64 } else { 1 };
     let right_rolling = RollingBytes::new(right, window);
     let mut index: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
     let mut h = right_rolling.window_hash(0);
     let mut pos = 0usize;
     loop {
-        index.entry(h).or_default().push(pos);
+        if h.is_multiple_of(sample_mod) {
+            index.entry(h).or_default().push(pos);
+        }
         if pos + window >= right.len() {
             break;
         }
@@ -1388,14 +1392,18 @@ fn anchored_rows(
         if i.is_multiple_of(4096) {
             cancel.check()?;
         }
-        let anchor = index.get(&lh).and_then(|cands| {
-            // 候选位置升序；取 ≥ j_min 且 memcmp 通过的第一个。
-            cands
-                .iter()
-                .copied()
-                .skip_while(|&j| j < j_min)
-                .find(|&j| right[j..j + window] == left[i..i + window])
-        });
+        let anchor = if lh.is_multiple_of(sample_mod) {
+            index.get(&lh).and_then(|cands| {
+                // 候选位置升序；取 ≥ j_min 且 memcmp 通过的第一个。
+                cands
+                    .iter()
+                    .copied()
+                    .skip_while(|&j| j < j_min)
+                    .find(|&j| right[j..j + window] == left[i..i + window])
+            })
+        } else {
+            None
+        };
         match anchor {
             Some(j) => {
                 emit_gap(&mut rows, left, right, gap_left, i, gap_right, j, refine, cancel)?;

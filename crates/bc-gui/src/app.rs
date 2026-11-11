@@ -855,6 +855,9 @@ impl MatchaApp {
                         v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
                     }
                     View::FolderSync(v) => v.snapshot_preset(),
+                    View::HexCompare(v) => {
+                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                    }
                     _ => {}
                 }
                 self.snapshot_preset_applied = true;

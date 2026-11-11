@@ -44,7 +44,7 @@
 - **THEN** 缩略图条隐藏，其余区域布局自适应填充
 
 ### Requirement: 显示过滤与上下文
-视图 SHALL 提供 Show All（默认）/ Show Differences / Show Same 三种过滤。Show Differences 模式下，每个差异区域 SHALL 附带可配置数量的上下文相同字节（默认 16，Layout 对话框的 Context count），各区域连同上下文按区域起点重新打包行。
+视图 SHALL 提供 Show All（默认）/ Show Differences / Show Same 三种过滤。Show Differences 模式下，每个差异区域 SHALL 附带可配置数量的上下文相同字节（默认 16，Layout 对话框的 Context count）；**各区域的单元格连续流入同一打包序列**（区域不打断行相位，行标签随之非 16 对齐——证据：`22-diffs-only.png` 左栏 0x1F7 = 前一区域余量与后一区域首格同行）。
 
 #### Scenario: 只看差异
 - **WHEN** 用户切到 Show Differences，差异分别位于 0x100 与 0x400

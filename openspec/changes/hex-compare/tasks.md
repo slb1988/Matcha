@@ -42,6 +42,6 @@
 
 ## 7. 验收
 
-- [ ] 7.1 大文件性能：256 MB 语料在 Fast 档下对齐可取消、视图滚动流畅，记录耗时；验证：基准数字写入 worker-report
+- [x] 7.1 大文件性能：256 MB 语料在 Fast 档下对齐可取消、视图滚动流畅，记录耗时；验证：基准数字写入 worker-report
 - [ ] 7.2 全量门禁：`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`cargo build --release -p bcompare`；验证：三条命令零告警通过
-- [ ] 7.3 Matcha 快照与参考截图并排对照（主视图/插入区/Diffs 过滤三场景），几何与着色差异列入 worker-report；验证：对照记录入 `docs/reference-parity/hex-compare.md` 补记
+- [x] 7.3 Matcha 快照与参考截图并排对照（主视图/插入区/Diffs 过滤三场景），几何与着色差异列入 worker-report；验证：对照记录入 `docs/reference-parity/hex-compare.md` 补记

@@ -49,6 +49,7 @@ pub enum SceneView {
     Folder,
     Home,
     Table,
+    Hex,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
@@ -65,7 +66,26 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 17] = [
+/// hex-compare 快照语料：与参考截图同一字节（docs 语料库，SHA-256 校验过）。
+pub const HEX_LEFT: &str = "docs/reference-parity/hex-compare/corpus/left.bin";
+pub const HEX_RIGHT: &str = "docs/reference-parity/hex-compare/corpus/right.bin";
+pub const REGISTRY: [Scene; 20] = [
+    // hex-compare：主视图 / 插入区 / Diffs 过滤三场景（对照参考 01/06/22）。
+    Scene {
+        name: "hex-basic",
+        view: SceneView::Hex,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "hex-insertion",
+        view: SceneView::Hex,
+        preset: Preset::CursorOnDifference,
+    },
+    Scene {
+        name: "hex-diffs-filter",
+        view: SceneView::Hex,
+        preset: Preset::Differences,
+    },
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -210,6 +230,7 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
             PathBuf::from("tools/visual/corpus/folder-left"),
             PathBuf::from("tools/visual/corpus/folder-right"),
         )),
+        SceneView::Hex => Some((PathBuf::from(HEX_LEFT), PathBuf::from(HEX_RIGHT))),
         _ => None,
     };
     options.left = None;
@@ -263,6 +284,7 @@ impl Capture {
             started: Instant::now(),
             path,
             result,
+            // 逻辑点；截图回调按整数倍缩放校验（install 时 zoom_factor 恒为 1）。
             expected: [size[0] as usize, size[1] as usize],
         });
         let observer = state.clone();
@@ -313,10 +335,17 @@ impl Capture {
                 let saved = if image.size == expected {
                     crate::bench::save_png(&path, &image).map_err(|e| e.to_string())
                 } else {
-                    Err(format!(
-                        "snapshot size {:?} != requested {expected:?}",
-                        image.size
-                    ))
+                    // HiDPI（Retina 2x 等）：物理像素 = 逻辑 × 整数倍也接受。
+                    let (w, h) = (image.width(), image.height());
+                    let scaled = (2..=3).any(|s| w == expected[0] * s && h == expected[1] * s);
+                    if scaled {
+                        crate::bench::save_png(&path, &image).map_err(|e| e.to_string())
+                    } else {
+                        Err(format!(
+                            "snapshot size {:?} != requested {expected:?}",
+                            image.size
+                        ))
+                    }
                 };
                 if saved.is_ok() {
                     println!(
