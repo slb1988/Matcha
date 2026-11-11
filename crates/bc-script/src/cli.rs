@@ -62,6 +62,23 @@ pub enum Switch {
     Title(u8, String),
     /// `/vcs1..4=<path>`; index 0-based.
     Vcs(u8, String),
+    /// `/selectleft` `/compareto` `/comparepair` – Explorer context-menu verbs
+    /// (Matcha extension); each takes exactly one path.
+    Shell(ShellVerb),
+    /// `/shellmenu=on|off` – add or remove the Explorer context menu, then exit
+    /// (Matcha extension).
+    ShellMenu(bool),
+}
+
+/// Explorer context-menu verb carried on the command line (see `bc-shell`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellVerb {
+    /// `/selectleft <path>` – remember `<path>` as the pending Left.
+    SelectLeft,
+    /// `/compareto <path>` – compare the pending Left with `<path>`.
+    CompareTo,
+    /// `/comparepair <path>` – one item of a multi-selection "Compare".
+    ComparePair,
 }
 
 /// What the positional arguments denote.
@@ -148,7 +165,30 @@ impl CliArgs {
                 None => positional.push(arg),
             }
         }
-        let invocation = infer(cwd, positional)?;
+        let shell = switches
+            .iter()
+            .filter(|s| matches!(s, Switch::Shell(_) | Switch::ShellMenu(_)))
+            .count();
+        let invocation = if shell > 1 {
+            return Err(error("only one Explorer menu switch may be given"));
+        } else if switches.iter().any(|s| matches!(s, Switch::Shell(_))) {
+            // 菜单命令总是恰好一个路径；不做会话名推断（文件可能已不存在）。
+            match positional.as_slice() {
+                [path] => Invocation::Single(resolve(cwd, path)),
+                _ => {
+                    return Err(error(
+                        "/selectleft, /compareto and /comparepair take exactly one path",
+                    ))
+                }
+            }
+        } else if switches.iter().any(|s| matches!(s, Switch::ShellMenu(_))) {
+            if !positional.is_empty() {
+                return Err(error("/shellmenu does not take paths"));
+            }
+            Invocation::Home
+        } else {
+            infer(cwd, positional)?
+        };
         Ok(CliArgs {
             switches,
             invocation,
@@ -167,6 +207,26 @@ impl CliArgs {
     /// `/solo` – force a new instance.
     pub fn solo(&self) -> bool {
         self.has(|s| matches!(s, Switch::Solo))
+    }
+
+    /// Explorer menu verb and its path (`/selectleft` & co.).
+    pub fn shell_verb(&self) -> Option<(ShellVerb, &Path)> {
+        let verb = self.switches.iter().find_map(|s| match s {
+            Switch::Shell(verb) => Some(*verb),
+            _ => None,
+        })?;
+        match &self.invocation {
+            Invocation::Single(path) => Some((verb, path.as_path())),
+            _ => None,
+        }
+    }
+
+    /// `/shellmenu=on|off`.
+    pub fn shell_menu(&self) -> Option<bool> {
+        self.switches.iter().find_map(|s| match s {
+            Switch::ShellMenu(on) => Some(*on),
+            _ => None,
+        })
     }
 }
 
@@ -223,6 +283,12 @@ pub fn usage() -> String {
         "  /sync                   Open in Folder Sync",
         "  /title1..4=<title>      Pane titles (left, right, center, output)",
         "  /vcs1..4=<path>         Version-control paths",
+        "",
+        "Explorer context menu (Matcha):",
+        "  /selectleft <path>      Remember <path> as the Left side",
+        "  /compareto <path>       Compare the remembered Left with <path>",
+        "  /comparepair <path>     One item of a multi-selection Compare",
+        "  /shellmenu=on|off       Add or remove the Explorer menu, then exit",
     ];
     let mut text = LINES.join("\n");
     text.push('\n');
@@ -316,6 +382,14 @@ fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
         "silent" => flag(Switch::Silent),
         "solo" => flag(Switch::Solo),
         "sync" => flag(Switch::Sync),
+        "selectleft" => flag(Switch::Shell(ShellVerb::SelectLeft)),
+        "compareto" => flag(Switch::Shell(ShellVerb::CompareTo)),
+        "comparepair" => flag(Switch::Shell(ShellVerb::ComparePair)),
+        "shellmenu" => match value.map(str::to_ascii_lowercase).as_deref() {
+            Some("on") => Ok(Some(Switch::ShellMenu(true))),
+            Some("off") => Ok(Some(Switch::ShellMenu(false))),
+            _ => Err(error("/shellmenu expects =on or =off")),
+        },
         _ => {
             if let Some(i) = indexed(
                 "title",
@@ -494,6 +568,33 @@ mod tests {
             parse(&["a", "b", "c", "d"]).invocation,
             Invocation::Merge4 { .. }
         ));
+    }
+
+    #[test]
+    fn explorer_menu_switches_take_one_path() {
+        let cli = parse(&["/selectleft", "C:/x/My Session"]);
+        assert_eq!(cli.switches, vec![Switch::Shell(ShellVerb::SelectLeft)]);
+        // 不存在、不像路径的单个参数也不按会话名处理。
+        let cli = parse(&["-compareto", "missing"]);
+        assert_eq!(
+            cli.shell_verb(),
+            Some((ShellVerb::CompareTo, cwd().join("missing").as_path()))
+        );
+        assert_eq!(
+            parse(&["/COMPAREPAIR", "a"]).shell_verb().map(|(v, _)| v),
+            Some(ShellVerb::ComparePair)
+        );
+        assert_eq!(parse(&["/shellmenu=OFF"]).shell_menu(), Some(false));
+        assert_eq!(parse(&["/shellmenu=on"]).shell_menu(), Some(true));
+        assert_eq!(parse(&["a", "b"]).shell_verb(), None);
+        let bad = |args: &[&str]| CliArgs::parse_in(args, &cwd()).is_err();
+        assert!(bad(&["/selectleft"]));
+        assert!(bad(&["/selectleft", "a", "b"]));
+        assert!(bad(&["/selectleft", "/compareto", "a"]));
+        assert!(bad(&["/selectleft=a"]));
+        assert!(bad(&["/shellmenu"]));
+        assert!(bad(&["/shellmenu=maybe"]));
+        assert!(bad(&["/shellmenu=on", "a"]));
     }
 
     #[test]
