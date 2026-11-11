@@ -1,0 +1,617 @@
+//! Classic modal-dialog chrome shared by Session Settings and Options.
+//!
+//! Geometry and colors are measured on the reference dialogs
+//! (`dlg-text-session-settings.png`, `dlg-options.png`): #F0F0F0 dialog
+//! face, #F9F9F9 tab page inside a 1 px #E5E5E5 frame, unselected tabs
+//! #F3F3F3, 94x29 push buttons (default: #0078D4 border), 13 px checkboxes
+//! (off: #626262 border on #F3F3F3, on: #005FB8 with a white check), 25 px
+//! text fields with a #8D8D8D border, combo boxes whose list uses the classic
+//! popup. Everything is painted at fixed positions with no animation.
+use super::{
+    menubar::{ActionId, MenuItem},
+    popup, theme,
+};
+use eframe::egui::{
+    self, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2,
+};
+
+pub const FACE: Color32 = Color32::from_rgb(0xF0, 0xF0, 0xF0);
+pub const PAGE: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
+const PAGE_EDGE: Color32 = Color32::from_rgb(0xE5, 0xE5, 0xE5);
+const PAGE_SHADOW: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF3);
+const TAB_OFF: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF3);
+const BUTTON_EDGE: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD0);
+const BUTTON_FILL: Color32 = Color32::from_rgb(0xFD, 0xFD, 0xFD);
+const BUTTON_BOTTOM: Color32 = Color32::from_rgb(0xBA, 0xBA, 0xBA);
+const DEFAULT_EDGE: Color32 = Color32::from_rgb(0x00, 0x78, 0xD4);
+const DEFAULT_BOTTOM: Color32 = Color32::from_rgb(0x00, 0x6B, 0xBE);
+const DISABLED_EDGE: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE9);
+const DISABLED_FILL: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
+pub const DISABLED_TEXT: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
+const CHECK_EDGE: Color32 = Color32::from_rgb(0x62, 0x62, 0x62);
+const ACCENT: Color32 = Color32::from_rgb(0x00, 0x5F, 0xB8);
+const FIELD_EDGE: Color32 = Color32::from_rgb(0x8D, 0x8D, 0x8D);
+const COMBO_EDGE: Color32 = Color32::from_rgb(0xD2, 0xD2, 0xD2);
+const COMBO_BOTTOM: Color32 = Color32::from_rgb(0xBC, 0xBC, 0xBC);
+const HEADING: Color32 = Color32::from_rgb(0x6D, 0x6D, 0x6D);
+pub const RULE: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
+/// Classic push-button size (OK / Cancel / Apply).
+pub const BUTTON: Vec2 = Vec2::new(94.0, 29.0);
+pub const TITLE_HEIGHT: f32 = 31.0;
+
+pub fn font() -> FontId {
+    FontId::proportional(theme::UI_SIZE)
+}
+fn text_color(enabled: bool) -> Color32 {
+    if enabled {
+        Color32::BLACK
+    } else {
+        DISABLED_TEXT
+    }
+}
+
+/// Where a dialog's client area goes: a framed window centered on the
+/// screen, or (deterministic snapshots of the dialog alone) the whole
+/// viewport without frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+    Window,
+    ClientOnly,
+}
+
+/// Show a dialog with the given client size. Returns `(close_clicked,
+/// inner)`; the title bar's × reports a close request.
+pub fn window<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    title: &str,
+    client: Vec2,
+    placement: Placement,
+    add: impl FnOnce(&mut Ui, Rect) -> R,
+) -> (bool, R) {
+    let screen = ctx.content_rect();
+    let (outer, origin) = match placement {
+        Placement::ClientOnly => (client, screen.min),
+        Placement::Window => {
+            let outer = client + Vec2::new(2.0, TITLE_HEIGHT + 1.0);
+            let origin = (screen.center() - outer / 2.0).max(screen.min);
+            (outer, Pos2::new(origin.x.round(), origin.y.round()))
+        }
+    };
+    let mut closed = false;
+    let inner = egui::Area::new(id)
+        .order(egui::Order::Foreground)
+        .fixed_pos(origin)
+        .movable(false)
+        .fade_in(false)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(outer, Sense::hover());
+            let painter = ui.painter().clone();
+            let client_rect = match placement {
+                Placement::ClientOnly => rect,
+                Placement::Window => {
+                    painter.rect_filled(rect, 0.0, Color32::WHITE);
+                    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, RULE), StrokeKind::Inside);
+                    painter.text(
+                        rect.min + Vec2::new(11.0, TITLE_HEIGHT / 2.0),
+                        egui::Align2::LEFT_CENTER,
+                        title,
+                        font(),
+                        Color32::BLACK,
+                    );
+                    let close = Rect::from_min_max(
+                        Pos2::new(rect.right() - 47.0, rect.top() + 1.0),
+                        Pos2::new(rect.right() - 1.0, rect.top() + TITLE_HEIGHT),
+                    );
+                    let response = ui.interact(close, id.with("close"), Sense::click());
+                    if response.hovered() {
+                        painter.rect_filled(close, 0.0, Color32::from_rgb(0xC4, 0x2B, 0x1C));
+                    }
+                    let ink = if response.hovered() {
+                        Color32::WHITE
+                    } else {
+                        Color32::BLACK
+                    };
+                    let c = close.center();
+                    for d in [Vec2::new(5.0, 5.0), Vec2::new(5.0, -5.0)] {
+                        painter.line_segment([c - d, c + d], Stroke::new(1.0, ink));
+                    }
+                    closed = response.clicked();
+                    Rect::from_min_size(rect.min + Vec2::new(1.0, TITLE_HEIGHT), client)
+                }
+            };
+            painter.rect_filled(client_rect, 0.0, FACE);
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(client_rect));
+            add(&mut child, client_rect)
+        })
+        .inner;
+    (closed, inner)
+}
+
+/// Tab strip over a tab page (`page` is the page's outer rect; tabs sit
+/// above it, the first starting at its left edge). Returns the clicked tab.
+pub fn tabs(ui: &mut Ui, page: Rect, labels: &[&str], selected: usize) -> Option<usize> {
+    let painter = ui.painter().clone();
+    // Page: #F9 with a #E5 frame and a #F3 outer right/bottom line.
+    painter.rect_filled(page, 0.0, PAGE);
+    painter.rect_stroke(page, 0.0, Stroke::new(1.0, PAGE_EDGE), StrokeKind::Inside);
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(page.right(), page.top() + 1.0),
+            Pos2::new(page.right() + 1.0, page.bottom() + 1.0),
+        ),
+        0.0,
+        PAGE_SHADOW,
+    );
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(page.left() + 1.0, page.bottom()),
+            Pos2::new(page.right() + 1.0, page.bottom() + 1.0),
+        ),
+        0.0,
+        PAGE_SHADOW,
+    );
+    let mut clicked = None;
+    let mut x = page.left();
+    for (i, label) in labels.iter().enumerate() {
+        let galley = painter.layout_no_wrap(label.to_string(), font(), Color32::BLACK);
+        let on = i == selected;
+        // Reference: selected tab = label + 18 px, others = label + 10 px.
+        let width = (galley.size().x + if on { 18.0 } else { 10.0 }).round();
+        // Selected tab: 24 px tall from the page top - 24, joined to the
+        // page; others: 2 px lower, #F3, closed at the bottom.
+        let top = page.top() - if on { 24.0 } else { 22.0 };
+        let rect = Rect::from_min_max(
+            Pos2::new(x, top),
+            // Unselected tabs share the page top line as their bottom edge.
+            Pos2::new(x + width + 1.0, page.top() + 1.0),
+        );
+        painter.rect_filled(rect, 2.0, if on { PAGE } else { TAB_OFF });
+        painter.rect_stroke(rect, 2.0, Stroke::new(1.0, PAGE_EDGE), StrokeKind::Inside);
+        if on {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(rect.left() + 1.0, page.top()),
+                    Pos2::new(rect.right() - 1.0, page.top() + 1.0),
+                ),
+                0.0,
+                PAGE,
+            );
+        }
+        painter.galley(
+            Pos2::new(x + if on { 9.0 } else { 5.0 }, rect.top() + 6.0),
+            galley,
+            Color32::BLACK,
+        );
+        if ui
+            .interact(rect, ui.scope_id().with(("dialog-tab", i)), Sense::click())
+            .clicked()
+        {
+            clicked = Some(i);
+        }
+        x += width;
+    }
+    clicked
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ButtonKind {
+    Normal,
+    Default,
+}
+/// Classic push button with a centered label; true when clicked (enabled).
+pub fn button(ui: &mut Ui, rect: Rect, label: &str, kind: ButtonKind, enabled: bool) -> bool {
+    button_face(ui, rect, label, kind, enabled, true)
+}
+fn button_face(
+    ui: &mut Ui,
+    rect: Rect,
+    label: &str,
+    kind: ButtonKind,
+    enabled: bool,
+    interactive: bool,
+) -> bool {
+    let sense = if interactive {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui.interact(
+        rect,
+        ui.scope_id()
+            .with(("dialog-button", label, rect.min.x as i32, rect.min.y as i32)),
+        sense,
+    );
+    let painter = ui.painter();
+    let (edge, fill, bottom) = match (enabled, kind) {
+        (false, _) => (DISABLED_EDGE, DISABLED_FILL, DISABLED_EDGE),
+        (true, ButtonKind::Default) => (DEFAULT_EDGE, BUTTON_FILL, DEFAULT_BOTTOM),
+        (true, ButtonKind::Normal) => (BUTTON_EDGE, BUTTON_FILL, BUTTON_BOTTOM),
+    };
+    let fill = if enabled && response.hovered() {
+        theme::HOVER_BLUE
+    } else {
+        fill
+    };
+    painter.rect_filled(rect, 3.0, fill);
+    painter.rect_stroke(rect, 3.0, Stroke::new(1.0, edge), StrokeKind::Inside);
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(rect.left() + 3.0, rect.bottom() - 1.0),
+            Pos2::new(rect.right() - 3.0, rect.bottom()),
+        ),
+        0.0,
+        bottom,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font(),
+        text_color(enabled),
+    );
+    enabled && response.clicked()
+}
+
+/// 13 px checkbox at `pos` (box top-left) with its label 17 px to the
+/// right; toggles `value` when clicked (and enabled).
+pub fn checkbox(ui: &mut Ui, pos: Pos2, label: &str, value: &mut bool, enabled: bool) -> bool {
+    let painter = ui.painter().clone();
+    let galley = painter.layout_no_wrap(label.to_string(), font(), text_color(enabled));
+    let boxed = Rect::from_min_size(pos, Vec2::splat(13.0));
+    let hit = Rect::from_min_max(
+        pos - Vec2::new(1.0, 2.0),
+        pos + Vec2::new(17.0 + galley.size().x + 2.0, 15.0),
+    );
+    let response = ui.interact(
+        hit,
+        ui.scope_id().with(("dialog-check", label, pos.y as i32)),
+        Sense::click(),
+    );
+    let changed = enabled && response.clicked();
+    if changed {
+        *value = !*value;
+    }
+    if *value {
+        let fill = if enabled { ACCENT } else { DISABLED_TEXT };
+        painter.rect_filled(boxed, 2.0, fill);
+        painter.add(egui::Shape::line(
+            vec![
+                pos + Vec2::new(3.0, 6.5),
+                pos + Vec2::new(5.5, 9.0),
+                pos + Vec2::new(10.0, 4.0),
+            ],
+            Stroke::new(1.5, Color32::WHITE),
+        ));
+    } else {
+        painter.rect_filled(boxed, 2.0, TAB_OFF);
+        painter.rect_stroke(
+            boxed,
+            2.0,
+            Stroke::new(1.0, if enabled { CHECK_EDGE } else { DISABLED_TEXT }),
+            StrokeKind::Inside,
+        );
+    }
+    painter.galley(
+        Pos2::new(pos.x + 17.0, boxed.center().y - galley.size().y / 2.0),
+        galley,
+        text_color(enabled),
+    );
+    changed
+}
+
+/// 13 px radio button; returns true when clicked (and enabled).
+pub fn radio(ui: &mut Ui, pos: Pos2, label: &str, selected: bool, enabled: bool) -> bool {
+    let painter = ui.painter().clone();
+    let galley = painter.layout_no_wrap(label.to_string(), font(), text_color(enabled));
+    let text_width = galley.size().x;
+    let c = pos + Vec2::splat(6.5);
+    if selected {
+        painter.circle_filled(c, 6.5, if enabled { ACCENT } else { DISABLED_TEXT });
+        painter.circle_filled(c, 3.0, Color32::WHITE);
+    } else {
+        painter.circle_filled(c, 6.5, TAB_OFF);
+        painter.circle_stroke(
+            c,
+            6.0,
+            Stroke::new(1.0, if enabled { CHECK_EDGE } else { DISABLED_TEXT }),
+        );
+    }
+    painter.galley(
+        Pos2::new(pos.x + 17.0, c.y - galley.size().y / 2.0),
+        galley,
+        text_color(enabled),
+    );
+    let hit = Rect::from_min_max(
+        pos - Vec2::new(1.0, 2.0),
+        pos + Vec2::new(17.0 + text_width + 2.0, 15.0),
+    );
+    enabled
+        && ui
+            .interact(
+                hit,
+                ui.scope_id().with(("dialog-radio", label, pos.y as i32)),
+                Sense::click(),
+            )
+            .clicked()
+}
+
+/// Single-line text field: white with a #8D8D8D border, text inset 3 px.
+pub fn text_field(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    text: &mut String,
+    enabled: bool,
+) -> Response {
+    let painter = ui.painter().clone();
+    painter.rect_filled(
+        rect,
+        0.0,
+        if enabled {
+            Color32::WHITE
+        } else {
+            DISABLED_FILL
+        },
+    );
+    painter.rect_stroke(
+        rect,
+        0.0,
+        Stroke::new(1.0, if enabled { FIELD_EDGE } else { DISABLED_EDGE }),
+        StrokeKind::Inside,
+    );
+    let inner = Rect::from_min_max(
+        rect.min + Vec2::new(3.0, 1.0),
+        rect.max - Vec2::new(3.0, 1.0),
+    );
+    ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+        ui.add_enabled(
+            enabled,
+            egui::TextEdit::singleline(text)
+                .id(id)
+                .frame(egui::Frame::NONE)
+                .font(font())
+                .align(egui::Align2::LEFT_CENTER)
+                .min_size(inner.size())
+                .desired_width(inner.width()),
+        )
+    })
+    .inner
+}
+
+/// Original vector glyphs drawn on small push buttons.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Glyph {
+    /// Down arrow (copy spec downwards).
+    Down,
+    /// Two opposed horizontal arrows (swap sides).
+    Swap,
+    /// Solid down triangle (drop-down list).
+    DropDown,
+}
+pub fn paint_glyph(painter: &egui::Painter, center: Pos2, glyph: Glyph, color: Color32) {
+    let stroke = Stroke::new(1.5, color);
+    match glyph {
+        Glyph::Down => {
+            painter.line_segment(
+                [center + Vec2::new(0.0, -6.0), center + Vec2::new(0.0, 5.0)],
+                stroke,
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    center + Vec2::new(-4.0, 1.5),
+                    center + Vec2::new(4.0, 1.5),
+                    center + Vec2::new(0.0, 6.5),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        Glyph::Swap => {
+            for (dy, dir) in [(-3.0, 1.0), (3.0, -1.0)] {
+                let a = center + Vec2::new(-5.5 * dir, dy);
+                let b = center + Vec2::new(5.5 * dir, dy);
+                painter.line_segment([a, b], stroke);
+                painter.line_segment([b, b + Vec2::new(-3.0 * dir, -2.5)], stroke);
+                painter.line_segment([b, b + Vec2::new(-3.0 * dir, 2.5)], stroke);
+            }
+        }
+        Glyph::DropDown => {
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    center + Vec2::new(-4.0, -2.0),
+                    center + Vec2::new(4.0, -2.0),
+                    center + Vec2::new(0.0, 2.5),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+        }
+    }
+}
+/// Small push button showing a glyph; true when clicked (enabled).
+pub fn glyph_button(ui: &mut Ui, rect: Rect, glyph: Glyph, enabled: bool) -> bool {
+    let clicked = button(ui, rect, "", ButtonKind::Normal, enabled);
+    paint_glyph(
+        ui.painter(),
+        rect.center(),
+        glyph,
+        if enabled {
+            Color32::BLACK
+        } else {
+            DISABLED_TEXT
+        },
+    );
+    clicked
+}
+
+/// Down chevron used inside combo boxes (8 px, one-pixel steps).
+pub fn combo_chevron(painter: &egui::Painter, left_top: Pos2, color: Color32) {
+    let mut mesh = egui::Mesh::default();
+    for (dy, x0, x1) in [
+        (0.0, 0.0, 0.0),
+        (0.0, 5.0, 5.0),
+        (1.0, 1.0, 1.0),
+        (1.0, 4.0, 4.0),
+        (2.0, 2.0, 3.0),
+    ] {
+        mesh.add_colored_rect(
+            Rect::from_min_max(
+                left_top + Vec2::new(x0, dy),
+                left_top + Vec2::new(x1 + 1.0, dy + 1.0),
+            ),
+            color,
+        );
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+#[derive(Clone, Debug, Default)]
+struct ComboState {
+    path: Vec<usize>,
+}
+/// Drop-down list combo box (#D2 border, #FD face, #BC bottom line); the
+/// list is a classic popup under the box. Returns the chosen index.
+pub fn combo(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    selected: &str,
+    items: &[String],
+    enabled: bool,
+) -> Option<usize> {
+    list(ui, rect, id, selected, items, enabled, false)
+}
+/// Push button with a solid down triangle that opens the same list.
+pub fn dropdown_button(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    items: &[String],
+    enabled: bool,
+) -> Option<usize> {
+    list(ui, rect, id, "", items, enabled, true)
+}
+fn list(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    selected: &str,
+    items: &[String],
+    enabled: bool,
+    as_button: bool,
+) -> Option<usize> {
+    let painter = ui.painter().clone();
+    let response = ui.interact(rect, id, Sense::click());
+    if as_button {
+        button_face(ui, rect, "", ButtonKind::Normal, enabled, false);
+        paint_glyph(
+            &painter,
+            rect.center() + Vec2::new(0.0, 0.5),
+            Glyph::DropDown,
+            if enabled {
+                Color32::BLACK
+            } else {
+                DISABLED_TEXT
+            },
+        );
+    } else {
+        painter.rect_filled(rect, 3.0, if enabled { BUTTON_FILL } else { DISABLED_FILL });
+        painter.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(1.0, if enabled { COMBO_EDGE } else { DISABLED_EDGE }),
+            StrokeKind::Inside,
+        );
+        if enabled {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(rect.left() + 3.0, rect.bottom() - 1.0),
+                    Pos2::new(rect.right() - 3.0, rect.bottom()),
+                ),
+                0.0,
+                COMBO_BOTTOM,
+            );
+        }
+        painter.text(
+            Pos2::new(rect.left() + 4.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            selected,
+            font(),
+            text_color(enabled),
+        );
+        combo_chevron(
+            &painter,
+            Pos2::new(rect.right() - 12.0, rect.center().y - 1.0),
+            Color32::from_gray(0x6E),
+        );
+    }
+    let ctx = ui.ctx().clone();
+    let key = id.with("combo-state");
+    let mut state = ctx.data(|d| d.get_temp::<ComboState>(key));
+    if enabled && response.clicked() {
+        state = if state.is_some() {
+            None
+        } else {
+            Some(ComboState {
+                path: vec![popup::NONE],
+            })
+        };
+    }
+    let mut chosen = None;
+    if let Some(mut open) = state.take() {
+        let menu: Vec<MenuItem> = items
+            .iter()
+            .enumerate()
+            .map(|(i, label)| MenuItem::action(label.clone(), i.to_string()))
+            .collect();
+        let (action, rects): (Option<ActionId>, Vec<Rect>) =
+            popup::cascade(&ctx, key, rect.left_bottom(), &menu, &mut open.path, false);
+        chosen = action.and_then(|a| a.parse().ok());
+        let away = ctx.input(|i| {
+            i.pointer.any_click()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !rect.contains(p) && !rects.iter().any(|r| r.contains(p)))
+        });
+        if chosen.is_none() && !away && !ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state = Some(open);
+        }
+    }
+    match state {
+        Some(open) => {
+            ctx.data_mut(|d| d.insert_temp(key, open));
+        }
+        None => ctx.data_mut(|d| d.remove::<ComboState>(key)),
+    }
+    chosen
+}
+
+/// Options-style section heading (gray, 16 px).
+pub fn heading(painter: &egui::Painter, pos: Pos2, text: &str) {
+    painter.text(
+        pos,
+        egui::Align2::LEFT_TOP,
+        text,
+        FontId::proportional(16.0),
+        HEADING,
+    );
+}
+/// 1 px horizontal rule.
+pub fn rule(painter: &egui::Painter, x0: f32, x1: f32, y: f32, color: Color32) {
+    painter.rect_filled(
+        Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + 1.0)),
+        0.0,
+        color,
+    );
+}
+/// Plain label at `pos` (left-top of the text box).
+pub fn label(painter: &egui::Painter, pos: Pos2, text: &str, enabled: bool) {
+    painter.text(
+        pos,
+        egui::Align2::LEFT_TOP,
+        text,
+        font(),
+        text_color(enabled),
+    );
+}
