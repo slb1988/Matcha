@@ -11,7 +11,6 @@
 //! | [`parser`] | script file syntax (`#` comments, `&` continuation, quoting, `@file`) |
 //! | [`cli`] | command_line_reference: switches, positional inference (`SsCmdLine`) |
 //! | [`runner`] | sequential interpreter over engines/vfs/jobs (`TDIRSCRIPTDIALOG` backend) |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 // `unsafe` 只允许出现在 `platform` 的 Windows 实现里（本地时间、代码页、提示音）。
 #![deny(unsafe_code)]
 

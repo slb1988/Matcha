@@ -5,12 +5,13 @@
 use crate::command::{Command, LogLevel, ScriptOption};
 use crate::exit_code::ExitCode;
 use crate::parser::ScriptLine;
-use bc_engine_dir::DirTree;
+use bc_engine_text::{TextContent, TextMap, TextRules};
 use bc_formats::registry::FormatRegistry;
-use bc_jobs::JobManager;
-use bc_session::SessionManager;
-use bc_vfs::VfsManager;
-use std::path::PathBuf;
+use bc_formats::FormatKind;
+use bc_report::{Comparison, Output, Renderer, ReportFile, ReportRequest, TextReportRenderer};
+use bc_vfs::{VfsManager, VfsPath};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// A loaded script ready to run.
@@ -80,66 +81,301 @@ impl Script {
 /// Runtime options from the command line that influence script execution.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RunnerOptions {
-    /// `/silent`: questions are logged instead of asked.
+    /// `/silent`: accepted; scripts always run without a window, so it changes nothing yet.
     pub silent: bool,
     /// `/closescript`: close the script window when done (GUI host).
     pub close_when_done: bool,
+}
+
+/// Where a running script writes: reports to `stdout` (`output-to:-`), errors to `stderr`.
+/// The host passes the process streams; tests pass buffers.
+pub struct Streams<'a> {
+    pub stdout: &'a mut dyn Write,
+    pub stderr: &'a mut dyn Write,
+}
+
+/// How a failed command counts towards the exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailureKind {
+    /// A compared file could not be read → 107.
+    Load,
+    /// Anything else (folder or binary input, report not written) → 100.
+    Other,
 }
 
 /// Mutable interpreter state.
 pub struct ScriptRunner {
     pub options: RunnerOptions,
     pub vfs: Arc<VfsManager>,
-    pub jobs: Arc<JobManager>,
     pub formats: Arc<FormatRegistry>,
-    pub sessions: SessionManager,
-    /// Current folder comparison (after `load`).
-    pub tree: Option<DirTree>,
-    /// Current selection (relative paths).
-    pub selection: Vec<String>,
+    /// Folder that relative paths in the script are resolved against.
+    pub cwd: PathBuf,
     pub log_level: LogLevel,
     pub log_file: Option<PathBuf>,
+    pub log_append: bool,
     pub stop_on_error: bool,
     pub confirm: Option<ScriptOption>,
+    /// Open log file (opened when logging starts; reopened when the file changes).
+    log: Option<std::fs::File>,
 }
 
 impl ScriptRunner {
     pub fn new(
         options: RunnerOptions,
         vfs: Arc<VfsManager>,
-        jobs: Arc<JobManager>,
         formats: Arc<FormatRegistry>,
-        sessions: SessionManager,
+        cwd: PathBuf,
     ) -> Self {
         Self {
             options,
             vfs,
-            jobs,
             formats,
-            sessions,
-            tree: None,
-            selection: Vec::new(),
+            cwd,
             log_level: LogLevel::None,
             log_file: None,
+            log_append: false,
             stop_on_error: false,
             confirm: None,
+            log: None,
         }
     }
 
-    /// Execute every line; returns the process exit code.
-    pub fn run(&mut self, script: &Script) -> ExitCode {
-        todo!("bc-script::runner: sequential execution with logging")
+    /// Local file system, built-in plus user file formats, the process's current folder.
+    pub fn headless(options: RunnerOptions) -> Self {
+        Self::new(
+            options,
+            Arc::new(VfsManager::local_only()),
+            Arc::new(default_formats()),
+            std::env::current_dir().unwrap_or_default(),
+        )
+    }
+
+    /// Execute every line; returns the process exit code: 0 when every command succeeded,
+    /// 107 when a compared file could not be read, otherwise 100. Each failure is written to
+    /// `stderr` (and the log); `option stop-on-error` ends the script at the first one.
+    pub fn run(&mut self, script: &Script, io: &mut Streams) -> ExitCode {
+        let mut failures = Vec::new();
+        for line in &script.lines {
+            let keyword = line.command.kind().keyword();
+            self.log(LogLevel::Normal, &format!("line {}: {keyword}", line.line));
+            self.log(
+                LogLevel::Verbose,
+                &format!("line {}: > {}", line.line, line.raw),
+            );
+            match self.execute(line, io) {
+                Ok(()) => self.log(LogLevel::Normal, &format!("line {}: done", line.line)),
+                Err((kind, message)) => {
+                    let message = format!("line {}: {message}", line.line);
+                    let _ = writeln!(io.stderr, "{message}");
+                    self.log(LogLevel::Normal, &format!("error: {message}"));
+                    failures.push(kind);
+                    if self.stop_on_error {
+                        break;
+                    }
+                }
+            }
+        }
+        if failures.contains(&FailureKind::Load) {
+            ExitCode::ScriptLoadFileOrFolderFailed
+        } else if failures.is_empty() {
+            ExitCode::Success
+        } else {
+            ExitCode::UnknownError
+        }
     }
 
     /// Execute one command.
-    pub fn execute(&mut self, command: &Command) -> Result<(), ExitCode> {
-        todo!("bc-script::runner: dispatch to engines")
+    fn execute(
+        &mut self,
+        line: &ScriptLine,
+        io: &mut Streams,
+    ) -> Result<(), (FailureKind, String)> {
+        match &line.command {
+            Command::Beep => {
+                crate::platform::beep();
+                Ok(())
+            }
+            Command::Option(ScriptOption::StopOnError) => {
+                self.stop_on_error = true;
+                Ok(())
+            }
+            Command::Option(option) => {
+                self.confirm = Some(*option);
+                Ok(())
+            }
+            Command::Log {
+                level,
+                file,
+                append,
+            } => {
+                if let Some(file) = file {
+                    self.log_file = Some(self.resolve(file));
+                    self.log_append = *append;
+                    self.log = None;
+                }
+                if let Some(level) = level {
+                    self.log_level = *level;
+                }
+                Ok(())
+            }
+            Command::TextReport(request) => self.text_report(request, io),
+            // The parser rejects every other command before the script runs.
+            other => Err((
+                FailureKind::Other,
+                format!(
+                    "the {} command is not supported yet",
+                    other.kind().keyword()
+                ),
+            )),
+        }
     }
 
-    /// Append to the script log honouring `log` level/file.
-    pub fn log(&mut self, level: LogLevel, message: &str) {
-        todo!("bc-script::runner: logging")
+    fn resolve(&self, path: &Path) -> PathBuf {
+        let joined = self.cwd.join(path);
+        std::path::absolute(&joined).unwrap_or(joined)
     }
+
+    fn text_report(
+        &mut self,
+        request: &ReportRequest,
+        io: &mut Streams,
+    ) -> Result<(), (FailureKind, String)> {
+        let Some(Comparison::Files(left, right)) = &request.comparison else {
+            return Err((
+                FailureKind::Other,
+                "text-report needs two file names".into(),
+            ));
+        };
+        let paths = [self.resolve(left), self.resolve(right)];
+        let mut contents = Vec::with_capacity(2);
+        let mut files = Vec::with_capacity(2);
+        for path in &paths {
+            if path.is_dir() {
+                return Err((
+                    FailureKind::Other,
+                    format!(
+                        "{} is a folder; text-report compares two files",
+                        path.display()
+                    ),
+                ));
+            }
+            let read = || -> std::io::Result<(Vec<u8>, std::time::SystemTime)> {
+                let vfs_path = VfsPath::local(path);
+                let mut reader = self
+                    .vfs
+                    .resolve(&vfs_path)
+                    .and_then(|fs| fs.open_read(&vfs_path))
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes)?;
+                Ok((bytes, std::fs::metadata(path)?.modified()?))
+            };
+            let (bytes, modified) = read().map_err(|e| {
+                (
+                    FailureKind::Load,
+                    format!("cannot read {}: {e}", path.display()),
+                )
+            })?;
+            let format = self.formats.resolve(path, Some(FormatKind::Text)).cloned();
+            let content = TextContent::from_bytes(bytes, format).map_err(|_| {
+                (
+                    FailureKind::Other,
+                    format!("{} is not a text file", path.display()),
+                )
+            })?;
+            contents.push(content);
+            files.push(ReportFile {
+                path: path.display().to_string(),
+                modified: crate::platform::local(modified).patch_header(),
+            });
+        }
+        let right = contents.pop().unwrap();
+        let left = contents.pop().unwrap();
+        let map = TextMap::compare(left, right, TextRules::default())
+            .map_err(|e| (FailureKind::Other, format!("comparison failed: {e}")))?;
+        let renderer = TextReportRenderer {
+            map: &map,
+            files: [files.remove(0), files.remove(0)],
+        };
+        let report = renderer
+            .render(request)
+            .map_err(|e| (FailureKind::Other, e.to_string()))?;
+        let output = match &request.output {
+            Output::File(path) => Output::File(self.resolve(path)),
+            other => other.clone(),
+        };
+        bc_report::deliver(&report, &output, io.stdout).map_err(|e| {
+            let target = match &output {
+                Output::File(path) => path.display().to_string(),
+                _ => "standard output".into(),
+            };
+            (
+                FailureKind::Other,
+                format!("cannot write the report to {target}: {e}"),
+            )
+        })
+    }
+
+    /// Append to the script log honouring `log` level/file: nothing until the level is
+    /// raised from `none`; the default file is `Log.txt` in the script's folder (replaced),
+    /// `append:` keeps the old content. A log file that cannot be opened is skipped:
+    /// logging never fails a command (errors still reach standard error).
+    pub fn log(&mut self, level: LogLevel, message: &str) {
+        let enabled = match self.log_level {
+            LogLevel::None => false,
+            LogLevel::Normal => level == LogLevel::Normal,
+            LogLevel::Verbose => true,
+        };
+        if !enabled {
+            return;
+        }
+        if self.log.is_none() {
+            let path = self
+                .log_file
+                .clone()
+                .unwrap_or_else(|| self.cwd.join("Log.txt"));
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true);
+            if self.log_append {
+                options.append(true);
+            } else {
+                options.write(true).truncate(true);
+            }
+            self.log = options.open(&path).ok();
+            // Later messages in the same file append to what this run already wrote.
+            self.log_append = true;
+        }
+        if let Some(file) = &mut self.log {
+            let now = crate::platform::local(std::time::SystemTime::now());
+            let _ = writeln!(
+                file,
+                "{} {:02}:{:02}:{:02}  {message}",
+                now.date(),
+                now.hour,
+                now.minute,
+                now.second
+            );
+        }
+    }
+}
+
+impl Script {
+    /// Whether any command writes a report to standard output (`output-to:-`): the host
+    /// must have a usable standard output before running it.
+    pub fn writes_to_stdout(&self) -> bool {
+        self.lines.iter().any(|line| {
+            matches!(&line.command, Command::TextReport(request) if request.output == Output::Stdout)
+        })
+    }
+}
+
+/// Built-in plus user file formats (an unreadable user format folder falls back to the
+/// built-ins, as the folder compare does).
+pub fn default_formats() -> FormatRegistry {
+    bc_formats::registry::user_formats_dir()
+        .ok()
+        .and_then(|dir| FormatRegistry::load_user_dir(&dir).ok())
+        .unwrap_or_else(FormatRegistry::with_builtins)
 }
 
 /// `/qc[=type]` quick compare of two files → exit code 1/2/11/12/13 (`TQuickCompareFilesJob`).
@@ -234,10 +470,7 @@ pub fn quick_compare_files(
             return Err(format!("/qc: {} does not exist", path.display()));
         }
     }
-    let formats = bc_formats::registry::user_formats_dir()
-        .ok()
-        .and_then(|dir| FormatRegistry::load_user_dir(&dir).ok())
-        .unwrap_or_else(FormatRegistry::with_builtins);
+    let formats = default_formats();
     let vfs = VfsManager::local_only();
     quick_compare(
         &vfs,
@@ -327,5 +560,217 @@ mod load_tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(failure.code, ExitCode::ScriptSyntaxError);
         assert!(failure.message.contains("line 1"), "{}", failure.message);
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+    use crate::parser::{parse_script_with, Variables};
+
+    struct Run {
+        code: ExitCode,
+        stdout: Vec<u8>,
+        stderr: String,
+    }
+
+    fn folder(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("matcha-run-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "one\n2\nthree\n").unwrap();
+        dir
+    }
+
+    fn run_in(dir: &Path, source: &str) -> Run {
+        let lines = parse_script_with(source, &Variables::default()).unwrap();
+        let script = Script { path: None, lines };
+        let mut runner = ScriptRunner::new(
+            RunnerOptions::default(),
+            Arc::new(VfsManager::local_only()),
+            Arc::new(FormatRegistry::with_builtins()),
+            dir.to_path_buf(),
+        );
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let code = runner.run(
+            &script,
+            &mut Streams {
+                stdout: &mut stdout,
+                stderr: &mut stderr,
+            },
+        );
+        Run {
+            code,
+            stdout,
+            stderr: String::from_utf8(stderr).unwrap(),
+        }
+    }
+
+    const UNIFIED: &str = "text-report layout:patch options:patch-unified output-to:- a.txt b.txt";
+
+    #[test]
+    fn report_to_stdout_succeeds() {
+        let dir = folder("ok");
+        let run = run_in(&dir, UNIFIED);
+        let text = String::from_utf8(run.stdout).unwrap();
+        assert_eq!(run.code, ExitCode::Success, "{}", run.stderr);
+        assert!(run.stderr.is_empty());
+        let a = dir.join("a.txt").display().to_string();
+        assert!(text.starts_with(&format!("--- {a}\t")), "{text}");
+        assert!(
+            text.ends_with("@@ -1,3 +1,3 @@\r\n one\r\n-two\r\n+2\r\n three\r\n"),
+            "{text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn report_to_a_relative_file() {
+        let dir = folder("file");
+        let run = run_in(
+            &dir,
+            "text-report layout:patch output-to:out.patch a.txt b.txt",
+        );
+        assert_eq!(run.code, ExitCode::Success, "{}", run.stderr);
+        assert!(run.stdout.is_empty());
+        let written = std::fs::read_to_string(dir.join("out.patch")).unwrap();
+        assert!(
+            written.ends_with("2c2\r\n< two\r\n---\r\n> 2\r\n"),
+            "{written}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_comparison_file_is_107() {
+        let dir = folder("missing");
+        let run = run_in(&dir, "text-report layout:patch output-to:- nope.txt b.txt");
+        assert_eq!(run.code, ExitCode::ScriptLoadFileOrFolderFailed);
+        assert!(
+            run.stderr.starts_with("line 1: cannot read "),
+            "{}",
+            run.stderr
+        );
+        assert!(run.stderr.contains("nope.txt"));
+        assert!(run.stdout.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folders_and_binary_inputs_are_100() {
+        let dir = folder("kinds");
+        std::fs::create_dir(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("bin.dat"), b"\0\x01\x02\0\0\0").unwrap();
+        let run = run_in(&dir, "text-report layout:patch output-to:- sub b.txt");
+        assert_eq!(run.code, ExitCode::UnknownError);
+        assert!(run.stderr.contains("is a folder"), "{}", run.stderr);
+        let run = run_in(&dir, "text-report layout:patch output-to:- bin.dat b.txt");
+        assert_eq!(run.code, ExitCode::UnknownError);
+        assert!(run.stderr.contains("not a text file"), "{}", run.stderr);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unwritable_report_is_100() {
+        let dir = folder("unwritable");
+        let run = run_in(
+            &dir,
+            "text-report layout:patch output-to:no-such-dir/r.patch a.txt b.txt",
+        );
+        assert_eq!(run.code, ExitCode::UnknownError);
+        assert!(
+            run.stderr.contains("cannot write the report"),
+            "{}",
+            run.stderr
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stop_on_error_ends_the_script_at_the_first_failure() {
+        let dir = folder("stop");
+        let failing = "text-report layout:patch output-to:- nope.txt b.txt";
+        let without = run_in(&dir, &format!("{failing}\n{UNIFIED}"));
+        assert_eq!(without.code, ExitCode::ScriptLoadFileOrFolderFailed);
+        assert!(!without.stdout.is_empty(), "second report still runs");
+        let with = run_in(&dir, &format!("option stop-on-error\n{failing}\n{UNIFIED}"));
+        assert_eq!(with.code, ExitCode::ScriptLoadFileOrFolderFailed);
+        assert!(with.stdout.is_empty(), "second report must not run");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stdout_reports_are_concatenated_in_order() {
+        let dir = folder("concat");
+        let one = run_in(&dir, UNIFIED).stdout;
+        let normal = run_in(&dir, "text-report layout:patch output-to:- a.txt b.txt").stdout;
+        let both = run_in(
+            &dir,
+            &format!("{UNIFIED}\ntext-report layout:patch output-to:- a.txt b.txt"),
+        );
+        assert_eq!(both.stdout, [one, normal].concat());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn log_defaults_to_log_txt_and_replaces_it() {
+        let dir = folder("log-default");
+        std::fs::write(dir.join("Log.txt"), "old run\n").unwrap();
+        run_in(&dir, &format!("log normal\n{UNIFIED}"));
+        let log = std::fs::read_to_string(dir.join("Log.txt")).unwrap();
+        assert!(!log.contains("old run"), "{log}");
+        assert!(
+            log.contains("line 2: text-report") && log.contains("line 2: done"),
+            "{log}"
+        );
+        assert!(
+            !log.contains("> text-report"),
+            "normal level does not echo commands"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn log_append_and_verbose() {
+        let dir = folder("log-append");
+        std::fs::write(dir.join("run.log"), "earlier\n").unwrap();
+        run_in(&dir, &format!("log verbose append:run.log\n{UNIFIED}\ntext-report layout:patch output-to:- nope.txt b.txt"));
+        let log = std::fs::read_to_string(dir.join("run.log")).unwrap();
+        assert!(log.starts_with("earlier\n"), "{log}");
+        assert!(log.contains(&format!("line 2: > {UNIFIED}")), "{log}");
+        assert!(log.contains("error: line 3: cannot read"), "{log}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn logging_is_off_until_a_level_is_set() {
+        let dir = folder("log-off");
+        run_in(&dir, &format!("log quiet.log\n{UNIFIED}"));
+        assert!(!dir.join("quiet.log").exists());
+        assert!(!dir.join("Log.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn beep_and_options_succeed_without_output() {
+        let dir = folder("beep");
+        let run = run_in(
+            &dir,
+            "beep\noption confirm:yes-to-all\noption stop-on-error",
+        );
+        assert_eq!(run.code, ExitCode::Success);
+        assert!(run.stdout.is_empty() && run.stderr.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scripts_know_whether_they_write_to_stdout() {
+        let script = |source: &str| Script {
+            path: None,
+            lines: parse_script_with(source, &Variables::default()).unwrap(),
+        };
+        assert!(script(UNIFIED).writes_to_stdout());
+        assert!(!script("text-report layout:patch output-to:r.txt a b").writes_to_stdout());
     }
 }
