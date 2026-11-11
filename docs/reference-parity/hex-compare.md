@@ -1,0 +1,118 @@
+# Hex Compare 公开行为对照
+
+## 范围与证据口径
+
+本清单是 `hex-compare` change 的参考行为真源，证据来自两类只读采集：
+
+1. **运行时截图**（本目录 `*.png`，`*-annotated.png` 为编号标注版）：在 Beyond Compare 5（Windows 5.x，PE x86_64，SHA-256 `75ea6977…`）上用构造语料实际驱动得出。语料已随本目录提交（`corpus/`，含确定性生成器 `gen_corpus.py`，SHA-256 校验可复现）：
+   - `corpus/left.bin`/`corpus/right.bin`：4,160 与 4,144 字节，含 8 处单字节改动（0x100/0x104/0x108、0x200/0x204/0x208/0x20C、0x300）、16 字节插入（0x400，`00..0F`）、32 字节删除（原始坐标 0x5F0–0x60F）。
+   - `corpus/l2.bin`/`corpus/r2.bin`：2,048 与 2,053 字节，含 5 字节插入（0x123，`AA BB CC DD EE`）——故意取非 16 倍数长度验证行打包模型。
+2. **CHM 帮助只读解包**（7z 解 `BCompare.chm`，主题 `commandshex.html`、`sessionhex*.html`、`formathex*.html`、`viewhex.html`、`scripting_reference.html`）。命令清单逐段保留原顺序，含隐藏标记 `*`（默认隐藏）。
+
+边界声明：
+
+- REA 对 `BCompare.exe` 的静态符号核对（THex* 类名与对齐例程）在采集时仍在分析中，未纳入本清单；`crates/bc-engine-bin` 骨架注释中的 BC 类名映射沿用既有结论。
+- 首次采集中一个实例因按键误投产生过内存态字节污染（0x410 处渲染异常），该实例其余截图仅保留已逐字节核对过的可视区域（`01-main.png`，0x000–0x220 区间与生成器一致）。后续采集均在干净实例上完成。
+- 截图仅作内部工程证据（私有仓库）；不把参考工具图标/位图描摹进产品。
+
+## 关键行为模型（运行时证据）
+
+### 渲染模型：对齐图按"单元格"打包成行
+
+**结论（由 `24-odd-insert-all.png` 证实）**：左右两栏不是各自独立按文件偏移分行，而是把字节对齐图按每行 N 格（默认 16，可配）打包：
+
+- 配对字节同格相邻；一侧的孤儿字节占格，另一侧同位置画**斜纹占位格**（可出现在行中间，见标注 ①②）。
+- 每侧行标签 = 该侧本行**首个真实字节**的文件偏移；某行该侧全是占位格时标签留空（整行斜纹，见 `06-insertion-closeup.png` ②）。
+- 奇数长度插入后，后续行的地址相位可整体偏移（左栏插入点后按 …B 相位分行，右栏保持 16 对齐，见 ③④）；Diffs 模式下每个差异区域连同上下文按区域起点重新打包，行标签同样非 16 对齐（`22-diffs-only.png` ④）。
+- 状态栏左右角各有一个**当前字节地址**（如左 `00000123` / 右 `00000128`），光标跨侧同步到同一逻辑字节（`23-odd-insert.png` ④）。
+
+### 字节状态四分类
+
+`20-info.png`（Hex Compare Info）给出权威分类与计数：**same / left orphan / right orphan / difference**。与语料精确吻合：4,120 same + 32 left orphan + 16 right orphan + 8 difference（左右各自合计 = 文件大小）。差异字节红底红字（RGB 约 255,227,227 底色），孤儿字节同样红色；ASCII 列同步着色。状态栏汇总文案为 `Binary differences` / `Binary same`。
+
+### 对齐策略（Comparison 页，`17-settings-comparison.png`）
+
+- **Complete**（默认）：复杂算法做全量字节对齐。
+- **Fast**：简单快速的启发式，面向超大文件。
+- **None**：逐字节位置对齐（offset 对 offset）， orphan 只出现在 EOF 截断处。
+- "Files up to this size are loaded without file locks"（默认 2 MB）：小文件整载入内存、不加文件锁（允许外部编辑）；大文件加锁/流式。
+
+### 视图与交互要点（截图 + CHM 一致）
+
+- 布局：Side-by-Side（默认）/ Over-Under；缩略图条（Thumbnail）、File Info 头、工具栏可开关（`13-menu-view.png`）。
+- 过滤：Show All / Show Differences / Show Same；Diffs 模式带上下文字节（Layout 对话框 `Context count`，默认 16，`21-layout.png`）。
+- 布局：Bytes per group（默认 8，8+8 分组显示）、Groups per item、Fit to window（默认开）、Context count。
+- 导航：Next/Previous Difference Bytes（Ctrl+N / Ctrl+P）；Go To（字节地址，Decimal/Hex、Left/Right 侧选择，`18-goto.png`）。
+- 查找：内联查找栏（非对话框），Prev/Next、大小写开关、hex/文本模式切换（`19-find.png`）；另有 Replace（Ctrl+H）。
+- 编辑：Insert/Overwrite 模式指示（状态栏 `Insert`）；Cut/Copy/Paste/Delete；Select All；**Copy to Right/Left/Other Side（Ctrl+R，按选中字节复制到对侧）**；Undo/Redo。
+- View 菜单独有：**Current Byte Address**（显示当前字节地址）、**Little/Big Endian Values**（把选中字节解释为 LE/BE 数值列表）。
+- 会话设置三页（`15/16/17`）：Specs（左右路径、Disable editing、Description、换侧按钮、作用域下拉 "Use for this view only"）、Format（左右文件格式，"Detected (Everything Else)"，Same as left file format）、Comparison（对齐策略 + 文件锁阈值）。
+- Hex Compare Report（`26-report.png`）：Side-by-side/Summary/Interleaved × All/Differences/Same，Include byte addresses，输出 Printer/HTML/Plain text。脚本侧对应 `hex-report layout:... options:display-all|display-mismatches|display-matches,line-numbers output-to:...`（`scripting_reference.html`）——**黄金语料可用其生成**。
+
+## 命令逐项：`commandshex.html`
+
+状态列沿用既有约定：本 change / 已批准后置 / 范围外。
+
+### Session
+
+| 编号 | 原帮助段落 | 状态 | 说明 |
+|---|---|---|---|
+| H01 | `Save Session` / `Save Session As` | 已批准后置 | 随 session-and-cli 统一会话持久化；菜单可置灰。 |
+| H02 | `Session Settings` | 本 change | 三页对话框（Specs/Format/Comparison），作用域下拉仅 "Use for this view only"（全局默认随持久化后置）。 |
+| H03 | `Locked` | 已批准后置 | 会话锁定，随统一会话命令评审。 |
+| H04 | `Clear Session` | 已批准后置 | 同上。 |
+| H05 | `Swap Sides` | 本 change | 左右互换并重比。 |
+| H06 | `Reload Files` | 本 change | 重读两侧，脏时先提示保存。 |
+| H07 | `Recompare Files` | 本 change | 保留编辑、丢弃可撤销性，重新对齐。 |
+| H08 | `Hex Compare Report` | 已批准后置 | 报告输出统一走后续报告 change；脚本 `hex-report` 仅用于黄金语料。 |
+| H09 | `Hex Compare Info` | 本 change | 四分类字节统计对话框。 |
+| H10 | `Compare Files Using` | 部分 | 与 Text/Table Compare 互切；Version/Picture 等其他类型范围外。 |
+| H11 | `Compare Parent Folders` | 已批准后置 | 父文件夹联动随文件夹线已有约定后置。 |
+
+### File
+
+| 编号 | 原帮助段落 | 状态 | 说明 |
+|---|---|---|---|
+| H12 | `Open File` | 本 change | 单侧换文件（路径框）。 |
+| H13 | `Open File on File System *` / `Open File Using Profile *` | 能力合并 / 范围外 | 本地能力并入 Open File；VFS profile 范围外。 |
+| H14 | `Open Clipboard` | 本 change | 剪贴板内容载入一侧。 |
+| H15 | `Open With` / `Associated Application` / `Text Edit` | 已批准后置 | 外部程序统一后置。 |
+| H16 | `Save File` / `Save File As` | 本 change | 单侧保存（含暂存+改名落盘）；只读/禁编辑侧拒绝。 |
+| H17 | `Save File on File System As *` / `Save File Using Profile As *` | 能力合并 / 范围外 | 同上。 |
+| H18 | `Explorer` | 已批准后置 | 文件管理器联动后置。 |
+
+### Edit
+
+| 编号 | 原帮助段落 | 状态 | 说明 |
+|---|---|---|---|
+| H19 | `Undo` / `Redo` | 本 change | 字节编辑历史。 |
+| H20 | `Copy to Right/Left`（`Copy to Other Side`） | 本 change | 选中字节复制到对侧对齐位置（Ctrl+R）。 |
+| H21 | `Cut / Copy / Paste / Delete` | 本 change | 标准编辑；插入模式影响语义。 |
+| H22 | `Select All` | 本 change | 选中当前窗格全部可见字节。 |
+
+### Search
+
+| 编号 | 原帮助段落 | 状态 | 说明 |
+|---|---|---|---|
+| H23 | `Next/Previous Difference Bytes` | 本 change | 差异字节导航（Ctrl+N/Ctrl+P）。 |
+| H24 | `Next/Previous Difference Files`、`Copy File to * and Open Next Difference` | 已批准后置 | 仅子会话；随父文件夹联动后置。 |
+| H25 | `Find` / `Replace` / `Find Next` / `Find Previous` | 本 change | 内联查找栏，hex/文本两种模式。 |
+| H26 | `Go To` | 本 change | 按字节地址定位（十进制/十六进制、选侧）。 |
+
+### View
+
+| 编号 | 原帮助段落 | 状态 | 说明 |
+|---|---|---|---|
+| H27 | `Show All / Show Differences / Show Same` | 本 change | 显示过滤；Diffs 带上下文。 |
+| H28 | `Current Byte Address` | 本 change | 显示当前字节地址（子菜单）。 |
+| H29 | `Little Endian Values` / `Big Endian Values` | 本 change | 选中字节的数值解释列表。 |
+| H30 | `Byte Addresses` | 本 change | 地址列开关。 |
+| H31 | `Display Font *` 及字号三项 | 已批准后置 | 全局字体设置统一后置。 |
+| H32 | `Layout` | 本 change | Bytes per group / Groups per item / Fit to window / Context count。 |
+| H33 | `Side-by-Side / Over-Under Layout` | 本 change | 窗格布局切换。 |
+| H34 | `Thumbnail` / `File Info` / `Toolbar` | 本 change | 三个显示开关。 |
+
+## 后续补充项
+
+- REA 静态分析完成后：核对 `THexCompareSession`/`THexMap`/`THexMapByteAlign` 类名与 Fast/Complete 对齐例程边界，回填本清单与 `bc-engine-bin` 注释。
+- `shot_hexcompare.png`（CHM 官方截图）与上述运行时截图行为一致，可作为交叉佐证。
