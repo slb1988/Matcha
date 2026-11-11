@@ -1,0 +1,22 @@
+D:\Github\Matcha\target\dist\matcha-0.1.0-windows-x86_64\matcha.com
+D:\Github\Matcha\target\dist\matcha-0.1.0-windows-x86_64\matcha.exe
+report to console exit=0 
+redirect exit=0 
+reportfile exit=0 
+redirect vs reportfile byte-identical (fc errorlevel 0 = same): 0 
+script to file exit=0 
+script file vs reportfile byte-identical: 0 
++++ C:\Users\admin\AppData\Local\Temp\matcha-6.1-cmd\b.txt	2026-11-11 16:14:05.000000000 +0800
++2
++four
+missing file exit=107 
+cannot read C:\Users\admin\AppData\Local\Temp\matcha-6.1-cmd\nope.txt: io: 系统找不到指定的文件。 (os error 2)
+---- console buffer ---- 
+=== /report=patch (console) ===
+diff -r C:\Users\admin\AppData\Local\Temp\matcha-6.1-cmd\a.txt C:\Users\admin\AppData\Local\Temp\matcha-6.1-cmd\b.txt
+2c2
+< two
+---
+> 2
+3a4
+> four

@@ -1,0 +1,27 @@
+﻿resolved: D:\Github\Matcha\target\dist\matcha-0.1.0-windows-x86_64\matcha.com
+report to console exit: 0
+pipe Select-String '^+': +2 | +four
+script exit: 0
+syntax exit: 106; C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\bad.txt: line 1: unknown command "text-reprot"
+missing-file exit: 107; line 1: cannot read C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\nope.txt: io: 系统找不到指定的文件。 (os error 2)
+missing-script exit: 105
+unsupported layout exit: 100
+---- console buffer ----
+=== /report=patch-unified (console) ===
+--- C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\a.txt       2026-11-11 16:13:50.000000000 +0800
++++ C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\b.txt       2026-11-11 16:13:50.000000000 +0800
+@@ -1,3 +1,4 @@
+ one
+-two
++2
+ three
++four
+=== @s.txt a.txt b.txt (console) ===
+--- C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\a.txt       2026-11-11 16:13:50.000000000 +0800
++++ C:\Users\admin\AppData\Local\Temp\matcha-6.1-ps\b.txt       2026-11-11 16:13:50.000000000 +0800
+@@ -1,3 +1,4 @@
+ one
+-two
++2
+ three
++four
