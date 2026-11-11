@@ -1,0 +1,13 @@
+[package]
+name = "bc-shell"
+description = "Windows Explorer context-menu integration: static HKCU registry verbs (no COM shell extension), the pending-Left state and the multi-select pairing protocol."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bc-formats = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
