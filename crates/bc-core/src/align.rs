@@ -1238,14 +1238,303 @@ impl ClosenessLine {
 }
 
 /// Byte-sequence aligner for Hex compare – `TBcByteAlign` / `THexMapByteAlign`.
+///
+/// 算法边界经 REA 反汇编校准（macOS 5.0.4.30422 arm64，`THEXMAPALIGN.RUN`，2026-11-11）：
+/// 锚窗 50 字节、滚动哈希、Complete 档区间 < 5000 字节做字节级细化、超限降级。
 #[derive(Debug, Default)]
 pub struct ByteAlign;
 
+/// Hex 三档字节对齐策略 – BC `THexAlignKind = (alignNone=0, alignFast=1, alignComplete=2)`
+///（RTTI 枚举表逐字证实）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ByteAlignStrategy {
+    /// 锚块骨架 + 区间字节级细化（参考工具默认）。
+    #[default]
+    Complete,
+    /// 锚块骨架，区间不做字节级细化，降级为孤儿段（面向超大文件）。
+    ///
+    /// 注意：参考工具的 Fast 实际把 mismatch 区间逐位对齐（RUNNONE）；本实现按设计 D1
+    /// 取更保守的孤儿段，杜绝跨位移的假 same。
+    Fast,
+    /// 逐字节位置对齐（offset 对 offset），长度差尾部为孤儿。
+    None,
+}
+
+/// 锚窗宽度（字节）：参考工具实测值 50。
+const BYTE_ANCHOR_WINDOW: usize = 50;
+/// Complete 档字节级细化的区间长度上限（两侧均 < 该值才细化）：参考工具实测值 5000。
+const BYTE_REFINE_LIMIT: usize = 5000;
+
 impl ByteAlign {
-    #[allow(unused_variables)] // remaining scaffold entry point
-    pub fn align(&self, left: &[u8], right: &[u8]) -> AlignMap {
-        todo!("bc-core::align: byte alignment")
+    pub fn align(&self, left: &[u8], right: &[u8], strategy: ByteAlignStrategy) -> AlignMap {
+        self.align_cancellable(left, right, strategy, &NeverCancel)
+            .expect("NeverCancel never cancels")
     }
+
+    pub fn align_cancellable(
+        &self,
+        left: &[u8],
+        right: &[u8],
+        strategy: ByteAlignStrategy,
+        cancel: &dyn CancelCheck,
+    ) -> Result<AlignMap, crate::CoreError> {
+        let rows = match strategy {
+            ByteAlignStrategy::None => positional_rows(left, right),
+            ByteAlignStrategy::Fast => anchored_rows(left, right, false, cancel)?,
+            ByteAlignStrategy::Complete => anchored_rows(left, right, true, cancel)?,
+        };
+        AlignMap::from_rows_cancellable(rows, cancel)
+    }
+}
+
+/// None 档：第 i 字节对第 i 字节，不等为 difference；长度差尾部为孤儿。
+fn positional_rows(left: &[u8], right: &[u8]) -> Vec<AlignRow> {
+    let n = left.len().min(right.len());
+    let mut rows = Vec::with_capacity(left.len().max(right.len()));
+    for i in 0..n {
+        rows.push(AlignRow {
+            left: Some(i),
+            right: Some(i),
+            kind: if left[i] == right[i] { DiffKind::Same } else { DiffKind::Changed },
+            ..Default::default()
+        });
+    }
+    rows.extend((n..left.len()).map(|i| AlignRow {
+        left: Some(i),
+        kind: DiffKind::LeftOnly,
+        ..Default::default()
+    }));
+    rows.extend((n..right.len()).map(|i| AlignRow {
+        right: Some(i),
+        kind: DiffKind::RightOnly,
+        ..Default::default()
+    }));
+    rows
+}
+
+/// Rabin 滚动哈希（base 257，模 2^64 自然回绕；命中后一律 memcmp 复核，碰撞只浪费一次比较）。
+struct RollingBytes<'a> {
+    bytes: &'a [u8],
+    window: usize,
+    out_factor: u64,
+}
+
+impl<'a> RollingBytes<'a> {
+    const BASE: u64 = 257;
+
+    fn new(bytes: &'a [u8], window: usize) -> Self {
+        let mut out_factor = 1u64;
+        for _ in 0..window {
+            out_factor = out_factor.wrapping_mul(Self::BASE);
+        }
+        Self { bytes, window, out_factor }
+    }
+
+    fn window_hash(&self, start: usize) -> u64 {
+        let mut h = 0u64;
+        for &b in &self.bytes[start..start + self.window] {
+            h = h.wrapping_mul(Self::BASE).wrapping_add(u64::from(b));
+        }
+        h
+    }
+
+    /// 返回 (起点, hash) 迭代所需的滚动推进：h' = h*B - out*B^W + in。
+    fn roll(&self, start: usize, hash: u64) -> u64 {
+        hash.wrapping_mul(Self::BASE)
+            .wrapping_sub(u64::from(self.bytes[start]).wrapping_mul(self.out_factor))
+            .wrapping_add(u64::from(self.bytes[start + self.window]))
+    }
+}
+
+/// Fast/Complete 共享的锚块骨架：右侧全量锚窗哈希建索引，左侧贪心扫描取保序的最近锚点，
+/// 锚点间区间由 `refine` 决定降级孤儿段（Fast）还是字节级细化（Complete）。
+fn anchored_rows(
+    left: &[u8],
+    right: &[u8],
+    refine: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<AlignRow>, crate::CoreError> {
+    let window = BYTE_ANCHOR_WINDOW;
+    let mut rows: Vec<AlignRow> = Vec::with_capacity(left.len().max(right.len()));
+    // 任一侧短于锚窗时无锚可寻，整体作为一个区间处理。
+    if left.len() < window || right.len() < window {
+        emit_gap(&mut rows, left, right, 0, left.len(), 0, right.len(), refine, cancel)?;
+        return Ok(rows);
+    }
+    // 右侧锚窗哈希 → 升序位置表。
+    let right_rolling = RollingBytes::new(right, window);
+    let mut index: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
+    let mut h = right_rolling.window_hash(0);
+    let mut pos = 0usize;
+    loop {
+        index.entry(h).or_default().push(pos);
+        if pos + window >= right.len() {
+            break;
+        }
+        h = right_rolling.roll(pos, h);
+        pos += 1;
+        if pos.is_multiple_of(4096) {
+            cancel.check()?;
+        }
+    }
+
+    let left_rolling = RollingBytes::new(left, window);
+    let mut gap_left = 0usize;
+    let mut gap_right = 0usize;
+    let mut i = 0usize; // 左侧扫描位置
+    let mut j_min = 0usize; // 锚点保序下界
+    let mut lh = left_rolling.window_hash(0);
+    while i + window <= left.len() {
+        if i.is_multiple_of(4096) {
+            cancel.check()?;
+        }
+        let anchor = index.get(&lh).and_then(|cands| {
+            // 候选位置升序；取 ≥ j_min 且 memcmp 通过的第一个。
+            cands
+                .iter()
+                .copied()
+                .skip_while(|&j| j < j_min)
+                .find(|&j| right[j..j + window] == left[i..i + window])
+        });
+        match anchor {
+            Some(j) => {
+                emit_gap(&mut rows, left, right, gap_left, i, gap_right, j, refine, cancel)?;
+                // 从锚点向前扩展 same 游程（逐字节比较，可超出锚窗）。
+                let (mut p, mut q) = (i, j);
+                while p < left.len() && q < right.len() && left[p] == right[q] {
+                    rows.push(AlignRow {
+                        left: Some(p),
+                        right: Some(q),
+                        kind: DiffKind::Same,
+                        ..Default::default()
+                    });
+                    p += 1;
+                    q += 1;
+                }
+                i = p;
+                j_min = q;
+                gap_left = p;
+                gap_right = q;
+                if i + window <= left.len() {
+                    lh = left_rolling.window_hash(i);
+                }
+            }
+            None => {
+                if i + 1 + window > left.len() {
+                    break;
+                }
+                lh = left_rolling.roll(i, lh);
+                i += 1;
+            }
+        }
+    }
+    emit_gap(&mut rows, left, right, gap_left, left.len(), gap_right, right.len(), refine, cancel)?;
+    Ok(rows)
+}
+
+/// 输出一个锚点间区间：Fast 降级为双侧孤儿段；Complete 小区间字节级细化、超限降级。
+#[allow(clippy::too_many_arguments)]
+fn emit_gap(
+    rows: &mut Vec<AlignRow>,
+    left: &[u8],
+    right: &[u8],
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+    refine: bool,
+    cancel: &dyn CancelCheck,
+) -> Result<(), crate::CoreError> {
+    let left_len = left_end - left_start;
+    let right_len = right_end - right_start;
+    if left_len == 0 && right_len == 0 {
+        return Ok(());
+    }
+    if refine && left_len < BYTE_REFINE_LIMIT && right_len < BYTE_REFINE_LIMIT {
+        return refine_gap(rows, left, right, left_start, left_end, right_start, right_end, cancel);
+    }
+    push_orphans(rows, left_start, left_end, right_start, right_end);
+    Ok(())
+}
+
+fn push_orphans(
+    rows: &mut Vec<AlignRow>,
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+) {
+    rows.extend((left_start..left_end).map(|i| AlignRow {
+        left: Some(i),
+        kind: DiffKind::LeftOnly,
+        ..Default::default()
+    }));
+    rows.extend((right_start..right_end).map(|i| AlignRow {
+        right: Some(i),
+        kind: DiffKind::RightOnly,
+        ..Default::default()
+    }));
+}
+
+/// Complete 档区间细化：字节级 Myers diff，改动块内按位置配对为 difference、余量为孤儿
+///（参考工具把单侧改动配对成 difference 而非双侧孤儿，四分类统计依赖此行为）。
+#[allow(clippy::too_many_arguments)]
+fn refine_gap(
+    rows: &mut Vec<AlignRow>,
+    left: &[u8],
+    right: &[u8],
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+    cancel: &dyn CancelCheck,
+) -> Result<(), crate::CoreError> {
+    let hash = |bytes: &[u8]| -> Vec<ContentHash> { bytes.iter().map(|&b| ContentHash(u64::from(b))).collect() };
+    let a = hash(&left[left_start..left_end]);
+    let b = hash(&right[right_start..right_end]);
+    let ops = MyersDiff::default().diff_cancellable(&a, &b, cancel)?;
+    let mut dels: Vec<usize> = Vec::new(); // 当前改动块的左侧位置
+    let mut inss: Vec<usize> = Vec::new(); // 当前改动块的右侧位置
+    let flush = |rows: &mut Vec<AlignRow>, dels: &mut Vec<usize>, inss: &mut Vec<usize>| {
+        let paired = dels.len().min(inss.len());
+        for k in 0..paired {
+            rows.push(AlignRow {
+                left: Some(dels[k]),
+                right: Some(inss[k]),
+                kind: DiffKind::Changed,
+                ..Default::default()
+            });
+        }
+        for &i in &dels[paired..] {
+            rows.push(AlignRow { left: Some(i), kind: DiffKind::LeftOnly, ..Default::default() });
+        }
+        for &i in &inss[paired..] {
+            rows.push(AlignRow { right: Some(i), kind: DiffKind::RightOnly, ..Default::default() });
+        }
+        dels.clear();
+        inss.clear();
+    };
+    for op in ops {
+        match op {
+            DiffOp::Equal { a_start, b_start, len } => {
+                flush(rows, &mut dels, &mut inss);
+                rows.extend((0..len).map(|k| AlignRow {
+                    left: Some(left_start + a_start + k),
+                    right: Some(right_start + b_start + k),
+                    kind: DiffKind::Same,
+                    ..Default::default()
+                }));
+            }
+            DiffOp::Delete { a_start, len, .. } => {
+                dels.extend((0..len).map(|k| left_start + a_start + k));
+            }
+            DiffOp::Insert { b_start, len, .. } => {
+                inss.extend((0..len).map(|k| right_start + b_start + k));
+            }
+        }
+    }
+    flush(rows, &mut dels, &mut inss);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1366,5 +1655,141 @@ mod tests {
             .iter()
             .enumerate()
             .all(|(i, r)| r.left == Some(i) && r.right == Some(i) && r.kind == DiffKind::Changed));
+    }
+
+    mod byte_align {
+        use super::*;
+
+        /// (same, difference, left orphan, right orphan) 四分类计数。
+        fn stats(map: &AlignMap) -> (usize, usize, usize, usize) {
+            let (mut same, mut diff, mut left_only, mut right_only) = (0, 0, 0, 0);
+            for row in map.rows() {
+                match row.kind {
+                    DiffKind::Same => same += 1,
+                    DiffKind::Changed => diff += 1,
+                    DiffKind::LeftOnly => left_only += 1,
+                    DiffKind::RightOnly => right_only += 1,
+                }
+            }
+            (same, diff, left_only, right_only)
+        }
+
+        fn assert_partition(map: &AlignMap, left_len: usize, right_len: usize) {
+            // AlignMap 构造已校验分区不变量；这里再显式核对偏移覆盖与顺序。
+            let left_offsets: Vec<usize> = map.rows().iter().filter_map(|r| r.left).collect();
+            let right_offsets: Vec<usize> = map.rows().iter().filter_map(|r| r.right).collect();
+            assert_eq!(left_offsets, (0..left_len).collect::<Vec<_>>());
+            assert_eq!(right_offsets, (0..right_len).collect::<Vec<_>>());
+        }
+
+        #[test]
+        fn none_pairs_positionally_and_marks_changes() {
+            let left = [0u8, 1, 2, 3, 4];
+            let right = [0u8, 9, 2, 3, 5];
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::None);
+            assert_eq!(stats(&map), (3, 2, 0, 0));
+            assert_eq!(map.rows()[1].kind, DiffKind::Changed);
+            assert_eq!(map.rows()[4].kind, DiffKind::Changed);
+            assert_partition(&map, 5, 5);
+        }
+
+        #[test]
+        fn none_orphans_the_longer_tail() {
+            // 左长：尾部 2 字节左孤儿
+            let map = ByteAlign.align(&[1, 2, 3, 4, 5, 6], &[1, 2, 3, 4], ByteAlignStrategy::None);
+            assert_eq!(stats(&map), (4, 0, 2, 0));
+            assert_eq!(map.rows()[4], AlignRow { left: Some(4), kind: DiffKind::LeftOnly, ..Default::default() });
+            assert_partition(&map, 6, 4);
+            // 右长：尾部 2 字节右孤儿
+            let map = ByteAlign.align(&[1, 2, 3, 4], &[1, 2, 3, 4, 5, 6], ByteAlignStrategy::None);
+            assert_eq!(stats(&map), (4, 0, 0, 2));
+            assert_eq!(map.rows()[5], AlignRow { right: Some(5), kind: DiffKind::RightOnly, ..Default::default() });
+            assert_partition(&map, 4, 6);
+        }
+
+        #[test]
+        fn none_marks_shifted_content_as_differences() {
+            // 5 字节插入在 None 档下表现为后续全部错位为 difference + 尾部孤儿。
+            let left: Vec<u8> = (0..32).collect();
+            let mut right: Vec<u8> = (0..5).collect();
+            right.extend([0xAA; 5]);
+            right.extend(5..32);
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::None);
+            assert_eq!(stats(&map), (5, 27, 0, 5));
+            assert_partition(&map, 32, 37);
+        }
+
+        /// 仓库内已提交的参考语料（docs/reference-parity/hex-compare/corpus/，SHA-256 校验过）。
+        fn corpus(name: &str) -> Vec<u8> {
+            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/").to_owned() + name;
+            std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+        }
+
+        #[test]
+        fn complete_reproduces_the_reference_corpus_stats() {
+            let left = corpus("left.bin");
+            let right = corpus("right.bin");
+            assert_eq!((left.len(), right.len()), (4160, 4144));
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::Complete);
+            // 参考语料期望（Hex Compare Info 实测）：4120 same / 8 difference / 32 left orphan / 16 right orphan。
+            assert_eq!(stats(&map), (4120, 8, 32, 16));
+            assert_partition(&map, 4160, 4144);
+        }
+
+        #[test]
+        fn complete_keeps_pairing_after_an_odd_length_insert() {
+            let left = corpus("l2.bin");
+            let right = corpus("r2.bin");
+            assert_eq!((left.len(), right.len()), (2048, 2053));
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::Complete);
+            assert_eq!(stats(&map), (2048, 0, 0, 5));
+            // 插入点（0x123）之后两侧仍逐字节配对为 same，不错位到文件尾。
+            let row = map.row_of_left(0x123).unwrap();
+            assert_eq!(map.rows()[row].right, Some(0x123 + 5));
+            assert_eq!(map.rows()[row].kind, DiffKind::Same);
+            let last = map.row_of_left(2047).unwrap();
+            assert_eq!(map.rows()[last].right, Some(2052));
+            assert_eq!(map.rows()[last].kind, DiffKind::Same);
+            assert_partition(&map, 2048, 2053);
+        }
+
+        /// 确定性伪随机字节流（xorshift64），避免测试依赖外部文件之外的生成器。
+        fn prng_bytes(seed: u64, len: usize) -> Vec<u8> {
+            let mut s = seed.max(1);
+            (0..len)
+                .map(|_| {
+                    s ^= s << 13;
+                    s ^= s >> 7;
+                    s ^= s << 17;
+                    (s >> 32) as u8
+                })
+                .collect()
+        }
+
+        #[test]
+        fn fast_preserves_invariants_and_never_invents_same() {
+            // 随机语料：100 KB 基底 + 多处改动/插入/删除。
+            let base = prng_bytes(0x5EED, 100 * 1024);
+            let mut edited = base.clone();
+            for off in [0x1000usize, 0x2104, 0x30F0] {
+                edited[off] ^= 0xFF;
+            }
+            edited.splice(0x4000..0x4000, prng_bytes(0xA11, 997)); // 奇数长度插入
+            edited.splice(0x8000..0x8040, []); // 64 字节删除
+            for strategy in [ByteAlignStrategy::Fast, ByteAlignStrategy::Complete] {
+                let map = ByteAlign.align(&base, &edited, strategy);
+                assert_partition(&map, base.len(), edited.len());
+                // same 行必须两侧字节相等（不允许把内容不同的字节报为 same）。
+                for row in map.rows() {
+                    if row.kind == DiffKind::Same {
+                        assert_eq!(base[row.left.unwrap()], edited[row.right.unwrap()]);
+                    }
+                }
+            }
+            // Fast 的 same 计数不得超过 Complete（同一锚块骨架下 Complete 只会更精细）。
+            let fast = stats(&ByteAlign.align(&base, &edited, ByteAlignStrategy::Fast));
+            let complete = stats(&ByteAlign.align(&base, &edited, ByteAlignStrategy::Complete));
+            assert!(fast.0 <= complete.0, "fast {fast:?} vs complete {complete:?}");
+        }
     }
 }
