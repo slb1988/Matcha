@@ -7,8 +7,8 @@
 - [x] 1.1 实现 `bc_core::align::ByteAlign` 的 None 档（逐位对齐，长度差尾部为 orphan）；验证单测：等长差异、左长/右长截断场景的四分类与顺序保持
 - [x] 1.2 实现 Complete 档（锚块骨架 + 区间字节级细化，区间长度上限降级 orphan 段）；验证单测：参考语料（8 改动 + 16 插入 + 32 删除）精确复现 4120/8/32/16 统计，5 字节奇数插入后不错位到文件尾
 - [x] 1.3 实现 Fast 档（固定块长滚动哈希锚块，块间不细化）；验证单测：正确性不变量（各自恰好一次、顺序保持）在随机语料上成立，且不产出比 Complete 更精细的配对之外的错误 same
-- [ ] 1.4 落地 `bc_engine_bin::hex`：`HexRules` 扩展（alignment/bytes_per_line/bytes_per_group/context_count/lock_threshold）、`HexMap::align`、四分类统计；验证单测：spec `hex-byte-alignment` 全部场景
-- [ ] 1.5 实现 cell packing 派生行模型（每行 N 格、孤儿占位格、行标签=该侧首个真实字节偏移、整行占位标签为空）；验证单测：16 字节整行插入与 5 字节行中插入两种语料的行结构与标签相位
+- [x] 1.4 落地 `bc_engine_bin::hex`：`HexRules` 扩展（alignment/bytes_per_line/bytes_per_group/context_count/lock_threshold）、`HexMap::align`、四分类统计；验证单测：spec `hex-byte-alignment` 全部场景
+- [x] 1.5 实现 cell packing 派生行模型（每行 N 格、孤儿占位格、行标签=该侧首个真实字节偏移、整行占位标签为空）；验证单测：16 字节整行插入与 5 字节行中插入两种语料的行结构与标签相位
 
 ## 2. 加载、保存与后台 job
 
