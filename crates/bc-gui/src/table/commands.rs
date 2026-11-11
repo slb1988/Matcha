@@ -1270,9 +1270,9 @@ impl TableCompareView {
     pub(super) fn perform(&mut self, p: Pending) {
         self.editor = None; // request/confirmation has resolved any dirty draft first.
         match p {
-            Pending::Home => {
+            Pending::Close => {
                 self.cancel();
-                self.action = Some(TableAction::Home);
+                self.action = Some(TableAction::Close);
             }
             Pending::Exit => {
                 self.cancel();
@@ -1754,13 +1754,13 @@ impl TableCompareView {
                     }
                 }
                 // Cached sheet pairs are dropped only by full replacements
-                // (Home/Exit/Reload/Settings/Text); single-side Open/Clipboard
+                // (Close/Exit/Reload/Settings/Text); single-side Open/Clipboard
                 // re-hang and preserve them — but their REPLACED-side edits
                 // would be discarded, and workbook sheets cannot be written
                 // back, so never pretend a save succeeded for those.
                 let drops_cached = matches!(
                     self.pending,
-                    Some(Pending::Home)
+                    Some(Pending::Close)
                         | Some(Pending::Exit)
                         | Some(Pending::Reload)
                         | Some(Pending::Settings(_))

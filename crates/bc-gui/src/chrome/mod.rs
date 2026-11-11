@@ -8,6 +8,7 @@ pub mod popup;
 pub mod scrollbar;
 pub mod splitter;
 pub mod statusbar;
+pub mod tabstrip;
 pub mod theme;
 pub mod toolbar;
 pub mod wheel;

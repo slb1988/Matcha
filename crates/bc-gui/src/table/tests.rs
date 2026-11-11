@@ -390,7 +390,7 @@ fn home_masks_and_unsaved_cancel_do_not_discard() {
     let mut v = view();
     v.begin_edit(1, Cursor { row: 0, column: 1 }, Some("dirty".into()));
     v.commit_edit().unwrap();
-    v.request_home();
+    v.request_close();
     assert!(v.pending.is_some());
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);

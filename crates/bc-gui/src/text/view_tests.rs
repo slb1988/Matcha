@@ -268,7 +268,7 @@ fn unsaved_close_cancel_reload_swap_format_and_encoding_override() {
     let mut v = TextCompareView::open(&l, &r).unwrap();
     ready(&mut v);
     v.map.right.replace_line(0, b"edited").unwrap();
-    v.request_home();
+    v.request_close();
     assert!(v.pending.is_some());
     assert!(v.action.is_none());
     let mut out = frame(&ctx, &mut v, vec![]); // first window pass can move while sizing
@@ -622,14 +622,28 @@ fn chrome_commands_keep_legacy_actions_and_filter_state() {
         v.menus.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(),
         ["Session", "File", "Edit", "Search", "View", "Tools", "Help"]
     );
-    assert!(
-        !v.menus[0]
+    let enabled = |label: &str| {
+        v.menus[0]
             .items
             .iter()
-            .find(|i| i.label == "New Tab")
+            .find(|i| i.label == label)
             .unwrap()
             .enabled
-    );
+    };
+    // 标签页命令已接到应用的标签页容器；New Window 仍未实现。
+    assert!(enabled("New Tab"));
+    assert!(enabled("Close Tab"));
+    assert!(!enabled("New Window"));
+    v.command("New Tab", &ctx, &prefs);
+    assert!(matches!(v.action.take(), Some(ViewAction::NewTab)));
+    v.command("Home", &ctx, &prefs);
+    assert!(matches!(v.action.take(), Some(ViewAction::Home)));
+    // Copy to Right 留下了未保存编辑：Close Tab 先弹保存确认。
+    assert!(v.is_dirty());
+    v.command("Close Tab", &ctx, &prefs);
+    assert!(v.prompt_open() && v.action.is_none());
+    v.perform(Pending::Close);
+    assert!(matches!(v.action.take(), Some(ViewAction::Close)));
 }
 
 #[test]

@@ -1,9 +1,17 @@
-//! 应用接线集中于 View 和 action 分支：文本、表格、文件夹比较与文件夹同步。
+//! 应用接线：标签页容器（每页一个 View）与各视图 action 分支——文本、表格、
+//! 文件夹比较与文件夹同步。只有活动页绘制；关闭/退出经各视图自己的保存确认。
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod tests;
 use crate::{
     bench::{BenchState, Step},
     bench_dir::DirBench,
+    chrome::{
+        icons::Icon,
+        tabstrip::{self, TabEvent, TabSpec},
+    },
     dir_view::DirCompareView,
-    home::{HomeAction, HomeView},
+    home::{HomeAction, HomeView, SessionKind},
     sync_view::SyncView,
     table::{TableAction, TableCompareView},
     text::{TextCompareView, ViewAction},
@@ -11,7 +19,7 @@ use crate::{
 };
 use bc_session::prefs::Prefs;
 use eframe::egui;
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 pub enum View {
     Home(HomeView),
@@ -20,8 +28,138 @@ pub enum View {
     FolderCompare(Box<DirCompareView>),
     FolderSync(Box<SyncView>),
 }
+impl View {
+    fn kind(&self) -> &'static str {
+        match self {
+            View::Home(_) => "Home",
+            View::TextCompare(_) => "Text Compare",
+            View::TableCompare(_) => "Table Compare",
+            View::FolderCompare(_) => "Folder Compare",
+            View::FolderSync(_) => "Folder Sync",
+        }
+    }
+    fn icon(&self) -> Icon {
+        match self {
+            View::Home(_) => Icon::Home,
+            View::TextCompare(_) => Icon::File,
+            View::TableCompare(_) => Icon::Structure,
+            View::FolderCompare(_) => Icon::Folder,
+            View::FolderSync(_) => Icon::Sync,
+        }
+    }
+    /// 两侧显示名（文件名，无文件名时用整条路径）；空会话两侧皆为 None。
+    fn side_names(&self) -> [Option<String>; 2] {
+        fn name(path: &std::path::Path) -> String {
+            path.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            )
+        }
+        let texts = |texts: [String; 2]| {
+            texts.map(|t| (!t.trim().is_empty()).then(|| name(std::path::Path::new(t.trim()))))
+        };
+        match self {
+            View::Home(_) => [None, None],
+            View::TextCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
+            View::TableCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
+            View::FolderCompare(v) => texts(v.path_texts()),
+            View::FolderSync(v) => texts(v.folder.path_texts()),
+        }
+    }
+    /// 标签页标题：会话为 "左 <--> 右"，空会话为类型名。
+    fn caption(&self) -> String {
+        match self.side_names() {
+            [None, None] => self.kind().into(),
+            [l, r] => format!(
+                "{} <--> {}",
+                l.as_deref().unwrap_or("Untitled"),
+                r.as_deref().unwrap_or("Untitled")
+            ),
+        }
+    }
+    fn window_title(&self) -> String {
+        match (self, self.side_names()) {
+            (View::Home(_), _) | (_, [None, None]) => format!("{} - Matcha", self.kind()),
+            _ => format!("{} - {} - Matcha", self.caption(), self.kind()),
+        }
+    }
+    /// 关闭会丢失的未保存编辑（文件夹视图为其内嵌文本窗口）。
+    fn is_dirty(&self) -> bool {
+        match self {
+            View::Home(_) => false,
+            View::TextCompare(v) => v.is_dirty(),
+            View::TableCompare(v) => v.is_dirty(),
+            View::FolderCompare(v) => v.text_dirty(),
+            View::FolderSync(v) => v.folder.text_dirty(),
+        }
+    }
+    fn prompt_open(&self) -> bool {
+        match self {
+            View::Home(_) => false,
+            View::TextCompare(v) => v.prompt_open(),
+            View::TableCompare(v) => v.prompt_open(),
+            View::FolderCompare(v) => v.prompt_open(),
+            View::FolderSync(v) => v.folder.prompt_open(),
+        }
+    }
+    /// 退出前的保存确认（沿用各视图原有的 Exit 确认）。
+    fn request_exit(&mut self) {
+        match self {
+            View::Home(_) => {}
+            View::TextCompare(v) => v.request_exit(),
+            View::TableCompare(v) => v.request_exit(),
+            View::FolderCompare(v) => {
+                v.request_text_close(true);
+            }
+            View::FolderSync(v) => {
+                v.folder.request_text_close(true);
+            }
+        }
+    }
+    /// 关闭标签页前的保存确认；确认后视图回报 Close。
+    fn request_close(&mut self) {
+        match self {
+            View::Home(_) => {}
+            View::TextCompare(v) => v.request_close(),
+            View::TableCompare(v) => v.request_close(),
+            View::FolderCompare(v) => v.request_tab_close(),
+            View::FolderSync(v) => v.folder.request_tab_close(),
+        }
+    }
+}
+/// 一个标签页及其在退出流程中的状态。
+pub struct Tab {
+    pub view: View,
+    /// 退出流程已向本页发出保存确认。
+    exit_asked: bool,
+    /// 本页已确认可以退出（保存或放弃）。
+    exit_cleared: bool,
+}
+impl Tab {
+    fn new(view: View) -> Self {
+        Self {
+            view,
+            exit_asked: false,
+            exit_cleared: false,
+        }
+    }
+}
+/// 本帧活动页产生的标签页级命令，在绘制结束后统一执行。
+enum TabCommand {
+    Home,
+    NewTab,
+    Close,
+    /// 开始退出；`true` 表示活动页已自行确认。
+    Exit(bool),
+    Open(View),
+    Replace(View),
+}
 pub struct MatchaApp {
-    view: View,
+    tabs: Vec<Tab>,
+    active: usize,
+    /// 退出流程进行中：逐个脏标签页弹保存确认。
+    exiting: bool,
+    window_title: String,
     bench: Option<BenchState>,
     bench_dir: Option<DirBench>,
     prefs: Prefs,
@@ -66,17 +204,63 @@ impl MatchaApp {
                 )
             });
         crate::perf::mark("app:fonts-installed");
-        let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
-        let view = match (&options.left, &options.right) {
+        let view = Self::launch_view(&cc.egui_ctx, &options);
+        let bench = match (&view, options.bench) {
+            (View::TextCompare(_), Some(b)) | (View::TableCompare(_), Some(b)) => {
+                Some(BenchState::new(b))
+            }
+            (_, Some(_)) => {
+                eprintln!("--bench requires two readable files");
+                None
+            }
+            _ => None,
+        };
+        let bench_dir = options.bench_dir.then(DirBench::default);
+        crate::perf::mark("app:view-created");
+        let mut app = Self::with_view(view);
+        app.bench = bench;
+        app.bench_dir = bench_dir;
+        app.screenshot = options.screenshot;
+        app.snapshot = options.snapshot;
+        app.snapshot_capture = snapshot_capture;
+        app
+    }
+    /// 单标签页的应用（启动、快照、基准与测试共用）。
+    pub fn with_view(view: View) -> Self {
+        Self {
+            tabs: vec![Tab::new(view)],
+            active: 0,
+            exiting: false,
+            window_title: String::new(),
+            bench: None,
+            bench_dir: None,
+            prefs: Prefs::default(),
+            last_update_ms: 0.0,
+            frame_cpu_ms: None,
+            exit_confirmed: false,
+            screenshot: None,
+            snapshot: None,
+            snapshot_capture: None,
+            snapshot_preset_applied: false,
+            chrome_demo: Default::default(),
+            capture_requested: false,
+            table_perf_reported: false,
+            frame_log: crate::perf::frames_enabled().then(Default::default),
+        }
+    }
+    /// 命令行给了两个路径时直接打开比较（唯一标签页，不附带 Home）；否则为 Home。
+    fn launch_view(ctx: &egui::Context, options: &LaunchOptions) -> View {
+        let home = HomeView::new;
+        match (&options.left, &options.right) {
             (Some(l), Some(r))
                 if l.is_dir()
                     && r.is_dir()
                     && options.snapshot.as_deref() == Some("folder-sync") =>
             {
-                View::FolderSync(Box::new(SyncView::open(&cc.egui_ctx, l, r)))
+                View::FolderSync(Box::new(SyncView::open(ctx, l, r)))
             }
             (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
-                DirCompareView::open(&cc.egui_ctx, l, r, false, options.bench_dir),
+                DirCompareView::open(ctx, l, r, false, options.bench_dir),
             )),
             (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
                 match TableCompareView::open(l, r) {
@@ -90,6 +274,7 @@ impl MatchaApp {
                         View::TableCompare(Box::new(v))
                     }
                     Err(e) => {
+                        let mut home = home();
                         home.set_error(format!("Cannot open: {e}"));
                         View::Home(home)
                     }
@@ -106,73 +291,208 @@ impl MatchaApp {
                     View::TextCompare(Box::new(v))
                 }
                 Err(e) => {
+                    let mut home = home();
                     home.set_error(format!("Cannot open: {e}"));
                     View::Home(home)
                 }
             },
-            _ => View::Home(home),
-        };
-        let bench = match (&view, options.bench) {
-            (View::TextCompare(_), Some(b)) | (View::TableCompare(_), Some(b)) => {
-                Some(BenchState::new(b))
+            _ => View::Home(home()),
+        }
+    }
+    pub fn tab_count(&self) -> usize {
+        self.tabs.len()
+    }
+    pub fn active_tab(&self) -> usize {
+        self.active
+    }
+    pub fn active_view(&self) -> &View {
+        &self.tabs[self.active].view
+    }
+    fn view_mut(&mut self) -> &mut View {
+        &mut self.tabs[self.active].view
+    }
+    fn activate(&mut self, index: usize) {
+        self.active = index.min(self.tabs.len() - 1);
+        // 其他标签页可能刚记录了新的最近比较。
+        if let View::Home(home) = self.view_mut() {
+            home.refresh_recent();
+        }
+    }
+    /// 追加一个标签页并激活。
+    pub fn open_tab(&mut self, view: View) {
+        self.tabs.push(Tab::new(view));
+        self.activate(self.tabs.len() - 1);
+    }
+    /// Home：激活已有的 Home 页；没有时在最前插入一个。
+    fn go_home(&mut self) {
+        match self
+            .tabs
+            .iter()
+            .position(|t| matches!(t.view, View::Home(_)))
+        {
+            Some(index) => self.activate(index),
+            None => {
+                self.tabs.insert(0, Tab::new(View::Home(HomeView::new())));
+                self.active = 0;
             }
-            (_, Some(_)) => {
-                eprintln!("--bench requires two readable files");
-                None
+        }
+        self.bench = None;
+    }
+    /// 关闭标签页：有未保存编辑时激活该页并走其保存确认，确认后由视图回报 Close。
+    pub fn close_tab(&mut self, ctx: &egui::Context, index: usize) {
+        if index >= self.tabs.len() {
+            return;
+        }
+        if self.tabs[index].view.is_dirty() {
+            self.activate(index);
+            self.view_mut().request_close();
+        } else {
+            self.remove_tab(ctx, index);
+        }
+    }
+    /// 移除标签页；关闭最后一页即退出应用（命令行打开的会话关闭后进程结束）。
+    fn remove_tab(&mut self, ctx: &egui::Context, index: usize) {
+        if self.tabs.len() == 1 {
+            self.exit_confirmed = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        self.tabs.remove(index);
+        if index < self.active || self.active >= self.tabs.len() {
+            self.active = self.active.saturating_sub(1);
+        }
+        self.activate(self.active);
+        self.bench = None;
+    }
+    fn begin_exit(&mut self, active_confirmed: bool) {
+        self.exiting = true;
+        if active_confirmed {
+            self.tabs[self.active].exit_cleared = true;
+        }
+    }
+    /// 退出流程一步：下一个未确认的脏页弹保存确认；用户取消则中止；全部确认后关窗。
+    fn step_exit(&mut self, ctx: &egui::Context) {
+        let next = self
+            .tabs
+            .iter()
+            .position(|t| !t.exit_cleared && t.view.is_dirty());
+        match next {
+            None => {
+                self.exiting = false;
+                self.exit_confirmed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            _ => None,
+            Some(index) if self.tabs[index].exit_asked => {
+                if !self.tabs[index].view.prompt_open() {
+                    // 确认框已关而页面仍脏且未放行：用户取消了退出。
+                    self.exiting = false;
+                    for tab in &mut self.tabs {
+                        tab.exit_asked = false;
+                        tab.exit_cleared = false;
+                    }
+                }
+            }
+            Some(index) => {
+                self.activate(index);
+                let tab = &mut self.tabs[index];
+                tab.exit_asked = true;
+                tab.view.request_exit();
+            }
+        }
+    }
+    /// 新会话标签页：空会话（可预填左侧）；Home 的会话图标、树节点、菜单与 "+" 共用。
+    fn new_session(&mut self, ctx: &egui::Context, kind: SessionKind, left: Option<PathBuf>) {
+        let text = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
+        let view = match kind {
+            SessionKind::FolderCompare | SessionKind::Auto => {
+                let mut v = DirCompareView::empty(ctx, false, false);
+                if let Some(left) = text(&left) {
+                    v.open_paths([left, String::new()]);
+                }
+                View::FolderCompare(Box::new(v))
+            }
+            SessionKind::FolderSync => {
+                let mut v = SyncView::empty(ctx);
+                if let Some(left) = text(&left) {
+                    v.folder.open_paths([left, String::new()]);
+                }
+                View::FolderSync(Box::new(v))
+            }
+            SessionKind::TextCompare => match TextCompareView::empty() {
+                Ok(mut v) => {
+                    if let Some(path) = &left {
+                        if let Err(e) = v.open_path(0, path) {
+                            v.message = e.to_string();
+                        }
+                    }
+                    View::TextCompare(Box::new(v))
+                }
+                Err(e) => {
+                    if let View::Home(home) = self.view_mut() {
+                        home.set_error(format!("Cannot open: {e}"));
+                    }
+                    return;
+                }
+            },
+            SessionKind::TableCompare => {
+                let mut v = TableCompareView::empty();
+                if let Some(path) = left {
+                    v.open_path(0, path);
+                }
+                View::TableCompare(Box::new(v))
+            }
         };
-        let bench_dir = options.bench_dir.then(DirBench::default);
-        crate::perf::mark("app:view-created");
-        Self {
-            view,
-            bench,
-            bench_dir,
-            prefs: Prefs::default(),
-            last_update_ms: 0.0,
-            frame_cpu_ms: None,
-            exit_confirmed: false,
-            screenshot: options.screenshot,
-            snapshot: options.snapshot,
-            snapshot_capture,
-            snapshot_preset_applied: false,
-            chrome_demo: Default::default(),
-            capture_requested: false,
-            table_perf_reported: false,
-            frame_log: crate::perf::frames_enabled().then(Default::default),
+        self.open_tab(view);
+    }
+    /// Home 打开两侧路径的比较：成功则新开标签页，失败把错误写回 Home。
+    fn open_comparison(&mut self, ctx: &egui::Context, action: HomeAction) {
+        let opened = match action {
+            HomeAction::OpenTextCompare { left, right } => TextCompareView::open(&left, &right)
+                .map(|v| {
+                    HomeView::record(&left, &right);
+                    View::TextCompare(Box::new(v))
+                })
+                .map_err(|e| e.to_string()),
+            HomeAction::OpenTableCompare { left, right } => TableCompareView::open(&left, &right)
+                .map(|v| {
+                    HomeView::record(&left, &right);
+                    View::TableCompare(Box::new(v))
+                })
+                .map_err(|e| e.to_string()),
+            HomeAction::OpenFolderCompare { left, right } => Ok(View::FolderCompare(Box::new(
+                DirCompareView::open(ctx, &left, &right, false, false),
+            ))),
+            HomeAction::OpenFolderSync { left, right } => Ok(View::FolderSync(Box::new(
+                SyncView::open(ctx, &left, &right),
+            ))),
+            _ => return,
+        };
+        match opened {
+            Ok(view) => self.open_tab(view),
+            Err(e) => {
+                if let View::Home(home) = self.view_mut() {
+                    home.set_error(format!("Cannot open: {e}"));
+                }
+            }
         }
     }
     fn top_bar(&mut self, ui: &mut egui::Ui) {
+        let mut home = false;
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Home").clicked() {
-                    match &mut self.view {
-                        View::TextCompare(v) => v.request_home(),
-                        View::TableCompare(v) => v.request_home(),
-                        View::FolderCompare(v) => {
-                            if !v.request_text_close(false) {
-                                self.view = View::Home(HomeView::default());
-                            }
-                        }
-                        View::FolderSync(_) => self.view = View::Home(HomeView::default()),
-                        View::Home(_) => {}
-                    }
-                }
+                home = ui.button("Home").clicked();
                 ui.separator();
-                ui.label(match &self.view {
-                    View::Home(_) => "Home",
-                    View::TextCompare(_) => "Text Compare",
-                    View::TableCompare(_) => "Table Compare",
-                    View::FolderCompare(_) => "Folder Compare",
-                    View::FolderSync(_) => "Folder Sync",
-                });
+                ui.label(self.active_view().kind());
             });
         });
+        if home {
+            self.go_home();
+        }
     }
     /// 文本/表格/文件夹/Home 视图自带 chrome 菜单栏，不再绘制应用顶条。
     fn has_own_chrome(&self) -> bool {
         matches!(
-            self.view,
+            self.active_view(),
             View::TextCompare(_)
                 | View::TableCompare(_)
                 | View::FolderCompare(_)
@@ -180,61 +500,73 @@ impl MatchaApp {
                 | View::Home(_)
         )
     }
-}
-impl eframe::App for MatchaApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        egui::Rgba::from(crate::chrome::theme::PANEL_BG).to_array()
-    }
-
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
-        if self.snapshot.is_some() {
-            input.time = Some(1.0);
-            input.events.clear();
-            // Whether the OS gives the snapshot window foreground focus varies
-            // run to run; egui paints the text caret only in a focused
-            // viewport, so pin it to unfocused for byte-stable captures.
-            input.focused = false;
+    /// 标签条：两页及以上才显示（单会话窗口与参考截图一致，无标签条）。
+    fn tab_strip(&mut self, ui: &mut egui::Ui) -> Option<TabEvent> {
+        if self.tabs.len() < 2 {
+            return None;
         }
+        let specs: Vec<TabSpec> = self
+            .tabs
+            .iter()
+            .map(|t| TabSpec {
+                title: t.view.caption(),
+                icon: Some(t.view.icon()),
+            })
+            .collect();
+        let active = self.active;
+        egui::Panel::top("tab_strip")
+            .exact_size(tabstrip::HEIGHT)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                tabstrip::show(ui, rect, &specs, active)
+            })
+            .inner
     }
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    /// 一帧：快捷键与标签条 → 活动页绘制 → 执行其命令。
+    pub fn frame(&mut self, ui: &mut egui::Ui, frame_cpu: Option<f32>) {
         let started = Instant::now();
-
         let ctx = ui.ctx().clone();
-        self.frame_cpu_ms = frame.info().cpu_usage.map(|s| s as f64 * 1e3);
+        self.frame_cpu_ms = frame_cpu.map(|s| s as f64 * 1e3);
         if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
-            if let View::TextCompare(v) = &mut self.view {
-                if v.is_dirty() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    v.request_exit();
-                }
+            // 有未保存编辑的标签页时拦下关闭，逐页走保存确认。
+            if self.exiting || self.tabs.iter().any(|t| t.view.is_dirty()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.begin_exit(false);
             }
         }
-        if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
-            if let View::TableCompare(v) = &mut self.view {
-                if v.is_dirty() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    v.request_exit();
-                }
+        if self.exiting {
+            self.step_exit(&ctx);
+        }
+        // Ctrl+T / Ctrl+W 属于标签页容器，先于视图消费，避免视图各自处理。
+        let (new_tab, close_tab) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::T),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
+            )
+        });
+        if !self.exiting {
+            if new_tab {
+                self.open_tab(View::Home(HomeView::new()));
+            }
+            if close_tab {
+                self.close_tab(&ctx, self.active);
             }
         }
-        if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
-            if let View::FolderCompare(v) = &mut self.view {
-                // Edited text opened from the folder view gets the same save prompt.
-                if v.request_text_close(true) {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                }
-            }
-        }
-        if let View::TextCompare(v) = &mut self.view {
+        if let View::TextCompare(v) = self.view_mut() {
             v.poll();
         }
-        if let View::TableCompare(v) = &mut self.view {
+        if let View::TableCompare(v) = self.view_mut() {
             v.poll();
         }
-        let benchmark_ready = matches!(&self.view,View::TextCompare(v) if v.is_ready())
-            || matches!(&self.view,View::TableCompare(v) if v.is_ready());
+        let benchmark_ready = matches!(self.active_view(), View::TextCompare(v) if v.is_ready())
+            || matches!(self.active_view(), View::TableCompare(v) if v.is_ready());
         if benchmark_ready {
-            if let (Some(bench), View::TextCompare(view)) = (&mut self.bench, &mut self.view) {
+            if let (Some(bench), View::TextCompare(view)) =
+                (&mut self.bench, &mut self.tabs[self.active].view)
+            {
                 match bench.next_step(view.row_count()) {
                     Step::Smooth(n) => view.scroll_to_row(view.top_row(view.row_height()) + n),
                     Step::Jump(row) => view.scroll_to_row(row),
@@ -242,7 +574,9 @@ impl eframe::App for MatchaApp {
             }
         }
         if benchmark_ready {
-            if let (Some(bench), View::TableCompare(view)) = (&mut self.bench, &mut self.view) {
+            if let (Some(bench), View::TableCompare(view)) =
+                (&mut self.bench, &mut self.tabs[self.active].view)
+            {
                 match bench.next_step(view.row_count()) {
                     Step::Smooth(n) => view.scroll_to_row(view.top_row(18.0) + n),
                     Step::Jump(row) => {
@@ -262,7 +596,9 @@ impl eframe::App for MatchaApp {
                 self.capture_requested = true;
             }
         }
-        if let (Some(bench), View::FolderCompare(view)) = (&mut self.bench_dir, &mut self.view) {
+        if let (Some(bench), View::FolderCompare(view)) =
+            (&mut self.bench_dir, &mut self.tabs[self.active].view)
+        {
             view.poll(&ctx);
             bench.drive(view, &ctx);
         }
@@ -280,6 +616,17 @@ impl eframe::App for MatchaApp {
         if !self.has_own_chrome() {
             self.top_bar(ui);
         }
+        let title = self.active_view().window_title();
+        if self.window_title != title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
+        match self.tab_strip(ui) {
+            Some(TabEvent::Activate(index)) => self.activate(index),
+            Some(TabEvent::Close(index)) => self.close_tab(&ctx, index),
+            Some(TabEvent::New) => self.open_tab(View::Home(HomeView::new())),
+            None => {}
+        }
         if self.bench.is_some() || self.bench_dir.is_some() {
             egui::Panel::bottom("performance_status").show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -287,14 +634,14 @@ impl eframe::App for MatchaApp {
                     if let Some(cpu) = self.frame_cpu_ms {
                         ui.label(format!("frame cpu {cpu:.2} ms"));
                     }
-                    if let View::TextCompare(v) = &self.view {
+                    if let View::TextCompare(v) = &self.tabs[self.active].view {
                         ui.label(format!(
                             "rows drawn {} · total rows {}",
                             v.last_stats.rows_drawn,
                             v.row_count()
                         ));
                     }
-                    if let View::TableCompare(v) = &self.view {
+                    if let View::TableCompare(v) = &self.tabs[self.active].view {
                         ui.label(format!(
                             "rows drawn {} · cells drawn {} · total rows {}",
                             v.rows_drawn(),
@@ -325,15 +672,16 @@ impl eframe::App for MatchaApp {
         } else {
             egui::CentralPanel::default()
         };
-        panel.show(ui, |ui| match &mut self.view {
+        let prefs = &mut self.prefs;
+        panel.show(ui, |ui| match &mut self.tabs[self.active].view {
             View::Home(home) => home_action = home.ui(ui),
-            View::TextCompare(view) => view_action = view.ui(ui, &mut self.prefs),
-            View::TableCompare(view) => table_action = view.ui(ui, &mut self.prefs),
+            View::TextCompare(view) => view_action = view.ui(ui, prefs),
+            View::TableCompare(view) => table_action = view.ui(ui, prefs),
             View::FolderCompare(view) => folder_switch = view.ui(ui),
             View::FolderSync(view) => folder_switch = view.ui(ui),
         });
         if let Some(capture) = &self.snapshot_capture {
-            let mut ready = match &mut self.view {
+            let mut ready = match &mut self.tabs[self.active].view {
                 View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::FolderCompare(v) => !v.busy(),
@@ -341,7 +689,7 @@ impl eframe::App for MatchaApp {
                 View::Home(_) => true,
             };
             if ready && !self.snapshot_preset_applied {
-                match &mut self.view {
+                match &mut self.tabs[self.active].view {
                     View::TextCompare(v) => {
                         let scene = self.snapshot.as_deref().unwrap_or_default();
                         v.snapshot_preset(scene);
@@ -366,7 +714,7 @@ impl eframe::App for MatchaApp {
         // The central panel has just drawn the comparison when the view first
         // reports ready: this is the first interactive frame.
         if !self.table_perf_reported && crate::perf::enabled() {
-            let ready = match &self.view {
+            let ready = match self.active_view() {
                 View::TextCompare(v) => v.is_ready(),
                 View::TableCompare(v) => v.is_ready(),
                 View::FolderCompare(v) => !v.busy(),
@@ -376,7 +724,7 @@ impl eframe::App for MatchaApp {
             if ready {
                 self.table_perf_reported = true;
                 crate::perf::mark("app:first-ready-frame");
-                if let View::TableCompare(v) = &self.view {
+                if let View::TableCompare(v) = self.active_view() {
                     if let Some(s) = v.statistics() {
                         eprintln!(
                             "[table-perf] fingerprint rows={} same={} unimportant={} important={} left_only={} right_only={}",
@@ -390,112 +738,96 @@ impl eframe::App for MatchaApp {
                 }
             }
         }
-        let mut folder_go_home = false;
-        let folder = match &mut self.view {
+        let mut commands = Vec::new();
+        let folder = match self.view_mut() {
             View::FolderCompare(view) => Some(&mut **view),
             View::FolderSync(view) => Some(&mut view.folder),
             _ => None,
         };
         if let Some(view) = folder {
             if view.take_exit_request() {
-                self.exit_confirmed = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                commands.push(TabCommand::Exit(false));
             }
             if view.take_home_request() {
-                folder_go_home = true;
+                commands.push(TabCommand::Home);
+            }
+            if view.take_new_tab_request() {
+                commands.push(TabCommand::NewTab);
+            }
+            if view.take_close_request() {
+                commands.push(TabCommand::Close);
             }
         }
-        if folder_go_home {
-            self.view = View::Home(HomeView::default());
-        }
-        if let Some(HomeAction::OpenTextCompare { left, right }) = home_action {
-            match TextCompareView::open(&left, &right) {
-                Ok(v) => {
-                    HomeView::record(&left, &right);
-                    self.view = View::TextCompare(Box::new(v));
-                }
-                Err(e) => {
-                    if let View::Home(home) = &mut self.view {
-                        home.set_error(format!("Cannot open: {e}"));
-                    }
-                }
-            }
-        } else if let Some(HomeAction::OpenFolderCompare { left, right }) = &home_action {
-            self.view = View::FolderCompare(Box::new(DirCompareView::open(
-                &ctx, left, right, false, false,
-            )));
-        } else if let Some(HomeAction::OpenFolderSync { left, right }) = &home_action {
-            self.view = View::FolderSync(Box::new(SyncView::open(&ctx, left, right)));
-        } else if let Some(HomeAction::Exit) = &home_action {
-            self.exit_confirmed = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        } else if let Some(HomeAction::OpenTableCompare { left, right }) = home_action {
-            match TableCompareView::open(&left, &right) {
-                Ok(v) => {
-                    HomeView::record(&left, &right);
-                    self.view = View::TableCompare(Box::new(v));
-                }
-                Err(e) => {
-                    if let View::Home(home) = &mut self.view {
-                        home.set_error(format!("Cannot open: {e}"));
-                    }
-                }
-            }
+        match home_action {
+            Some(HomeAction::NewSession { kind, left }) => self.new_session(&ctx, kind, left),
+            Some(HomeAction::NewTab) => commands.push(TabCommand::NewTab),
+            Some(HomeAction::CloseTab) => self.close_tab(&ctx, self.active),
+            Some(HomeAction::Exit) => commands.push(TabCommand::Exit(false)),
+            Some(action) => self.open_comparison(&ctx, action),
+            None => {}
         }
         if let Some(action) = table_action {
-            match action {
-                TableAction::Home => {
-                    let paths = match &self.view {
-                        View::TableCompare(v) => v.paths(),
-                        _ => [None, None],
-                    };
-                    self.view = View::Home(HomeView::new(paths[0].as_ref(), paths[1].as_ref()));
-                    self.bench = None;
-                }
-                TableAction::Exit => {
-                    self.exit_confirmed = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+            let command = match action {
+                TableAction::Home => Some(TabCommand::Home),
+                TableAction::Close => Some(TabCommand::Close),
+                TableAction::NewTab => Some(TabCommand::NewTab),
+                TableAction::Exit => Some(TabCommand::Exit(true)),
+                // Session > Using: Text Compare 原位换会话类型。
                 TableAction::Text { left, right } => match TextCompareView::open(&left, &right) {
-                    Ok(v) => self.view = View::TextCompare(Box::new(v)),
-                    Err(e) => eprintln!("Cannot open text: {e}"),
+                    Ok(v) => Some(TabCommand::Replace(View::TextCompare(Box::new(v)))),
+                    Err(e) => {
+                        eprintln!("Cannot open text: {e}");
+                        None
+                    }
                 },
-            }
+            };
+            commands.extend(command);
         }
         if let Some(action) = view_action {
-            match action {
-                ViewAction::Home => {
-                    let paths = match &self.view {
-                        View::TextCompare(v) => v.paths(),
-                        _ => [None, None],
-                    };
-                    self.view = View::Home(HomeView::new(paths[0].as_ref(), paths[1].as_ref()));
-                    self.bench = None;
-                }
-                ViewAction::Exit => {
-                    self.exit_confirmed = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+            commands.push(match action {
+                ViewAction::Home => TabCommand::Home,
+                ViewAction::Close => TabCommand::Close,
+                ViewAction::NewTab => TabCommand::NewTab,
+                ViewAction::Exit => TabCommand::Exit(true),
                 ViewAction::CompareParentFolders { left, right } => {
-                    self.view = View::FolderCompare(Box::new(DirCompareView::open(
+                    TabCommand::Open(View::FolderCompare(Box::new(DirCompareView::open(
                         &ctx, &left, &right, false, false,
-                    )));
-                    self.bench = None;
+                    ))))
                 }
-            }
+            });
         }
         if let Some((sync, paths)) = folder_switch {
-            self.view = if sync {
+            // 比较/同步互切沿用原位替换（同一会话换类型）。
+            commands.push(TabCommand::Replace(if sync {
                 View::FolderSync(Box::new(SyncView::open(&ctx, &paths[0], &paths[1])))
             } else {
                 View::FolderCompare(Box::new(DirCompareView::open(
                     &ctx, &paths[0], &paths[1], false, false,
                 )))
-            };
+            }));
+        }
+        for command in commands {
+            match command {
+                TabCommand::Home => self.go_home(),
+                TabCommand::NewTab => self.open_tab(View::Home(HomeView::new())),
+                TabCommand::Close => self.remove_tab(&ctx, self.active),
+                TabCommand::Exit(confirmed) => self.begin_exit(confirmed),
+                TabCommand::Open(view) => {
+                    self.bench = None;
+                    self.open_tab(view);
+                }
+                TabCommand::Replace(view) => {
+                    self.bench = None;
+                    self.tabs[self.active] = Tab::new(view);
+                }
+            }
+        }
+        if self.exiting {
+            ctx.request_repaint();
         }
         self.last_update_ms = started.elapsed().as_secs_f64() * 1e3;
         if let Some(log) = &mut self.frame_log {
-            let view = match &self.view {
+            let view = match &self.tabs[self.active].view {
                 View::Home(_) => "home",
                 View::TextCompare(_) => "text",
                 View::TableCompare(_) => "table",
@@ -505,7 +837,9 @@ impl eframe::App for MatchaApp {
             log.record(started, self.last_update_ms as f32, view);
         }
         let mut dir_done = false;
-        if let (Some(bench), View::FolderCompare(view)) = (&mut self.bench_dir, &self.view) {
+        if let (Some(bench), View::FolderCompare(view)) =
+            (&mut self.bench_dir, &self.tabs[self.active].view)
+        {
             if bench.record(started.elapsed(), view) {
                 println!("{}", bench.summary(view));
                 self.exit_confirmed = true;
@@ -520,12 +854,10 @@ impl eframe::App for MatchaApp {
         }
         let mut finished = false;
         if benchmark_ready {
-            if let (Some(bench), View::TextCompare(view)) = (&mut self.bench, &self.view) {
-                bench.record(
-                    started.elapsed(),
-                    frame.info().cpu_usage,
-                    view.last_stats.rows_drawn,
-                );
+            if let (Some(bench), View::TextCompare(view)) =
+                (&mut self.bench, &self.tabs[self.active].view)
+            {
+                bench.record(started.elapsed(), frame_cpu, view.last_stats.rows_drawn);
                 if bench.is_done() {
                     println!(
                         "{}",
@@ -544,8 +876,10 @@ impl eframe::App for MatchaApp {
             }
         }
         if benchmark_ready {
-            if let (Some(bench), View::TableCompare(view)) = (&mut self.bench, &self.view) {
-                bench.record(started.elapsed(), frame.info().cpu_usage, view.rows_drawn());
+            if let (Some(bench), View::TableCompare(view)) =
+                (&mut self.bench, &self.tabs[self.active].view)
+            {
+                bench.record(started.elapsed(), frame_cpu, view.rows_drawn());
                 if bench.is_done() {
                     println!(
                         "{}",
@@ -572,5 +906,24 @@ impl eframe::App for MatchaApp {
         if finished {
             self.bench = None;
         }
+    }
+}
+impl eframe::App for MatchaApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::from(crate::chrome::theme::PANEL_BG).to_array()
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        if self.snapshot.is_some() {
+            input.time = Some(1.0);
+            input.events.clear();
+            // Whether the OS gives the snapshot window foreground focus varies
+            // run to run; egui paints the text caret only in a focused
+            // viewport, so pin it to unfocused for byte-stable captures.
+            input.focused = false;
+        }
+    }
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.frame(ui, frame.info().cpu_usage);
     }
 }

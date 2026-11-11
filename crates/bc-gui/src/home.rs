@@ -1,6 +1,6 @@
 //! Home：参考布局的会话管理页——菜单栏、左侧会话树（New / Auto-saved，
 //! Auto-saved 下为最近比较）、中央会话类型图标网格、底部帮助面板；拖放两个
-//! 文件/文件夹直接打开，点击会话类型弹出路径输入。
+//! 文件/文件夹直接打开，点击会话类型新开一个空会话标签页（路径在会话内输入）。
 use crate::chrome::{
     icons::{self, SessionIcon},
     menubar::{self, MenuItem, MenuItemKind, MenuSpec},
@@ -10,10 +10,29 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind,
 use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HomeAction {
-    OpenTextCompare { left: PathBuf, right: PathBuf },
-    OpenTableCompare { left: PathBuf, right: PathBuf },
-    OpenFolderCompare { left: PathBuf, right: PathBuf },
-    OpenFolderSync { left: PathBuf, right: PathBuf },
+    OpenTextCompare {
+        left: PathBuf,
+        right: PathBuf,
+    },
+    OpenTableCompare {
+        left: PathBuf,
+        right: PathBuf,
+    },
+    OpenFolderCompare {
+        left: PathBuf,
+        right: PathBuf,
+    },
+    OpenFolderSync {
+        left: PathBuf,
+        right: PathBuf,
+    },
+    /// 新标签页中打开该类型的空会话；`left` 为单个拖入路径的预填。
+    NewSession {
+        kind: SessionKind,
+        left: Option<PathBuf>,
+    },
+    NewTab,
+    CloseTab,
     Exit,
 }
 pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
@@ -49,7 +68,23 @@ const KINDS: [SessionKind; 4] = [
     SessionKind::TableCompare,
 ];
 impl SessionKind {
-    fn label(self) -> &'static str {
+    /// Auto 按预填路径定型（文件夹 / 表格格式 / 文本）；无路径时取图标网格首项。
+    fn resolve(self, path: Option<&std::path::Path>) -> Self {
+        match (self, path) {
+            (Self::Auto, Some(p)) if p.is_dir() => Self::FolderCompare,
+            (Self::Auto, Some(p)) if table_paths(p, p) => Self::TableCompare,
+            (Self::Auto, Some(_)) => Self::TextCompare,
+            (Self::Auto, None) => Self::FolderCompare,
+            (kind, _) => kind,
+        }
+    }
+    fn new_session(self, left: Option<PathBuf>) -> HomeAction {
+        HomeAction::NewSession {
+            kind: self.resolve(left.as_deref()),
+            left,
+        }
+    }
+    pub fn label(self) -> &'static str {
         match self {
             Self::Auto => "Compare",
             Self::FolderCompare => "Folder Compare",
@@ -58,21 +93,12 @@ impl SessionKind {
             Self::TableCompare => "Table Compare",
         }
     }
-    fn icon(self) -> SessionIcon {
+    pub fn icon(self) -> SessionIcon {
         match self {
             Self::FolderCompare | Self::Auto => SessionIcon::FolderCompare,
             Self::FolderSync => SessionIcon::FolderSync,
             Self::TextCompare => SessionIcon::TextCompare,
             Self::TableCompare => SessionIcon::TableCompare,
-        }
-    }
-    fn action(self, left: PathBuf, right: PathBuf) -> HomeAction {
-        match self {
-            Self::Auto => routed(left, right),
-            Self::FolderCompare => HomeAction::OpenFolderCompare { left, right },
-            Self::FolderSync => HomeAction::OpenFolderSync { left, right },
-            Self::TextCompare => HomeAction::OpenTextCompare { left, right },
-            Self::TableCompare => HomeAction::OpenTableCompare { left, right },
         }
     }
 }
@@ -114,8 +140,6 @@ const SAVED_DRAWER: (Color32, Color32) = (
 
 #[derive(Debug, Default)]
 pub struct HomeView {
-    left: String,
-    right: String,
     error: Option<String>,
     recent: Vec<(PathBuf, PathBuf)>,
     selected: Node,
@@ -125,8 +149,6 @@ pub struct HomeView {
     page: usize,
     hide_tree: bool,
     hide_panel: bool,
-    /// Open "new session" path prompt.
-    prompt: Option<SessionKind>,
     about: bool,
 }
 fn item(label: &str, id: &str, enabled: bool) -> MenuItem {
@@ -161,12 +183,28 @@ fn sub(label: &str, enabled: bool, children: Vec<MenuItem>) -> MenuItem {
     }
 }
 impl HomeView {
-    pub fn new(left: Option<&PathBuf>, right: Option<&PathBuf>) -> Self {
+    pub fn new() -> Self {
         Self {
-            left: left.map(|p| p.display().to_string()).unwrap_or_default(),
-            right: right.map(|p| p.display().to_string()).unwrap_or_default(),
             recent: load_recent(),
             ..Default::default()
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn with_recent(recent: Vec<(PathBuf, PathBuf)>) -> Self {
+        Self {
+            recent,
+            ..Default::default()
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn auto_open(&self) -> bool {
+        self.auto_open
+    }
+    /// 重读最近比较（其他标签页刚记录了新的比较）。
+    pub fn refresh_recent(&mut self) {
+        self.recent = load_recent();
+        if matches!(self.selected, Node::Recent(i) if i >= self.recent.len()) {
+            self.selected = Node::AutoSaved;
         }
     }
     pub fn set_error(&mut self, message: impl Into<String>) {
@@ -216,7 +254,7 @@ impl HomeView {
                             item("Version Compare", "", false),
                         ],
                     ),
-                    short(item("New Tab", "", false), "Ctrl+T"),
+                    short(item("New Tab", "new-tab", true), "Ctrl+T"),
                     item("New Window", "", false),
                     short(item("Open Session", "", false), "Shift+Ctrl+O"),
                     sep(),
@@ -227,7 +265,7 @@ impl HomeView {
                     ),
                     item("Save Workspace As...", "", false),
                     sep(),
-                    short(item("Close Tab", "", false), "Ctrl+W"),
+                    short(item("Close Tab", "close-tab", true), "Ctrl+W"),
                     sep(),
                     short(item("Exit", "exit", true), "Ctrl+Q"),
                 ],
@@ -279,10 +317,12 @@ impl HomeView {
     }
     fn command(&mut self, id: &str) -> Option<HomeAction> {
         match id {
-            "new:folder" => self.prompt = Some(SessionKind::FolderCompare),
-            "new:sync" => self.prompt = Some(SessionKind::FolderSync),
-            "new:text" => self.prompt = Some(SessionKind::TextCompare),
-            "new:table" => self.prompt = Some(SessionKind::TableCompare),
+            "new:folder" => return Some(SessionKind::FolderCompare.new_session(None)),
+            "new:sync" => return Some(SessionKind::FolderSync.new_session(None)),
+            "new:text" => return Some(SessionKind::TextCompare.new_session(None)),
+            "new:table" => return Some(SessionKind::TableCompare.new_session(None)),
+            "new-tab" => return Some(HomeAction::NewTab),
+            "close-tab" => return Some(HomeAction::CloseTab),
             "view:tree" => self.hide_tree = !self.hide_tree,
             "view:panel" => self.hide_panel = !self.hide_panel,
             "about" => self.about = true,
@@ -303,12 +343,8 @@ impl HomeView {
         if dropped.len() >= 2 {
             action = Some(routed(dropped[0].clone(), dropped[1].clone()));
         } else if let Some(path) = dropped.first() {
-            if self.left.is_empty() {
-                self.left = path.display().to_string();
-            } else {
-                self.right = path.display().to_string();
-            }
-            self.prompt.get_or_insert(SessionKind::Auto);
+            // 单个路径：按其类型开空会话标签页，并预填左侧。
+            action = Some(SessionKind::Auto.new_session(Some(path.clone())));
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Q)) {
             action = Some(HomeAction::Exit);
@@ -345,12 +381,14 @@ impl HomeView {
             self.tree_panel(ui, &painter, o, content_bottom, &mut action);
             TREE_WIDTH + 1.0
         };
-        self.canvas(ui, &painter, span(canvas_left, 29.0, w, content_bottom));
+        self.canvas(
+            ui,
+            &painter,
+            span(canvas_left, 29.0, w, content_bottom),
+            &mut action,
+        );
         if !self.hide_panel {
             self.help_panel(ui, &painter, span(0.0, body_bottom, w, h));
-        }
-        if let Some(kind) = self.prompt {
-            action = self.prompt_window(ui.ctx(), kind).or(action);
         }
         if self.about {
             egui::Window::new("About Matcha")
@@ -543,7 +581,7 @@ impl HomeView {
             if response.double_clicked() {
                 match node {
                     Node::New | Node::AutoSaved => self.toggle(node),
-                    Node::Kind(i) => self.prompt = Some(KINDS[i]),
+                    Node::Kind(i) => *action = Some(KINDS[i].new_session(None)),
                     Node::Recent(i) => {
                         let (l, r) = self.recent[i].clone();
                         *action = Some(routed(l, r));
@@ -551,7 +589,7 @@ impl HomeView {
                 }
             }
         }
-        self.session_toolbar(ui, painter, o, toolbar_top);
+        self.session_toolbar(ui, painter, o, toolbar_top, action);
     }
     fn toggle(&mut self, node: Node) {
         match node {
@@ -568,6 +606,7 @@ impl HomeView {
         painter: &egui::Painter,
         o: Vec2,
         toolbar_top: f32,
+        action: &mut Option<HomeAction>,
     ) {
         let span = |x0: f32, y0: f32, x1: f32, y1: f32| {
             Rect::from_min_max(Pos2::new(x0, y0) + o, Pos2::new(x1, y1) + o)
@@ -601,10 +640,11 @@ impl HomeView {
             .interact(plus, id.with("home-plus"), Sense::click())
             .clicked()
         {
-            self.prompt = Some(match self.selected {
+            let kind = match self.selected {
                 Node::Kind(i) => KINDS[i],
                 _ => SessionKind::Auto,
-            });
+            };
+            *action = Some(kind.new_session(None));
         }
         if removable
             && ui
@@ -650,7 +690,13 @@ impl HomeView {
             },
         );
     }
-    fn canvas(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect) {
+    fn canvas(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        rect: Rect,
+        action: &mut Option<HomeAction>,
+    ) {
         let font = FontId::proportional(theme::UI_SIZE);
         // Reference: text centered 2.5 px and the grid 4 px right of the
         // canvas middle; the grid row sits 56 px above it.
@@ -692,7 +738,7 @@ impl HomeView {
                 Color32::BLACK,
             );
             if response.clicked() {
-                self.prompt = Some(*kind);
+                *action = Some(kind.new_session(None));
             }
         }
         // Page chevrons, only when the types do not fit one page.
@@ -811,49 +857,6 @@ impl HomeView {
             self.hide_panel = true;
         }
     }
-    fn prompt_window(&mut self, ctx: &egui::Context, kind: SessionKind) -> Option<HomeAction> {
-        let mut action = None;
-        let mut open = true;
-        let mut close = false;
-        egui::Window::new(format!("New {} session", kind.label()))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| {
-                egui::Grid::new("home_paths").num_columns(2).show(ui, |ui| {
-                    ui.label("Left");
-                    ui.add(egui::TextEdit::singleline(&mut self.left).desired_width(520.0));
-                    ui.end_row();
-                    ui.label("Right");
-                    ui.add(egui::TextEdit::singleline(&mut self.right).desired_width(520.0));
-                    ui.end_row();
-                });
-                ui.horizontal(|ui| {
-                    if ui.button("Compare").clicked() {
-                        if self.left.trim().is_empty() || self.right.trim().is_empty() {
-                            self.error = Some("Both paths are required".into());
-                        } else {
-                            action = Some(kind.action(
-                                PathBuf::from(self.left.trim()),
-                                PathBuf::from(self.right.trim()),
-                            ));
-                            close = true;
-                        }
-                    }
-                    if ui.button("Cancel").clicked() {
-                        close = true;
-                    }
-                });
-                if let Some(error) = &self.error {
-                    ui.colored_label(Color32::RED, error);
-                }
-            });
-        if !open || close {
-            self.prompt = None;
-        }
-        action
-    }
 }
 fn save_recent(recent: &[(PathBuf, PathBuf)]) {
     if let Some(file) = recent_path() {
@@ -922,40 +925,62 @@ mod tests {
         frame(ctx, home, vec![press(true)]).or(frame(ctx, home, vec![press(false)]))
     }
     #[test]
-    fn icon_grid_pages_and_opens_the_typed_prompt() {
+    fn icon_grid_pages_and_opens_an_empty_session_tab() {
         let ctx = egui::Context::default();
         let mut home = HomeView::default();
         frame(&ctx, &mut home, vec![]);
-        // Third cell of page one is Text Compare (reference x992, y403).
-        click(&ctx, &mut home, Pos2::new(992.0, 403.0));
-        assert_eq!(home.prompt, Some(SessionKind::TextCompare));
-        home.prompt = None;
+        let empty = |kind| Some(HomeAction::NewSession { kind, left: None });
+        // Page one: Folder Compare, Folder Sync, Text Compare (reference y403).
+        for (x, kind) in [
+            (676.0, SessionKind::FolderCompare),
+            (834.0, SessionKind::FolderSync),
+            (992.0, SessionKind::TextCompare),
+        ] {
+            assert_eq!(click(&ctx, &mut home, Pos2::new(x, 403.0)), empty(kind));
+        }
+
         // Four types: the chevron pages to Table Compare and back.
         click(&ctx, &mut home, Pos2::new(1295.0, 403.0));
         assert_eq!(home.page, 1);
-        click(&ctx, &mut home, Pos2::new(676.0, 403.0));
-        assert_eq!(home.prompt, Some(SessionKind::TableCompare));
-        home.prompt = None;
+        assert_eq!(
+            click(&ctx, &mut home, Pos2::new(676.0, 403.0)),
+            empty(SessionKind::TableCompare)
+        );
         click(&ctx, &mut home, Pos2::new(1668.0 - 1295.0, 403.0));
         assert_eq!(home.page, 0);
+        // Session toolbar "+": the selected New-tree type, else Folder Compare.
+        assert_eq!(
+            click(&ctx, &mut home, Pos2::new(21.0, 804.0)),
+            empty(SessionKind::FolderCompare)
+        );
+    }
+    #[test]
+    fn single_dropped_path_opens_a_prefilled_session_by_type() {
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            SessionKind::Auto.new_session(Some(dir.clone())),
+            HomeAction::NewSession {
+                kind: SessionKind::FolderCompare,
+                left: Some(dir)
+            }
+        );
+        let text = PathBuf::from("notes.txt");
+        assert_eq!(
+            SessionKind::Auto.new_session(Some(text.clone())),
+            HomeAction::NewSession {
+                kind: SessionKind::TextCompare,
+                left: Some(text)
+            }
+        );
+        // An explicit type is never re-routed by the path.
+        assert_eq!(
+            SessionKind::FolderSync.resolve(Some(std::path::Path::new("a.csv"))),
+            SessionKind::FolderSync
+        );
     }
     #[test]
     fn session_kinds_menus_and_tree_keep_home_actions() {
         let (l, r) = (PathBuf::from("a"), PathBuf::from("b"));
-        assert_eq!(
-            SessionKind::FolderSync.action(l.clone(), r.clone()),
-            HomeAction::OpenFolderSync {
-                left: l.clone(),
-                right: r.clone()
-            }
-        );
-        assert_eq!(
-            SessionKind::TableCompare.action(l.clone(), r.clone()),
-            HomeAction::OpenTableCompare {
-                left: l.clone(),
-                right: r.clone()
-            }
-        );
         let mut home = HomeView::default();
         let menus = home.menus();
         assert_eq!(
@@ -963,8 +988,15 @@ mod tests {
             ["Session", "View", "Tools", "Help"]
         );
         assert_eq!(menus[3].items.last().unwrap().label, "About Matcha");
-        assert_eq!(home.command("new:sync"), None);
-        assert_eq!(home.prompt, Some(SessionKind::FolderSync));
+        assert_eq!(
+            home.command("new:sync"),
+            Some(HomeAction::NewSession {
+                kind: SessionKind::FolderSync,
+                left: None
+            })
+        );
+        assert_eq!(home.command("new-tab"), Some(HomeAction::NewTab));
+        assert_eq!(home.command("close-tab"), Some(HomeAction::CloseTab));
         assert_eq!(home.command("exit"), Some(HomeAction::Exit));
         home.command("view:panel");
         assert!(home.hide_panel);

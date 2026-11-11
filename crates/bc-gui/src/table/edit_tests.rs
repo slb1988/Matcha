@@ -85,7 +85,7 @@ fn uncommitted_draft_cancel_and_discard_protect_home_and_exit() {
     v.begin_edit(1, Cursor { row: 0, column: 2 }, Some("3.00".into()));
     assert!(v.is_dirty());
     assert!(!v.pair.as_ref().unwrap().history[1].is_dirty());
-    v.request_home();
+    v.request_close();
     assert!(v.pending.is_some());
     assert!(choose(&ctx, &mut v, "Cancel").is_none());
     assert_eq!(v.editor.as_ref().unwrap().text, "3.00");

@@ -41,6 +41,7 @@ const EXTRAS: [(usize, &[&str]); 4] = [
 ];
 const ENABLED: &[&str] = &[
     "Session Settings...",
+    "New Tab",
     "Close Tab",
     "Swap Sides",
     "Reload Files",
@@ -264,7 +265,10 @@ impl TableCompareView {
     pub(super) fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
         let s = self.grid.active;
         match id {
-            "Home" | "Close Tab" => self.request(Pending::Home),
+            // Home 只切换标签页、不丢弃会话，故无需确认。
+            "Home" => self.action = Some(super::TableAction::Home),
+            "Close Tab" => self.request(Pending::Close),
+            "New Tab" => self.action = Some(super::TableAction::NewTab),
             "Exit" => self.request(Pending::Exit),
             "Session Settings..." => self.settings_open(),
             "Swap Sides" => self.swap(),

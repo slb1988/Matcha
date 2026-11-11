@@ -23,13 +23,21 @@ use std::{
 };
 #[derive(Debug, Clone)]
 pub enum TableAction {
+    /// 切到 Home 标签页（不关闭本会话）。
     Home,
+    /// 关闭本标签页（未保存编辑已确认）。
+    Close,
+    /// Session > New Tab。
+    NewTab,
     Exit,
-    Text { left: PathBuf, right: PathBuf },
+    Text {
+        left: PathBuf,
+        right: PathBuf,
+    },
 }
 #[derive(Clone)]
 pub(super) enum Pending {
-    Home,
+    Close,
     Exit,
     Reload,
     Open(usize, PathBuf),
@@ -141,7 +149,6 @@ pub struct TableCompareView {
     pub(super) key_focus: bool,
     pub(super) menus: Vec<crate::chrome::menubar::MenuSpec>,
     pub(super) tool_dropdown: Option<(String, egui::Pos2)>,
-    pub(super) window_title: String,
     pub(super) show_goto: bool,
     pub(super) path_edits: [String; 2],
     pub(super) path_sources: [Option<PathBuf>; 2],
@@ -196,13 +203,21 @@ impl TableCompareView {
             key_focus: false,
             menus: Vec::new(),
             tool_dropdown: None,
-            window_title: String::new(),
             show_goto: false,
             path_edits: Default::default(),
             path_sources: Default::default(),
             labels: Default::default(),
             snapshot_select_paths: false,
         }
+    }
+    /// 空会话：两侧无文件、无比较；路径栏提交经 `Pending::Open` 逐侧暂存加载
+    /// （一侧为空时按空表比较，与已打开会话换文件同一路径）。
+    pub fn empty() -> Self {
+        Self::blank()
+    }
+    /// 预填一侧文件（空会话拖入单个文件时）。
+    pub fn open_path(&mut self, side: usize, path: PathBuf) {
+        self.request(Pending::Open(side, path));
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
         Self::open_with_registry(left, right, &super::formats::load_registry()?)
@@ -308,8 +323,13 @@ impl TableCompareView {
     pub fn cells_drawn(&self) -> usize {
         self.grid.cells_drawn
     }
-    pub fn request_home(&mut self) {
-        self.request(Pending::Home);
+    /// 关闭标签页：有未提交/未保存编辑时先弹确认，确认后产出 [`TableAction::Close`]。
+    pub fn request_close(&mut self) {
+        self.request(Pending::Close);
+    }
+    /// 确认框是否打开（标签页关闭/退出流程据此识别"取消"）。
+    pub fn prompt_open(&self) -> bool {
+        self.pending.is_some()
     }
     pub fn request_exit(&mut self) {
         self.request(Pending::Exit);
@@ -944,11 +964,6 @@ impl TableCompareView {
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<TableAction> {
         self.poll();
         let ctx = ui.ctx().clone();
-        let title = self.title();
-        if self.window_title != title {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.window_title = title;
-        }
         if self.worker.is_some()
             || self.scan.is_some()
             || self.edited_at.is_some()

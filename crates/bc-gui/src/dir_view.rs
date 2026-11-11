@@ -1899,6 +1899,10 @@ pub struct DirCompareView {
     text: Option<Box<TextCompareView>>,
     text_prefs: Prefs,
     exit_requested: bool,
+    /// 关闭标签页在等内嵌文本窗口的保存确认；确认关闭后转为 `close_requested`。
+    close_after_text: bool,
+    close_requested: bool,
+    new_tab_requested: bool,
     compare_to: bool,
     align_to: bool,
     anchor: Option<(usize, usize)>,
@@ -1938,6 +1942,16 @@ impl DirCompareView {
         sync_mode: bool,
         bench: bool,
     ) -> Self {
+        let mut view = Self::empty(ctx, sync_mode, bench);
+        let paths = [left.display().to_string(), right.display().to_string()];
+        view.reload(paths.clone(), true);
+        view.paths.recent = paths.to_vec();
+        view.message = "Loading folders".into();
+        view
+    }
+    /// 空会话：工作线程就绪但不加载；路径栏两侧都填上后经 `reload` 加载
+    /// （与已打开会话改路径同一路径）。
+    pub fn empty(ctx: &egui::Context, sync_mode: bool, bench: bool) -> Self {
         let shared = Arc::new(Shared {
             latest: Mutex::new(None),
             progress: Mutex::new(Progress::default()),
@@ -1947,21 +1961,13 @@ impl DirCompareView {
             tokens: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
             closed: AtomicBool::new(false),
-            busy: AtomicBool::new(true),
+            busy: AtomicBool::new(false),
             ctx: ctx.clone(),
             log: OpLog::default(),
         });
         let (tx, rx) = mpsc::channel();
         let copy = shared.clone();
         let worker = thread::spawn(move || run_worker(rx, copy, sync_mode, bench));
-        let paths = [left.display().to_string(), right.display().to_string()];
-        let token = CancelToken::new();
-        shared.tokens.lock().unwrap().insert(0, token.clone());
-        let _ = tx.send(Work {
-            id: 0,
-            command: Command::Load(paths.clone()),
-            cancel: token,
-        });
         let mut view = Self {
             window_id: NEXT_VIEW.fetch_add(1, AtomicOrdering::Relaxed),
             child: None,
@@ -1973,13 +1979,8 @@ impl DirCompareView {
             selection: Selection::default(),
             last_stats: Default::default(),
             sync_mode,
-            paths: PathsDialog {
-                left: paths[0].clone(),
-                right: paths[1].clone(),
-                recent: paths.to_vec(),
-                ..Default::default()
-            },
-            history: vec![paths],
+            paths: PathsDialog::default(),
+            history: Vec::new(),
             history_at: 0,
             log_panel: LogPanel::default(),
             columns: vec![Column::Size, Column::Modified],
@@ -1995,11 +1996,14 @@ impl DirCompareView {
             scope: None,
             handling: Default::default(),
             question: None,
-            message: "Loading folders".into(),
+            message: String::new(),
             quick: None,
             text: None,
             text_prefs: Prefs::default(),
             exit_requested: false,
+            close_after_text: false,
+            close_requested: false,
+            new_tab_requested: false,
             compare_to: false,
             align_to: false,
             anchor: None,
@@ -2138,11 +2142,15 @@ impl DirCompareView {
         }
     }
     fn reload(&mut self, paths: [String; 2], remember: bool) {
+        self.paths.left = paths[0].clone();
+        self.paths.right = paths[1].clone();
+        // 空会话只填了一侧：等两侧都有路径再加载，避免先报"必须是文件夹"。
+        if paths.iter().any(|p| p.trim().is_empty()) {
+            return;
+        }
         self.cancel();
         self.selection.items.clear();
         self.focus = None;
-        self.paths.left = paths[0].clone();
-        self.paths.right = paths[1].clone();
         self.paths.remember(&paths);
         if remember {
             self.history.truncate(self.history_at + 1);
@@ -2246,12 +2254,42 @@ impl DirCompareView {
                 if exit {
                     view.request_exit();
                 } else {
-                    view.request_home();
+                    view.request_close();
                 }
                 true
             }
             _ => false,
         }
+    }
+    /// 内嵌文本窗口（含子视图）有未保存编辑。
+    pub fn text_dirty(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.text_dirty())
+            || self.text.as_ref().is_some_and(|t| t.is_dirty())
+    }
+    /// 内嵌文本窗口的保存确认框是否打开。
+    pub fn prompt_open(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.prompt_open())
+            || self.text.as_ref().is_some_and(|t| t.prompt_open())
+    }
+    /// Close Tab：内嵌文本有未保存编辑时先走其保存确认，确认后才关闭标签页。
+    pub fn request_tab_close(&mut self) {
+        if self.text.as_ref().is_some_and(|t| t.is_dirty()) {
+            self.close_after_text = true;
+            self.request_text_close(false);
+        } else if self.child.as_ref().is_some_and(|c| c.text_dirty()) {
+            // 子视图的文本窗口先确认；关闭标签页需用户再执行一次。
+            self.request_text_close(false);
+        } else {
+            self.close_requested = true;
+        }
+    }
+    /// True once Close Tab is confirmed (the app then removes this tab).
+    pub fn take_close_request(&mut self) -> bool {
+        std::mem::take(&mut self.close_requested)
+    }
+    /// True once Session > New Tab was chosen.
+    pub fn take_new_tab_request(&mut self) -> bool {
+        std::mem::take(&mut self.new_tab_requested)
     }
     /// True once a text window confirmed Exit (the app then closes the window).
     pub fn take_exit_request(&mut self) -> bool {
@@ -2615,10 +2653,15 @@ impl DirCompareView {
                 .show(&ctx, |ui| action = view.ui(ui, &mut self.text_prefs));
             if !open {
                 // The close box goes through the text view's own save prompt.
-                view.request_home();
+                view.request_close();
             }
             match action {
-                Some(ViewAction::Home) => self.text = None,
+                Some(ViewAction::Close) => {
+                    self.text = None;
+                    self.close_requested = std::mem::take(&mut self.close_after_text);
+                }
+                Some(ViewAction::Home) => self.home_requested = true,
+                Some(ViewAction::NewTab) => self.new_tab_requested = true,
                 Some(ViewAction::Exit) => {
                     self.text = None;
                     self.exit_requested = true;
@@ -2628,6 +2671,10 @@ impl DirCompareView {
                     self.new_folder_view([left, right]);
                 }
                 None => {}
+            }
+            // 保存确认被取消：放弃挂起的关闭标签页。
+            if self.text.as_ref().is_some_and(|t| !t.prompt_open()) {
+                self.close_after_text = false;
             }
         }
         // F12 is a local diagnostic capture, useful even when desktop capture cannot
@@ -3671,6 +3718,8 @@ fn update_folder_items(items: &mut [MenuItem], flags: &MenuFlags) {
             | "up-both"
             | "Sync Base Folders"
             | "Compare Parent Folders"
+            | "New Tab"
+            | "Close Tab"
             | "Exit" => {}
             "Back" => enabled = flags.back,
             "Forward" => enabled = flags.forward,
@@ -4024,11 +4073,10 @@ impl DirCompareView {
     pub(crate) fn folder_command(&mut self, id: &str) -> Option<FolderNavigation> {
         use bc_engine_dir::filter::{DisplayFilter as D, FolderDisplay as F};
         match id {
-            "Home" => {
-                if !self.request_text_close(false) {
-                    self.home_requested = true;
-                }
-            }
+            // Home 只切换标签页，内嵌文本窗口保持打开。
+            "Home" => self.home_requested = true,
+            "Close Tab" => self.request_tab_close(),
+            "New Tab" => self.new_tab_requested = true,
             "Session Settings" => self.rules_open = true,
             "Swap Sides" => self.reload([self.paths.right.clone(), self.paths.left.clone()], true),
             "Back" => {

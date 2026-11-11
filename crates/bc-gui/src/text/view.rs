@@ -41,13 +41,18 @@ pub struct PaneStats {
 }
 #[derive(Debug, Clone)]
 pub enum ViewAction {
+    /// 切到 Home 标签页（不关闭本会话）。
     Home,
+    /// 关闭本标签页（未保存编辑已确认）。
+    Close,
+    /// Session > New Tab。
+    NewTab,
     Exit,
     CompareParentFolders { left: PathBuf, right: PathBuf },
 }
 #[derive(Clone)]
 enum Pending {
-    Home,
+    Close,
     Exit,
     Reload(usize),
     ReloadBoth,
@@ -128,17 +133,29 @@ pub struct TextCompareView {
     path_edits: [String; 2],
     path_sources: [Option<PathBuf>; 2],
     snapshot_select_paths: bool,
-    window_title: String,
     displayed_sections: usize,
     tool_dropdown: Option<(String, egui::Pos2)>,
 }
 impl TextCompareView {
-    pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
-        let registry = match bc_formats::registry::user_formats_dir() {
+    fn registry() -> Result<FormatRegistry, CoreError> {
+        match bc_formats::registry::user_formats_dir() {
             Ok(path) => FormatRegistry::load_user_dir(&path)
-                .map_err(|e| CoreError::Invalid(format!("user formats: {e}")))?,
-            Err(_) => FormatRegistry::with_builtins(),
-        };
+                .map_err(|e| CoreError::Invalid(format!("user formats: {e}"))),
+            Err(_) => Ok(FormatRegistry::with_builtins()),
+        }
+    }
+    /// 空会话：两侧无文件、路径栏为空；路径栏回车/浏览经 `open_side`
+    /// 逐侧加载并重新比较（与已打开会话换文件同一路径）。
+    pub fn empty() -> Result<Self, CoreError> {
+        let blank = || TextContent::from_bytes(Vec::new(), None);
+        Ok(Self::from_contents(blank()?, blank()?, Self::registry()?))
+    }
+    /// 加载一侧文件（空会话预填一侧时使用）。
+    pub fn open_path(&mut self, side: usize, path: &Path) -> Result<(), CoreError> {
+        self.open_side(side, path)
+    }
+    pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
+        let registry = Self::registry()?;
         let t = std::time::Instant::now();
         let (l, lf) = load(left, &registry)?;
         let (r, rf) = load(right, &registry)?;
@@ -203,7 +220,6 @@ impl TextCompareView {
             path_edits: Default::default(),
             snapshot_select_paths: false,
             path_sources: Default::default(),
-            window_title: String::new(),
             displayed_sections: 0,
             tool_dropdown: None,
         };
@@ -256,8 +272,13 @@ impl TextCompareView {
     pub fn scroll_to_row(&mut self, row: usize) {
         self.pending_scroll = Some(row);
     }
-    pub fn request_home(&mut self) {
-        self.request(Pending::Home);
+    /// 关闭标签页：有未保存编辑时先弹保存确认，确认后产出 [`ViewAction::Close`]。
+    pub fn request_close(&mut self) {
+        self.request(Pending::Close);
+    }
+    /// 保存确认框是否打开（标签页关闭/退出流程据此识别"取消"）。
+    pub fn prompt_open(&self) -> bool {
+        self.pending.is_some()
     }
     pub fn request_exit(&mut self) {
         self.request(Pending::Exit);
@@ -581,7 +602,7 @@ impl TextCompareView {
     }
     fn affected(&self, p: &Pending) -> Vec<usize> {
         match p {
-            Pending::Home | Pending::Exit | Pending::ReloadBoth => vec![0, 1],
+            Pending::Close | Pending::Exit | Pending::ReloadBoth => vec![0, 1],
             Pending::Reload(s)
             | Pending::Open(s, _)
             | Pending::Clipboard(s, _)
@@ -590,8 +611,8 @@ impl TextCompareView {
     }
     fn perform(&mut self, p: Pending) {
         let result = match p {
-            Pending::Home => {
-                self.action = Some(ViewAction::Home);
+            Pending::Close => {
+                self.action = Some(ViewAction::Close);
                 Ok(())
             }
             Pending::Exit => {
@@ -935,12 +956,6 @@ impl TextCompareView {
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<ViewAction> {
         self.poll();
         let ctx = ui.ctx().clone();
-        let title = self.title();
-        if self.window_title != title {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.window_title = title;
-        }
-
         if self.worker.is_some() || self.edited_at.is_some() || self.labels_pending() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
@@ -1403,6 +1418,7 @@ impl TextCompareView {
                     item.enabled = matches!(
                         item.action_id.as_str(),
                         "Home"
+                            | "New Tab"
                             | "Close Tab"
                             | "Exit"
                             | "Swap Sides"
@@ -1488,7 +1504,10 @@ impl TextCompareView {
                     Err(e) => self.message = e.to_string(),
                 }
             }
-            "Home" | "Close Tab" => self.request_home(),
+            // Home 只切换标签页、不丢弃会话，故无需保存确认。
+            "Home" => self.action = Some(ViewAction::Home),
+            "Close Tab" => self.request_close(),
+            "New Tab" => self.action = Some(ViewAction::NewTab),
             "Exit" => self.request_exit(),
             "First difference" => self.navigate(true, true),
             "Last difference" => self.navigate(false, true),

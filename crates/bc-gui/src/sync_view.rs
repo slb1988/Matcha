@@ -138,6 +138,7 @@ fn extras() -> Vec<(usize, MenuItem)> {
 /// Inventory items wired to existing actions; everything else stays disabled.
 const ENABLED: &[&str] = &[
     "Session Settings...",
+    "New Tab",
     "Close Tab",
     "Swap Sides",
     "Folder Sync Info",
@@ -234,12 +235,18 @@ pub struct SyncView {
     filter_source: String,
     show_info: bool,
     sessions_popup: Option<egui::Pos2>,
-    window_title: String,
 }
 impl SyncView {
     pub fn open(ctx: &egui::Context, left: &Path, right: &Path) -> Self {
+        Self::with_folder(DirCompareView::open(ctx, left, right, true, false))
+    }
+    /// 空会话：路径区为空，两侧都填上后经 `open_paths` 加载。
+    pub fn empty(ctx: &egui::Context) -> Self {
+        Self::with_folder(DirCompareView::empty(ctx, true, false))
+    }
+    fn with_folder(folder: DirCompareView) -> Self {
         let view = Self {
-            folder: DirCompareView::open(ctx, left, right, true, false),
+            folder,
             // Reference default operation: Update Both.
             method: 2,
             create_empty: false,
@@ -252,7 +259,6 @@ impl SyncView {
             filter_source: String::new(),
             show_info: false,
             sessions_popup: None,
-            window_title: String::new(),
         };
         view.send_mode();
         view
@@ -394,7 +400,7 @@ impl SyncView {
             return None;
         }
         match id {
-            "Close Tab" => self.folder.folder_command("Home"),
+            "Close Tab" | "New Tab" => self.folder.folder_command(id),
             "Session Settings..." | "Session Settings" => {
                 self.folder.folder_command("Session Settings")
             }
@@ -439,11 +445,6 @@ impl SyncView {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
         let ctx = ui.ctx().clone();
         self.folder.poll(&ctx);
-        let title = self.title();
-        if self.window_title != title {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.window_title = title;
-        }
         let busy = self.folder.busy();
         let mut switch = None;
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
