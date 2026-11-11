@@ -7,7 +7,7 @@ use super::{
     find_panel::{FindAction, FindPanel},
     nav_bar::NavBar,
     projection::{DisplayFilter, DisplayRow, Projection},
-    settings_panel::SettingsPanel,
+    session_dialog::{Draft as SessionDraft, FormatChoice, SessionDialog},
     status_bar,
     worker::Worker,
 };
@@ -109,7 +109,7 @@ pub struct TextCompareView {
     edited_at: Option<Instant>,
     pub message: String,
     find: FindPanel,
-    settings: SettingsPanel,
+    session: SessionDialog,
     formats: super::format_panel::FormatPanel,
     pending: Option<Pending>,
     file_dialog: Option<FileDialog>,
@@ -183,7 +183,7 @@ impl TextCompareView {
             edited_at: None,
             message: String::new(),
             find: Default::default(),
-            settings: Default::default(),
+            session: Default::default(),
             formats: Default::default(),
             pending: None,
             file_dialog: None,
@@ -788,10 +788,97 @@ impl TextCompareView {
         }
         Ok(())
     }
+    /// Current session state as a Session Settings draft.
+    pub(crate) fn session_draft(&self) -> SessionDraft {
+        let side = |s: usize| self.content(s);
+        SessionDraft {
+            rules: self.map.rules.clone(),
+            context: self.context,
+            paths: std::array::from_fn(|s| {
+                self.files[s]
+                    .path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            }),
+            read_only: std::array::from_fn(|s| side(s).read_only),
+            format: [FormatChoice::Keep, FormatChoice::Keep],
+            format_names: std::array::from_fn(|s| {
+                side(s)
+                    .format()
+                    .map_or("Everything Else", |f| f.name.as_str())
+                    .to_string()
+            }),
+            encoding: std::array::from_fn(|s| side(s).encoding),
+            bom: std::array::from_fn(|s| side(s).bom_policy),
+        }
+    }
+    /// Apply an accepted Session Settings draft through the view's normal
+    /// paths (recompare / projection / reload requests).
+    pub(crate) fn apply_session(&mut self, draft: SessionDraft) {
+        let before = self.map.rules.clone();
+        if before != draft.rules {
+            self.map.rules = draft.rules;
+            if !before.same_comparison(&self.map.rules) {
+                self.recompare();
+            } else {
+                self.after_alignment();
+            }
+        }
+        if draft.context != self.context {
+            self.context = draft.context;
+            self.expanded.clear();
+            self.rebuild_projection();
+        }
+        for s in 0..2 {
+            self.content_mut(s).read_only = draft.read_only[s];
+            if self.content(s).bom_policy != draft.bom[s] {
+                self.content_mut(s).bom_policy = draft.bom[s];
+                self.files[s].metadata_dirty = true;
+            }
+            let format = match &draft.format[s] {
+                FormatChoice::Keep => None,
+                FormatChoice::Detected => Some(
+                    self.files[s]
+                        .path
+                        .as_ref()
+                        .and_then(|p| self.registry.resolve(p, Some(FormatKind::Text)))
+                        .cloned(),
+                ),
+                FormatChoice::Plain => Some(None),
+                FormatChoice::Named(name) => Some(
+                    self.registry
+                        .formats()
+                        .iter()
+                        .find(|f| f.kind == FormatKind::Text && &f.name == name)
+                        .cloned(),
+                ),
+            };
+            if let Some(format) = format {
+                match self.content_mut(s).set_format(format) {
+                    Ok(()) => self.recompare(),
+                    Err(e) => self.message = e.to_string(),
+                }
+            }
+            if self.content(s).encoding != draft.encoding[s] {
+                self.request(Pending::Encoding(s, draft.encoding[s]));
+            }
+        }
+        for s in 0..2 {
+            let current = self.files[s]
+                .path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            let wanted = draft.paths[s].trim();
+            if !wanted.is_empty() && wanted != current {
+                self.request(Pending::Open(s, PathBuf::from(wanted)));
+            }
+        }
+    }
     /// 离线参考采用大小写不重要规则；只在明确的快照初始化路径调用。
     pub(crate) fn snapshot_rules(&mut self) {
         self.map.rules.comparison.importance.case_unimportant = true;
-        self.settings.draft = self.map.rules.clone();
         self.recompare();
     }
     pub(crate) fn snapshot_preset(&mut self, scene: &str) {
@@ -844,11 +931,15 @@ impl TextCompareView {
         if self.worker.is_some() || self.edited_at.is_some() || self.labels_pending() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
-        self.keyboard(&ctx, prefs);
+        // Modal dialogs own the keyboard while they are open.
+        let modal = self.session.open;
+        if !modal {
+            self.keyboard(&ctx, prefs);
+        }
         // Commands (replace-all/reload/undo) may invalidate byte caret offsets.
         self.editors[0].clamp(&self.map.left);
         self.editors[1].clamp(&self.map.right);
-        let blocked = self.pending.is_some() || self.file_dialog.is_some();
+        let blocked = self.pending.is_some() || self.file_dialog.is_some() || modal;
         if blocked {
             ui.disable();
         }
@@ -859,22 +950,22 @@ impl TextCompareView {
                 self.message = e.to_string();
             }
         }
-        let before = self.map.rules.clone();
-        let old_context = self.context;
-        if !blocked
-            && self
-                .settings
-                .ui(&ctx, &mut self.map.rules, &mut self.context, prefs)
-        {
-            if !before.same_comparison(&self.map.rules) {
-                self.recompare();
-            } else {
-                self.after_alignment();
+        if self.session.open {
+            let names: Vec<String> = self
+                .registry
+                .formats()
+                .iter()
+                .filter(|f| f.kind == FormatKind::Text)
+                .map(|f| f.name.clone())
+                .collect();
+            let recent: Vec<String> = self
+                .recent
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            if let Some(draft) = self.session.ui(&ctx, &names, &recent) {
+                self.apply_session(draft);
             }
-        }
-        if old_context != self.context {
-            self.expanded.clear();
-            self.rebuild_projection();
         }
         if !blocked {
             self.formats.ui(&ctx, &mut self.registry);
@@ -1418,8 +1509,9 @@ impl TextCompareView {
                 }
             }
             "Session Settings..." => {
-                self.settings.draft = self.map.rules.clone();
-                self.settings.open = true;
+                let draft = self.session_draft();
+                self.session
+                    .show(draft, crate::chrome::dialog::Placement::Window);
             }
             "File Formats..." => self.formats.open = true,
             "Save File" => {
@@ -1470,7 +1562,6 @@ impl TextCompareView {
             }
             "Ignore Unimportant Differences" => {
                 self.map.rules.ignore_unimportant = !self.map.rules.ignore_unimportant;
-                self.settings.draft.ignore_unimportant = self.map.rules.ignore_unimportant;
                 self.after_alignment();
             }
             "Over-Under Layout" => self.stacked = true,

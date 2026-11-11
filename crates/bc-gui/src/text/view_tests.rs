@@ -939,3 +939,37 @@ fn details_take_the_current_rows_difference_colors_and_caret_bar() {
         "{rects:?}"
     );
 }
+
+#[test]
+fn session_settings_dialog_applies_on_ok_only() {
+    let ctx = egui::Context::default();
+    let prefs = Prefs::default();
+    let mut v = view("same\nLeft\n", "same\nleft\n");
+    // The menu command opens the dialog with the live state as its draft.
+    v.command("Session Settings...", &ctx, &prefs);
+    assert!(v.session.open);
+    assert_eq!(v.session.draft().unwrap().rules, v.map.rules);
+    // Cancel path: closing without OK leaves the view untouched.
+    let before = v.map.rules.clone();
+    v.session
+        .draft_mut()
+        .unwrap()
+        .rules
+        .comparison
+        .importance
+        .case_unimportant = true;
+    v.session = Default::default();
+    assert_eq!(v.map.rules, before);
+    // OK path: the draft goes through apply_session.
+    let mut draft = v.session_draft();
+    draft.rules.comparison.importance.case_unimportant = true;
+    draft.read_only = [true, false];
+    draft.context = 5;
+    v.apply_session(draft);
+    ready(&mut v);
+    assert!(v.map.rules.comparison.importance.case_unimportant);
+    assert!(v.content(0).read_only && !v.content(1).read_only);
+    assert_eq!(v.context, 5);
+    // Case is now unimportant: the only difference is unimportant.
+    assert_eq!(v.counts.important, 0);
+}

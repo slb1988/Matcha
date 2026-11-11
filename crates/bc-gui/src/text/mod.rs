@@ -7,7 +7,7 @@ mod menu;
 pub mod nav_bar;
 pub mod projection;
 mod render;
-pub mod settings_panel;
+pub mod session_dialog;
 pub mod status_bar;
 pub mod view;
 mod worker;
