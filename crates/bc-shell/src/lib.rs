@@ -39,6 +39,9 @@
 //!   opens, and the label goes back to hidden.
 //! * **Stale** (the Left was deleted or renamed): Compare to treats the click as
 //!   Select Left; start-up registration clears it and hides the label.
+//! * **Other kind** (Left is a folder, target a file or vice versa – only
+//!   reachable from the command line or the single-item "Compare" fallback):
+//!   treated as Select Left, replacing the old Left.
 //! * **Cleared** when the menu is turned off.
 //!
 //! ## Multi-selection (`Matcha: Compare`)
@@ -234,9 +237,15 @@ pub fn select_left(shell: &Shell, reg: &mut dyn Registry, path: &Path) -> io::Re
     )))
 }
 
-/// Compare to: consume the Left and compare it with `path`; without a (live)
-/// Left this acts as Select Left.
+/// Compare to: consume the Left and compare it with `path`. Without a live Left
+/// of the same kind (a file cannot be compared with a folder) this acts as
+/// Select Left, replacing the old one.
 pub fn compare_to(shell: &Shell, reg: &mut dyn Registry, path: &Path) -> io::Result<Outcome> {
+    let class = Class::of(path);
+    let matches = shell.current_left().is_some_and(|left| left.class == class);
+    if !matches {
+        return select_left(shell, reg, path);
+    }
     let left = shell.state.take_left()?.filter(|left| left.exists());
     refresh_label(shell, reg)?;
     match left {
@@ -391,6 +400,14 @@ mod tests {
         assert_eq!(f.shell.state.left(), Some(b.clone()));
         // A folder Left switches the label to folders.
         let dir = f.work.join("dir");
+        invoke(&f.shell, &mut f.reg, Verb::SelectLeft, &dir).unwrap();
+        // ...and a file cannot be compared with it: that file becomes the Left.
+        let a2 = f.work.join("a.txt");
+        assert!(matches!(
+            compare_to(&f.shell, &mut f.reg, &a2).unwrap(),
+            Outcome::Stored(_)
+        ));
+        assert_eq!(f.shell.state.left(), Some(a2));
         invoke(&f.shell, &mut f.reg, Verb::SelectLeft, &dir).unwrap();
         assert!(!label(&f, Class::File).1);
         assert_eq!(
