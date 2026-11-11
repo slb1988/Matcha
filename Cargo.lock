@@ -274,6 +274,7 @@ dependencies = [
 name = "bcomp"
 version = "0.1.0"
 dependencies = [
+ "bc-instance",
  "bc-script",
 ]
 
@@ -282,6 +283,7 @@ name = "bcompare"
 version = "0.1.0"
 dependencies = [
  "bc-gui",
+ "bc-instance",
  "bc-script",
  "bc-session",
 ]

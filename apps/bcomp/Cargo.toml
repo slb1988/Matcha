@@ -19,3 +19,4 @@ path = "src/bin/matcha-compc.rs"
 
 [dependencies]
 bc-script = { workspace = true }
+bc-instance = { workspace = true }

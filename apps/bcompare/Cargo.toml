@@ -14,3 +14,7 @@ path = "src/main.rs"
 bc-gui = { workspace = true }
 bc-script = { workspace = true }
 bc-session = { workspace = true }
+bc-instance = { workspace = true }
+
+[dev-dependencies]
+bc-instance = { workspace = true }

@@ -51,6 +51,10 @@ impl Reply {
     }
 }
 
+/// `matcha-compc` 设置此环境变量启动 `matcha`，要求等待会话结束（相当于参考实现的
+/// 隐藏完成句柄；命令行参数本身原样转发）。`matcha` 读取后立即删除，不让子进程继承。
+pub const WAIT_ENV: &str = "MATCHA_LAUNCHER_WAIT";
+
 /// 请求一行的上限：防止本机其他进程塞入无界数据。
 const MAX_LINE: u64 = 1 << 20;
 
@@ -172,22 +176,49 @@ where
     }
 }
 
-/// 把请求交给常驻实例并等待回复。`connect_timeout` 只限制建立连接（互斥体已建而管道
-/// 尚未就绪、或服务端正在补建下一个管道实例时重试）；等待型请求的回复不限时。
-pub fn send(name: &str, request: &Request, connect_timeout: Duration) -> io::Result<Reply> {
+/// 到常驻实例的一条连接。
+pub struct Client {
+    #[cfg(windows)]
+    pipe: std::fs::File,
+}
+
+/// 连接常驻实例。`timeout` 只限制建立连接：互斥体已建而管道尚未就绪、或服务端正在
+/// 补建下一个管道实例时重试。
+pub fn connect(name: &str, timeout: Duration) -> io::Result<Client> {
     #[cfg(windows)]
     {
-        let pipe = windows::connect(name, connect_timeout)?;
-        exchange(pipe, request)
+        Ok(Client {
+            pipe: windows::connect(name, timeout)?,
+        })
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, request, connect_timeout);
+        let _ = (name, timeout);
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "single-instance hand-off is only implemented on Windows",
         ))
     }
+}
+
+impl Client {
+    /// 发请求并阻塞读回复（等待型请求的回复不限时）。连接中断返回错误。
+    pub fn send(self, request: &Request) -> io::Result<Reply> {
+        #[cfg(windows)]
+        {
+            exchange(self.pipe, request)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = request;
+            unreachable!("Client is never constructed off Windows")
+        }
+    }
+}
+
+/// [`connect`] + [`Client::send`]。
+pub fn send(name: &str, request: &Request, connect_timeout: Duration) -> io::Result<Reply> {
+    connect(name, connect_timeout)?.send(request)
 }
 
 #[cfg(test)]
