@@ -972,4 +972,7 @@ fn session_settings_dialog_applies_on_ok_only() {
     assert_eq!(v.context, 5);
     // Case is now unimportant: the only difference is unimportant.
     assert_eq!(v.counts.important, 0);
+    // Tools > Options opens the global options dialog.
+    v.command("Options...", &ctx, &prefs);
+    assert!(v.options.open);
 }

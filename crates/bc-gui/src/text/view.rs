@@ -110,6 +110,7 @@ pub struct TextCompareView {
     pub message: String,
     find: FindPanel,
     session: SessionDialog,
+    options: crate::dialogs::options::OptionsDialog,
     formats: super::format_panel::FormatPanel,
     pending: Option<Pending>,
     file_dialog: Option<FileDialog>,
@@ -184,6 +185,7 @@ impl TextCompareView {
             message: String::new(),
             find: Default::default(),
             session: Default::default(),
+            options: Default::default(),
             formats: Default::default(),
             pending: None,
             file_dialog: None,
@@ -932,7 +934,7 @@ impl TextCompareView {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         // Modal dialogs own the keyboard while they are open.
-        let modal = self.session.open;
+        let modal = self.session.open || self.options.open;
         if !modal {
             self.keyboard(&ctx, prefs);
         }
@@ -967,6 +969,7 @@ impl TextCompareView {
                 self.apply_session(draft);
             }
         }
+        self.options.ui(&ctx, prefs);
         if !blocked {
             self.formats.ui(&ctx, &mut self.registry);
         }
@@ -1423,6 +1426,7 @@ impl TextCompareView {
                             | "Find Previous"
                             | "Go To..."
                             | "File Formats..."
+                            | "Options..."
                             | "Text display..."
                             | "Save target..."
                             | "File properties..."
@@ -1513,6 +1517,9 @@ impl TextCompareView {
                 self.session
                     .show(draft, crate::chrome::dialog::Placement::Window);
             }
+            "Options..." => self
+                .options
+                .show(prefs, crate::chrome::dialog::Placement::Window),
             "File Formats..." => self.formats.open = true,
             "Save File" => {
                 if let Err(e) = self.save(self.active, prefs) {

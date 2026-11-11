@@ -1,5 +1,6 @@
 pub mod find;
 pub mod operation;
+pub mod options;
 pub mod paths;
 pub mod scope;
 use crate::egui;
