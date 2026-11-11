@@ -36,9 +36,9 @@
 
 ## 5. 命令行与应用接线（apps/bcompare）
 
-- [ ] 5.1 `cli` 新增 `/report=`、`/reportoptions=`、`/reportfile=` 开关并更新 `/?` 用法文本（标注 Matcha 扩展）；验证 `bc-script` 的 cli 单测：取值解析、`patch-unified` 展开、非法值报错、`/?` 文本包含三项
-- [ ] 5.2 路由新增 `Route::Script` 与 `Route::Report`（位于 GUI/单实例之前），`routing::unsupported` 去掉“scripts are not supported yet”、改为拒绝被转交的脚本与报告请求；验证 routing 单测：`@s.txt`、`/report=patch a b`、`/report=patch a`（报错路由）、`/solo` 不改变路由
-- [ ] 5.3 `main` 接线：执行前 `console::attach`；含 `output-to:-` 或无 `/reportfile` 的报告在无可用标准输出时失败（`console::tell` 呈现，退出码 100）；真实 stdout/stderr 注入执行器；验证经 `matcha.com` 的端到端测试（`apps/bcompare/tests`）：脚本到标准输出、到文件、`/report` 与等价脚本字节相同、105/106/107/100 各一例、已有常驻实例时不转交
+- [x] 5.1 `cli` 新增 `/report=`、`/reportoptions=`、`/reportfile=` 开关并更新 `/?` 用法文本（标注 Matcha 扩展）；验证 `bc-script` 的 cli 单测：取值解析、`patch-unified` 展开、非法值报错、`/?` 文本包含三项
+- [x] 5.2 路由新增 `Route::Script` 与 `Route::Report`（位于 GUI/单实例之前），`routing::unsupported` 去掉“scripts are not supported yet”、改为拒绝被转交的脚本与报告请求；验证 routing 单测：`@s.txt`、`/report=patch a b`、`/report=patch a`（报错路由）、`/solo` 不改变路由
+- [x] 5.3 `main` 接线：执行前 `console::attach`；含 `output-to:-` 或无 `/reportfile` 的报告在无可用标准输出时失败（`console::tell` 呈现，退出码 100）；真实 stdout/stderr 注入执行器；验证经 `matcha.com` 的端到端测试（`apps/bcompare/tests`）：脚本到标准输出、到文件、`/report` 与等价脚本字节相同、105/106/107/100 各一例、已有常驻实例时不转交
 - [ ] 5.4 更新文档：根 `README.md`（发行布局一节加脚本与 `/report` 用法）、`apps/bcompare/README.md`、ADR 301 的“命令行”说明；验证文档中的每条示例命令都在 5.3 的端到端测试或 6.1 的手工验证中实际运行过
 
 ## 6. 集成验证

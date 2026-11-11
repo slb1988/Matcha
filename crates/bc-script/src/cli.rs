@@ -43,6 +43,13 @@ pub enum Switch {
     NoBackups,
     /// `/qc[=size|crc|binary]` – `None` = rules-based.
     QuickCompare(Option<ContentCompare>),
+    /// `/report=<layout>` – write a text report of `<left> <right>` without a window
+    /// (Matcha extension; the value as given, validated like a script `text-report`).
+    Report(String),
+    /// `/reportoptions=<options>` – the `options:` list of `/report`.
+    ReportOptions(String),
+    /// `/reportfile=<path>` – write `/report` to a file instead of standard output.
+    ReportFile(PathBuf),
     /// `/reviewconflicts`
     ReviewConflicts,
     /// `/ro` (`/readonly`) – all panes read-only.
@@ -166,6 +173,12 @@ impl CliArgs {
                 None => positional.push(arg),
             }
         }
+        let report_extras = switches
+            .iter()
+            .any(|s| matches!(s, Switch::ReportOptions(_) | Switch::ReportFile(_)));
+        if report_extras && !switches.iter().any(|s| matches!(s, Switch::Report(_))) {
+            return Err(error("/reportoptions and /reportfile require /report"));
+        }
         let shell = switches
             .iter()
             .filter(|s| matches!(s, Switch::Shell(_) | Switch::ShellMenu(_)))
@@ -222,6 +235,25 @@ impl CliArgs {
         }
     }
 
+    /// `/report=…` with its `/reportoptions=` and `/reportfile=`.
+    pub fn report(&self) -> Option<ReportSwitches> {
+        let layout = self.switches.iter().find_map(|s| match s {
+            Switch::Report(layout) => Some(layout.clone()),
+            _ => None,
+        })?;
+        Some(ReportSwitches {
+            layout,
+            options: self.switches.iter().find_map(|s| match s {
+                Switch::ReportOptions(options) => Some(options.clone()),
+                _ => None,
+            }),
+            file: self.switches.iter().find_map(|s| match s {
+                Switch::ReportFile(file) => Some(file.clone()),
+                _ => None,
+            }),
+        })
+    }
+
     /// `/shellmenu=on|off`.
     pub fn shell_menu(&self) -> Option<bool> {
         self.switches.iter().find_map(|s| match s {
@@ -229,6 +261,18 @@ impl CliArgs {
             _ => None,
         })
     }
+}
+
+/// The `/report` family of switches (Matcha extension).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportSwitches {
+    /// `/report=` value: `patch`, `patch-normal`, `patch-context`, `patch-unified`, or
+    /// another layout name (rejected as not supported when the report is built).
+    pub layout: String,
+    /// `/reportoptions=` – same values as a script's `options:`.
+    pub options: Option<String>,
+    /// `/reportfile=` – `None` writes to standard output.
+    pub file: Option<PathBuf>,
 }
 
 /// Command-line error → usage text + exit code 100.
@@ -284,6 +328,12 @@ pub fn usage() -> String {
         "  /sync                   Open in Folder Sync",
         "  /title1..4=<title>      Pane titles (left, right, center, output)",
         "  /vcs1..4=<path>         Version-control paths",
+        "",
+        "Reports without a window (Matcha):",
+        "  /report=<layout>        Text report of <left> <right>: patch, patch-normal,",
+        "                          patch-context or patch-unified",
+        "  /reportoptions=<list>   Report options, e.g. ignore-unimportant",
+        "  /reportfile=<path>      Write the report to a file (default: standard output)",
         "",
         "Explorer context menu (Matcha):",
         "  /selectleft <path>      Remember <path> as the Left side",
@@ -375,6 +425,9 @@ fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
             };
             Ok(Some(Switch::QuickCompare(kind)))
         }
+        "report" => Ok(Some(Switch::Report(need()?))),
+        "reportoptions" => Ok(Some(Switch::ReportOptions(need()?))),
+        "reportfile" => Ok(Some(Switch::ReportFile(PathBuf::from(need()?)))),
         "reviewconflicts" => flag(Switch::ReviewConflicts),
         "ro" | "readonly" => flag(Switch::ReadOnly),
         "ro1" | "lro" => flag(Switch::ReadOnlyLeft),
@@ -608,5 +661,45 @@ mod tests {
         assert!(bad(&["/mergeoutput"]));
         assert!(bad(&["a", "b", "c", "d", "e"]));
         assert!(usage().contains("/solo"));
+    }
+
+    #[test]
+    fn report_switches() {
+        let cli = parse(&[
+            "/report=patch-unified",
+            "/reportoptions=ignore-unimportant",
+            "/reportfile=out.patch",
+            "a.txt",
+            "b.txt",
+        ]);
+        assert_eq!(
+            cli.report(),
+            Some(ReportSwitches {
+                layout: "patch-unified".into(),
+                options: Some("ignore-unimportant".into()),
+                file: Some("out.patch".into()),
+            })
+        );
+        assert_eq!(
+            cli.invocation,
+            Invocation::Files(cwd().join("a.txt"), cwd().join("b.txt"))
+        );
+        let plain = parse(&["-report=patch", "a", "b"]).report().unwrap();
+        assert_eq!((plain.options, plain.file), (None, None));
+        assert_eq!(parse(&["a", "b"]).report(), None);
+        let bad = |args: &[&str]| CliArgs::parse_in(args, &cwd()).is_err();
+        assert!(bad(&["/report", "a", "b"]), "needs a value");
+        assert!(bad(&["/reportfile=x", "a", "b"]), "needs /report");
+        assert!(
+            bad(&["/reportoptions=ignore-unimportant", "a", "b"]),
+            "needs /report"
+        );
+        for text in [
+            "/report=<layout>",
+            "/reportoptions=<list>",
+            "/reportfile=<path>",
+        ] {
+            assert!(usage().contains(text), "{text}");
+        }
     }
 }

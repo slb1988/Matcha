@@ -165,7 +165,11 @@ impl ScriptRunner {
             match self.execute(line, io) {
                 Ok(()) => self.log(LogLevel::Normal, &format!("line {}: done", line.line)),
                 Err((kind, message)) => {
-                    let message = format!("line {}: {message}", line.line);
+                    // A real script names the line; a single command-line report does not.
+                    let message = match script.path {
+                        Some(_) => format!("line {}: {message}", line.line),
+                        None => message,
+                    };
                     let _ = writeln!(io.stderr, "{message}");
                     self.log(LogLevel::Normal, &format!("error: {message}"));
                     failures.push(kind);
@@ -360,6 +364,19 @@ impl ScriptRunner {
 }
 
 impl Script {
+    /// A one-command script without a file (the `/report` command-line shortcut): errors
+    /// are reported without a line number.
+    pub fn single(command: Command, raw: impl Into<String>) -> Script {
+        Script {
+            path: None,
+            lines: vec![ScriptLine {
+                line: 1,
+                raw: raw.into(),
+                command,
+            }],
+        }
+    }
+
     /// Whether any command writes a report to standard output (`output-to:-`): the host
     /// must have a usable standard output before running it.
     pub fn writes_to_stdout(&self) -> bool {
@@ -585,7 +602,10 @@ mod run_tests {
 
     fn run_in(dir: &Path, source: &str) -> Run {
         let lines = parse_script_with(source, &Variables::default()).unwrap();
-        let script = Script { path: None, lines };
+        let script = Script {
+            path: Some(dir.join("test-script.txt")),
+            lines,
+        };
         let mut runner = ScriptRunner::new(
             RunnerOptions::default(),
             Arc::new(VfsManager::local_only()),
@@ -761,6 +781,32 @@ mod run_tests {
         );
         assert_eq!(run.code, ExitCode::Success);
         assert!(run.stdout.is_empty() && run.stderr.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn single_command_errors_carry_no_line_number() {
+        let dir = folder("single");
+        let request =
+            crate::parser::shortcut_report("patch", None, None, "nope.txt", "b.txt").unwrap();
+        let script = Script::single(Command::TextReport(request), "/report=patch nope.txt b.txt");
+        let mut runner = ScriptRunner::new(
+            RunnerOptions::default(),
+            Arc::new(VfsManager::local_only()),
+            Arc::new(FormatRegistry::with_builtins()),
+            dir.clone(),
+        );
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let code = runner.run(
+            &script,
+            &mut Streams {
+                stdout: &mut stdout,
+                stderr: &mut stderr,
+            },
+        );
+        assert_eq!(code, ExitCode::ScriptLoadFileOrFolderFailed);
+        let stderr = String::from_utf8(stderr).unwrap();
+        assert!(stderr.starts_with("cannot read "), "{stderr}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

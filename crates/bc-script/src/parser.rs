@@ -517,9 +517,67 @@ pub fn parse_report_arguments(
     })
 }
 
+/// The `/report` command-line shortcut as a script `text-report` would read it: same
+/// validation, same request, hence the same bytes. `layout` is the `/report=` value
+/// (`patch-unified` & co. expand to `layout:patch` plus the format option); `file: None`
+/// writes to standard output.
+pub fn shortcut_report(
+    layout: &str,
+    options: Option<&str>,
+    file: Option<&std::path::Path>,
+    left: &str,
+    right: &str,
+) -> Result<ReportRequest, CommandError> {
+    let lower = layout.to_ascii_lowercase();
+    let (layout, format) = match lower.as_str() {
+        "patch-normal" | "patch-context" | "patch-unified" => ("patch", Some(lower.as_str())),
+        _ => (layout, None),
+    };
+    let options: Vec<&str> = format.into_iter().chain(options).collect();
+    let mut args = vec![format!("layout:{layout}")];
+    if !options.is_empty() {
+        args.push(format!("options:{}", options.join(",")));
+    }
+    args.push(match file {
+        Some(file) => format!("output-to:{}", file.display()),
+        None => "output-to:-".into(),
+    });
+    args.push(left.into());
+    args.push(right.into());
+    parse_report_arguments(SessionKind::TextCompare, &args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_shortcut_equals_the_script_line() {
+        let script = report(
+            "text-report layout:patch options:patch-unified,ignore-unimportant output-to:- a b",
+        );
+        let shortcut =
+            shortcut_report("patch-unified", Some("ignore-unimportant"), None, "a", "b").unwrap();
+        assert_eq!(shortcut, script);
+        let file = shortcut_report(
+            "PATCH",
+            None,
+            Some(std::path::Path::new("out.patch")),
+            "a",
+            "b",
+        )
+        .unwrap();
+        assert_eq!(
+            file,
+            report("text-report layout:patch output-to:out.patch a b")
+        );
+        let e = shortcut_report("side-by-side", None, None, "a", "b").unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Unsupported);
+        let e = shortcut_report("fancy", None, None, "a", "b").unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Syntax);
+        let e = shortcut_report("patch", Some("shiny"), None, "a", "b").unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Syntax);
+    }
 
     fn vars(args: &[&str]) -> Variables {
         Variables {

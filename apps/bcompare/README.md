@@ -12,6 +12,15 @@ the launcher's console when it is waiting (and for dev/perf runs), keeps redirec
 as they are, and falls back to a message box for user-facing errors when there is no
 console at all. Decision record: `docs/decisions/301-windows-subsystem-split.md`.
 
+## Headless commands
+
+`/qc`, `/report=…` and `@script` run in the starting process before any GUI or
+single-instance logic (`routing::Route::{QuickCompare, Report, Script}`), so a running
+window never receives them; a running instance refuses them if they are handed off anyway.
+Reports go to standard output or a file, errors to standard error. When the process has no
+console at all (Explorer, shortcut) errors are collected into one message box, and a report
+for standard output fails before any command runs.
+
 ## Responsibilities (target)
 
 - Parse the full command line via `bc_script::cli::CliArgs` (switches + positional

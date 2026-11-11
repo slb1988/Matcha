@@ -41,6 +41,48 @@ pub fn tell(kind: Kind, text: &str) {
     }
 }
 
+/// 附着后是否有可用的输出流（重定向的文件/管道或控制台）。
+pub fn has_stream(kind: Kind) -> bool {
+    attach();
+    imp::has_stream(kind)
+}
+
+/// 脚本与 `/report` 的错误输出：有标准错误时直接写出（与报告交错、保持顺序）；没有时
+/// （Explorer/快捷方式启动）收集起来，[`ErrorSink::finish`] 时合并成一个消息框。
+pub struct ErrorSink {
+    buffer: Option<Vec<u8>>,
+}
+
+impl ErrorSink {
+    pub fn new() -> Self {
+        let buffer = (!has_stream(Kind::Error)).then(Vec::new);
+        Self { buffer }
+    }
+
+    /// 显示收集到的错误（若有）。
+    pub fn finish(self) {
+        if let Some(buffer) = self.buffer.filter(|b| !b.is_empty()) {
+            imp::message_box(Kind::Error, String::from_utf8_lossy(&buffer).trim_end());
+        }
+    }
+}
+
+impl std::io::Write for ErrorSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        match &mut self.buffer {
+            Some(buffer) => buffer.write(bytes),
+            None => std::io::stderr().write(bytes),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match &mut self.buffer {
+            Some(_) => Ok(()),
+            None => std::io::stderr().flush(),
+        }
+    }
+}
+
 fn with_newline(text: &str) -> std::borrow::Cow<'_, str> {
     if text.ends_with('\n') {
         text.into()

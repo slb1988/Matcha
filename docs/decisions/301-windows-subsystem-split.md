@@ -43,6 +43,13 @@ Windows 可执行文件的子系统在链接期写死：
   `matcha /qc a b` 的错误文本出现在控制台缓冲区，退出码 100 传播；`2> file`、`/? > file`、管道均正常。
 - ShellExecute 启动 `matcha.exe`（与 Explorer 双击同路径）无 conhost 子进程。
 
+## 后续：无界面命令（change `text-patch-reports`）
+
+`/qc`、`/report=…` 与 `@script` 都在 `matcha.exe` 进程内执行，不开窗口、不转交常驻实例；
+经 `matcha.com` 运行时报告写到它的控制台（可重定向、可管道），退出码原样传回。直接从
+Explorer/快捷方式运行时没有控制台：错误合并为一个消息框，写到标准输出的报告在执行前即失败
+（退出码 100），写文件的报告照常生成。
+
 ## 代价与边界
 
 - 交互式 shell 里直接敲 `matcha.exe …`（带后缀）不等待；`/?` 等文本会出现在提示符之后。
