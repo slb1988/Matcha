@@ -180,7 +180,7 @@ Write-Output $path
     parse_system_font(std::str::from_utf8(&output.stdout).ok()?)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn parse_system_font(text: &str) -> Option<SystemFont> {
     let mut lines = text.trim().lines();
     let family = lines.next()?.trim().to_owned();

@@ -80,6 +80,7 @@ impl Editor {
     }
     /// Increase/Decrease Indent：选中各行（空行除外）增减一级缩进，一次撤销。
     /// 缩进单位遵循格式的 tab 宽度与 tab-as-spaces；反缩进删一个 Tab 或至多一级空格。
+    #[allow(clippy::redundant_closure_call)] // shift 被 caret 与 anchor 各用一次；1.99 误报
     pub fn indent(&mut self, content: &mut TextContent, increase: bool) -> Result<(), CoreError> {
         content.ensure_writable()?;
         self.clamp(content);
@@ -138,6 +139,7 @@ impl Editor {
                 p
             }
         };
+        // shift 被 caret 与 anchor 各用一次；clippy 1.99 对首调用点误报 redundant_closure_call。
         self.caret = shift(self.caret);
         self.anchor = self.anchor.map(shift);
         self.clamp(content);

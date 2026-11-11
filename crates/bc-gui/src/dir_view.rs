@@ -1811,6 +1811,7 @@ impl HostProbe {
     }
 }
 /// 根路径所在卷的盘符（UNC 与相对路径无剩余空间标签）。
+#[cfg(windows)]
 fn drive_letter(path: &str) -> Option<String> {
     let root = Path::new(path).components().next()?;
     let prefix = root.as_os_str().to_string_lossy();
@@ -1820,6 +1821,7 @@ fn drive_letter(path: &str) -> Option<String> {
         && drive.chars().all(|c| c.is_ascii_alphabetic()))
     .then(|| drive.to_owned())
 }
+#[cfg(windows)]
 fn free_label(drive: &str, bytes: f64) -> String {
     format!("{:.1} GB free on {}:\\", bytes / (1u64 << 30) as f64, drive)
 }

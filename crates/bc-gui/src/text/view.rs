@@ -625,7 +625,7 @@ impl TextCompareView {
         let last = lines.last().unwrap_or(first);
         let end = {
             let lines = self.content(s).lines.borrow();
-            if last + 1 <= super::editor::end(&lines).line {
+            if last < super::editor::end(&lines).line {
                 Caret {
                     line: last + 1,
                     byte: 0,
