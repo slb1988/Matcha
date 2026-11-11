@@ -33,6 +33,8 @@ pub enum HomeAction {
     },
     NewTab,
     CloseTab,
+    /// Tools > Options（应用层持有对话框与偏好）。
+    Options,
     Exit,
 }
 pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
@@ -288,7 +290,7 @@ impl HomeView {
                 "Tools",
                 't',
                 vec![
-                    item("Options...", "", false),
+                    item("Options...", "options", true),
                     item("File Formats...", "", false),
                     item("Profiles...", "", false),
                     sep(),
@@ -323,6 +325,7 @@ impl HomeView {
             "new:table" => return Some(SessionKind::TableCompare.new_session(None)),
             "new-tab" => return Some(HomeAction::NewTab),
             "close-tab" => return Some(HomeAction::CloseTab),
+            "options" => return Some(HomeAction::Options),
             "view:tree" => self.hide_tree = !self.hide_tree,
             "view:panel" => self.hide_panel = !self.hide_panel,
             "about" => self.about = true,
@@ -998,6 +1001,7 @@ mod tests {
         assert_eq!(home.command("new-tab"), Some(HomeAction::NewTab));
         assert_eq!(home.command("close-tab"), Some(HomeAction::CloseTab));
         assert_eq!(home.command("exit"), Some(HomeAction::Exit));
+        assert_eq!(home.command("options"), Some(HomeAction::Options));
         home.command("view:panel");
         assert!(home.hide_panel);
         // Tree: Auto-saved children are the recent pairs; double-click opens.

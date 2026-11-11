@@ -197,6 +197,7 @@ dependencies = [
  "bc-formats",
  "bc-jobs",
  "bc-session",
+ "bc-shell",
  "bc-vfs",
  "eframe",
  "image",

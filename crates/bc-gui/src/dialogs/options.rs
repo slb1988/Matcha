@@ -5,7 +5,9 @@
 //! #F0F0F0 content like a tab), page content to the right and OK / Cancel /
 //! Apply under a full-width rule. Only pages backed by real `Prefs` fields are
 //! enabled (Appearance: difference colors; Text Editing: default tab size and
-//! code page; Backups); the reference's other pages are listed disabled.
+//! code page; Backups) plus Startup, which holds the Windows Explorer context
+//! menu switch (`bc-shell`: registers or removes the HKCU verbs on OK/Apply);
+//! the reference's other pages are listed disabled.
 use crate::chrome::dialog::{self, ButtonKind, Placement};
 use bc_session::prefs::Prefs;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
@@ -14,7 +16,7 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 pub const CLIENT: Vec2 = Vec2::new(859.0, 655.0);
 /// Reference page list; `true` = backed by Matcha preferences.
 pub const PAGES: [(&str, bool); 11] = [
-    ("Startup", false),
+    ("Startup", true),
     ("Tabs", false),
     ("Appearance", true),
     ("Text Editing", true),
@@ -43,6 +45,27 @@ pub struct OptionsDialog {
     suffix: String,
     search: String,
     error: Option<String>,
+    /// Explorer context menu wanted (draft) / as last applied.
+    shell_menu: bool,
+    shell_menu_saved: bool,
+    /// Applies the Explorer menu setting; `None` = the real registry (tests
+    /// install a fake so they never touch HKCU).
+    pub shell_apply: Option<fn(bool) -> Result<(), String>>,
+}
+
+/// Current Explorer menu setting (on unless turned off).
+fn shell_menu_enabled() -> bool {
+    bc_shell::Shell::from_env().map_or(true, |shell| shell.state.enabled())
+}
+
+/// Persist the setting and register / unregister the verbs.
+fn apply_shell_menu(on: bool) -> Result<(), String> {
+    let mut registry = bc_shell::system_registry()
+        .ok_or("The Explorer context menu is only available on Windows")?;
+    let shell = bc_shell::Shell::from_env().map_err(|e| e.to_string())?;
+    bc_shell::set_enabled(&shell, &mut *registry, on)
+        .map(drop)
+        .map_err(|e| format!("Explorer context menu: {e}"))
 }
 
 fn at(o: Pos2, x: f32, y: f32) -> Pos2 {
@@ -59,7 +82,14 @@ impl OptionsDialog {
         self.suffix = prefs.backups.extension.clone().unwrap_or_default();
         self.draft = Some(prefs.clone());
         self.placement = Some(placement);
-        self.page = PAGES.iter().position(|(_, on)| *on).unwrap_or(0);
+        if self.shell_apply.is_none() {
+            self.shell_menu_saved = shell_menu_enabled();
+        }
+        self.shell_menu = self.shell_menu_saved;
+        self.page = PAGES
+            .iter()
+            .position(|(name, _)| *name == "Appearance")
+            .unwrap_or(0);
         self.search.clear();
         self.error = None;
         self.open = true;
@@ -88,7 +118,8 @@ impl OptionsDialog {
             return;
         }
         let placement = self.placement.unwrap_or(Placement::Window);
-        let changed = self.folded().is_ok_and(|p| p != *prefs);
+        let changed =
+            self.folded().is_ok_and(|p| p != *prefs) || self.shell_menu != self.shell_menu_saved;
         let mut ok = false;
         let mut cancel = false;
         let mut apply = false;
@@ -140,6 +171,15 @@ impl OptionsDialog {
             self.open = false;
             self.draft = None;
             return;
+        }
+        if (ok || apply) && self.shell_menu != self.shell_menu_saved {
+            match (self.shell_apply.unwrap_or(apply_shell_menu))(self.shell_menu) {
+                Ok(()) => self.shell_menu_saved = self.shell_menu,
+                Err(e) => {
+                    self.error = Some(e);
+                    return;
+                }
+            }
         }
         if ok || apply {
             match self.folded() {
@@ -248,6 +288,31 @@ impl OptionsDialog {
         dialog::heading(&painter, at(o, 257.0, 12.0), name);
         let draft = self.draft.as_mut().unwrap();
         match name {
+            "Startup" => {
+                let available = cfg!(windows);
+                dialog::checkbox(
+                    ui,
+                    at(o, 258.0, 49.0),
+                    "Add Matcha to the Windows Explorer context menu",
+                    &mut self.shell_menu,
+                    available,
+                );
+                for (n, line) in [
+                    "Right-click a file or folder for \"Matcha: Select Left ... for Compare\",",
+                    "then \"Matcha: Compare to\" on the other one; select two items for",
+                    "\"Matcha: Compare\". Windows 11 lists them under \"Show more options\".",
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    dialog::label(
+                        &painter,
+                        at(o, 278.0, 78.0 + 20.0 * n as f32),
+                        line,
+                        available && self.shell_menu,
+                    );
+                }
+            }
             "Appearance" => {
                 dialog::label(&painter, at(o, 258.0, 46.0), "Difference colors:", true);
                 for (n, (label, rgb)) in [
@@ -355,16 +420,21 @@ mod tests {
     fn apply_ok_and_cancel_follow_classic_semantics() {
         let ctx = egui::Context::default();
         let mut prefs = Prefs::default();
-        let mut d = OptionsDialog::default();
+        let mut d = OptionsDialog {
+            shell_apply: Some(|_| panic!("explorer menu unchanged")),
+            ..Default::default()
+        };
         d.show(&prefs, Placement::ClientOnly);
         assert_eq!(PAGES[d.page].0, "Appearance");
+        // A new egui area takes input from its second frame on.
         frame(&ctx, &mut d, &mut prefs, vec![]);
-        // Disabled pages cannot be selected; Backups can.
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        // Disabled pages cannot be selected (Tabs); Backups can.
         frame(
             &ctx,
             &mut d,
             &mut prefs,
-            click(Pos2::new(100.0, FIRST_ROW + 18.0)),
+            click(Pos2::new(100.0, FIRST_ROW + ROW + 18.0)),
         );
         assert_eq!(PAGES[d.page].0, "Appearance");
         frame(
@@ -393,5 +463,55 @@ mod tests {
         frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
         assert!(!d.open);
         assert_eq!(prefs.default_tab_size, 8);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn startup_page_toggles_the_explorer_menu_on_apply_only() {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        // 0 = not called, 1 = off, 2 = on
+        static CALLED: AtomicU8 = AtomicU8::new(0);
+        let ctx = egui::Context::default();
+        let mut prefs = Prefs::default();
+        let mut d = OptionsDialog {
+            shell_apply: Some(|on| {
+                CALLED.store(if on { 2 } else { 1 }, Ordering::SeqCst);
+                Ok(())
+            }),
+            shell_menu_saved: true,
+            ..Default::default()
+        };
+        d.show(&prefs, Placement::ClientOnly);
+        assert!(d.shell_menu);
+        // A new egui area takes input from its second frame on.
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(
+            &ctx,
+            &mut d,
+            &mut prefs,
+            click(Pos2::new(100.0, FIRST_ROW + 18.0)),
+        );
+        assert_eq!(PAGES[d.page].0, "Startup");
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(264.0, 55.0)));
+        assert!(!d.shell_menu);
+        assert_eq!(CALLED.load(Ordering::SeqCst), 0, "nothing until Apply");
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(800.0, 629.0)));
+        assert_eq!(CALLED.load(Ordering::SeqCst), 1);
+        assert!(d.open && !d.shell_menu_saved);
+        // Cancel after toggling back on discards it.
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(264.0, 55.0)));
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(695.0, 629.0)));
+        assert_eq!(CALLED.load(Ordering::SeqCst), 1);
+        // Reopen shows the applied state; OK after toggling applies "on".
+        d.show(&prefs, Placement::ClientOnly);
+        assert!(!d.shell_menu);
+        d.page = 0;
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(264.0, 55.0)));
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
+        assert_eq!(CALLED.load(Ordering::SeqCst), 2);
+        assert!(!d.open);
     }
 }

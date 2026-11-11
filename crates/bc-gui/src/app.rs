@@ -188,6 +188,8 @@ pub struct MatchaApp {
     frame_log: Option<crate::perf::FrameLog>,
     /// 单实例转交的请求队列（仅常驻实例有）。
     remote: Option<RemoteInbox>,
+    /// Home 的 Tools > Options（比较视图各自持有自己的对话框）。
+    options: crate::dialogs::options::OptionsDialog,
 }
 impl MatchaApp {
     pub fn new(
@@ -261,6 +263,7 @@ impl MatchaApp {
             table_perf_reported: false,
             frame_log: crate::perf::frames_enabled().then(Default::default),
             remote: None,
+            options: Default::default(),
         }
     }
     /// 接入转交队列。
@@ -742,8 +745,14 @@ impl MatchaApp {
             egui::CentralPanel::default()
         };
         let prefs = &mut self.prefs;
+        let home_modal = self.options.open;
         panel.show(ui, |ui| match &mut self.tabs[self.active].view {
-            View::Home(home) => home_action = home.ui(ui),
+            View::Home(home) => {
+                if home_modal {
+                    ui.disable();
+                }
+                home_action = home.ui(ui);
+            }
             View::TextCompare(view) => view_action = view.ui(ui, prefs),
             View::TableCompare(view) => table_action = view.ui(ui, prefs),
             View::FolderCompare(view) => folder_switch = view.ui(ui),
@@ -832,9 +841,13 @@ impl MatchaApp {
             Some(HomeAction::NewTab) => commands.push(TabCommand::NewTab),
             Some(HomeAction::CloseTab) => self.close_tab(&ctx, self.active),
             Some(HomeAction::Exit) => commands.push(TabCommand::Exit(false)),
+            Some(HomeAction::Options) => self
+                .options
+                .show(&self.prefs, crate::chrome::dialog::Placement::Window),
             Some(action) => self.open_comparison(&ctx, action),
             None => {}
         }
+        self.options.ui(&ctx, &mut self.prefs);
         if let Some(action) = table_action {
             let command = match action {
                 TableAction::Home => Some(TabCommand::Home),
