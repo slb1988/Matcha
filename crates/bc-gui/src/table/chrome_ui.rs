@@ -116,11 +116,12 @@ impl TableCompareView {
     pub fn labels_pending(&mut self) -> bool {
         let mut pending = false;
         for s in 0..2 {
-            let key = self.files[s]
+            let current = self.files[s]
                 .path
-                .clone()
+                .as_ref()
                 .map(|p| (p, self.files[s].byte_len));
-            if self.labels[s].key != key {
+            if self.labels[s].key.as_ref().map(|(p, b)| (p, *b)) != current {
+                let key = current.map(|(p, b)| (p.clone(), b));
                 let labels = &mut self.labels[s];
                 labels.key = key.clone();
                 let path = key.map(|(p, _)| p);
@@ -138,7 +139,7 @@ impl TableCompareView {
         pending
     }
     pub(super) fn checked(&self, id: &str) -> Option<bool> {
-        let rules = self.pair.as_ref().map(|p| p.map.rules().clone());
+        let rules = self.pair.as_ref().map(|p| p.map.rules());
         Some(match id {
             "Show All" => self.filter == Filter::All,
             "Show Differences" => self.filter == Filter::Differences,

@@ -484,6 +484,9 @@ fn rows(
     let clip = ui.clip_rect();
     state.visible = projected(projection, range.start).unwrap_or(0)
         ..projected(projection, range.end.saturating_sub(1)).map_or(0, |r| r + 1);
+    // Grid lines are batched: one horizontal line per row, one vertical line
+    // per visible column spanning all drawn rows.
+    let mut span: Option<(f32, f32, f32)> = None; // (origin x, first top, last bottom)
     for display in range {
         let Some(row) = projected(projection, display) else {
             continue;
@@ -561,7 +564,7 @@ fn rows(
                 .unwrap_or_default();
             if state.whitespace {
                 text = text.replace(' ', "·").replace('\t', "→").replace('\n', "↵");
-            } else {
+            } else if text.contains(['\n', '\r']) {
                 text = text.replace(['\n', '\r'], " ↵ ");
             }
             let ink = if imp != Importance::Same {
@@ -590,23 +593,6 @@ fn rows(
                     ink,
                 );
             }
-            // Grid lines: right and bottom edge of every cell.
-            cell_painter.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(cell_rect.right() - 1.0, cell_rect.top()),
-                    cell_rect.max,
-                ),
-                0.0,
-                line,
-            );
-            cell_painter.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(cell_rect.left(), cell_rect.bottom() - 1.0),
-                    cell_rect.max,
-                ),
-                0.0,
-                line,
-            );
             if row == cursor.row && c == cursor.column {
                 focus_frame(
                     &cell_painter,
@@ -616,6 +602,21 @@ fn rows(
             }
             state.cells_drawn += 1;
         }
+        let content_right = rect.left() + GUTTER + state.offsets.last().copied().unwrap_or(0.0);
+        if content_right > gutter.right() {
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(gutter.right(), rect.bottom() - 1.0),
+                    egui::pos2(content_right.min(clip.right()), rect.bottom()),
+                ),
+                0.0,
+                line,
+            );
+        }
+        span = Some(match span {
+            None => (rect.left(), rect.top(), rect.bottom()),
+            Some((x, top, _)) => (x, top, rect.bottom()),
+        });
         painter.rect_filled(gutter, 0.0, crate::chrome::theme::PANEL_BG);
         painter.rect_filled(
             egui::Rect::from_min_max(egui::pos2(gutter.right() - 1.0, gutter.top()), gutter.max),
@@ -648,5 +649,26 @@ fn rows(
             );
         }
         state.rows_drawn += 1;
+    }
+    if let Some((origin, top, bottom)) = span {
+        let gutter_right = clip.left() + GUTTER;
+        let start = state
+            .offsets
+            .partition_point(|&x| x < scroll.x)
+            .saturating_sub(1);
+        for d in start..state.columns.len() {
+            let x = origin + GUTTER + state.offsets[d + 1] - 1.0;
+            if x > clip.right() {
+                break;
+            }
+            if x < gutter_right {
+                continue;
+            }
+            painter.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(x, top), egui::pos2(x + 1.0, bottom)),
+                0.0,
+                line,
+            );
+        }
     }
 }
