@@ -1,0 +1,9 @@
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+bench.frames_measured=600
+bench.wall_seconds=11.77
+bench.fps_overall=53.5
+bench.left_mb=110.0 bench.right_mb=110.0
+bench.load_left_ms=135 bench.load_right_ms=138 bench.index_mb=101.7
+bench.update_ms.mean=0.901 p50=0.787 p95=1.496 p99=1.746 max=2.269
+bench.frame_cpu_ms.mean=1.421 p50=1.342 p95=2.081 p99=2.463 max=3.228
+bench.rows_drawn_per_frame=88

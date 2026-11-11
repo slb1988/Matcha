@@ -1,0 +1,21 @@
+docs/visual-parity/reference/text-menu-edit.png
+  border x: (89, 363)
+  border y: (25, 406)
+  width: 275
+  separators y: [73, 209, 303, 376, 868, 936]
+  body: #F0F0F0
+  open title x: (89, 122)
+target/visual/wave6/before-text-menu-edit.png
+  border x: (91, 355)
+  border y: (27, 77)
+  width: 265
+  separators y: [459, 868, 936]
+  body: #CCE8FF
+  open title x: None
+target/visual/matcha/text-menu-edit.png
+  border x: (91, 368)
+  border y: (25, 448)
+  width: 278
+  separators y: [73, 209, 303, 376, 868, 936]
+  body: #F0F0F0
+  open title x: (91, 126)
