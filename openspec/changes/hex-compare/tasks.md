@@ -23,9 +23,9 @@
 
 ## 4. 视图渲染
 
-- [ ] 4.1 实现 `bc-gui/src/hex/` 网格渲染（地址列、8+8 分组 hex 格、ASCII 列、斜纹占位格、红底差异/孤儿着色、只画可见行）；验证：egui 输入注入 + 渲染断言覆盖 spec 行打包三场景
-- [ ] 4.2 实现缩略图条、File Info 头、工具栏（All/Diffs/Same/Rules/Format/Copy/Next/Prev/Swap/Reload）、状态栏（结论/Insert/Load time/每侧光标地址）；验证：快照场景与参考截图逐区域对照
-- [ ] 4.3 实现 Side-by-Side/Over-Under、Thumbnail/File Info/Toolbar/Byte Addresses 开关、Layout 对话框（bytes per group/groups per item/fit to window/context count）；验证：RawInput 回归切换后渲染正确
+- [x] 4.1 实现 `bc-gui/src/hex/` 网格渲染（地址列、8+8 分组 hex 格、ASCII 列、斜纹占位格、红底差异/孤儿着色、只画可见行）；验证：egui 输入注入 + 渲染断言覆盖 spec 行打包三场景
+- [x] 4.2 实现缩略图条、File Info 头、工具栏（All/Diffs/Same/Rules/Format/Copy/Next/Prev/Swap/Reload）、状态栏（结论/Insert/Load time/每侧光标地址）；验证：快照场景与参考截图逐区域对照
+- [x] 4.3 实现 Side-by-Side/Over-Under、Thumbnail/File Info/Toolbar/Byte Addresses 开关、Layout 对话框（bytes per group/groups per item/fit to window/context count）；验证：RawInput 回归切换后渲染正确
 
 ## 5. 视图交互
 

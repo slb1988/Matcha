@@ -42,6 +42,18 @@ impl Default for HexRules {
     }
 }
 
+/// 显示过滤（View > Show All/Differences/Same）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DisplayFilter {
+    /// 显示全部（默认）。
+    #[default]
+    All,
+    /// 只看差异（带 context_count 上下文，按区域起点重新打包行）。
+    Differences,
+    /// 只看相同。
+    Same,
+}
+
 /// 四分类字节统计 – BC `THexInfoDialog` 的 same/difference/left orphan/right orphan。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HexStats {

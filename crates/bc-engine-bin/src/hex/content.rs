@@ -30,6 +30,10 @@ pub struct HexContent {
     revision: u64,
     /// 来源路径；None 表示剪贴板/内存内容（保存须走另存）。
     source: Option<PathBuf>,
+    /// 文件修改时间（File Info 头显示）；内存内容无。
+    modified: Option<std::time::SystemTime>,
+    /// 加载耗时（毫秒，状态栏 Load time）。
+    load_millis: Option<u128>,
 }
 
 impl Default for HexContent {
@@ -39,6 +43,8 @@ impl Default for HexContent {
             read_only: false,
             revision: 0,
             source: None,
+            modified: None,
+            load_millis: None,
         }
     }
 }
@@ -46,7 +52,9 @@ impl Default for HexContent {
 impl HexContent {
     /// 从文件加载：按阈值选择整载或只读映射（设计 D3）。
     pub fn load(path: &Path, lock_threshold: u64) -> io::Result<Self> {
-        let len = std::fs::metadata(path)?.len();
+        let start = std::time::Instant::now();
+        let meta = std::fs::metadata(path)?;
+        let len = meta.len();
         let storage = if len < lock_threshold {
             HexStorage::Whole(std::fs::read(path)?)
         } else {
@@ -57,6 +65,8 @@ impl HexContent {
             read_only: false,
             revision: 0,
             source: Some(path.to_path_buf()),
+            modified: meta.modified().ok(),
+            load_millis: Some(start.elapsed().as_millis()),
         })
     }
 
@@ -93,6 +103,16 @@ impl HexContent {
 
     pub fn source(&self) -> Option<&Path> {
         self.source.as_deref()
+    }
+
+    /// 文件修改时间（File Info 头）。
+    pub fn modified(&self) -> Option<std::time::SystemTime> {
+        self.modified
+    }
+
+    /// 加载耗时（毫秒）。
+    pub fn load_millis(&self) -> Option<u128> {
+        self.load_millis
     }
 
     /// 大文件（mmap 只读映射）路径。
