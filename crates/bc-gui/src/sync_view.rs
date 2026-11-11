@@ -1237,7 +1237,7 @@ mod tests {
         crate::chrome::theme::apply(&ctx);
         let mut view = SyncView::open(&ctx, &root.join("left"), &root.join("right"));
         let started = Instant::now();
-        let mut run = |view: &mut SyncView| {
+        let run = |view: &mut SyncView| {
             let mut out = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
