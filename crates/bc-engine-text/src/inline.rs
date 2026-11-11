@@ -1,4 +1,9 @@
-//! Bounded Unicode character diff, gap coalescing and conservative word snapping.
+//! Bounded Unicode character diff with reference-style island joining.
+//!
+//! Differences are character-level (no word snapping by default). Two difference islands
+//! are joined only when they touch, or when exactly one non-whitespace equal character
+//! separates them and the same side differs on both sides of it (`a1b2c`/`x1y2c` →
+//! `{a1b}2c`; `aa X Y bb` and `worl{d}`/`wor{d}l` stay separate).
 use crate::importance::{CompiledComparison, Importance, LineView};
 use bc_core::{
     diff::{DiffOp, Differ, MyersDiff},
@@ -18,16 +23,19 @@ pub struct InlineDiff {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineOptions {
-    /// Coalesce islands separated by at most this many equal Unicode characters.
+    /// Join islands separated by at most this many equal non-whitespace characters, when
+    /// the same side differs on both sides of the gap.
     pub join_gap: usize,
+    /// Widen all-word islands to whole words (off by default; the reference marks
+    /// characters, e.g. `{g}etValue`).
     pub word_boundaries: bool,
     pub max_line_chars: usize,
 }
 impl Default for InlineOptions {
     fn default() -> Self {
         Self {
-            join_gap: 3,
-            word_boundaries: true,
+            join_gap: 1,
+            word_boundaries: false,
             max_line_chars: 10_000,
         }
     }
@@ -64,6 +72,50 @@ fn push(spans: &mut Vec<InlineSpan>, span: InlineSpan) {
     } else {
         spans.push(span);
     }
+}
+/// Character diff whose ties between equally long matches resolve from the line end,
+/// as the reference does (`world`/`wordl` keeps the `l`; `heasdlo`/`hello` keeps the
+/// second `l`): Myers on the reversed sequences, mapped back in forward order.
+fn suffix_first_diff(left: &[ContentHash], right: &[ContentHash]) -> Vec<DiffOp> {
+    let reversed = |side: &[ContentHash]| side.iter().rev().copied().collect::<Vec<_>>();
+    let (n, m) = (left.len(), right.len());
+    let mut ops: Vec<DiffOp> = (MyersDiff {
+        block_fallback_threshold: 0,
+    })
+    .diff(&reversed(left), &reversed(right))
+    .into_iter()
+    .map(|op| match op {
+        DiffOp::Equal {
+            a_start,
+            b_start,
+            len,
+        } => DiffOp::Equal {
+            a_start: n - a_start - len,
+            b_start: m - b_start - len,
+            len,
+        },
+        DiffOp::Delete {
+            a_start,
+            len,
+            b_pos,
+        } => DiffOp::Delete {
+            a_start: n - a_start - len,
+            len,
+            b_pos: m - b_pos,
+        },
+        DiffOp::Insert {
+            b_start,
+            len,
+            a_pos,
+        } => DiffOp::Insert {
+            b_start: m - b_start - len,
+            len,
+            a_pos: n - a_pos,
+        },
+    })
+    .collect();
+    ops.reverse();
+    ops
 }
 pub fn inline_diff(left: &str, right: &str, options: &InlineOptions) -> InlineDiff {
     let comparison = CompiledComparison::new(&Default::default()).expect("empty rules");
@@ -131,11 +183,7 @@ pub fn inline_diff_classified(
         .chain([right.text.len()])
         .collect();
     let mut islands: Vec<Island> = Vec::new();
-    for op in (MyersDiff {
-        block_fallback_threshold: 0,
-    })
-    .diff(&lh, &rh)
-    {
+    for op in suffix_first_diff(&lh, &rh) {
         let next = match op {
             DiffOp::Equal { .. } => continue,
             DiffOp::Delete {
@@ -158,8 +206,16 @@ pub fn inline_diff_classified(
             },
         };
         if let Some(previous) = islands.last_mut().filter(|p| {
-            next.left.start - p.left.end <= options.join_gap
-                && next.right.start - p.right.end <= options.join_gap
+            // The equal run between islands has the same length on both sides.
+            let gap = next.left.start - p.left.end;
+            let flanked = (!p.left.is_empty() && !next.left.is_empty())
+                || (!p.right.is_empty() && !next.right.is_empty());
+            gap == 0
+                || (gap <= options.join_gap
+                    && flanked
+                    && !l[p.left.end..next.left.start]
+                        .iter()
+                        .any(|c| c.is_whitespace()))
         }) {
             previous.joined |=
                 next.left.start > previous.left.end || next.right.start > previous.right.end;

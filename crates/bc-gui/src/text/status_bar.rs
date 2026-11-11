@@ -98,6 +98,8 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
         );
     }
 }
+/// A line index and its character-level difference segments (byte range, ink).
+pub type DetailSegments = (usize, Vec<(std::ops::Range<usize>, egui::Color32)>);
 pub fn details(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -105,6 +107,9 @@ pub fn details(
     editors: &[Editor; 2],
     // Current row's difference (fill, ink); `None` for an equal row.
     style: Option<(egui::Color32, egui::Color32)>,
+    // Per side: (line, character-level difference segments with their ink). When the
+    // caret is on that line only the segments take difference ink, the rest is black.
+    inline: [Option<DetailSegments>; 2],
     active: usize,
 ) {
     let painter = ui.painter().with_clip_rect(rect);
@@ -155,7 +160,11 @@ pub fn details(
         }
         let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
         let ink = style.map_or(egui::Color32::BLACK, |(_, ink)| ink);
-        let galley = painter.layout_no_wrap(text[..limit].to_string(), font.clone(), ink);
+        let segments = inline[s]
+            .as_ref()
+            .filter(|(at, _)| *at == line)
+            .map(|(_, segments)| segments.as_slice());
+        let galley = painter.layout_job(detail_job(&text[..limit], &font, ink, segments));
         let marker = painter.layout_no_wrap(end.to_string(), font.clone(), MARKER);
         // Reference: text ink starts 20 px in, one row below the box top.
         let text_x = rect.left() + 19.0;
@@ -389,4 +398,35 @@ pub fn modified_label(time: Option<std::time::SystemTime>) -> String {
     let m = seconds / 60 % 60;
     let sec = seconds % 60;
     format!("{month}/{day}/{year} {h}:{m:02}:{sec:02} UTC")
+}
+
+/// Line-detail text: uniform `ink`, or black with the inline difference segments inked.
+fn detail_job(
+    text: &str,
+    font: &egui::FontId,
+    ink: egui::Color32,
+    segments: Option<&[(std::ops::Range<usize>, egui::Color32)]>,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let format = |color| egui::TextFormat {
+        font_id: font.clone(),
+        color,
+        ..Default::default()
+    };
+    let Some(segments) = segments else {
+        job.append(text, 0.0, format(ink));
+        return job;
+    };
+    let mut at = 0;
+    for (range, color) in segments {
+        let (start, end) = (range.start.min(text.len()), range.end.min(text.len()));
+        if start < at || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+            continue;
+        }
+        job.append(&text[at..start], 0.0, format(egui::Color32::BLACK));
+        job.append(&text[start..end], 0.0, format(*color));
+        at = end;
+    }
+    job.append(&text[at..], 0.0, format(egui::Color32::BLACK));
+    job
 }

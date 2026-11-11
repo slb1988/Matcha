@@ -513,7 +513,7 @@ impl TextCompareView {
             ui.ctx().request_repaint();
         }
     }
-    fn ensure_inline(&mut self, row: usize) {
+    pub(super) fn ensure_inline(&mut self, row: usize) {
         if self.map.is_stale() || self.inline.contains_key(&row) {
             return;
         }
