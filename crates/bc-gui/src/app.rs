@@ -179,6 +179,10 @@ impl eframe::App for MatchaApp {
         if self.snapshot.is_some() {
             input.time = Some(1.0);
             input.events.clear();
+            // Whether the OS gives the snapshot window foreground focus varies
+            // run to run; egui paints the text caret only in a focused
+            // viewport, so pin it to unfocused for byte-stable captures.
+            input.focused = false;
         }
     }
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
