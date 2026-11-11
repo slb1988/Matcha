@@ -2105,7 +2105,9 @@ impl DirCompareView {
                 self.anchor = None;
             }
             self.snapshot = snapshot;
-            if self.snapshot.complete && !self.chrome_log_logged {
+            // 空会话的空快照不算一次加载。
+            let loaded = !self.paths.left.trim().is_empty() && !self.paths.right.trim().is_empty();
+            if self.snapshot.complete && !self.chrome_log_logged && loaded {
                 self.chrome_log_logged = true;
                 self.chrome_log.push(format!(
                     "Load comparison: {} <-> {}",

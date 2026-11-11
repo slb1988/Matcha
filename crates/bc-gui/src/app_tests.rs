@@ -126,6 +126,25 @@ fn home_icons_open_empty_session_tabs_without_a_dialog() {
 }
 
 #[test]
+fn an_empty_table_tab_shows_blank_panes_not_a_load_failure() {
+    let ctx = egui::Context::default();
+    let mut app = MatchaApp::with_view(View::TableCompare(Box::new(TableCompareView::empty())));
+    let out = run(&ctx, &mut app, vec![]);
+    let texts: Vec<String> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !texts.iter().any(|t| t.starts_with("Load failed")),
+        "{texts:?}"
+    );
+    assert!(!texts.iter().any(|t| t == "Retry load"));
+}
+#[test]
 fn tabs_activate_close_and_follow_ctrl_t_and_ctrl_w() {
     let ctx = egui::Context::default();
     let mut app = home_app();

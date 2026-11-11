@@ -1104,7 +1104,8 @@ impl TableCompareView {
                         }
                     },
                 );
-            } else if s == 0 {
+            } else if s == 0 && (self.worker.is_some() || self.paths() != [None, None]) {
+                // 空会话（两侧都未选文件、也没有在加载）保持空白窗格。
                 ui.scope_builder(
                     egui::UiBuilder::new().max_rect(grid_rect.shrink(8.0)),
                     |ui| {
