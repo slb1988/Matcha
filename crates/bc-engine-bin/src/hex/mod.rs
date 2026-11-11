@@ -1,0 +1,191 @@
+//! Hex Compare 引擎（P2）– `THexMap`/`THexRules`/`THexInfoDialog` 对应物。
+//!
+//! - [`HexRules`]：会话规则（设计 D6 定稿的五字段）。
+//! - [`HexMap::align`] / [`HexMap::set_alignment`]：三档字节对齐与 revision 过期拒绝。
+//! - [`pack_rows`]：cell packing 派生行模型（设计 D2，证据见参考文档）。
+//! - [`content::HexContent`]：加载/保存与写入门禁（设计 D3/D4）。
+
+pub mod content;
+pub mod jobs;
+
+pub use content::HexContent;
+pub use jobs::{HexAlignJob, HexAlignOutput};
+
+use bc_core::align::{AlignMap, ByteAlign, ByteAlignStrategy};
+use bc_core::cancel::CancelCheck;
+use bc_core::{CoreError, DiffKind};
+
+/// Hex session rules – `THexRules`（设计 D6 定稿的字段集）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HexRules {
+    /// 三档对齐策略（默认 Complete）– BC `THexAlignKind`。
+    pub alignment: ByteAlignStrategy,
+    /// 每行单元格数（默认 16；Fit to window 开启时由视图按宽度重算）。
+    pub bytes_per_line: u16,
+    /// hex 区分组字节数（默认 8，即 8+8 分组显示）。
+    pub bytes_per_group: u16,
+    /// Show Differences 过滤的上下文字节数（默认 16）。
+    pub context_count: usize,
+    /// 小文件整载阈值（默认 2 MB）：低于阈值不加文件锁，高者 mmap 只读。
+    pub lock_threshold: u64,
+}
+
+impl Default for HexRules {
+    fn default() -> Self {
+        Self {
+            alignment: ByteAlignStrategy::Complete,
+            bytes_per_line: 16,
+            bytes_per_group: 8,
+            context_count: 16,
+            lock_threshold: 2 * 1024 * 1024,
+        }
+    }
+}
+
+/// 四分类字节统计 – BC `THexInfoDialog` 的 same/difference/left orphan/right orphan。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HexStats {
+    pub same: u64,
+    pub difference: u64,
+    pub left_orphan: u64,
+    pub right_orphan: u64,
+}
+
+impl HexStats {
+    /// 状态栏汇总文案（参考工具：`Binary same` / `Binary differences`）。
+    pub fn summary(&self) -> &'static str {
+        if self.difference == 0 && self.left_orphan == 0 && self.right_orphan == 0 {
+            "Binary same"
+        } else {
+            "Binary differences"
+        }
+    }
+}
+
+/// Aligned byte map – `THexMap`.
+#[derive(Debug, Default)]
+pub struct HexMap {
+    pub left: HexContent,
+    pub right: HexContent,
+    pub rules: HexRules,
+    pub align: AlignMap,
+}
+
+impl HexMap {
+    /// Run `bc_core::align::ByteAlign` with the configured strategy and store the result.
+    pub fn align(&mut self) {
+        self.align = ByteAlign.align(self.left.bytes(), self.right.bytes(), self.rules.alignment);
+    }
+
+    /// Cancellable variant for background workers（过期结果由调用方按 revision 丢弃）。
+    pub fn align_cancellable(&mut self, cancel: &dyn CancelCheck) -> Result<(), CoreError> {
+        self.align = ByteAlign.align_cancellable(
+            self.left.bytes(),
+            self.right.bytes(),
+            self.rules.alignment,
+            cancel,
+        )?;
+        Ok(())
+    }
+
+    /// 回填后台对齐结果；revision 或规则不一致即过期，拒绝并保留现有对齐（设计 D4）。
+    pub fn set_alignment(&mut self, output: HexAlignOutput) -> Result<(), CoreError> {
+        if output.revisions != (self.left.revision(), self.right.revision()) || output.rules != self.rules {
+            return Err(CoreError::Invalid("stale alignment result".into()));
+        }
+        self.align = output.map;
+        Ok(())
+    }
+
+    /// 当前视图模型是否与最新内容同步（不同步则应投递重对齐 job）。
+    pub fn is_stale(&self, revisions: (u64, u64)) -> bool {
+        revisions != (self.left.revision(), self.right.revision())
+    }
+
+    /// 从对齐图汇总四分类统计；每侧合计等于该侧字节数。
+    pub fn stats(&self) -> HexStats {
+        let mut stats = HexStats::default();
+        for row in self.align.rows() {
+            match row.kind {
+                DiffKind::Same => stats.same += 1,
+                DiffKind::Changed => stats.difference += 1,
+                DiffKind::LeftOnly => stats.left_orphan += 1,
+                DiffKind::RightOnly => stats.right_orphan += 1,
+            }
+        }
+        stats
+    }
+
+    /// 派生 cell packing 行模型（设计 D2）：对齐图按每行 N 格打包，孤儿字节占格、
+    /// 对侧为斜纹占位格；行标签 = 该侧本行首个真实字节偏移（全占位行无标签）。
+    /// 奇数长度孤儿段导致的行相位偏移由该模型自然产生（证据：`24-odd-insert-all.png`）。
+    pub fn pack_rows(&self) -> Vec<HexRow> {
+        pack_rows(&self.align, self.rules.bytes_per_line)
+    }
+}
+
+/// 一个单元格：配对字节同格相邻；孤儿字节占格时另一侧画斜纹占位格。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HexCell {
+    /// 配对字节（kind 为 Same 或 Changed）。
+    Pair { left: usize, right: usize, kind: DiffKind },
+    /// 左孤儿字节（右侧占位）。
+    LeftOrphan(usize),
+    /// 右孤儿字节（左侧占位）。
+    RightOrphan(usize),
+}
+
+/// 一行打包格。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HexRow {
+    pub cells: Vec<HexCell>,
+    /// 左侧行标签（本行首个真实字节的文件偏移；整行占位时为 None）。
+    pub left_label: Option<usize>,
+    /// 右侧行标签。
+    pub right_label: Option<usize>,
+}
+
+/// 把对齐图按每行 `bytes_per_line` 格打包（0 视为 16）。
+pub fn pack_rows(map: &AlignMap, bytes_per_line: u16) -> Vec<HexRow> {
+    let per_line = usize::from(if bytes_per_line == 0 { 16 } else { bytes_per_line });
+    let mut rows = Vec::with_capacity(map.len() / per_line + 1);
+    let mut cells = Vec::with_capacity(per_line);
+    let flush = |cells: &mut Vec<HexCell>, rows: &mut Vec<HexRow>| {
+        if cells.is_empty() {
+            return;
+        }
+        let label = |pick: fn(&HexCell) -> Option<usize>| cells.iter().find_map(pick);
+        rows.push(HexRow {
+            left_label: label(|c| match c {
+                HexCell::Pair { left, .. } => Some(*left),
+                HexCell::LeftOrphan(i) => Some(*i),
+                HexCell::RightOrphan(_) => None,
+            }),
+            right_label: label(|c| match c {
+                HexCell::Pair { right, .. } => Some(*right),
+                HexCell::RightOrphan(i) => Some(*i),
+                HexCell::LeftOrphan(_) => None,
+            }),
+            cells: std::mem::take(cells),
+        });
+    };
+    for row in map.rows() {
+        cells.push(match row.kind {
+            DiffKind::Same | DiffKind::Changed => HexCell::Pair {
+                left: row.left.expect("paired row has left"),
+                right: row.right.expect("paired row has right"),
+                kind: row.kind,
+            },
+            DiffKind::LeftOnly => HexCell::LeftOrphan(row.left.expect("orphan row has its side")),
+            DiffKind::RightOnly => HexCell::RightOrphan(row.right.expect("orphan row has its side")),
+        });
+        if cells.len() == per_line {
+            flush(&mut cells, &mut rows);
+        }
+    }
+    flush(&mut cells, &mut rows);
+    rows
+}
+
+#[cfg(test)]
+mod tests;

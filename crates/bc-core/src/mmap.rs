@@ -16,3 +16,32 @@ pub fn map_readonly(file: &std::fs::File) -> std::io::Result<memmap2::Mmap> {
         memmap2::Mmap::map(file)
     }
 }
+
+/// 持有文件句柄的只读映射（句柄随映射存续，等价于参考工具大文件的加锁/流式路径）。
+#[derive(Debug)]
+pub struct ReadonlyMap {
+    // 文件句柄必须活着，映射才有效（Windows 上句柄存续同时提供共享读语义）。
+    _file: std::fs::File,
+    map: memmap2::Mmap,
+}
+
+impl ReadonlyMap {
+    /// 打开并只读映射整个文件。
+    pub fn open(path: &std::path::Path) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let map = map_readonly(&file)?;
+        Ok(Self { _file: file, map })
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.map
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+}

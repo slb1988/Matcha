@@ -11,6 +11,7 @@ bc-core = { workspace = true }
 bc-formats = { workspace = true }
 bc-vfs = { workspace = true }
 bc-jobs = { workspace = true }
+bc-engine-bin = { workspace = true }
 bc-engine-text = { workspace = true }
 bc-engine-table = { workspace = true }
 bc-engine-dir = { workspace = true }

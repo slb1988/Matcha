@@ -20,6 +20,7 @@ pub mod chrome;
 pub mod dialogs;
 pub mod dir_view;
 pub mod filters_bar;
+pub mod hex;
 pub mod home;
 pub mod legend;
 pub mod log_panel;
