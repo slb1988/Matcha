@@ -25,6 +25,7 @@ pub const SCENES: &[&str] = &[
     "folder-expanded",
     "folder-diffs-filter",
     "text-long-scrolled",
+    "home",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -39,6 +40,7 @@ pub enum SceneView {
     Chrome,
     Text,
     Folder,
+    Home,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
@@ -55,7 +57,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 9] = [
+pub const REGISTRY: [Scene; 10] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -100,6 +102,12 @@ pub const REGISTRY: [Scene; 9] = [
         name: "text-long-scrolled",
         view: SceneView::Text,
         preset: Preset::LongScrolled,
+    },
+    // Reference: "collapse Auto-saved; select New" — the Home defaults.
+    Scene {
+        name: "home",
+        view: SceneView::Home,
+        preset: Preset::None,
     },
 ];
 pub fn is_scene(scene: Option<&str>) -> bool {
