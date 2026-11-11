@@ -5,7 +5,8 @@
 //! two files / three files (merge) / four files (merge + output) / `@script` / `.bcpkg`
 //! / `.diff|.patch` / `-` (stdin).
 
-use bc_engine_dir::criteria::ContentCompare;
+/// `/qc=<type>` values (re-exported so callers need not depend on the folder engine).
+pub use bc_engine_dir::criteria::ContentCompare;
 use bc_session::SessionKind;
 use std::path::{Path, PathBuf};
 

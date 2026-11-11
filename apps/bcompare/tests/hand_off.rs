@@ -125,6 +125,24 @@ fn unsupported_invocations_fail_locally_without_a_hand_off() {
     assert!(primary.rx.try_recv().is_err());
 }
 
+/// `/qc` 在发起进程内完成：即使已有常驻实例也不转交、不开窗口。
+#[test]
+fn quick_compare_never_hands_off() {
+    let primary = fake_primary("qc");
+    let cwd = work_dir("qc");
+    std::fs::write(cwd.join("a.txt"), "same\n").unwrap();
+    std::fs::write(cwd.join("b.txt"), "same\n").unwrap();
+    // `/silent`：不写结果行（无控制台的 CI 里也不会退化为消息框）。
+    let child = primary.spawn(
+        &matcha(),
+        &["/silent", "/qc", "a.txt", "b.txt"],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(child), Some(2));
+    assert!(primary.rx.try_recv().is_err());
+}
+
 /// `matcha-compc` → `matcha` → 常驻实例的完整链路。启动器属于另一个包，只有
 /// `cargo test --workspace`（或先构建过 bcomp）时才在同一目录里。
 #[test]

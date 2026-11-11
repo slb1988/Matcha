@@ -92,15 +92,110 @@ impl ScriptRunner {
     }
 }
 
-/// `/qc[=type]` quick compare of two files → exit code 1/2/11/12/13.
+/// `/qc[=type]` quick compare of two files → exit code 1/2/11/12/13 (`TQuickCompareFilesJob`).
+///
+/// * `size` / `crc` / `binary`: byte-level, the folder compare's reader → `1` same, `11` different.
+/// * rules-based (`None`, the reference default): byte-identical or no differences under the
+///   format's default rules → `2`; only unimportant differences → `12`; any important
+///   difference → `13`. Input the text engine rejects (binary files) → `11`, as the byte
+///   comparison has already shown they differ.
+///
+/// `Err` carries a message for I/O and engine failures (the caller exits with `100`).
 pub fn quick_compare(
     vfs: &VfsManager,
     left: &bc_vfs::VfsPath,
     right: &bc_vfs::VfsPath,
     mode: Option<bc_engine_dir::criteria::ContentCompare>,
     formats: &FormatRegistry,
-) -> ExitCode {
-    todo!("bc-script::runner: quick compare → exit code")
+) -> Result<ExitCode, String> {
+    use bc_engine_dir::{content::compare_readers, CompareStatus, ContentCompare};
+    use bc_formats::FormatKind;
+    use std::io::Read;
+
+    let cancel = bc_core::cancel::NeverCancel;
+    let open = |path: &bc_vfs::VfsPath| {
+        vfs.resolve(path)
+            .and_then(|fs| fs.open_read(path))
+            .map_err(|e| format!("cannot read {path}: {e}"))
+    };
+    let (mut l, mut r) = (open(left)?, open(right)?);
+    let mode = mode.unwrap_or(ContentCompare::RulesBased);
+    if mode != ContentCompare::RulesBased {
+        let (status, _) =
+            compare_readers(&mut l, &mut r, mode, &cancel).map_err(|e| e.to_string())?;
+        return Ok(if status == CompareStatus::Same {
+            ExitCode::BinarySame
+        } else {
+            ExitCode::BinaryDifferent
+        });
+    }
+    let read = |reader: &mut dyn Read, path: &bc_vfs::VfsPath| {
+        let mut bytes = Vec::new();
+        reader
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+            .map_err(|e| format!("cannot read {path}: {e}"))
+    };
+    let (l, r) = (read(&mut l, left)?, read(&mut r, right)?);
+    if l == r {
+        return Ok(ExitCode::RulesBasedSame);
+    }
+    let format = |path: &bc_vfs::VfsPath| {
+        path.file_name()
+            .and_then(|name| formats.resolve(std::path::Path::new(name), Some(FormatKind::Text)))
+            .cloned()
+    };
+    let (Ok(l), Ok(r)) = (
+        bc_engine_text::TextContent::from_bytes(l, format(left)),
+        bc_engine_text::TextContent::from_bytes(r, format(right)),
+    ) else {
+        return Ok(ExitCode::BinaryDifferent);
+    };
+    let mut map = bc_engine_text::TextMap::new(l, r, None, bc_engine_text::TextRules::default());
+    let output = bc_engine_text::jobs::Align2Job::from_map(&map)
+        .execute(&cancel)
+        .map_err(|e| e.to_string())?;
+    map.set_alignment(output).map_err(|e| e.to_string())?;
+    let counts = map.statistics();
+    Ok(if counts.important > 0 {
+        ExitCode::RulesBasedDifferent
+    } else if counts.unimportant > 0 {
+        ExitCode::Similar
+    } else {
+        ExitCode::RulesBasedSame
+    })
+}
+
+/// [`quick_compare`] on two local files with the built-in plus user file formats (an
+/// unreadable user format folder falls back to the built-ins, as the folder compare does).
+pub fn quick_compare_files(
+    left: &std::path::Path,
+    right: &std::path::Path,
+    mode: Option<bc_engine_dir::criteria::ContentCompare>,
+) -> Result<ExitCode, String> {
+    for path in [left, right] {
+        if path.is_dir() {
+            return Err(format!(
+                "/qc compares two files; {} is a folder",
+                path.display()
+            ));
+        }
+        if !path.is_file() {
+            return Err(format!("/qc: {} does not exist", path.display()));
+        }
+    }
+    let formats = bc_formats::registry::user_formats_dir()
+        .ok()
+        .and_then(|dir| FormatRegistry::load_user_dir(&dir).ok())
+        .unwrap_or_else(FormatRegistry::with_builtins);
+    let vfs = VfsManager::local_only();
+    quick_compare(
+        &vfs,
+        &bc_vfs::VfsPath::local(left),
+        &bc_vfs::VfsPath::local(right),
+        mode,
+        &formats,
+    )
 }
 
 /// `/automerge` → exit code 0/14/101 per merge outcome.

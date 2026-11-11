@@ -1,7 +1,7 @@
 //! 命令行路由：开发用 `--` 开关的预处理，以及“自己开窗口 / 转交常驻实例 / 报错”的判定。
 //! 纯逻辑，无 I/O，便于单测。
 use bc_gui::bench::BenchOptions;
-use bc_script::cli::{CliArgs, Invocation, Switch};
+use bc_script::cli::{CliArgs, ContentCompare, Invocation, Switch};
 use std::path::{Path, PathBuf};
 
 /// 开发/测试用开关（不属于参考命令行）：`--bench[=N]`、`--bench-dir`、`--bench-table`、
@@ -124,6 +124,12 @@ pub enum Route {
     Standalone,
     /// 默认：已有实例则转交，否则成为常驻实例。
     SingleInstance,
+    /// `/qc[=type]`：本进程内比较两个文件，不开窗口、不转交，结果只用退出码（与一行文本）表达。
+    QuickCompare {
+        left: PathBuf,
+        right: PathBuf,
+        mode: Option<ContentCompare>,
+    },
     /// 参考命令行支持、GUI 尚未实现的调用；退出码 100。
     Unsupported(String),
 }
@@ -132,6 +138,9 @@ pub enum Route {
 pub fn route(dev: &DevFlags, cli: &CliArgs, perf_env: bool) -> Route {
     if cli.has(|s| matches!(s, Switch::Help)) {
         return Route::Help;
+    }
+    if let Some(route) = quick_compare(cli) {
+        return route;
     }
     if let Some(reason) = unsupported(cli) {
         return Route::Unsupported(reason);
@@ -143,10 +152,23 @@ pub fn route(dev: &DevFlags, cli: &CliArgs, perf_env: bool) -> Route {
     }
 }
 
-/// 尚未实现的调用（`/qc`、脚本、合并、会话名、补丁、包、stdin）。
+/// `/qc` 需要恰好两个路径；文件夹或缺失文件由比较本身报错（退出码 100）。
+fn quick_compare(cli: &CliArgs) -> Option<Route> {
+    let mode = cli.switches.iter().find_map(|s| match s {
+        Switch::QuickCompare(mode) => Some(*mode),
+        _ => None,
+    })?;
+    Some(match comparison_pair(&cli.invocation) {
+        Some((left, right)) => Route::QuickCompare { left, right, mode },
+        None => Route::Unsupported("/qc needs exactly two files: matcha /qc <left> <right>".into()),
+    })
+}
+
+/// 尚未实现的调用（脚本、合并、会话名、补丁、包、stdin）。常驻实例收到转交请求时也用它
+/// 拒绝：`/qc` 总在发起进程内执行，不应被转交。
 pub fn unsupported(cli: &CliArgs) -> Option<String> {
     if cli.has(|s| matches!(s, Switch::QuickCompare(_))) {
-        return Some("/qc quick compare is not implemented yet".into());
+        return Some("/qc runs in the starting process and cannot be handed off".into());
     }
     let what = match &cli.invocation {
         Invocation::Home
@@ -264,7 +286,8 @@ mod tests {
         assert_eq!(routed(&["--help"]), Route::Help);
         assert_eq!(routed(&["/solo", "-h"]), Route::Help);
         for args in [
-            &["/qc", "a", "b"][..],
+            &["/qc", "a"][..],
+            &["/qc", "a", "b", "c"],
             &["a", "b", "c"],
             &["@script.txt"],
             &["MySession"],
@@ -276,6 +299,28 @@ mod tests {
                 "{args:?} should be unsupported"
             );
         }
+    }
+
+    #[test]
+    fn quick_compare_runs_locally_with_its_type() {
+        let w = Path::new("C:/work");
+        assert_eq!(
+            routed(&["/qc", "a.txt", "b.txt"]),
+            Route::QuickCompare {
+                left: w.join("a.txt"),
+                right: w.join("b.txt"),
+                mode: None,
+            }
+        );
+        // `/solo`、`/silent` 不改变路由；类型原样带上。
+        assert_eq!(
+            routed(&["/solo", "/silent", "/qc=crc", "a.txt", "b.txt"]),
+            Route::QuickCompare {
+                left: w.join("a.txt"),
+                right: w.join("b.txt"),
+                mode: Some(ContentCompare::Crc),
+            }
+        );
     }
 
     #[test]

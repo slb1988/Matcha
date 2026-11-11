@@ -111,6 +111,11 @@ cargo xtask dist        # → target/dist/matcha-<version>-windows-<arch>/
 | `matcha-comp.exe` | GUI | VCS integration: hands off and returns at once |
 
 Windows fixes the subsystem at link time, hence two files; in Git Bash type `matcha.com`.
+
+Without a window: `matcha /qc a.txt b.txt` compares two files and exits with the reference
+code (rules-based 2 same / 12 similar / 13 different; `/qc=binary|crc|size` 1 / 11), printing
+the result as one line unless `/silent`. Scripts with `text-report` (diff to a file) are not
+implemented yet.
 macOS gets `Matcha.app` plus `bin/` symlinks (layout reserved, not yet verified on a Mac).
 Details: `docs/decisions/301-windows-subsystem-split.md`.
 

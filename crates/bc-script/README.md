@@ -65,5 +65,9 @@ and `command_line_reference.html`.
   whether the note should be corrected.
 - `touch` with an explicit timestamp and `filter cutoff:` dates depend on the OS regional
   format per the reference; a lenient parser plus ISO-8601 is the planned minimal choice.
-- `/qc` default type is "rules-based" per the reference; exit codes 2/12/13 are then
-  produced and 1/11 only for `/qc=binary|crc|size`.
+- `/qc` (implemented, `runner::quick_compare`): default type is "rules-based" per the
+  reference and yields 2/12/13; `/qc=binary|crc|size` yields 1/11. Choices made here:
+  line-ending-only differences are "rules-based same" (2); binary input in rules mode
+  reports 11; the result description is printed as one stdout line unless `/silent`
+  (the reference wording for this is not documented); folders and missing files are 100.
+  12 ("Similar") needs rules that mark something unimportant – the defaults mark nothing.

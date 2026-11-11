@@ -17,6 +17,9 @@
 //! 得到一对路径时改写为普通的 `<left> <right>` 参数，再走上面的单实例转交（开新标签页）。
 //! `/shellmenu=on|off` 写设置并注册/注销后退出。
 //!
+//! `/qc[=type]`：在本进程内比较两个文件，不开窗口、不参与单实例，结果为参考表中的退出码
+//! （1/11 字节模式，2/12/13 规则模式），并向 stdout 写一行结果（`/silent` 时不写）。
+//!
 //! 子系统（[`console`]）：Windows 上本程序是 GUI 子系统，双击不弹控制台。命令行用法走
 //! 同目录的控制台启动器 `matcha.com`（`PATHEXT` 让 `matcha …` 优先解析到 `.com`），它设置
 //! 等待标记并等本进程结束，本进程据此附着到它的控制台输出文本、以退出码结束。
@@ -109,6 +112,9 @@ fn main() -> ExitCode {
             console::tell(Kind::Info, &text);
             ExitCode::SUCCESS
         }
+        Route::QuickCompare { left, right, mode } => {
+            quick_compare(&left, &right, mode, cli.silent())
+        }
         Route::Unsupported(message) => {
             console::tell(Kind::Error, &message);
             exit(Code::UnknownError)
@@ -124,6 +130,27 @@ fn main() -> ExitCode {
             run_gui(dev.into_launch(pair), None)
         }
         Route::SingleInstance => single_instance(dev.into_launch(pair), args, wait),
+    }
+}
+
+/// `/qc`：不开窗口；结果一行写到 stdout（`/silent` 时不写），以参考表中的退出码结束。
+fn quick_compare(
+    left: &Path,
+    right: &Path,
+    mode: Option<cli::ContentCompare>,
+    silent: bool,
+) -> ExitCode {
+    match bc_script::runner::quick_compare_files(left, right, mode) {
+        Ok(code) => {
+            if !silent {
+                console::tell(Kind::Info, code.description());
+            }
+            exit(code)
+        }
+        Err(message) => {
+            console::tell(Kind::Error, &message);
+            exit(Code::UnknownError)
+        }
     }
 }
 

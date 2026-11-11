@@ -48,6 +48,7 @@ fn shipped(tag: &str) -> Option<(PathBuf, PathBuf)> {
 fn run(com: &Path, args: &[&str]) -> Output {
     Command::new(com)
         .args(args)
+        .current_dir(com.parent().unwrap())
         .env("PATH", "")
         .env(
             "MATCHA_INSTANCE",
@@ -63,13 +64,43 @@ fn errors_of_the_gui_program_reach_the_console_launcher() {
     let Some((com, dir)) = shipped("error") else {
         return;
     };
-    let out = run(&com, &["/qc", "a.txt", "b.txt"]);
+    let out = run(&com, &["/qc", "missing-a.txt", "missing-b.txt"]);
     let _ = std::fs::remove_dir_all(&dir);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(100), "{stderr}");
-    assert!(
-        stderr.contains("/qc quick compare is not implemented yet"),
-        "{stderr}"
+    assert!(stderr.contains("missing-a.txt does not exist"), "{stderr}");
+}
+
+/// `matcha /qc a b`：不开窗口，结果一行进 stdout，退出码为参考表中的值；`/silent` 不输出。
+#[test]
+fn quick_compare_prints_the_result_and_returns_its_code() {
+    let Some((com, dir)) = shipped("qc") else {
+        return;
+    };
+    std::fs::write(dir.join("a.txt"), "one\r\ntwo\r\n").unwrap();
+    std::fs::write(dir.join("b.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(dir.join("c.txt"), "one\nthree\n").unwrap();
+    let same = run(&com, &["/qc", "a.txt", "b.txt"]);
+    let different = run(&com, &["/qc", "a.txt", "c.txt"]);
+    let binary = run(&com, &["/qc=binary", "a.txt", "b.txt"]);
+    let silent = run(&com, &["/silent", "/qc", "a.txt", "c.txt"]);
+    let _ = std::fs::remove_dir_all(&dir);
+    let stdout = |out: &Output| String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert_eq!(
+        (same.status.code(), stdout(&same).as_str()),
+        (Some(2), "Rules-based same")
+    );
+    assert_eq!(
+        (different.status.code(), stdout(&different).as_str()),
+        (Some(13), "Rules-based differences")
+    );
+    assert_eq!(
+        (binary.status.code(), stdout(&binary).as_str()),
+        (Some(11), "Binary differences")
+    );
+    assert_eq!(
+        (silent.status.code(), stdout(&silent).as_str()),
+        (Some(13), "")
     );
 }
 
