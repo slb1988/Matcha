@@ -1,0 +1,319 @@
+{
+  "reference": "D:\\Github\\Matcha\\docs\\visual-parity\\reference\\folder-sync.png",
+  "maxDeviation": 2,
+  "scene": "folder-sync",
+  "dimensionMatch": true,
+  "pixelDifferences": 108384,
+  "actual": "D:\\Github\\Matcha\\target\\visual\\matcha\\folder-sync.png",
+  "colors": [],
+  "regions": [
+    {
+      "samples": 1072,
+      "region": "arrows",
+      "dy": 1,
+      "score": 7.875,
+      "reference": [
+        625,
+        301,
+        117,
+        529
+      ],
+      "actual": [
+        625,
+        302,
+        117,
+        528
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 1.0,
+      "edgeDeltas": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "dx": 0
+    },
+    {
+      "samples": 533,
+      "region": "headers.left",
+      "dy": 1,
+      "score": 2.983,
+      "reference": [
+        0,
+        301,
+        625,
+        24
+      ],
+      "actual": [
+        0,
+        302,
+        625,
+        24
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 1.0,
+      "edgeDeltas": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "dx": 0
+    },
+    {
+      "samples": 570,
+      "region": "headers.right",
+      "dy": 1,
+      "score": 4.591,
+      "reference": [
+        742,
+        301,
+        624,
+        24
+      ],
+      "actual": [
+        742,
+        302,
+        624,
+        24
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 1.0,
+      "edgeDeltas": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "dx": 0
+    },
+    {
+      "samples": 798,
+      "region": "log",
+      "dy": 0,
+      "score": 3.493,
+      "reference": [
+        0,
+        830,
+        1384,
+        106
+      ],
+      "actual": [
+        -2,
+        830,
+        1388,
+        106
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        -2,
+        0,
+        2,
+        0
+      ],
+      "dx": -2
+    },
+    {
+      "samples": 546,
+      "region": "menubar",
+      "dy": 0,
+      "score": 0.012,
+      "reference": [
+        0,
+        0,
+        1384,
+        27
+      ],
+      "actual": [
+        -2,
+        0,
+        1384,
+        27
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        -2,
+        0,
+        -2,
+        0
+      ],
+      "dx": -2
+    },
+    {
+      "samples": 768,
+      "region": "operations",
+      "dy": 0,
+      "score": 1.796,
+      "reference": [
+        0,
+        110,
+        1384,
+        191
+      ],
+      "actual": [
+        -2,
+        110,
+        1388,
+        192
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        -2,
+        0,
+        2,
+        1
+      ],
+      "dx": -2
+    },
+    {
+      "samples": 720,
+      "region": "paths",
+      "dy": 0,
+      "score": 0.13,
+      "reference": [
+        0,
+        70,
+        1384,
+        40
+      ],
+      "actual": [
+        1,
+        70,
+        1385,
+        40
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        1,
+        0,
+        2,
+        0
+      ],
+      "dx": 1
+    },
+    {
+      "samples": 532,
+      "region": "statusbar",
+      "dy": 0,
+      "score": 0.778,
+      "reference": [
+        0,
+        936,
+        1384,
+        25
+      ],
+      "actual": [
+        -2,
+        936,
+        1386,
+        25
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        -2,
+        0,
+        0,
+        0
+      ],
+      "dx": -2
+    },
+    {
+      "samples": 738,
+      "region": "toolbar",
+      "dy": 0,
+      "score": 0.069,
+      "reference": [
+        0,
+        27,
+        1384,
+        43
+      ],
+      "actual": [
+        -2,
+        27,
+        1388,
+        43
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 2.0,
+      "edgeDeltas": [
+        -2,
+        0,
+        2,
+        0
+      ],
+      "dx": -2
+    },
+    {
+      "samples": 656,
+      "region": "tree.left",
+      "dy": 0,
+      "score": 0.788,
+      "reference": [
+        0,
+        325,
+        625,
+        505
+      ],
+      "actual": [
+        0,
+        325,
+        625,
+        505
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 0.0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "dx": 0
+    },
+    {
+      "samples": 736,
+      "region": "tree.right",
+      "dy": 0,
+      "score": 0.802,
+      "reference": [
+        742,
+        325,
+        624,
+        505
+      ],
+      "actual": [
+        742,
+        325,
+        624,
+        505
+      ],
+      "pass": true,
+      "ambiguous": false,
+      "maxDeviation": 0.0,
+      "edgeDeltas": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "dx": 0
+    }
+  ]
+}
