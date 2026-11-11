@@ -40,7 +40,8 @@ requirements"); milestone and FR numbering in crate docs refer to it. Milestones
 - **No licensing, trial, registration or key handling of any kind.** The exit code `104`
   exists in the enumeration only because the reference table lists it; nothing produces it.
 - **No use of the reference product's name, abbreviations or icons in anything shipped.**
-  Executables are `matcha`, `matcha-comp`, `matcha-compc`. The `bc-` crate prefix and
+  Executables are `matcha`, `matcha-comp`, `matcha-compc` (shipped on Windows as
+  `matcha.exe`, `matcha-comp.exe`, `matcha.com`). The `bc-` crate prefix and
   the class names quoted in doc comments are internal engineering references to the
   analysis notes, not product branding. The crate directories `apps/bcompare` and
   `apps/bcomp` keep the spec's internal names; their binaries do not.
@@ -67,6 +68,8 @@ crates/
 apps/
   bcompare/                bin `matcha` (main GUI program)
   bcomp/                   bins `matcha-comp` (return immediately) and `matcha-compc` (wait for exit code)
+tools/
+  xtask/                   `cargo xtask dist`: per-platform distribution layout
 docs/
   ui-framework-decision.md egui prototype measurements and framework verdict
 ```
@@ -95,8 +98,21 @@ cargo run --release -p bcompare -- <left> <right>             # dual-pane protot
 cargo run --release -p bcompare -- <left> <right> --bench=600 # scroll benchmark
 ```
 
-`matcha-comp` / `matcha-compc` build but their launcher logic is `todo!()` and panics
-when run (scaffold).
+### Distribution: GUI without a console, command line with output
+
+```powershell
+cargo xtask dist        # → target/dist/matcha-<version>-windows-<arch>/
+```
+
+| file | subsystem | use |
+|---|---|---|
+| `matcha.exe` | GUI | double-click / Explorer menu / shortcut: opens the window, no console |
+| `matcha.com` | console | `matcha …` in cmd/PowerShell (`PATHEXT` prefers `.COM`): waits, prints text (redirectable), returns the exit code |
+| `matcha-comp.exe` | GUI | VCS integration: hands off and returns at once |
+
+Windows fixes the subsystem at link time, hence two files; in Git Bash type `matcha.com`.
+macOS gets `Matcha.app` plus `bin/` symlinks (layout reserved, not yet verified on a Mac).
+Details: `docs/decisions/301-windows-subsystem-split.md`.
 
 ## Discrepancies found while scaffolding
 
