@@ -24,6 +24,7 @@ pub mod home;
 pub mod legend;
 pub mod log_panel;
 pub mod perf;
+pub mod remote;
 pub mod snapshot;
 pub mod sync_view;
 pub mod table;
@@ -52,6 +53,14 @@ pub struct LaunchOptions {
 
 /// Start the native window. Blocks until the window closes.
 pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
+    run_with_remote(options, None)
+}
+
+/// 同 [`run`]，并把单实例转交请求（`remote`）接入窗口：每个请求开一个新标签页。
+pub fn run_with_remote(
+    options: LaunchOptions,
+    remote: Option<remote::RemoteInbox>,
+) -> Result<(), eframe::Error> {
     perf::mark("run:enter");
     // Overlap the system-font lookup with window creation.
     chrome::fonts::prefetch();
@@ -74,7 +83,13 @@ pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
     eframe::run_native(
         "matcha",
         native,
-        Box::new(move |cc| Ok(Box::new(app::MatchaApp::new(cc, options, capture_result)))),
+        Box::new(move |cc| {
+            let mut app = app::MatchaApp::new(cc, options, capture_result);
+            if let Some(inbox) = remote {
+                app.attach_remote(&cc.egui_ctx, inbox);
+            }
+            Ok(Box::new(app))
+        }),
     )?;
     if snapshot_mode {
         let outcome = result

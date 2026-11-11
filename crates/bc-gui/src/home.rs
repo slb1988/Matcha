@@ -42,7 +42,7 @@ pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
         .iter()
         .any(|path| crate::table::formats::table_path(path, &registry))
 }
-fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
+pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
     if left.is_dir() && right.is_dir() {
         HomeAction::OpenFolderCompare { left, right }
     } else if table_paths(&left, &right) {

@@ -327,3 +327,81 @@ fn empty_sessions_load_once_paths_are_entered() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
+    use crate::remote::{channel, Outcome, RemoteOpen};
+    use std::sync::{Arc, Mutex};
+    let root = std::env::temp_dir().join(format!("matcha-app-remote-{}", std::process::id()));
+    // 只用文件夹对：成功打开的文本比较会写入用户真实的最近列表。
+    let (dirs, swapped) = (
+        [root.join("l"), root.join("r")],
+        [root.join("r"), root.join("l")],
+    );
+    for d in &dirs {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let outcomes: Arc<Mutex<Vec<Outcome>>> = Default::default();
+    let done = |outcomes: &Arc<Mutex<Vec<Outcome>>>| {
+        let outcomes = outcomes.clone();
+        Some(Box::new(move |o| outcomes.lock().unwrap().push(o)) as crate::remote::Completion)
+    };
+    let open = |pair: &[std::path::PathBuf; 2], done| RemoteOpen {
+        left: Some(pair[0].clone()),
+        right: Some(pair[1].clone()),
+        done,
+    };
+
+    let ctx = egui::Context::default();
+    let mut app = home_app();
+    let (tx, inbox) = channel();
+    app.attach_remote(&ctx, inbox);
+    run(&ctx, &mut app, vec![]);
+    // 监听线程投递：每个请求开一个新标签页（与 Home 打开比较同一路由）。
+    assert!(tx.send(open(&dirs, done(&outcomes))).is_ok());
+    assert!(tx.send(open(&swapped, None)).is_ok());
+    // 无路径的转交只提到前台，不开页；等待方立即得到 Closed。
+    assert!(tx
+        .send(RemoteOpen {
+            left: None,
+            right: None,
+            done: done(&outcomes),
+        })
+        .is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 3);
+    assert!(matches!(app.tabs[1].view, View::FolderCompare(_)));
+    assert!(matches!(app.tabs[2].view, View::FolderCompare(_)));
+    assert_eq!(app.active_tab(), 2);
+    assert_eq!(*outcomes.lock().unwrap(), vec![Outcome::Closed]);
+    run(&ctx, &mut app, vec![]);
+
+    // 关闭被等待的那一页才通知等待方。
+    app.close_tab(&ctx, 2);
+    assert_eq!(outcomes.lock().unwrap().len(), 1);
+    app.close_tab(&ctx, 1);
+    assert_eq!(
+        *outcomes.lock().unwrap(),
+        vec![Outcome::Closed, Outcome::Closed]
+    );
+
+    // 打不开的比较：回到 Home 显示错误，等待方得到 Failed。
+    let missing = [root.join("missing-a.txt"), root.join("missing-b.txt")];
+    assert!(tx.send(open(&missing, done(&outcomes))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 1);
+    assert!(matches!(app.active_view(), View::Home(_)));
+    assert!(matches!(
+        outcomes.lock().unwrap().last(),
+        Some(Outcome::Failed(_))
+    ));
+
+    // 应用退出（标签页随应用一起丢弃）同样算会话结束。
+    assert!(tx.send(open(&dirs, done(&outcomes))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(outcomes.lock().unwrap().len(), 3);
+    drop(app);
+    assert_eq!(outcomes.lock().unwrap().last(), Some(&Outcome::Closed));
+    assert_eq!(outcomes.lock().unwrap().len(), 4);
+    let _ = std::fs::remove_dir_all(&root);
+}

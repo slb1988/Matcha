@@ -12,6 +12,7 @@ use crate::{
     },
     dir_view::DirCompareView,
     home::{HomeAction, HomeView, SessionKind},
+    remote::{Completion, Outcome, RemoteInbox, RemoteOpen},
     sync_view::SyncView,
     table::{TableAction, TableCompareView},
     text::{TextCompareView, ViewAction},
@@ -134,6 +135,8 @@ pub struct Tab {
     exit_asked: bool,
     /// 本页已确认可以退出（保存或放弃）。
     exit_cleared: bool,
+    /// 转交来的等待型会话：本页关闭（或随应用退出）时通知等待方。
+    on_close: Option<Completion>,
 }
 impl Tab {
     fn new(view: View) -> Self {
@@ -141,6 +144,15 @@ impl Tab {
             view,
             exit_asked: false,
             exit_cleared: false,
+            on_close: None,
+        }
+    }
+}
+impl Drop for Tab {
+    fn drop(&mut self) {
+        // 关页、原位换类型以外的丢弃（含应用退出）都算会话结束。
+        if let Some(done) = self.on_close.take() {
+            done(Outcome::Closed);
         }
     }
 }
@@ -174,6 +186,8 @@ pub struct MatchaApp {
     capture_requested: bool,
     table_perf_reported: bool,
     frame_log: Option<crate::perf::FrameLog>,
+    /// 单实例转交的请求队列（仅常驻实例有）。
+    remote: Option<RemoteInbox>,
 }
 impl MatchaApp {
     pub fn new(
@@ -246,7 +260,56 @@ impl MatchaApp {
             capture_requested: false,
             table_perf_reported: false,
             frame_log: crate::perf::frames_enabled().then(Default::default),
+            remote: None,
         }
+    }
+    /// 接入转交队列。
+    pub fn attach_remote(&mut self, ctx: &egui::Context, inbox: RemoteInbox) {
+        inbox.attach(ctx);
+        self.remote = Some(inbox);
+    }
+    /// 处理已到达的转交请求（`App::logic` 每帧调用，窗口最小化时也会调用）。
+    pub fn poll_remote(&mut self, ctx: &egui::Context) {
+        let requests = self.remote.as_ref().map(RemoteInbox::drain);
+        for request in requests.into_iter().flatten() {
+            self.open_remote(ctx, request);
+        }
+    }
+    /// 转交请求：两侧路径齐全则开新比较标签页（打不开时回 Home 显示错误），然后把
+    /// 窗口提到前台；没有路径时只提到前台。
+    pub fn open_remote(&mut self, ctx: &egui::Context, request: RemoteOpen) {
+        let RemoteOpen { left, right, done } = request;
+        match (left, right) {
+            (Some(left), Some(right)) => {
+                match Self::comparison_view(ctx, crate::home::routed(left, right)) {
+                    Some(Ok(view)) => {
+                        self.bench = None;
+                        self.open_tab(view);
+                        self.tabs[self.active].on_close = done;
+                    }
+                    error => {
+                        let message = match error {
+                            Some(Err(e)) => e,
+                            _ => "unsupported comparison".into(),
+                        };
+                        self.go_home();
+                        if let View::Home(home) = self.view_mut() {
+                            home.set_error(format!("Cannot open: {message}"));
+                        }
+                        if let Some(done) = done {
+                            done(Outcome::Failed(message));
+                        }
+                    }
+                }
+            }
+            _ => {
+                if let Some(done) = done {
+                    done(Outcome::Closed);
+                }
+            }
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
     /// 命令行给了两个路径时直接打开比较（唯一标签页，不附带 Home）；否则为 Home。
     fn launch_view(ctx: &egui::Context, options: &LaunchOptions) -> View {
@@ -446,7 +509,21 @@ impl MatchaApp {
     }
     /// Home 打开两侧路径的比较：成功则新开标签页，失败把错误写回 Home。
     fn open_comparison(&mut self, ctx: &egui::Context, action: HomeAction) {
-        let opened = match action {
+        let Some(opened) = Self::comparison_view(ctx, action) else {
+            return;
+        };
+        match opened {
+            Ok(view) => self.open_tab(view),
+            Err(e) => {
+                if let View::Home(home) = self.view_mut() {
+                    home.set_error(format!("Cannot open: {e}"));
+                }
+            }
+        }
+    }
+    /// 两侧路径的比较视图；`None` 表示不是打开比较的动作。
+    fn comparison_view(ctx: &egui::Context, action: HomeAction) -> Option<Result<View, String>> {
+        Some(match action {
             HomeAction::OpenTextCompare { left, right } => TextCompareView::open(&left, &right)
                 .map(|v| {
                     HomeView::record(&left, &right);
@@ -465,16 +542,8 @@ impl MatchaApp {
             HomeAction::OpenFolderSync { left, right } => Ok(View::FolderSync(Box::new(
                 SyncView::open(ctx, &left, &right),
             ))),
-            _ => return,
-        };
-        match opened {
-            Ok(view) => self.open_tab(view),
-            Err(e) => {
-                if let View::Home(home) = self.view_mut() {
-                    home.set_error(format!("Cannot open: {e}"));
-                }
-            }
-        }
+            _ => return None,
+        })
     }
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let mut home = false;
@@ -818,7 +887,10 @@ impl MatchaApp {
                 }
                 TabCommand::Replace(view) => {
                     self.bench = None;
+                    // 同一会话换类型：等待方仍等这个标签页。
+                    let done = self.tabs[self.active].on_close.take();
                     self.tabs[self.active] = Tab::new(view);
+                    self.tabs[self.active].on_close = done;
                 }
             }
         }
@@ -911,6 +983,10 @@ impl MatchaApp {
 impl eframe::App for MatchaApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         egui::Rgba::from(crate::chrome::theme::PANEL_BG).to_array()
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_remote(ctx);
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
