@@ -891,6 +891,17 @@ impl TextCompareView {
             self.filter = DisplayFilter::Differences;
             self.rebuild_projection();
         }
+        if scene == "dlg-text-session-settings" {
+            let draft = self.session_draft();
+            self.session
+                .show(draft, crate::chrome::dialog::Placement::ClientOnly);
+        }
+        if scene == "dlg-options" {
+            self.options.show(
+                &bc_session::prefs::Prefs::default(),
+                crate::chrome::dialog::Placement::ClientOnly,
+            );
+        }
         if scene == "text-find-bar" {
             self.find.options.pattern = "alpha".into();
             self.find.show();

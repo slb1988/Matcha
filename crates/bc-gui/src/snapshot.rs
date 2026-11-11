@@ -28,6 +28,8 @@ pub const SCENES: &[&str] = &[
     "home",
     "text-menu-edit",
     "text-find-bar",
+    "dlg-text-session-settings",
+    "dlg-options",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -59,7 +61,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 12] = [
+pub const REGISTRY: [Scene; 14] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -123,7 +125,27 @@ pub const REGISTRY: [Scene; 12] = [
         view: SceneView::Text,
         preset: Preset::FirstRow,
     },
+    // Dialog scenes: the dialog's client area fills a window of the
+    // reference client size (PrintWindow capture of the dialog alone).
+    Scene {
+        name: "dlg-text-session-settings",
+        view: SceneView::Text,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "dlg-options",
+        view: SceneView::Text,
+        preset: Preset::FirstRow,
+    },
 ];
+/// Client size for scenes that capture a dialog alone.
+pub fn scene_window_size(scene: &str) -> Option<[f32; 2]> {
+    match scene {
+        "dlg-text-session-settings" => Some([583.0, 563.0]),
+        "dlg-options" => Some([859.0, 655.0]),
+        _ => None,
+    }
+}
 pub fn is_scene(scene: Option<&str>) -> bool {
     scene.is_some_and(|s| REGISTRY.iter().any(|r| r.name == s))
 }
@@ -145,6 +167,9 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
         return Err(std::io::Error::other(
             "snapshot and benchmark modes are mutually exclusive",
         ));
+    }
+    if let Some(size) = scene_window_size(scene) {
+        options.window_size = Some(size);
     }
     options
         .snapshot_out
