@@ -1,73 +1,74 @@
-# visual-parity 交接文档（Codex → pi k3.1-pro）
+# visual-parity 交接文档
 
-更新：2026-11-11，协调者（Claude Code，ObsidianVault 会话）。目的：Codex 额度不足，后续波次改由 Orca 编排 pi（默认模型 `k3.1-pro`，thinking max）执行。本文件是后续协调者与 worker 的入口。
+更新：2026-11-11（第二次交接），协调者：pi k3.1-pro（ObsidianVault 会话）总控+review，实施 worker：Orca 编排 **claude opus high**。上一棒：Codex → pi k3.1-pro（2026-11-11 首次交接）。本文件是后续协调者与 worker 的唯一入口。
 
 ## 1. 目标与范围
 
 - 需求：Matcha 外观尽量一比一复刻参考工具（默认英文、浅色、100% 缩放、默认偏好）。真源：`openspec/changes/visual-parity/`（proposal、design D1–D8、tasks）。
 - 用户方向（必须遵守）：
   - **抓大放小**：只做比较时始终可见的核心 UI；琐碎像素不打磨，做不到列为已知差异。
-  - **范围**：共享 chrome + 文本比较主视图 + 文件夹比较主视图。**后置**：标签类（会话标签页、sheet 标签）、Home、表格/同步换肤、对话框、右键菜单、缩略图与行详情精调。
   - **串行**：一次只派一个实施 worker（共享桌面焦点与 CPU）。
-  - **参考工具只看一遍**：采集已完成，后续一律离线使用 `docs/visual-parity/reference/*.png`，**不得再启动参考工具**。
+  - **参考工具一律离线**：采集已完成，用 `docs/visual-parity/reference/*.png` + `tokens.json|md`。**不得再启动参考工具**（2026-11-11 曾授权 REA 实测一次，结论：REA 原生 UI 观测仅支持 macOS，Windows 上对本项目无实时观测价值，授权不再延续）。
 - 红线：不提取/描摹参考工具图标资源（图标为 `chrome/icons.rs` 原创绘制）；产品内不出现参考工具名称；不读取授权/密钥文件。
 
-## 2. 已完成
+## 2. 全景状态（截至 Wave 9）
 
-| 波 | 内容 | 证据 |
+**全部主视图与共享 chrome 已完成换肤**：文本（W2/2b）、文件夹（W3）、表格（W8）、同步（W9）、Home（W5）、菜单栏下拉与右键菜单（W6）、对话框 chrome + Session Settings + Options（W7）、性能/卡顿（W4）。快照场景 17 个全部 `-Verify` 通过；`cargo test --workspace` 451 通过；clippy 零警告。
+
+| 波 | 内容 | 报告 |
 |---|---|---|
-| 1A | 语料 `tools/visual/corpus/`、采集脚本、23 张参考截图（SHA256 两两不同）、`tokens.json`（34 色/43 度量/23 场景/菜单清单）、`compare.ps1`（并排图 + 命名区域偏差表） | `docs/worker-reports/visual-parity-wave1A.md`，合入 `11334ae` |
-| 1B | `crates/bc-gui/src/chrome/`（fonts 跟随系统消息字体、theme 取 tokens、menubar/toolbar/pathbar/statusbar/splitter/scrollbar、原创 icons）、`snapshot.rs`（`--snapshot=<scene>` 确定性 PNG）、`tools/visual/snap-matcha.ps1` | `docs/worker-reports/visual-parity-wave1B.md`，HEAD `8ace066` |
-| 2 | 文本比较主视图核心外观（任务组 3）——**状态见第 3 节** | `docs/worker-reports/visual-parity-wave2.md` |
+| 1A/1B | 语料/采集/tokens/chrome 基础/snapshot 设施 | `visual-parity-wave1A.md` / `wave1B.md` |
+| 2/2b | 文本比较主视图核心外观 + 收口 | `visual-parity-wave2.md` / `wave2b.md` |
+| 3 | 文件夹比较主视图换肤 | `visual-parity-wave3.md` |
+| 7.1 | 核心版收尾报告 | `docs/reference-parity/visual.md` |
+| 4 | UI 卡顿优化（6 项热点修复）+ 参考样式文本缩略图 | `visual-parity-wave4.md` |
+| 5 | Home 换肤 + 折叠分隔行 9 px（变高行） | `visual-parity-wave5.md` |
+| 6 | 经典 popup（菜单栏/右键菜单）+ 行详情精调 + 停靠 Find bar | `visual-parity-wave6.md` |
+| 7 | 对话框 chrome + Session Settings（文本）+ Options | `visual-parity-wave7.md` |
+| 8 | 表格比较主视图换肤 | `visual-parity-wave8.md` |
+| 9 | 文件夹同步视图换肤 | `visual-parity-wave9.md` |
 
-关键实测：UI 字体 = 系统消息字体（本机 Microsoft YaHei UI 9pt = 12 px）；编辑器 Consolas 10pt；文本行高 15 px；面板 `#F0F0F0`、重要差异底 `#FCE6E6`、不重要差异底 `#EEEEFF`、工具栏选中 `#CCE8FF`/`#99D1FF`；客户区 1384×961。完整值见 `docs/visual-parity/tokens.md`。
+关键实测：UI 字体 = 系统消息字体（本机 Microsoft YaHei UI 9pt = 12 px）；编辑器 Consolas 10pt；文本行高 15 px、表格行高 18 px；面板 `#F0F0F0`、重要差异底 `#FCE6E6`、不重要差异底 `#EEEEFF`；客户区 1384×961。完整值见 `docs/visual-parity/tokens.md`。
 
-## 3. Wave 2 收尾状态
+## 3. 剩余工作（候选，按可见度排序；均需用户再开）
 
-**Wave 2 已完成**（Wave 2b 收口任务 3.4，提交 `6586a7e` + 报告提交，报告 `docs/worker-reports/visual-parity-wave2b.md`）：
+1. **表格/同步的 Session Settings 对话框**：复用 `chrome/dialog.rs`，参照 W7 文本版做法。
+2. **CJK 列宽拟合**（W8 遗留）：表格列宽按 ASCII 拟合，CJK 内容未对齐。
+3. **行为向（非外观）**：默认比较规则对齐——参考默认 `case_unimportant=true`，Matcha 默认 false。需另立行为 change（先离线核实 `reference/dlg-text-session-settings.png` 的 Importance 默认态——注意该参考图只有 Specs tab，证据不足，可能需协调者决策）。W8 另有「参考默认表头/键规则目前只在快照 preset 生效」的同类跟进。
+4. **小项**：折叠行 [+] 展开钮（W5 已知差异）；Edit 菜单内容/禁用态与参考对齐（W6 只换肤未对齐内容）；sheet 标签（表格多 sheet，原后置项）。
+5. **会话标签页不做**：参考截图单会话下无标签栏，Matcha 亦无——不是差距。
 
-- 核心区域全部达标：自动扫描通过 menubar/toolbar/pathbar.*/paneStatus.*/pane.left/details 等 9–10 项；info.right、gutter.right、pane.right、splitter、statusbar 的自动 FAIL 经人工逐像素测量证实为平坦色带检测噪声（真实偏差 ≤1 px），证据在报告内。`compare.ps1` 判定规则未改。
-- 颜色样本 16/21（Wave 2 为 12/21）；未通过 5 项（diffForeground/lineNumber/minorForeground 为 egui 灰度 AA vs GDI ClearType 笔划强度差；pathSelection 因本机路径短于参考截图机；toolbarToggleBorder 差 1 px 按钮位置）。
-- 可见修复：缺行/EOF 改为参考的 8 px 菱格位图（逐像素一致）；路径栏右侧无边框 16 px 图标钮 + 编辑框内嵌历史箭头 + 快照复刻路径全选；Differences/Same 新增「N FILTERED LINES」灰色分隔行（15 px，参考 9 px，列为已知差异）；cursor 场景光标列 5。
-- `snap-matcha.ps1 -All -Verify` 六场景两次哈希一致；clippy 零警告、424 tests passed。
-- 性能 A/B（基线 `8ace066` worktree 构建）：文本 p99 +1.3%、表格 +5.5%（Wave 1B 的 +15.9% 未重现），各 1 轮均 <10%。
-- 已知差异（详见 Wave 2b 报告）：缩略图旧导航条（后置）、折叠行 15 px 行高、菜单栏无更新提示链接、字形级 AA 强度差。
+## 4. 跟进项
 
-## 4. 剩余工作（按顺序，串行）
-
-1. ~~**Wave 2b：收口任务 3.4**~~ **已完成**（见第 3 节，报告 `docs/worker-reports/visual-parity-wave2b.md`）。
-2. ~~**Wave 3：文件夹比较主视图（任务 4.1）**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave3.md`，提交 `9d438e6`+`e127a6d`）：菜单栏/工具栏/过滤栏/路径栏/双树/日志区/状态栏全部按参考换肤；三场景命名区域 ≤2 px（多数精确 0），颜色样本 basic 2/2、expanded 5 项为字形 AA 已知差异；Modified 本地时区格式（仅比较视图）；排序/聚合属比较行为未改（行序与参考不同，记为已知差异）；同步视图零改动。文件夹同步（4.2）与对照收口（4.3）未做。
-3. ~~**7.1 收尾报告（核心版）**~~ **已完成**（协调者，`docs/reference-parity/visual.md`）：`docs/reference-parity/visual.md`，每场景并排图 + 区域偏差表 + 已知差异；clippy/test/基准回归；`tasks.md` 的 Workflow follow-up 记录。
-4. ~~**Wave 4：UI 卡顿优化 + 缩略图靠齐**~~ **已完成**（报告 `docs/worker-reports/visual-parity-wave4.md`，提交 `34e9541`..`ff2a46d`）：文本/文件夹滚轮去拖尾；启动到可交互文本 −55%、文件夹 −50%（PowerShell 主机查询移出 UI 线程/并行）；文件夹树线点阵裁剪（`--bench-dir` p99 21.3→0.53 ms，基线曾 pass=false）；状态栏选中统计缓存；文本缩略图换为参考样式（三场景缩略图区逐像素一致），新增 `text-long-scrolled` 场景。测量设施：`MATCHA_FRAME_PERF=1`、`MATCHA_PERF=1`、`interaction_latency` 忽略测试。REA 原生 UI 观测仅支持 macOS，悬停/按下态仍未测量。
-5. 后置项（第 1 节）等用户再开。
-
-## 5. 跟进项（不在外观范围）
-
-- **默认比较规则与参考对齐**：参考 text-basic 中 `beta`/`BETA` 显示为同一行蓝色不重要差异，说明参考默认规则下大小写不重要；Matcha 默认 `case_unimportant=false`。ADR 007 写明黄金语料未继承未核实的默认配置。需另立行为 change：先离线看 `reference/dlg-text-session-settings.png` 等核实默认 Importance，再改默认值。Wave 2 仅在快照 preset 中显式设 `case_unimportant=true`。
-- **性能暂留**：Wave 2b 复测：文本 `--bench` update p99 +1.3%、表格 `--bench-table` +5.5%（基线 `8ace066` worktree 构建，各 1 轮）；Wave 1B 的表格 +15.9% 未重现。日志 `target/visual/wave2b/bench/`。
+- **性能基线**：W4 后文本/表格/文件夹 bench 全部健康（dir p99 0.53 ms）。W8 表格 p99 +55%（1.4→2.0–2.4 ms）系参考密度（每帧单元格 +67%）所致，协调者裁决接受为已知差异——**性能判断以 16 ms 帧预算为准，不看相对百分比**。日常回归用 `--bench`/`--bench-table`/`--bench-dir` + `MATCHA_FRAME_PERF=1` 帧直方图。
+- **REA**：claude 用户级 MCP 已配置 `rea`（`npx rea-agents@6.3.0 mcp`，与本机 pi 配置一致）；Windows 上 `observe_native_ui` 等原生观测返回 capability_unavailable，仅二进制静态分析可用。
 - **fmt 历史债**：约 39 个历史文件 `cargo fmt --check` 不通过，未授权全仓 fmt；worker 只格式化自己触及的文件。
 
-## 6. 编排方法（给下一任协调者）
+## 5. 编排方法（给下一任协调者）
 
-- Run：`run_b4d3a81ffc50`（可继续用，或新建）。worktree 选择器：`id:b33aa5f6-08d1-4108-997e-9a64fb877e52::D:/Github/Matcha`（master）。
-- 派发：`orca orchestration worker-start --spec "<spec 文本>" --worktree <上面选择器> --agent pi --json`（pi 默认模型即 `k3.1-pro`，thinking max；无需 `--model`）。spec 写成文件再读入。
-- 一个 worker 收尾后再派下一个；同一 worktree 不允许两个提交者。
-- 每次 `worker_done` 后**先机械核验再评审**：`git log/show --stat`（实现规模）、`rustfmt --check` 触及文件、`cargo clippy -D warnings`/`cargo test` 结果、快照 PNG 是否真实且与场景对应（`sha256sum` 去重 + 打开看图）、`compare.ps1` 并排图目检。曾出现 worker 报 succeeded 但交付空壳/复制图片充数，必须核验。
-- 已知 pi 坑：pi worker 在 `fetch failed`/上游过载时可能停在 TUI 不发 `worker_done`，用 `orca terminal send --terminal <handle> --text "继续" --enter` 催；长时间无心跳先 `worker-show` 看 liveness，不要盲目重派。
-- worker spec 模板参考：ObsidianVault `.claude/plans/Matcha编排-visual-parity-wave2.md`（Target / Change / Constraints / Observable acceptance 结构）。spec 中必须写明：不启动参考工具、抓大放小、只动指定文件、验收证据由 worker 自己产出、做不到就 ask 或如实报 failed。
+- Run：`run_9eca4b78596e`（W4–W9 在用；新建亦可）。worktree 选择器：`id:b33aa5f6-08d1-4108-997e-9a64fb877e52::D:/Github/Matcha`（master）。
+- 派发新 session：`orca orchestration worker-start --spec "$(cat <spec文件>)" --worktree <选择器> --agent claude --model opus --effort high --json`；核对回执 `launch.effective` 与 requested 一致才算数。
+- 复用 worker（连续迭代期推荐）：先 `task-create --spec ...`，再 `worker-start --task <id> --terminal <handle> --worktree <选择器>`（**复用终端也必须带 --worktree**，否则报 terminal_worktree_mismatch）。worker_done 后 `worker-retain` 保终端。
+- spec 一律写文件再读入（模板见 ObsidianVault `.claude/plans/Matcha编排-visual-parity-wave{4..9}.md`）：Target / Change / Constraints / Observable acceptance；写明抓大放小、不启动参考工具、验收证据由 worker 产出、做不到就 ask 或如实 failed。
+- 等待：`orca orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 880000 --json`（心跳行用 `grep -v '"_keepalive"'` 滤掉）；超时是 checkpoint 不是失败；`worker-show` 看 liveness，worker 提问用 `reply --id <msg_id>` 回答后 ack 整批。
+- 每次 `worker_done` 后**先机械核验再评审**：`git log --stat`、clippy、test 总数核对、`snap -All -Verify` 日志计数、assets PNG `sha256sum` 去重 + 并排图目检。曾出现 worker 报 succeeded 但交付空壳，必须核验。
+- 成本汇报：收尾跑 `python <ObsidianVault>/.claude/skills/orchestration-ops/orca_coordinator.py usage <run_id>`（注意它把 claude worker 误记为 pi，claude 实际 cost 不在其口径内）。
+- claude worker 坑：`claude mcp add` 在 git-bash 下要给 `/d /c` 加 `MSYS2_ARG_CONV_EXCL="*"`，否则被转成路径。
 
-## 7. 关键文件
+## 6. 关键文件
 
 - 规格：`openspec/changes/visual-parity/{proposal,design,tasks}.md`、`specs/*/spec.md`
-- 外观真源：`docs/visual-parity/tokens.json`、`tokens.md`、`reference/*.png`、`supplemental/`（菜单树截图与 UIA 结构）
-- 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`tools/visual/snap-matcha.ps1 [-Scene|-All] [-Verify]`、`cargo run --release -p bcompare -- --snapshot=<scene>`
-- 代码：`crates/bc-gui/src/chrome/`、`snapshot.rs`、`text/`、`dir_view.rs`、`app.rs`
-- 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2,2b,3,4}.md`
-- 性能：`MATCHA_FRAME_PERF=1`（帧直方图）、`MATCHA_PERF=1`（启动打点）、`cargo test --release -p bc-gui --lib interaction_latency -- --ignored --nocapture`
+- 外观真源：`docs/visual-parity/tokens.json`、`tokens.md`、`reference/*.png`、`supplemental/`
+- 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`snap-matcha.ps1 [-Scene|-All] [-Verify]`（17 场景）、`manual-verify-*.py`（元素级测量）
+- 代码：`crates/bc-gui/src/chrome/`（含 wave4 `wheel.rs`、wave6 `popup.rs`、wave7 `dialog.rs`）、`snapshot.rs`、`text/`、`table/`、`dir_view.rs`、`sync_view.rs`、`home.rs`、`dialogs/`、`app.rs`
+- 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2,2b,3,4,5,6,7,8,9}.md` + `assets/` + `evidence/`
+- 性能设施：`MATCHA_FRAME_PERF=1`（帧直方图）、`MATCHA_PERF=1`（启动打点）、`cargo test --release -p bc-gui --lib interaction_latency -- --ignored --nocapture`
 
-## 8. worker 纪律（Wave 2b 教训，2026-11-11）
+## 7. worker 纪律（沿用 + 增补）
 
-- **字形像素不计**：egui 灰度 AA 与 GDI ClearType 的笔划强度差不计入对照；落在文字笔划上的颜色样本一律记已知差异，不得叠画、加粗、改字号去凑（Wave 2b 曾为行号灰度 159 vs 107 空转 1 小时、约 $56）。
+- **字形像素不计**：egui 灰度 AA 与 GDI ClearType 的笔划强度差不计入对照；落在文字笔划上的颜色样本一律记已知差异，不得叠画、加粗、改字号去凑。
 - **每区域最多两轮调整**，仍不达标写已知差异与原因。
-- **时间盒**：单个 worker 目标 ≤ 90 分钟出第一个可验收提交；超过 60 分钟无提交，协调者应读终端判断是否在抠琐碎细节并叫停。
+- **时间盒**：单个 worker ≤ 90 分钟出第一个可验收提交；超 60 分钟无提交，协调者读终端判断是否在抠琐碎细节并叫停。
 - `compare.ps1` 对平坦色带边界的自动 FAIL 可能是检测噪声，以人工像素测量为准并在报告给证据；不得改判定规则让其通过。
+- 性能回归按绝对帧时间裁决（16 ms 预算），相对百分比只作线索；bench 超 10% 先补测到 3 轮交叉再下结论。
+- PowerShell 脚本改动注意勿引入 BOM（W4 踩过，会破坏执行）。
