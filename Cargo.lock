@@ -204,6 +204,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bc-instance"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "bc-jobs"
 version = "0.1.0"
 dependencies = [
