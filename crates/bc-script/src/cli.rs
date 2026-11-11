@@ -7,7 +7,7 @@
 
 use bc_engine_dir::criteria::ContentCompare;
 use bc_session::SessionKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Every documented switch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,9 +78,18 @@ pub enum Invocation {
     /// Two files → view chosen by file format (or `/fv`).
     Files(PathBuf, PathBuf),
     /// Three files → Text Merge (left, right, center).
-    Merge3 { left: PathBuf, right: PathBuf, center: PathBuf },
+    Merge3 {
+        left: PathBuf,
+        right: PathBuf,
+        center: PathBuf,
+    },
     /// Four files → Text Merge with output.
-    Merge4 { left: PathBuf, right: PathBuf, center: PathBuf, output: PathBuf },
+    Merge4 {
+        left: PathBuf,
+        right: PathBuf,
+        center: PathBuf,
+        output: PathBuf,
+    },
     /// `@script [args…]`
     Script { path: PathBuf, args: Vec<String> },
     /// `.bcpkg` → import settings.
@@ -101,13 +110,49 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
-    /// Parse `std::env::args().skip(1)`.
+    /// Parse `std::env::args().skip(1)`; relative positionals resolve against the
+    /// process working directory.
     pub fn parse<I, S>(args: I) -> Result<CliArgs, CliError>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        todo!("bc-script::cli: switch parsing + positional inference")
+        let cwd = std::env::current_dir().unwrap_or_default();
+        Self::parse_in(args, &cwd)
+    }
+
+    /// 同 [`parse`](Self::parse)，但相对路径按 `cwd` 解析——单实例转交时以调用方进程的
+    /// 工作目录为准，而不是常驻实例的。
+    pub fn parse_in<I, S>(args: I, cwd: &Path) -> Result<CliArgs, CliError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut switches = Vec::new();
+        let mut positional: Vec<String> = Vec::new();
+        let mut args = args.into_iter().map(|a| a.as_ref().to_string());
+        while let Some(arg) = args.next() {
+            // `@script` 之后的参数全部属于脚本。
+            if positional.is_empty() && arg.len() > 1 && arg.starts_with('@') {
+                let path = resolve(cwd, &arg[1..]);
+                return Ok(CliArgs {
+                    switches,
+                    invocation: Invocation::Script {
+                        path,
+                        args: args.collect(),
+                    },
+                });
+            }
+            match parse_switch(&arg)? {
+                Some(switch) => switches.push(switch),
+                None => positional.push(arg),
+            }
+        }
+        let invocation = infer(cwd, positional)?;
+        Ok(CliArgs {
+            switches,
+            invocation,
+        })
     }
 
     pub fn has(&self, pred: impl Fn(&Switch) -> bool) -> bool {
@@ -141,5 +186,325 @@ impl std::error::Error for CliError {}
 
 /// Usage text printed by `/?` on a console (wording aligned with the reference, spec §5).
 pub fn usage() -> String {
-    todo!("bc-script::cli: usage text")
+    const LINES: &[&str] = &[
+        "Usage: matcha [<switches>] [<left> [<right> [<center> [<output>]]]]",
+        "       matcha [<switches>] @<script> [<script args>]",
+        "",
+        "Positional arguments:",
+        "  (none)                  Home view",
+        "  <folder> <folder>       Folder Compare",
+        "  <file> <file>           Compare (view chosen by file format, or /fv)",
+        "  <l> <r> <center> [<o>]  Text Merge (with output file)",
+        "  <name>                  Saved session or workspace",
+        "  <file.bcpkg>            Import settings package",
+        "  <file.diff|.patch>      Text Patch",
+        "  -                       Read stdin as a file",
+        "",
+        "Switches (/ or - prefix):",
+        "  /? /h /help             Show this help",
+        "  /automerge              Automatically merge (with /mergeoutput)",
+        "  /center=<file>          Center file for merges",
+        "  /closescript            Close the script window when finished",
+        "  /edit                   Open in edit mode",
+        "  /expandall              Expand all folders",
+        "  /favorleft /favorright  Favor one side when merging",
+        "  /filters=<masks>        File filters for folder sessions",
+        "  /force                  Force the merge output to be written",
+        "  /fv=<type>              Force the view type (e.g. \"Text Compare\")",
+        "  /iu                     Ignore unimportant differences",
+        "  /mergeoutput=<path>     Merge output file",
+        "  /nobackups              Do not create backup files",
+        "  /qc[=size|crc|binary]   Quick compare (rules-based without a value)",
+        "  /reviewconflicts        Review merge conflicts",
+        "  /ro /ro1 /ro2           Read-only (all / left / right)",
+        "  /savetarget=<file>      File to save to",
+        "  /silent                 Suppress all interaction",
+        "  /solo                   Force a new instance",
+        "  /sync                   Open in Folder Sync",
+        "  /title1..4=<title>      Pane titles (left, right, center, output)",
+        "  /vcs1..4=<path>         Version-control paths",
+    ];
+    let mut text = LINES.join("\n");
+    text.push('\n');
+    text
+}
+
+fn error(message: impl Into<String>) -> CliError {
+    CliError {
+        message: message.into(),
+    }
+}
+
+fn resolve(cwd: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
+}
+
+/// 识别开关；`None` 表示位置参数。`-` 前缀在任何平台都是开关；`/` 前缀在 Windows 上
+/// 是开关，在 unix 上只有已知开关名才算（否则 `/home/...` 会被误判）。
+fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
+    let Some(body) = arg
+        .strip_prefix("--")
+        .or_else(|| arg.strip_prefix('-'))
+        .or_else(|| arg.strip_prefix('/'))
+    else {
+        return Ok(None);
+    };
+    if body.is_empty() {
+        // 单独的 `-` 表示 stdin。
+        return Ok(None);
+    }
+    let (name, value) = match body.split_once('=') {
+        Some((n, v)) => (n, Some(v)),
+        None => (body, None),
+    };
+    let lower = name.to_ascii_lowercase();
+    let flag = |s: Switch| match value {
+        None => Ok(Some(s)),
+        Some(_) => Err(error(format!("switch {name} does not take a value"))),
+    };
+    let need = || match value {
+        Some(v) if !v.is_empty() => Ok(v.to_string()),
+        _ => Err(error(format!("switch {name} requires a value"))),
+    };
+    // `/title1..4` 与 `lefttitle` 等别名 → 0 起的窗格序号。
+    let indexed = |prefix: &str, aliases: [&str; 4]| -> Option<u8> {
+        if let Some(Ok(n @ 1..=4)) = lower.strip_prefix(prefix).map(str::parse::<u8>) {
+            return Some(n - 1);
+        }
+        aliases.iter().position(|a| *a == lower).map(|i| i as u8)
+    };
+    match lower.as_str() {
+        "?" | "h" | "help" => flag(Switch::Help),
+        "automerge" => flag(Switch::AutoMerge),
+        "center" => Ok(Some(Switch::Center(PathBuf::from(need()?)))),
+        "closescript" => flag(Switch::CloseScript),
+        "edit" => flag(Switch::Edit),
+        "expandall" => flag(Switch::ExpandAll),
+        "favorleft" => flag(Switch::FavorLeft),
+        "favorright" => flag(Switch::FavorRight),
+        "filters" => Ok(Some(Switch::Filters(need()?))),
+        "force" => flag(Switch::Force),
+        "fv" => {
+            let kind = need()?;
+            SessionKind::from_force_view_name(&kind)
+                .map(|k| Some(Switch::ForceView(k)))
+                .ok_or_else(|| error(format!("unknown view type for /fv: {kind}")))
+        }
+        "iu" => flag(Switch::IgnoreUnimportant),
+        "mergeoutput" | "mo" => Ok(Some(Switch::MergeOutput(PathBuf::from(need()?)))),
+        "nobackups" => flag(Switch::NoBackups),
+        "qc" => {
+            let kind = match value.map(str::to_ascii_lowercase).as_deref() {
+                None | Some("") | Some("rules") | Some("rules-based") => None,
+                Some("size") => Some(ContentCompare::Size),
+                Some("crc") => Some(ContentCompare::Crc),
+                Some("binary") => Some(ContentCompare::Binary),
+                Some(other) => return Err(error(format!("unknown /qc type: {other}"))),
+            };
+            Ok(Some(Switch::QuickCompare(kind)))
+        }
+        "reviewconflicts" => flag(Switch::ReviewConflicts),
+        "ro" | "readonly" => flag(Switch::ReadOnly),
+        "ro1" | "lro" => flag(Switch::ReadOnlyLeft),
+        "ro2" | "rro" => flag(Switch::ReadOnlyRight),
+        "savetarget" => Ok(Some(Switch::SaveTarget(PathBuf::from(need()?)))),
+        "silent" => flag(Switch::Silent),
+        "solo" => flag(Switch::Solo),
+        "sync" => flag(Switch::Sync),
+        _ => {
+            if let Some(i) = indexed(
+                "title",
+                ["lefttitle", "righttitle", "centertitle", "outputtitle"],
+            ) {
+                Ok(Some(Switch::Title(
+                    i,
+                    value.unwrap_or_default().to_string(),
+                )))
+            } else if let Some(i) =
+                indexed("vcs", ["leftvcs", "rightvcs", "centervcs", "outputvcs"])
+            {
+                Ok(Some(Switch::Vcs(i, need()?)))
+            } else if arg.starts_with('/') && !cfg!(windows) {
+                // unix 绝对路径。
+                Ok(None)
+            } else {
+                Err(error(format!("unknown switch: {arg}")))
+            }
+        }
+    }
+}
+
+/// 位置参数推断：按个数，再按 `-`、扩展名与目录判断。
+fn infer(cwd: &Path, positional: Vec<String>) -> Result<Invocation, CliError> {
+    let ext = |p: &Path| {
+        p.extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    let mut paths = positional.iter().map(|p| resolve(cwd, p));
+    let mut next = || paths.next().unwrap_or_default();
+    Ok(match positional.len() {
+        0 => Invocation::Home,
+        1 => {
+            let raw = &positional[0];
+            let path = next();
+            if raw == "-" {
+                Invocation::Stdin
+            } else if ext(&path) == "bcpkg" {
+                Invocation::Package(path)
+            } else if matches!(ext(&path).as_str(), "diff" | "patch") {
+                Invocation::Patch(path)
+            } else if path.exists() || raw.contains(['/', '\\', ':']) {
+                Invocation::Single(path)
+            } else {
+                // 既不存在也不像路径：按已保存会话名处理（会话/工作区由打开方查找）。
+                Invocation::Session(raw.clone())
+            }
+        }
+        2 => {
+            let (left, right) = (next(), next());
+            if left.is_dir() && right.is_dir() {
+                Invocation::Folders(left, right)
+            } else {
+                Invocation::Files(left, right)
+            }
+        }
+        3 => Invocation::Merge3 {
+            left: next(),
+            right: next(),
+            center: next(),
+        },
+        4 => Invocation::Merge4 {
+            left: next(),
+            right: next(),
+            center: next(),
+            output: next(),
+        },
+        n => {
+            return Err(error(format!(
+                "too many arguments ({n}); at most four paths are accepted"
+            )))
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cwd() -> PathBuf {
+        std::env::temp_dir().join("matcha-cli-cwd")
+    }
+    fn parse(args: &[&str]) -> CliArgs {
+        CliArgs::parse_in(args, &cwd()).unwrap()
+    }
+
+    #[test]
+    fn no_arguments_open_home() {
+        assert_eq!(parse(&[]).invocation, Invocation::Home);
+    }
+
+    #[test]
+    fn two_folders_infer_folder_compare_otherwise_files() {
+        let dir = std::env::temp_dir();
+        let d = dir.to_string_lossy().to_string();
+        assert_eq!(
+            parse(&[&d, &d]).invocation,
+            Invocation::Folders(dir.clone(), dir.clone())
+        );
+        assert_eq!(
+            parse(&["a.txt", "sub/b.txt"]).invocation,
+            Invocation::Files(cwd().join("a.txt"), cwd().join("sub/b.txt"))
+        );
+    }
+
+    #[test]
+    fn switches_accept_both_prefixes_and_any_case() {
+        let cli = parse(&[
+            "/SOLO",
+            "-ro2",
+            "/title1=Base",
+            "/qc=crc",
+            "/fv=Text Compare",
+            "x/a",
+            "x/b",
+        ]);
+        assert!(cli.solo());
+        assert_eq!(
+            cli.switches,
+            vec![
+                Switch::Solo,
+                Switch::ReadOnlyRight,
+                Switch::Title(0, "Base".into()),
+                Switch::QuickCompare(Some(ContentCompare::Crc)),
+                Switch::ForceView(SessionKind::TextCompare),
+            ]
+        );
+        assert!(matches!(cli.invocation, Invocation::Files(..)));
+        assert_eq!(parse(&["/qc"]).switches, vec![Switch::QuickCompare(None)]);
+        assert_eq!(
+            parse(&["/righttitle=R"]).switches,
+            vec![Switch::Title(1, "R".into())]
+        );
+        assert_eq!(parse(&["/?"]).switches, vec![Switch::Help]);
+    }
+
+    #[test]
+    fn script_takes_the_remaining_arguments() {
+        let cli = parse(&["/silent", "@run.txt", "a", "/b"]);
+        assert!(cli.silent());
+        assert_eq!(
+            cli.invocation,
+            Invocation::Script {
+                path: cwd().join("run.txt"),
+                args: vec!["a".into(), "/b".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn positional_kinds() {
+        assert_eq!(parse(&["-"]).invocation, Invocation::Stdin);
+        assert!(matches!(
+            parse(&["x.bcpkg"]).invocation,
+            Invocation::Package(_)
+        ));
+        assert!(matches!(
+            parse(&["fix.PATCH"]).invocation,
+            Invocation::Patch(_)
+        ));
+        assert_eq!(
+            parse(&["MySession"]).invocation,
+            Invocation::Session("MySession".into())
+        );
+        assert!(matches!(
+            parse(&["dir/missing.txt"]).invocation,
+            Invocation::Single(_)
+        ));
+        assert!(matches!(
+            parse(&["a", "b", "c"]).invocation,
+            Invocation::Merge3 { .. }
+        ));
+        assert!(matches!(
+            parse(&["a", "b", "c", "d"]).invocation,
+            Invocation::Merge4 { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_bad_switches_and_too_many_paths() {
+        let bad = |args: &[&str]| CliArgs::parse_in(args, &cwd()).is_err();
+        assert!(bad(&["-bogus"]));
+        assert!(bad(&["/solo=1"]));
+        assert!(bad(&["/fv=Nope"]));
+        assert!(bad(&["/qc=fast"]));
+        assert!(bad(&["/mergeoutput"]));
+        assert!(bad(&["a", "b", "c", "d", "e"]));
+        assert!(usage().contains("/solo"));
+    }
 }
