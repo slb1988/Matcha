@@ -44,8 +44,97 @@ const DESCRIPTIONS: [&str; 6] = [
     "Make right side match left side: copy different files, delete right orphans.",
     "Apply the custom rules below to newer, orphan and different files.",
 ];
-/// Inventory items without a reference entry (existing features).
-const EXTRAS: [&str; 2] = ["Create Empty Folders", "Visible Items Only"];
+/// Entries of existing features without a reference menu item, appended
+/// after a separator: (menu index, label, action id; "" opens a submenu
+/// whose children follow as (label, id) pairs).
+fn extras() -> Vec<(usize, MenuItem)> {
+    let leaf = |label: &str, id: &str| MenuItem::action(label, id);
+    let sub = |label: &str, children: &[(&str, &str)]| MenuItem {
+        label: label.into(),
+        mnemonic: None,
+        shortcut: None,
+        kind: MenuItemKind::Submenu(children.iter().map(|(l, i)| leaf(l, i)).collect()),
+        enabled: true,
+        action_id: label.into(),
+    };
+    vec![
+        (0, leaf("Back", "Back")),
+        (0, leaf("Forward", "Forward")),
+        (0, leaf("Up One Level", "up-both")),
+        (0, leaf("Create Empty Folders", "Create Empty Folders")),
+        (0, leaf("Visible Items Only", "Visible Items Only")),
+        (1, leaf("Open", "Open Pair")),
+        (1, leaf("Open Folder", "Open Folder")),
+        (1, leaf("Compare To...", "Compare To")),
+        (1, leaf("Align With...", "Align With")),
+        (
+            1,
+            sub(
+                "Quick Compare",
+                &[
+                    ("Size", "quick-size"),
+                    ("CRC", "quick-crc"),
+                    ("Binary", "quick-binary"),
+                    ("Rules-based", "quick-rules"),
+                ],
+            ),
+        ),
+        (
+            1,
+            sub(
+                "Compare Contents",
+                &[
+                    ("CRC", "compare-crc"),
+                    ("Binary", "compare-binary"),
+                    ("Rules-based", "compare-rules"),
+                ],
+            ),
+        ),
+        (1, leaf("Copy to Side...", "Copy to Side")),
+        (1, leaf("Move to Side...", "Move to Side")),
+        (1, leaf("Copy to Folder...", "Copy to Folder")),
+        (1, leaf("Move to Folder...", "Move to Folder")),
+        (1, leaf("Exchange...", "Exchange")),
+        (1, leaf("Delete...", "Delete")),
+        (1, leaf("Rename...", "Rename")),
+        (1, leaf("Attributes...", "Attributes")),
+        (1, leaf("Touch...", "Touch")),
+        (1, leaf("New Folder...", "New Folder")),
+        (1, leaf("Ignored", "Ignored")),
+        (1, leaf("Set as Base Folder", "Set as Base Folder")),
+        (
+            1,
+            leaf("Set as Base on Other Side", "Set as Base on Other Side"),
+        ),
+        (2, leaf("Select All Files", "Select All Files")),
+        (
+            2,
+            sub(
+                "Select Newer",
+                &[
+                    ("Left Side", "select-newer-left"),
+                    ("Right Side", "select-newer-right"),
+                    ("Both Sides", "select-newer-both"),
+                ],
+            ),
+        ),
+        (
+            2,
+            sub(
+                "Select Orphans",
+                &[
+                    ("Left Side", "select-orphan-left"),
+                    ("Right Side", "select-orphan-right"),
+                    ("Both Sides", "select-orphan-both"),
+                ],
+            ),
+        ),
+        (3, leaf("Next Difference", "Next Difference")),
+        (3, leaf("Previous Difference", "Previous Difference")),
+        (4, leaf("Show All", "Show All")),
+        (4, leaf("Show Differences", "Show Differences")),
+    ]
+}
 /// Inventory items wired to existing actions; everything else stays disabled.
 const ENABLED: &[&str] = &[
     "Session Settings...",
@@ -92,6 +181,44 @@ const ENABLED: &[&str] = &[
     "Toolbar",
     "Create Empty Folders",
     "Visible Items Only",
+    "Back",
+    "Forward",
+    "up-both",
+    "Open Pair",
+    "Open Folder",
+    "Compare To",
+    "Align With",
+    "quick-size",
+    "quick-crc",
+    "quick-binary",
+    "quick-rules",
+    "compare-crc",
+    "compare-binary",
+    "compare-rules",
+    "Copy to Side",
+    "Move to Side",
+    "Copy to Folder",
+    "Move to Folder",
+    "Exchange",
+    "Delete",
+    "Rename",
+    "Attributes",
+    "Touch",
+    "New Folder",
+    "Ignored",
+    "Set as Base Folder",
+    "Set as Base on Other Side",
+    "Select All Files",
+    "select-newer-left",
+    "select-newer-right",
+    "select-newer-both",
+    "select-orphan-left",
+    "select-orphan-right",
+    "select-orphan-both",
+    "Next Difference",
+    "Previous Difference",
+    "Show All",
+    "Show Differences",
 ];
 
 pub struct SyncView {
@@ -199,6 +326,10 @@ impl SyncView {
         Some(match id {
             "Create Empty Folders" => self.create_empty,
             "Visible Items Only" => self.visible,
+            "Show All" => self.folder.display() == bc_engine_dir::filter::DisplayFilter::All,
+            "Show Differences" => {
+                self.folder.display() == bc_engine_dir::filter::DisplayFilter::Mismatches
+            }
             "Size" => self.folder.view_checked("column-size")?,
             "Modified" => self.folder.view_checked("column-modified")?,
             "CRC" => self.folder.view_checked("column-crc")?,
@@ -231,10 +362,13 @@ impl SyncView {
         }
         if self.menus.is_empty() {
             let mut menus = inventory();
-            menus[0].items.push(sep());
-            menus[0]
-                .items
-                .extend(EXTRAS.iter().map(|n| MenuItem::action(*n, *n)));
+            let mut separated = [false; 7];
+            for (index, item) in extras() {
+                if !std::mem::replace(&mut separated[index], true) {
+                    menus[index].items.push(sep());
+                }
+                menus[index].items.push(item);
+            }
             self.menus = menus;
         }
         let mut menus = std::mem::take(&mut self.menus);

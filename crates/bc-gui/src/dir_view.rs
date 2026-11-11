@@ -3877,6 +3877,9 @@ impl DirCompareView {
         self.filters.names = names;
         self.apply_view_options();
     }
+    pub(crate) fn display(&self) -> bc_engine_dir::filter::DisplayFilter {
+        self.filters.options.display
+    }
     pub(crate) fn toolbar_visible(&self) -> bool {
         self.toolbar
     }
@@ -4132,6 +4135,30 @@ impl DirCompareView {
             "Toolbar" => self.toolbar = !self.toolbar,
             "Open Folder" => self.expand_selection(true, false),
             "Close Folder" => self.expand_selection(false, false),
+            "Open Pair" => self.open_pair(),
+            "Compare To" => {
+                self.compare_to = true;
+                self.align_to = false;
+            }
+            "Align With" => {
+                self.align_to = true;
+                self.compare_to = false;
+            }
+            "quick-size" | "quick-crc" | "quick-binary" | "quick-rules" => {
+                let mode = match id {
+                    "quick-size" => ContentCompare::Size,
+                    "quick-crc" => ContentCompare::Crc,
+                    "quick-binary" => ContentCompare::Binary,
+                    _ => ContentCompare::RulesBased,
+                };
+                match self.selected_pair() {
+                    Ok(paths) => self.send(Command::Quick(paths, mode)),
+                    Err(e) => self.message = e,
+                }
+            }
+            "Exchange" => self.open_scope(DirOp::Exchange),
+            "Set as Base Folder" => self.set_base(false, false),
+            "Set as Base on Other Side" => self.set_base(true, false),
             "Open Subfolders" => self.expand_selection(true, true),
             "Close Subfolders" => self.expand_selection(false, true),
             "Set as Base Folders" => self.set_base(false, true),
