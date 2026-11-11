@@ -11,7 +11,7 @@ pub mod jobs;
 pub use content::HexContent;
 pub use jobs::{HexAlignJob, HexAlignOutput};
 
-use bc_core::align::{AlignMap, ByteAlign, ByteAlignStrategy};
+use bc_core::align::{AlignMap, AlignRow, ByteAlign, ByteAlignStrategy};
 use bc_core::cancel::CancelCheck;
 use bc_core::{CoreError, DiffKind};
 
@@ -159,8 +159,13 @@ pub struct HexRow {
 
 /// 把对齐图按每行 `bytes_per_line` 格打包（0 视为 16）。
 pub fn pack_rows(map: &AlignMap, bytes_per_line: u16) -> Vec<HexRow> {
+    pack_slice(map.rows(), bytes_per_line)
+}
+
+/// 打包任意对齐行切片（过滤区域重打包用；相位从切片起点重新起算）。
+pub fn pack_slice(rows: &[AlignRow], bytes_per_line: u16) -> Vec<HexRow> {
     let per_line = usize::from(if bytes_per_line == 0 { 16 } else { bytes_per_line });
-    let mut rows = Vec::with_capacity(map.len() / per_line + 1);
+    let mut out = Vec::with_capacity(rows.len() / per_line + 1);
     let mut cells = Vec::with_capacity(per_line);
     let flush = |cells: &mut Vec<HexCell>, rows: &mut Vec<HexRow>| {
         if cells.is_empty() {
@@ -181,7 +186,7 @@ pub fn pack_rows(map: &AlignMap, bytes_per_line: u16) -> Vec<HexRow> {
             cells: std::mem::take(cells),
         });
     };
-    for row in map.rows() {
+    for row in rows {
         cells.push(match row.kind {
             DiffKind::Same | DiffKind::Changed => HexCell::Pair {
                 left: row.left.expect("paired row has left"),
@@ -192,11 +197,54 @@ pub fn pack_rows(map: &AlignMap, bytes_per_line: u16) -> Vec<HexRow> {
             DiffKind::RightOnly => HexCell::RightOrphan(row.right.expect("orphan row has its side")),
         });
         if cells.len() == per_line {
-            flush(&mut cells, &mut rows);
+            flush(&mut cells, &mut out);
         }
     }
-    flush(&mut cells, &mut rows);
-    rows
+    flush(&mut cells, &mut out);
+    out
+}
+
+/// 显示过滤后的对齐行区间集合（align 行号区间）。
+///
+/// Diffs：每个差异游程向两侧各扩 `context` 行 Same（重叠合并）；Same：仅 Same 游程。
+/// 各区间由调用方用 [`pack_slice`] 自区间起点重新打包（证据：`22-diffs-only.png` 行标签非 16 对齐）。
+pub fn filtered_regions(map: &AlignMap, filter: DisplayFilter, context: usize) -> Vec<std::ops::Range<usize>> {
+    let rows = map.rows();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let wanted = |kind: DiffKind| match filter {
+        DisplayFilter::All => true,
+        DisplayFilter::Differences => kind != DiffKind::Same,
+        DisplayFilter::Same => kind == DiffKind::Same,
+    };
+    let mut regions: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut i = 0;
+    while i < rows.len() {
+        if !wanted(rows[i].kind) {
+            i += 1;
+            continue;
+        }
+        let mut end = i + 1;
+        while end < rows.len() && wanted(rows[end].kind) {
+            end += 1;
+        }
+        let (mut start_c, mut end_c) = (i, end);
+        if filter == DisplayFilter::Differences {
+            start_c = start_c.saturating_sub(context);
+            end_c = (end + context).min(rows.len());
+        }
+        if let Some(last) = regions.last_mut() {
+            if start_c <= last.end {
+                last.end = end_c;
+                i = end;
+                continue;
+            }
+        }
+        regions.push(start_c..end_c);
+        i = end;
+    }
+    regions
 }
 
 #[cfg(test)]

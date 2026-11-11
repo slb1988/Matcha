@@ -29,10 +29,10 @@
 
 ## 5. 视图交互
 
-- [ ] 5.1 实现 Next/Previous Difference Bytes（Ctrl+N/Ctrl+P）与 Go To（十进制/十六进制、选侧、跨侧光标同步）；验证：RawInput 回归覆盖导航顺序与跨侧地址
-- [ ] 5.2 实现内联查找栏（hex/文本模式、大小写、Prev/Next）与 Replace；验证：RawInput 回归命中/不命中/替换
-- [ ] 5.3 实现字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、Select All、Undo/Redo、Copy to Other Side Ctrl+R）；验证：RawInput 回归编辑→重对齐→统计更新→一次 Undo 还原
-- [ ] 5.4 实现 Swap Sides、Reload（脏确认）、Recompare（保留编辑）、Hex Compare Info 对话框、Show All/Differences/Same 过滤（Diffs 带 context）；验证：RawInput 回归 + 统计与语料一致
+- [x] 5.1 实现 Next/Previous Difference Bytes（Ctrl+N/Ctrl+P）与 Go To（十进制/十六进制、选侧、跨侧光标同步）；验证：RawInput 回归覆盖导航顺序与跨侧地址
+- [x] 5.2 实现内联查找栏（hex/文本模式、大小写、Prev/Next）与 Replace；验证：RawInput 回归命中/不命中/替换
+- [x] 5.3 实现字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、Select All、Undo/Redo、Copy to Other Side Ctrl+R）；验证：RawInput 回归编辑→重对齐→统计更新→一次 Undo 还原
+- [x] 5.4 实现 Swap Sides、Reload（脏确认）、Recompare（保留编辑）、Hex Compare Info 对话框、Show All/Differences/Same 过滤（Diffs 带 context）；验证：RawInput 回归 + 统计与语料一致
 
 ## 6. 会话设置与入口接线
 

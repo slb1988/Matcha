@@ -3,7 +3,7 @@
 //! 可测模型：`grid_rows` 把引擎的 cell packing 行（`HexRow`）展开成带字节值与着色的
 //! 渲染模型，RawInput 回归直接断言它；`paint_pane` 只负责按模型落笔。
 
-use bc_engine_bin::hex::{HexCell, HexMap};
+use bc_engine_bin::hex::{HexCell, HexContent, HexMap, HexRow};
 use bc_core::DiffKind;
 use eframe::egui;
 
@@ -21,37 +21,45 @@ pub struct GridRowModel {
     /// 8 位大写 hex 地址标签（整行占位侧为 None）。
     pub left_label: Option<String>,
     pub right_label: Option<String>,
+    /// 行标签的原始字节偏移（导航滚动定位用）。
+    pub left_off: Option<usize>,
+    pub right_off: Option<usize>,
     pub cells: Vec<CellModel>,
 }
 
-/// 由对齐图 + 每行格数派生渲染模型（标签与相位规则由 `HexMap::pack_rows` 保证）。
+/// 由对齐图 + 每行格数派生渲染模型（标签与相位规则由打包层保证）。
 pub fn grid_rows(map: &HexMap, per_line: usize) -> Vec<GridRowModel> {
-    let mut rules = map.rules.clone();
-    rules.bytes_per_line = per_line as u16;
-    let packed = bc_engine_bin::hex::pack_rows(&map.align, rules.bytes_per_line);
+    let packed = bc_engine_bin::hex::pack_rows(&map.align, per_line as u16);
+    models_from_packed(&map.left, &map.right, &packed)
+}
+
+/// 打包行 → 渲染模型（字节值从两侧内容取）。
+pub fn models_from_packed(left: &HexContent, right: &HexContent, packed: &[HexRow]) -> Vec<GridRowModel> {
     packed
         .iter()
         .map(|row| GridRowModel {
             left_label: row.left_label.map(|v| format!("{v:08X}")),
             right_label: row.right_label.map(|v| format!("{v:08X}")),
+            left_off: row.left_label,
+            right_off: row.right_label,
             cells: row
                 .cells
                 .iter()
                 .map(|cell| match *cell {
-                    HexCell::Pair { left, right, kind } => CellModel {
+                    HexCell::Pair { left: l, right: r, kind } => CellModel {
                         kind,
-                        left: map.left.bytes().get(left).copied(),
-                        right: map.right.bytes().get(right).copied(),
+                        left: left.bytes().get(l).copied(),
+                        right: right.bytes().get(r).copied(),
                     },
                     HexCell::LeftOrphan(i) => CellModel {
                         kind: DiffKind::LeftOnly,
-                        left: map.left.bytes().get(i).copied(),
+                        left: left.bytes().get(i).copied(),
                         right: None,
                     },
                     HexCell::RightOrphan(i) => CellModel {
                         kind: DiffKind::RightOnly,
                         left: None,
-                        right: map.right.bytes().get(i).copied(),
+                        right: right.bytes().get(i).copied(),
                     },
                 })
                 .collect(),
