@@ -27,6 +27,7 @@ pub const SCENES: &[&str] = &[
     "text-long-scrolled",
     "home",
     "text-menu-edit",
+    "text-find-bar",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -58,7 +59,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 11] = [
+pub const REGISTRY: [Scene; 12] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -113,6 +114,12 @@ pub const REGISTRY: [Scene; 11] = [
     // Reference: "open top-level edit menu" (mouse-opened, nothing highlighted).
     Scene {
         name: "text-menu-edit",
+        view: SceneView::Text,
+        preset: Preset::FirstRow,
+    },
+    // Reference: "Search > Find; docked bar" with "alpha" in the field.
+    Scene {
+        name: "text-find-bar",
         view: SceneView::Text,
         preset: Preset::FirstRow,
     },

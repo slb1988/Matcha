@@ -802,6 +802,10 @@ impl TextCompareView {
             self.filter = DisplayFilter::Differences;
             self.rebuild_projection();
         }
+        if scene == "text-find-bar" {
+            self.find.options.pattern = "alpha".into();
+            self.find.show();
+        }
         if scene == "text-long-scrolled" {
             // Reference: left pane, PageDown x3 → top row 147, caret row 158.
             self.goto_row(158);
@@ -1399,7 +1403,11 @@ impl TextCompareView {
             "Swap Sides" => self.swap(),
             "Recompare Files" => self.recompare(),
             "Reload Files" => self.request(Pending::ReloadBoth),
-            "Find..." | "Replace..." => self.find.open = true,
+            "Find..." => self.find.show(),
+            "Replace..." => {
+                self.find.show();
+                self.find.replace_open = true;
+            }
             "Find Next" | "Find Previous" => {
                 if let Err(e) = self.find_action(if id == "Find Next" {
                     FindAction::Next
@@ -1807,7 +1815,7 @@ impl TextCompareView {
                     continue;
                 }
                 if modifiers.command && *key == egui::Key::F {
-                    self.find.open = true;
+                    self.find.show();
                     continue;
                 }
                 if modifiers.command && *key == egui::Key::S {
