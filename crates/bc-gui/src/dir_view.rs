@@ -2672,6 +2672,18 @@ impl DirCompareView {
                 Some(ViewAction::CompareParentFolders { left, right }) => {
                     self.new_folder_view([left, right]);
                 }
+                // 内嵌文本窗口只有一个：未保存编辑时不替换，避免丢失修改。
+                Some(ViewAction::CompareTexts { left, right }) => {
+                    if self.text.as_ref().is_some_and(|t| t.is_dirty()) {
+                        self.message =
+                            "Save or discard edits before comparing the selection".into();
+                    } else {
+                        match TextCompareView::from_texts(&left, &right) {
+                            Ok(view) => self.text = Some(Box::new(view)),
+                            Err(e) => self.message = format!("Cannot compare selection: {e}"),
+                        }
+                    }
+                }
                 None => {}
             }
             // 保存确认被取消：放弃挂起的关闭标签页。

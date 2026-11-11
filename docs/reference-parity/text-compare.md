@@ -34,15 +34,15 @@
 | Open File on File System * | 已实现 | 本期 Open 只接受本地/系统挂载路径，无需第二个重复命令 |
 | Open File Using Profile * | 有意未采纳 | VFS 远程 profile 不在本期 |
 | Open Clipboard | 已实现 | RequestPaste → Paste 事件加载指定侧；未保存内容有保护 |
-| Open With | 后置 | session-and-cli 外部应用注册 |
-| Open With > Associated Application | 后置 | 同上 |
+| Open With | 已实现（部分） | 右键菜单/File 菜单子菜单；Associated Application 以系统默认程序打开当前侧文件 |
+| Open With > Associated Application | 已实现 | Windows 经 explorer 打开（系统关联程序）；无磁盘路径时提示 |
 | Open With > Text Edit | 有意未采纳 | 就地编辑已覆盖，不另立单文件编辑产品窗口 |
 | Open With > Text Patch | 后置 | 补丁视图不属于本次双向比较 |
 | Save File | 已实现 | Ctrl+S/Save active/每侧 Save，仅选中侧标记已保存 |
 | Save File As | 已实现 | 新路径成为来源，原文件不覆盖；清除旧保存目标 |
 | Save File on File System As * | 已实现 | 当前 Save as 的本地文件入口 |
 | Save File Using Profile As * | 有意未采纳 | 无远程 VFS profile |
-| Explorer | 后置 | 外壳上下文菜单非本期 |
+| Explorer | 已实现（定位） | 在文件管理器中选中当前侧文件；完整外壳上下文子菜单仍后置 |
 | Check In | 有意未采纳 | SCC 集成明确非目标 |
 | Check Out | 有意未采纳 | SCC 集成明确非目标 |
 | Undo Check Out | 有意未采纳 | SCC 集成明确非目标 |
@@ -56,16 +56,16 @@
 | Undo | 已实现 | Ctrl+Z，目标侧 EditStack；重新着色 |
 | Redo | 已实现 | Ctrl+Y / Ctrl+Shift+Z |
 | Align With | 已实现 | View / alignment 中选择，再点击另一侧行；锚点保留至清除 |
-| Isolate | 后置 | 当前覆盖模型只有强配锚点；孤立排除约束需要扩展模型 |
+| Isolate | 已实现 | `AlignmentOverrides` 增加按侧孤立行集合，对齐后拆成两侧孤立行；Align With 同行会取消孤立，Clear manual alignment 一并清除，Swap 随侧交换 |
 | Replacement | 已实现（设置入口） | Settings → Replacements 可新建；从当前差异自动填充的快捷命令后置 |
 | Copy to Right * | 已实现 | 当前差异区块或来源侧选中的行，目标侧一次撤销 |
 | Copy to Left * | 已实现 | 同上 |
 | Copy to Other Side | 已实现（明确方向按钮） | 两个固定方向按钮避免动作方向歧义，不再增加同义动态按钮 |
-| Copy Line to Right * | 后置 | 当前可选中该行再 Copy to Right；独立单行快捷命令后置 |
-| Copy Line to Left * | 后置 | 同上 |
-| Copy Line to Other Side | 后置 | 同上 |
-| Increase Indent | 后置 | 批量缩进；当前支持 Tab 插入（尊重格式 tab-as-spaces） |
-| Decrease Indent | 后置 | 批量反缩进 |
+| Copy Line to Right * | 已实现 | Shift+Ctrl+R / 右键菜单；光标行（或选中各行）覆盖目标侧对齐行，无对齐行则插入，一次撤销 |
+| Copy Line to Left * | 已实现 | Shift+Ctrl+L / 右键菜单；同上 |
+| Copy Line to Other Side | 已实现（明确方向） | 右键菜单按被点击窗格显示指向另一侧的 Copy Line 命令 |
+| Increase Indent | 已实现 | Shift+Ctrl+I；选中各行（空行除外）加一级缩进，尊重格式 tab 宽度与 tab-as-spaces，一次撤销 |
+| Decrease Indent | 已实现 | Shift+Ctrl+U；删一个前导 Tab 或至多一级空格 |
 | Cut | 已实现 | 系统 Cut 事件，选区跨行，写保护检查 |
 | Copy | 已实现 | 系统 CopyText 输出；只读侧可复制 |
 | Paste | 已实现 | Paste 事件，换行使用目标主导风格 |
@@ -79,12 +79,14 @@
 | Insert Line Before * | 后置 | Home+Enter 可编辑，单独命令后置 |
 | Insert Line After * | 后置 | End+Enter 可编辑，单独命令后置 |
 | Select All | 已实现（有意差异） | Ctrl+A 选择完整文档，而非仅可见行，避免过滤造成意外部分操作 |
-| Select Section | 后置 | 当前区块复制不需先选择；独立选区命令后置 |
-| Compare Selection to Clipboard | 有意未采纳 | 新比较窗口的剪贴板比较属于 proposal 中暂不采纳项；Open Clipboard 仍按 view spec 实现 |
+| Select Section | 已实现 | Ctrl+D；选中当前区块在活动侧的整行 |
+| Compare Selection to Clipboard | 已实现 | 选中文本（左）对剪贴板（右）在新标签页比较；文件夹内嵌文本窗口在无未保存编辑时原位替换 |
 | Convert File > Trim Trailing Whitespace | 后置 | 批量文本转换不是本期必要编辑行为 |
 | Convert File > Leading Spaces to Tabs | 后置 | 同上 |
 | Convert File > Tabs To Spaces | 后置 | 同上 |
 | Convert File > Line Endings | 已实现 | 每侧 File 菜单 CRLF/LF/CR，全文件一次可撤销编辑 |
+
+本项目补充：**文本窗格右键菜单** 按参考 `docs/visual-parity/supplemental/text-context.tree.json` 的顺序提供 Align With / Isolate / Copy to·Copy Line to（指向另一侧）/ 缩进 / Cut·Copy·Paste·Delete / Select Section / Compare Selection to Clipboard / Ignored / Open File / Open Clipboard / Open With / Save File / Save File As / Explorer；启用状态按该侧选区、写保护、未保存和磁盘路径计算。右键落在选区外先移动光标，选区内保留选区；菜单盖住窗格时按下不会改动下方光标；命令执行后焦点回到该窗格，Ctrl+C 等快捷键继续生效，无任何控件持有焦点时 Ctrl+C 仍复制活动窗格选区。Ignored 仍后置（显示但禁用）；Align With 的 F7 仍保留给差异区块导航，菜单不显示 F7。
 
 ## commandstext.html — Search
 

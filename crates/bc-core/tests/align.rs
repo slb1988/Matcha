@@ -193,6 +193,43 @@ fn session_overrides_reject_crossing_and_can_be_cleared() {
     assert!(anchors.pairs().is_empty());
 }
 
+#[test]
+fn isolated_lines_split_paired_rows_and_anchor_or_clear_restores() {
+    use bc_core::Side;
+    let left: Vec<_> = (0..5).map(ContentHash).collect();
+    let right = left.clone();
+    let mut overrides = AlignmentOverrides::default();
+    overrides.insert(2, 2).unwrap();
+    overrides.isolate(Side::Left, 2).unwrap();
+    assert!(overrides.pairs().is_empty(), "isolate drops the anchor");
+    assert!(overrides.isolate(Side::Center, 0).is_err());
+    let map = QuickAlign
+        .align2_with_overrides(input(&left), input(&right), &overrides)
+        .unwrap();
+    let map = overrides.apply_isolation(map, (0, 0));
+    validate(&map, 5, 5);
+    assert_ne!(map.row_of_left(2), map.row_of_right(2));
+    assert_eq!(
+        map.rows()[map.row_of_left(2).unwrap()].kind,
+        DiffKind::LeftOnly
+    );
+    assert_eq!(map.row_of_left(3), map.row_of_right(3));
+    // Window offsets: the isolated line is 2 in file coordinates.
+    let shifted = overrides.apply_isolation(
+        QuickAlign.align2(input(&left[1..]), input(&right[1..])),
+        (1, 1),
+    );
+    assert_eq!(shifted.rows().len(), 5);
+    let swapped = overrides.swapped();
+    assert!(swapped.isolated(Side::Right).unwrap().contains(&2));
+    assert!(swapped.isolated(Side::Left).unwrap().is_empty());
+    overrides.insert(2, 2).unwrap();
+    assert!(overrides.isolated(Side::Left).unwrap().is_empty());
+    overrides.isolate(Side::Right, 4).unwrap();
+    overrides.clear();
+    assert!(overrides.is_empty());
+}
+
 /// Spec cases: exact `(left, right, kind)` sequences (0-based) per strategy/switches.
 mod spec {
     use bc_core::{

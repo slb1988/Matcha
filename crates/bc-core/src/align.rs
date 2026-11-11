@@ -238,6 +238,14 @@ fn left_only(line: usize) -> AlignRow {
     }
 }
 
+fn isolated_index(side: crate::Side) -> Option<usize> {
+    match side {
+        crate::Side::Left => Some(0),
+        crate::Side::Right => Some(1),
+        _ => None,
+    }
+}
+
 fn right_only(line: usize) -> AlignRow {
     AlignRow {
         right: Some(line),
@@ -251,11 +259,72 @@ fn right_only(line: usize) -> AlignRow {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AlignmentOverrides {
     pairs: Vec<(usize, usize)>,
+    /// Lines forced to stay unaligned (BC "Isolate"), per side.
+    isolated: [std::collections::BTreeSet<usize>; 2],
 }
 
 impl AlignmentOverrides {
     pub fn pairs(&self) -> &[(usize, usize)] {
         &self.pairs
+    }
+
+    /// Lines of `side` that must never share a row with the other side.
+    pub fn isolated(&self, side: crate::Side) -> Option<&std::collections::BTreeSet<usize>> {
+        isolated_index(side).map(|i| &self.isolated[i])
+    }
+
+    /// True when the overrides carry neither anchors nor isolated lines.
+    pub fn is_empty(&self) -> bool {
+        self.pairs.is_empty() && self.isolated.iter().all(|s| s.is_empty())
+    }
+
+    /// Isolate `line` of `side`: it becomes an orphan row; an anchor using it is dropped.
+    /// Only the two primary sides can be isolated.
+    pub fn isolate(&mut self, side: crate::Side, line: usize) -> Result<(), crate::CoreError> {
+        let index = isolated_index(side).ok_or_else(|| {
+            crate::CoreError::Invalid("isolate currently supports two sides".into())
+        })?;
+        self.pairs
+            .retain(|&(l, r)| if index == 0 { l != line } else { r != line });
+        self.isolated[index].insert(line);
+        Ok(())
+    }
+
+    /// Same overrides with the two sides exchanged (Swap Sides).
+    pub fn swapped(&self) -> Self {
+        let [left, right] = self.isolated.clone();
+        Self {
+            pairs: self.pairs.iter().map(|&(l, r)| (r, l)).collect(),
+            isolated: [right, left],
+        }
+    }
+
+    /// Split every row that pairs an isolated line into separate orphan rows.
+    /// `offsets` translate window-relative row indices into whole-file lines.
+    pub fn apply_isolation(&self, map: AlignMap, offsets: (usize, usize)) -> AlignMap {
+        if self.isolated.iter().all(|s| s.is_empty()) {
+            return map;
+        }
+        let isolated = |row: &AlignRow| match (row.left, row.right, row.center) {
+            (Some(l), Some(r), None) => {
+                self.isolated[0].contains(&(l + offsets.0))
+                    || self.isolated[1].contains(&(r + offsets.1))
+            }
+            _ => false,
+        };
+        if !map.rows().iter().any(isolated) {
+            return map;
+        }
+        let mut rows = Vec::with_capacity(map.rows().len() + 1);
+        for row in map.into_rows() {
+            if isolated(&row) {
+                rows.push(left_only(row.left.unwrap()));
+                rows.push(right_only(row.right.unwrap()));
+            } else {
+                rows.push(row);
+            }
+        }
+        AlignMap::from_rows(rows)
     }
 
     /// Reject duplicate-side/crossing anchors rather than violating source order.
@@ -275,11 +344,15 @@ impl AlignmentOverrides {
             ));
         }
         self.pairs.insert(pos, (left, right));
+        // An explicit anchor overrides an earlier Isolate of either line.
+        self.isolated[0].remove(&left);
+        self.isolated[1].remove(&right);
         Ok(())
     }
 
     pub fn clear(&mut self) {
         self.pairs.clear();
+        self.isolated.iter_mut().for_each(|s| s.clear());
     }
 }
 

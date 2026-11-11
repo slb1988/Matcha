@@ -67,6 +67,82 @@ impl Editor {
         }
         String::from_utf8(out).expect("decoded UTF-8")
     }
+    /// 选区覆盖的行（无选区时为光标行）；选区止于行首时不含该行。
+    pub fn selected_lines(&self, content: &TextContent) -> std::ops::Range<usize> {
+        let len = content.lines.borrow().len();
+        let (a, b) = self.selection().unwrap_or((self.caret, self.caret));
+        let finish = if b.line > a.line && b.byte == 0 {
+            b.line
+        } else {
+            b.line + 1
+        };
+        a.line.min(len)..finish.min(len)
+    }
+    /// Increase/Decrease Indent：选中各行（空行除外）增减一级缩进，一次撤销。
+    /// 缩进单位遵循格式的 tab 宽度与 tab-as-spaces；反缩进删一个 Tab 或至多一级空格。
+    pub fn indent(&mut self, content: &mut TextContent, increase: bool) -> Result<(), CoreError> {
+        content.ensure_writable()?;
+        self.clamp(content);
+        let range = self.selected_lines(content);
+        if range.is_empty() {
+            return Ok(());
+        }
+        let tab = content
+            .format()
+            .and_then(|f| f.tab_size)
+            .unwrap_or(4)
+            .clamp(1, 32) as usize;
+        let unit = if content.format().is_some_and(|f| f.tab_as_spaces) {
+            " ".repeat(tab)
+        } else {
+            "\t".into()
+        };
+        let lines = content.lines.borrow();
+        let mut bytes = Vec::new();
+        let mut deltas = Vec::with_capacity(range.len());
+        for i in range.clone() {
+            let text = lines.line_bytes(i).unwrap_or_default();
+            let delta: isize = if increase {
+                if text.is_empty() {
+                    0
+                } else {
+                    bytes.extend_from_slice(unit.as_bytes());
+                    unit.len() as isize
+                }
+            } else if text.first() == Some(&b'\t') {
+                -1
+            } else {
+                -(text.iter().take(tab).take_while(|b| **b == b' ').count() as isize)
+            };
+            bytes.extend_from_slice(&text[delta.min(0).unsigned_abs()..]);
+            bytes.extend_from_slice(lines.ending(i).unwrap_or(LineEnding::None).as_bytes());
+            deltas.push(delta);
+        }
+        drop(lines);
+        if deltas.iter().all(|d| *d == 0) {
+            return Ok(());
+        }
+        let replacement = LineList::from_bytes(bytes);
+        content.edits.push(Box::new(LineEdit::replace_range(
+            &content.lines,
+            range.clone(),
+            &replacement,
+        )));
+        let shift = |p: Caret| {
+            if range.contains(&p.line) {
+                Caret {
+                    line: p.line,
+                    byte: p.byte.saturating_add_signed(deltas[p.line - range.start]),
+                }
+            } else {
+                p
+            }
+        };
+        self.caret = shift(self.caret);
+        self.anchor = self.anchor.map(shift);
+        self.clamp(content);
+        Ok(())
+    }
     /// 一次输入、粘贴或选区替换对应一个 EditItem，只复制被改变的行。
     pub fn insert(&mut self, content: &mut TextContent, text: &str) -> Result<(), CoreError> {
         content.ensure_writable()?;
@@ -396,6 +472,36 @@ mod tests {
         assert_eq!(c.to_bytes().unwrap(), b"one\r\ntwo\nthree");
         c.edits.redo();
         assert_eq!(c.to_bytes().unwrap(), "o你\r\n好o\nthree".as_bytes());
+    }
+    #[test]
+    fn indent_and_unindent_selected_lines_as_one_undo_step() {
+        let mut c = content("a\r\n\n  b\nc");
+        let mut e = Editor {
+            caret: Caret { line: 3, byte: 0 },
+            anchor: Some(Caret { line: 0, byte: 1 }),
+            ..Default::default()
+        };
+        // Selection ending at column 0 excludes line 3; empty line 1 is skipped.
+        assert_eq!(e.selected_lines(&c), 0..3);
+        e.indent(&mut c, true).unwrap();
+        assert_eq!(c.to_bytes().unwrap(), b"\ta\r\n\n\t  b\nc");
+        assert_eq!(e.anchor, Some(Caret { line: 0, byte: 2 }));
+        e.indent(&mut c, false).unwrap();
+        e.indent(&mut c, false).unwrap();
+        assert_eq!(c.to_bytes().unwrap(), b"a\r\n\nb\nc");
+        c.edits.undo();
+        c.edits.undo();
+        c.edits.undo();
+        assert_eq!(c.to_bytes().unwrap(), b"a\r\n\n  b\nc");
+        let mut e = Editor {
+            caret: Caret { line: 3, byte: 1 },
+            ..Default::default()
+        };
+        e.indent(&mut c, true).unwrap();
+        assert_eq!(c.to_bytes().unwrap(), b"a\r\n\n  b\n\tc");
+        assert_eq!(e.caret, Caret { line: 3, byte: 2 });
+        c.read_only = true;
+        assert!(e.indent(&mut c, false).is_err());
     }
     #[test]
     fn empty_eof_and_unicode_backspace() {

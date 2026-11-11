@@ -997,3 +997,226 @@ fn session_settings_dialog_applies_on_ok_only() {
     v.command("Options...", &ctx, &prefs);
     assert!(v.options.open);
 }
+
+fn shift_key(key: egui::Key) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            ctrl: true,
+            command: true,
+            shift: true,
+            ..Default::default()
+        },
+    }
+}
+fn right_click(ctx: &egui::Context, v: &mut TextCompareView, pos: egui::Pos2) {
+    frame(ctx, v, vec![egui::Event::PointerMoved(pos)]);
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            v,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+}
+fn copied(output: &egui::FullOutput) -> Option<String> {
+    output
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+}
+/// Center of context-menu item `index` (`separators` separators precede it).
+fn menu_item(origin: egui::Pos2, index: usize, separators: usize) -> egui::Pos2 {
+    let skipped = index - separators;
+    origin
+        + egui::vec2(
+            60.0,
+            2.0 + skipped as f32 * 21.0 + separators as f32 * 10.0 + 10.5,
+        )
+}
+
+#[test]
+fn context_menu_copies_selection_and_keeps_ctrl_c_working() {
+    let mut v = view("a\nkeep\nz\n", "a\nheasdl\nz\n");
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let row = v.row_for_line(1, 1);
+    let pos = v.pane_rects[1].left_top() + egui::vec2(95.0, 8.0 + row as f32 * v.row_height());
+    click(&ctx, &mut v, pos);
+    // Whole line selected: a right-click inside the selection keeps it.
+    v.editors[1].anchor = Some(Caret { line: 1, byte: 0 });
+    v.editors[1].caret = Caret { line: 2, byte: 0 };
+    right_click(&ctx, &mut v, pos);
+    assert_eq!(v.active, 1);
+    assert!(v.editors[1].selection().is_some());
+    let items = v.context_items(1);
+    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(
+        &labels[..6],
+        [
+            "Align With...",
+            "Isolate",
+            "Copy to Left",
+            "Copy Line to Left",
+            "Increase Indent",
+            "Decrease Indent"
+        ]
+    );
+    let enabled = |items: &[crate::chrome::menubar::MenuItem], id: &str| {
+        items.iter().find(|i| i.action_id == id).unwrap().enabled
+    };
+    assert!(enabled(&items, "Copy") && enabled(&items, "Cut"));
+    assert!(!enabled(&items, "Save File"));
+    // Left pane: copy targets the right side; nothing selected disables Copy.
+    let left = v.context_items(0);
+    assert!(left.iter().any(|i| i.action_id == "Copy Line to Right"));
+    assert!(!enabled(&left, "Copy") && enabled(&left, "Paste"));
+    // The classic popup body opens at the right-click point.
+    let out = frame(&ctx, &mut v, vec![]);
+    assert!(out.shapes.iter().any(|c| matches!(
+        &c.shape,
+        egui::Shape::Rect(r) if r.fill == crate::chrome::popup::BACKGROUND && r.rect.min == pos
+    )));
+    // Item 8 = Copy (after six commands, a separator and Cut).
+    let target = menu_item(pos, 8, 1);
+    frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(target),
+            egui::Event::PointerButton {
+                pos: target,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ],
+    );
+    // The press over the menu must not move the caret in the pane below.
+    assert!(v.editors[1].selection().is_some());
+    let output = frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerButton {
+            pos: target,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+    );
+    assert_eq!(copied(&output).as_deref(), Some("heasdl\n"));
+    // Focus returns to the editor, so Ctrl+C keeps copying.
+    frame(&ctx, &mut v, vec![]);
+    let output = frame(&ctx, &mut v, vec![egui::Event::Copy]);
+    assert_eq!(copied(&output).as_deref(), Some("heasdl\n"));
+    // Nothing focused at all (e.g. focus surrendered): Copy still uses the active pane.
+    ctx.memory_mut(|m| m.surrender_focus(editor_id(1)));
+    let output = frame(&ctx, &mut v, vec![egui::Event::Copy]);
+    assert_eq!(copied(&output).as_deref(), Some("heasdl\n"));
+}
+
+#[test]
+fn context_commands_copy_line_isolate_indent_and_select_section() {
+    let ctx = egui::Context::default();
+    let prefs = Prefs::default();
+    let mut v = view("a\nx\nb\n", "a\ny\nb\n");
+    frame(&ctx, &mut v, vec![]);
+    let row = v.row_for_line(1, 1);
+    let pos = v.pane_rects[1].left_top() + egui::vec2(95.0, 8.0 + row as f32 * v.row_height());
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.editors[1].caret.line, 1);
+    // Shift+Ctrl+L: only the caret line goes left, replacing its aligned line.
+    frame(&ctx, &mut v, vec![shift_key(egui::Key::L)]);
+    ready(&mut v);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\ny\nb\n");
+    v.map.left.edits.undo();
+    v.recompare();
+    ready(&mut v);
+    // Shift+Ctrl+I / Shift+Ctrl+U indent the right caret line.
+    frame(&ctx, &mut v, vec![shift_key(egui::Key::I)]);
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\n\ty\nb\n");
+    frame(&ctx, &mut v, vec![shift_key(egui::Key::U)]);
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\ny\nb\n");
+    // Ctrl+D selects the current difference section on the active side.
+    v.goto_row(row);
+    frame(&ctx, &mut v, vec![key(egui::Key::D, true)]);
+    assert_eq!(v.editors[1].selected_text(v.content(1)), "y\n");
+    // Ctrl+L with a selection copies the selected lines left.
+    frame(&ctx, &mut v, vec![key(egui::Key::L, true)]);
+    ready(&mut v);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\ny\nb\n");
+    // Isolate splits a same row into two orphans until alignment is cleared.
+    let mut v = view("a\nb\nc\n", "a\nb\nc\n");
+    v.active = 0;
+    v.editors[0].place(Caret { line: 1, byte: 0 }, false);
+    v.context_command(0, "Isolate", &ctx, &prefs);
+    ready(&mut v);
+    assert!(v.map.rows().any(|r| r.left == Some(1) && r.right.is_none()));
+    assert!(v.map.rows().any(|r| r.right == Some(1) && r.left.is_none()));
+    v.swap();
+    ready(&mut v);
+    assert!(v.map.rows().any(|r| r.right == Some(1) && r.left.is_none()));
+    v.command("Clear manual alignment", &ctx, &prefs);
+    ready(&mut v);
+    assert!(v
+        .map
+        .rows()
+        .any(|r| r.left == Some(1) && r.right == Some(1)));
+}
+
+#[test]
+fn compare_selection_to_clipboard_opens_a_text_session() {
+    let ctx = egui::Context::default();
+    let prefs = Prefs::default();
+    let mut v = view("one\ntwo\n", "x\n");
+    frame(&ctx, &mut v, vec![]);
+    v.command("Compare Selection to Clipboard", &ctx, &prefs);
+    assert!(v.compare_selection.is_none(), "{}", v.message);
+    v.editors[0].anchor = Some(Caret { line: 0, byte: 0 });
+    v.editors[0].caret = Caret { line: 1, byte: 0 };
+    v.context_command(0, "Compare Selection to Clipboard", &ctx, &prefs);
+    let mut action = None;
+    ctx.run_ui(
+        egui::RawInput {
+            events: vec![egui::Event::Paste("clip\n".into())],
+            ..Default::default()
+        },
+        |ui| action = v.ui(ui, &mut Prefs::default()),
+    )
+    .textures_delta
+    .clear();
+    match action {
+        Some(ViewAction::CompareTexts { left, right }) => {
+            assert_eq!(left, "one\n");
+            assert_eq!(right, "clip\n");
+            let mut session = TextCompareView::from_texts(&left, &right).unwrap();
+            ready(&mut session);
+            assert_eq!(session.map.right.to_bytes().unwrap(), b"clip\n");
+        }
+        other => panic!("{other:?}"),
+    }
+    // A stale request (an empty clipboard never answers) cannot hijack a later paste.
+    v.context_command(0, "Compare Selection to Clipboard", &ctx, &prefs);
+    for _ in 0..5 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    assert!(v.compare_selection.is_none());
+}

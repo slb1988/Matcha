@@ -866,15 +866,25 @@ impl MatchaApp {
             commands.extend(command);
         }
         if let Some(action) = view_action {
-            commands.push(match action {
-                ViewAction::Home => TabCommand::Home,
-                ViewAction::Close => TabCommand::Close,
-                ViewAction::NewTab => TabCommand::NewTab,
-                ViewAction::Exit => TabCommand::Exit(true),
+            commands.extend(match action {
+                ViewAction::Home => Some(TabCommand::Home),
+                ViewAction::Close => Some(TabCommand::Close),
+                ViewAction::NewTab => Some(TabCommand::NewTab),
+                ViewAction::Exit => Some(TabCommand::Exit(true)),
                 ViewAction::CompareParentFolders { left, right } => {
-                    TabCommand::Open(View::FolderCompare(Box::new(DirCompareView::open(
-                        &ctx, &left, &right, false, false,
+                    Some(TabCommand::Open(View::FolderCompare(Box::new(
+                        DirCompareView::open(&ctx, &left, &right, false, false),
                     ))))
+                }
+                // Compare Selection to Clipboard：新标签页比较两段内存文本。
+                ViewAction::CompareTexts { left, right } => {
+                    match TextCompareView::from_texts(&left, &right) {
+                        Ok(v) => Some(TabCommand::Open(View::TextCompare(Box::new(v)))),
+                        Err(e) => {
+                            eprintln!("Cannot compare selection: {e}");
+                            None
+                        }
+                    }
                 }
             });
         }

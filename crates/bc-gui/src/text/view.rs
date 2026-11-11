@@ -12,7 +12,6 @@ use super::{
     worker::Worker,
 };
 use bc_core::{
-    align::AlignmentOverrides,
     encoding::{BomPolicy, Encoding},
     line::{LineEdit, MaterializeContext},
     CoreError, Side,
@@ -51,6 +50,11 @@ pub enum ViewAction {
     CompareParentFolders {
         left: PathBuf,
         right: PathBuf,
+    },
+    /// Edit > Compare Selection to Clipboard：选中文本（左）对剪贴板（右）开新比较。
+    CompareTexts {
+        left: String,
+        right: String,
     },
 }
 #[derive(Clone)]
@@ -123,6 +127,8 @@ pub struct TextCompareView {
     pending: Option<Pending>,
     file_dialog: Option<FileDialog>,
     clipboard_side: Option<usize>,
+    /// Compare Selection to Clipboard 等待 RequestPaste 回送的剪贴板；附发起时的 pass 号。
+    compare_selection: Option<(String, u64)>,
     action: Option<ViewAction>,
     goto_line: usize,
     goto_column: usize,
@@ -156,6 +162,15 @@ impl TextCompareView {
     /// 加载一侧文件（空会话预填一侧时使用）。
     pub fn open_path(&mut self, side: usize, path: &Path) -> Result<(), CoreError> {
         self.open_side(side, path)
+    }
+    /// 两段内存文本的比较（Compare Selection to Clipboard 的新会话）。
+    pub fn from_texts(left: &str, right: &str) -> Result<Self, CoreError> {
+        let content = |t: &str| TextContent::from_bytes(t.as_bytes().to_vec(), None);
+        Ok(Self::from_contents(
+            content(left)?,
+            content(right)?,
+            Self::registry()?,
+        ))
     }
     pub fn open(left: &Path, right: &Path) -> Result<Self, CoreError> {
         let registry = Self::registry()?;
@@ -210,6 +225,7 @@ impl TextCompareView {
             pending: None,
             file_dialog: None,
             clipboard_side: None,
+            compare_selection: None,
             action: None,
             goto_line: 1,
             goto_column: 1,
@@ -531,27 +547,9 @@ impl TextCompareView {
         self.cancel_join();
         let source = 1 - destination;
         self.content(destination).ensure_writable()?;
-        if let Some((a, b)) = self.editors[source].selection() {
-            let finish = (b.line + usize::from(b.byte > 0 || a.line == b.line))
-                .min(self.content(source).lines.borrow().len());
-            let first = self.row_for_line(source, a.line);
-            let end = self.row_for_line(source, finish);
-            let target_start = (0..first)
-                .rev()
-                .find_map(|r| index(self.row(r), destination))
-                .map_or(0, |i| i + 1);
-            let target_end = (first..end)
-                .filter_map(|r| index(self.row(r), destination))
-                .last()
-                .map_or(target_start, |i| i + 1);
-            let replacement = self.content(source).lines.borrow().slice(a.line..finish);
-            let target = self.content_mut(destination);
-            target.edits.push(Box::new(LineEdit::replace_range(
-                &target.lines,
-                target_start..target_end,
-                &replacement,
-            )));
-            self.recompare();
+        if self.editors[source].selection().is_some() {
+            let lines = self.editors[source].selected_lines(self.content(source));
+            self.copy_lines(destination, lines);
         } else {
             let edit = self.map.copy_section(self.current_row, side(source))?;
             self.content_mut(destination).edits.push(edit);
@@ -559,17 +557,99 @@ impl TextCompareView {
         }
         Ok(())
     }
+    /// Copy Line to Left/Right：选中各行（无选区时为光标行）覆盖目标侧对齐行。
+    fn copy_line_to(&mut self, destination: usize) -> Result<(), CoreError> {
+        if self.map.is_stale() {
+            return Err(CoreError::Invalid(
+                "wait for comparison before copying aligned lines".into(),
+            ));
+        }
+        self.cancel_join();
+        let source = 1 - destination;
+        self.content(destination).ensure_writable()?;
+        let lines = self.editors[source].selected_lines(self.content(source));
+        if lines.is_empty() {
+            return Err(CoreError::Invalid("no line to copy".into()));
+        }
+        self.copy_lines(destination, lines);
+        Ok(())
+    }
+    /// 来源行区间替换目标侧与之对齐的行（无对齐行时插入到对应位置），一次撤销。
+    fn copy_lines(&mut self, destination: usize, lines: Range<usize>) {
+        let source = 1 - destination;
+        let first = self.row_for_line(source, lines.start);
+        let end = self.row_for_line(source, lines.end);
+        let target_start = (0..first)
+            .rev()
+            .find_map(|r| index(self.row(r), destination))
+            .map_or(0, |i| i + 1);
+        let target_end = (first..end)
+            .filter_map(|r| index(self.row(r), destination))
+            .last()
+            .map_or(target_start, |i| i + 1);
+        let replacement = self.content(source).lines.borrow().slice(lines);
+        let target = self.content_mut(destination);
+        target.edits.push(Box::new(LineEdit::replace_range(
+            &target.lines,
+            target_start..target_end,
+            &replacement,
+        )));
+        self.recompare();
+    }
+    /// Isolate：选中各行（无选区时为光标行）不再与另一侧配对。
+    fn isolate(&mut self, s: usize) -> Result<(), CoreError> {
+        let lines = self.editors[s].selected_lines(self.content(s));
+        if lines.is_empty() {
+            return Err(CoreError::Invalid("no line to isolate".into()));
+        }
+        for line in lines {
+            self.map.overrides.isolate(side(s), line)?;
+        }
+        self.align_with = None;
+        self.recompare();
+        Ok(())
+    }
+    /// Select Section：选中当前区块在 `s` 侧的整行。
+    fn select_section(&mut self, s: usize) {
+        let row = self.current_row;
+        let rows = self
+            .sections
+            .iter()
+            .find(|sec| sec.rows.contains(&row))
+            .map_or(row..row + 1, |sec| sec.rows.clone());
+        let mut lines = rows.filter_map(|r| index(self.row(r), s));
+        let Some(first) = lines.next() else {
+            self.message = "Section has no lines on this side".into();
+            return;
+        };
+        let last = lines.last().unwrap_or(first);
+        let end = {
+            let lines = self.content(s).lines.borrow();
+            if last + 1 <= super::editor::end(&lines).line {
+                Caret {
+                    line: last + 1,
+                    byte: 0,
+                }
+            } else {
+                Caret {
+                    line: last,
+                    byte: lines.line_bytes(last).map_or(0, <[u8]>::len),
+                }
+            }
+        };
+        self.editors[s].anchor = Some(Caret {
+            line: first,
+            byte: 0,
+        });
+        self.editors[s].caret = end;
+    }
     pub fn swap(&mut self) {
         self.cancel_join();
         std::mem::swap(&mut self.map.left, &mut self.map.right);
         self.files.swap(0, 1);
         self.editors.swap(0, 1);
         self.active = 1 - self.active;
-        let mut anchors = AlignmentOverrides::default();
-        for &(l, r) in self.map.overrides.pairs() {
-            let _ = anchors.insert(r, l);
-        }
-        self.map.overrides = anchors;
+        self.map.overrides = self.map.overrides.swapped();
         self.find.last_hit = None;
         self.align_with = None;
         self.recompare();
@@ -1476,6 +1556,15 @@ impl TextCompareView {
                             | "Select All"
                             | "Copy to Left"
                             | "Copy to Right"
+                            | "Copy Line to Left"
+                            | "Copy Line to Right"
+                            | "Isolate"
+                            | "Increase Indent"
+                            | "Decrease Indent"
+                            | "Select Section"
+                            | "Compare Selection to Clipboard"
+                            | "Associated Application"
+                            | "Explorer"
                             | "Align With..."
                             | "Clear manual alignment"
                             | "Next Difference"
@@ -1513,7 +1602,14 @@ impl TextCompareView {
         {
             for (index, names) in [
                 (1, &["Save target...", "File properties..."][..]),
-                (2, &["Copy to Left", "Clear manual alignment"][..]),
+                (
+                    2,
+                    &[
+                        "Copy to Left",
+                        "Copy Line to Left",
+                        "Clear manual alignment",
+                    ][..],
+                ),
                 (3, &["First difference", "Last difference"][..]),
                 (4, &["Text display..."][..]),
             ] {
@@ -1526,6 +1622,48 @@ impl TextCompareView {
             update(self, &mut menu.items);
         }
         self.menus = menus;
+    }
+    /// 窗格 `s` 的右键菜单：库存来自参考树，启用状态按该侧选区、写保护与文件路径计算。
+    pub(crate) fn context_items(&self, s: usize) -> Vec<crate::chrome::menubar::MenuItem> {
+        use crate::chrome::menubar::MenuItemKind;
+        let selection = self.editors[s].selection().is_some();
+        let writable = !self.content(s).read_only;
+        let other_writable = !self.content(1 - s).read_only;
+        let has_path = self.files[s].path.is_some();
+        let mut items = super::menu::context(s);
+        for item in &mut items {
+            item.enabled = match item.action_id.as_str() {
+                "Align With..." | "Isolate" | "Select Section" | "Open File..."
+                | "Open Clipboard" | "Save File As..." | "Open With" => true,
+                "Copy to Left" | "Copy to Right" | "Copy Line to Left" | "Copy Line to Right" => {
+                    other_writable
+                }
+                "Increase Indent" | "Decrease Indent" | "Paste" => writable,
+                "Cut" | "Delete" => writable && selection,
+                "Copy" | "Compare Selection to Clipboard" => selection,
+                "Save File" => self.side_dirty(s),
+                "Explorer" => has_path,
+                _ => false,
+            };
+            if let MenuItemKind::Submenu(children) = &mut item.kind {
+                for child in children {
+                    child.enabled = child.action_id == "Associated Application" && has_path;
+                }
+            }
+        }
+        items
+    }
+    /// 右键菜单选择：命令作用于被点击的窗格，并把键盘焦点还给该窗格的编辑器。
+    pub(crate) fn context_command(
+        &mut self,
+        s: usize,
+        id: &str,
+        ctx: &egui::Context,
+        prefs: &Prefs,
+    ) {
+        self.active = s;
+        ctx.memory_mut(|m| m.request_focus(editor_id(s)));
+        self.command(id, ctx, prefs);
     }
     fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
         let old_filter = self.filter;
@@ -1562,6 +1700,50 @@ impl TextCompareView {
                     self.message = e.to_string();
                 }
             }
+            "Copy Line to Left" | "Copy Line to Right" => {
+                if let Err(e) = self.copy_line_to(usize::from(id == "Copy Line to Right")) {
+                    self.message = e.to_string();
+                }
+            }
+            "Isolate" => {
+                if let Err(e) = self.isolate(self.active) {
+                    self.message = e.to_string();
+                }
+            }
+            "Increase Indent" | "Decrease Indent" => {
+                let s = self.active;
+                let old = self.content(s).lines.borrow().len();
+                let revision = self.content(s).revision();
+                let content = if s == 0 {
+                    &mut self.map.left
+                } else {
+                    &mut self.map.right
+                };
+                match self.editors[s].indent(content, id == "Increase Indent") {
+                    Ok(()) if self.content(s).revision() != revision => self.edited(old),
+                    Ok(()) => {}
+                    Err(e) => self.message = e.to_string(),
+                }
+            }
+            "Select Section" => self.select_section(self.active),
+            "Compare Selection to Clipboard" => {
+                let s = self.active;
+                let text = self.editors[s].selected_text(self.content(s));
+                if text.is_empty() {
+                    self.message = "Select text to compare with the clipboard".into();
+                } else {
+                    self.compare_selection = Some((text, ctx.cumulative_pass_nr()));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                }
+            }
+            "Associated Application" | "Explorer" => match self.files[self.active].path.clone() {
+                Some(path) => {
+                    if let Err(e) = shell_open(&path, id == "Explorer") {
+                        self.message = format!("Cannot open {}: {e}", path.display());
+                    }
+                }
+                None => self.message = "This side has no file on disk".into(),
+            },
             "Swap Sides" => self.swap(),
             "Recompare Files" => self.recompare(),
             "Reload Files" => self.request(Pending::ReloadBoth),
@@ -1942,8 +2124,24 @@ impl TextCompareView {
     }
     fn keyboard(&mut self, ctx: &egui::Context, prefs: &Prefs) {
         let events = ctx.input(|i| i.events.clone());
+        // RequestPaste 回送只在随后几帧内有效；剪贴板为空时不会回送，丢弃挂起请求，
+        // 以免下一次普通 Ctrl+V 被误当作比较。
+        if self
+            .compare_selection
+            .as_ref()
+            .is_some_and(|(_, pass)| ctx.cumulative_pass_nr() > pass + 3)
+        {
+            self.compare_selection = None;
+        }
         for event in events {
             if let egui::Event::Paste(text) = &event {
+                if let Some((left, _)) = self.compare_selection.take() {
+                    self.action = Some(ViewAction::CompareTexts {
+                        left,
+                        right: text.clone(),
+                    });
+                    continue;
+                }
                 if let Some(s) = self.clipboard_side.take() {
                     self.request(Pending::Clipboard(s, text.clone()));
                     continue;
@@ -1967,6 +2165,12 @@ impl TextCompareView {
                     (egui::Key::O, true, false) => Some("Open File..."),
                     (egui::Key::H, true, _) => Some("Replace..."),
                     (egui::Key::R, true, false) => Some("Copy to Right"),
+                    (egui::Key::R, true, true) => Some("Copy Line to Right"),
+                    (egui::Key::L, true, false) => Some("Copy to Left"),
+                    (egui::Key::L, true, true) => Some("Copy Line to Left"),
+                    (egui::Key::I, true, true) => Some("Increase Indent"),
+                    (egui::Key::U, true, true) => Some("Decrease Indent"),
+                    (egui::Key::D, true, false) => Some("Select Section"),
                     (egui::Key::V, true, true) => Some("Open Clipboard"),
                     (egui::Key::W, true, _) => Some("Close Tab"),
                     (egui::Key::Q, true, _) => Some("Exit"),
@@ -2005,7 +2209,10 @@ impl TextCompareView {
                 }
             }
             let s = self.active;
-            if !ctx.memory(|m| m.has_focus(editor_id(s))) {
+            // 复制是只读操作：焦点被菜单等临时夺走（无任何控件持有焦点）时仍复制活动窗格选区。
+            let focused = ctx.memory(|m| m.focused());
+            let copy_without_focus = focused.is_none() && matches!(event, egui::Event::Copy);
+            if focused != Some(editor_id(s)) && !copy_without_focus {
                 continue;
             }
             let old = self.content(s).lines.borrow().len();
@@ -2152,6 +2359,44 @@ pub(crate) fn index(row: TextMapRow, s: usize) -> Option<usize> {
         row.left
     } else {
         row.right
+    }
+}
+/// Open With > Associated Application（系统默认程序）或 Explorer（在文件管理器中定位）。
+fn shell_open(path: &Path, reveal: bool) -> std::io::Result<()> {
+    let path = std::path::absolute(path)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // explorer 自行解析参数：/select, 后的路径须原样加引号（Windows 路径不含引号）。
+        let arg = if reveal {
+            format!("/select,\"{}\"", path.display())
+        } else {
+            format!("\"{}\"", path.display())
+        };
+        std::process::Command::new("explorer")
+            .raw_arg(arg)
+            .spawn()
+            .map(drop)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = std::process::Command::new("open");
+        if reveal {
+            command.arg("-R");
+        }
+        command.arg(&path).spawn().map(drop)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let target = if reveal {
+            path.parent().map(Path::to_path_buf).unwrap_or(path)
+        } else {
+            path
+        };
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map(drop)
     }
 }
 pub(crate) fn editor_id(s: usize) -> egui::Id {

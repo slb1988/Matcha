@@ -68,6 +68,8 @@ impl TextCompareView {
         let need_hscroll = self.content_width > rect.width() - 20.0;
         let need_vscroll_pre = self.projection.height(geometry)
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
+        // 行响应盖在窗格响应之上：行上的右键合并进窗格响应，统一打开右键菜单。
+        let mut menu_target = response.clone();
         let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
             // Wheel input is applied raw by `TextCompareView::ui` before
@@ -232,6 +234,9 @@ impl TextCompareView {
                             egui::vec2(width, row_height),
                             egui::Sense::click_and_drag(),
                         );
+                        if response.secondary_clicked() {
+                            menu_target |= response.clone();
+                        }
                         let viewport_rect = egui::Rect::from_min_max(
                             egui::pos2(ui.clip_rect().left(), rect.top()),
                             egui::pos2(ui.clip_rect().right(), rect.bottom()),
@@ -398,10 +403,39 @@ impl TextCompareView {
                         }
                         let pressed = ui.input(|i| i.pointer.primary_pressed());
                         let held = ui.input(|i| i.pointer.primary_down());
+                        let secondary = ui.input(|i| i.pointer.secondary_pressed());
                         let pointer = ui.input(|i| i.pointer.interact_pos());
+                        // 弹出菜单（右键菜单/下拉）盖在窗格上时，按下属于菜单而非文本。
+                        let covered = pointer.is_some_and(|p| {
+                            (pressed || secondary)
+                                && ui.ctx().layer_id_at(p).is_some_and(|l| l != ui.layer_id())
+                        });
                         if let Some(p) = pointer.filter(|p| {
-                            viewport_rect.contains(*p) && self.pane_rects[s].contains(*p)
+                            viewport_rect.contains(*p)
+                                && self.pane_rects[s].contains(*p)
+                                && !covered
                         }) {
+                            // 右键：选区外先移动光标（选区内保留选区），供右键菜单作用。
+                            if ui.is_enabled() && secondary {
+                                if let Some(line) = line {
+                                    self.active = s;
+                                    self.current_row = row;
+                                    ui.memory_mut(|m| m.request_focus(id));
+                                    let cursor = galley.cursor_from_pos(p - origin);
+                                    let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
+                                    let caret = Caret { line, byte };
+                                    let inside = self.editors[s]
+                                        .selection()
+                                        .is_some_and(|(a, b)| a <= caret && caret <= b);
+                                    if !inside {
+                                        self.editors[s].place(caret, false);
+                                        if let Some(line) = index(mapped, 1 - s) {
+                                            self.editors[1 - s]
+                                                .place(Caret { line, byte: 0 }, false);
+                                        }
+                                    }
+                                }
+                            }
                             if ui.is_enabled() && (pressed || (held && self.dragging == Some(s))) {
                                 if let Some(line) = line {
                                     self.active = s;
@@ -466,6 +500,15 @@ impl TextCompareView {
         // editor owner on mouse release after egui's click-elsewhere processing.
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
             ui.memory_mut(|m| m.request_focus(id));
+        }
+        // 右键菜单（参考 text-context）：作用于被点击的窗格。
+        if menu_target.secondary_clicked() {
+            self.active = s;
+        }
+        if let Some(action) =
+            crate::chrome::popup::context_menu(&menu_target, || self.context_items(s))
+        {
+            self.context_command(s, &action, ui.ctx(), prefs);
         }
         ui.painter().line_segment(
             [rect.left_top(), rect.right_top()],

@@ -204,6 +204,7 @@ fn align_range(
     rr: Range<usize>,
     cancel: &dyn CancelCheck,
 ) -> Result<AlignMap, CoreError> {
+    let offsets = (lr.start, rr.start);
     let left = job.left.lines.slice(lr.clone());
     let right = job.right.lines.slice(rr.clone());
     let lw = weights(&job.left, lr.clone(), &job.rules, cancel)?;
@@ -238,7 +239,7 @@ fn align_range(
         case_tolerant: job.rules.comparison.importance.case_unimportant,
         ..Default::default()
     };
-    match job.strategy {
+    let map = match job.strategy {
         // Myers never scores similarity: positional display packing unless
         // "Never align differences" asks for the raw orphan rows.
         AlignStrategy::Quick if alignment.never_align_differences => {
@@ -255,7 +256,8 @@ fn align_range(
             cancel.check()?;
             Ok(map)
         }
-    }
+    }?;
+    Ok(job.overrides.apply_isolation(map, offsets))
 }
 pub(crate) fn classify_row(
     left: &SideSnapshot,

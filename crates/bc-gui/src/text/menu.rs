@@ -287,3 +287,56 @@ pub(super) fn inventory() -> Vec<MenuSpec> {
         },
     ]
 }
+/// 文本窗格右键菜单（`text-context.tree.json`）；`s` 为被点击的窗格，
+/// 复制方向指向另一侧。全部初始禁用，由控制器按状态启用。
+pub(super) fn context(s: usize) -> Vec<MenuItem> {
+    let (copy, copy_key, line, line_key) = if s == 0 {
+        (
+            "Copy to Right",
+            "Ctrl+R",
+            "Copy Line to Right",
+            "Shift+Ctrl+R",
+        )
+    } else {
+        (
+            "Copy to Left",
+            "Ctrl+L",
+            "Copy Line to Left",
+            "Shift+Ctrl+L",
+        )
+    };
+    vec![
+        item("Align With...", Some('w'), None, vec![]),
+        item("Isolate", Some('s'), None, vec![]),
+        item(copy, Some('y'), Some(copy_key), vec![]),
+        item(line, Some('y'), Some(line_key), vec![]),
+        item("Increase Indent", Some('n'), Some("Shift+Ctrl+I"), vec![]),
+        item("Decrease Indent", Some('e'), Some("Shift+Ctrl+U"), vec![]),
+        item("", None, None, vec![]),
+        item("Cut", Some('t'), Some("Ctrl+X"), vec![]),
+        item("Copy", Some('c'), Some("Ctrl+C"), vec![]),
+        item("Paste", Some('p'), Some("Ctrl+V"), vec![]),
+        item("Delete", Some('d'), None, vec![]),
+        item("", None, None, vec![]),
+        item("Select Section", Some('o'), Some("Ctrl+D"), vec![]),
+        item("Compare Selection to Clipboard", Some('l'), None, vec![]),
+        item("", None, None, vec![]),
+        item("Ignored", Some('g'), None, vec![]),
+        item("", None, None, vec![]),
+        item("Open File...", Some('o'), Some("Ctrl+O"), vec![]),
+        item("Open Clipboard", Some('c'), Some("Shift+Ctrl+V"), vec![]),
+        item(
+            "Open With",
+            Some('w'),
+            None,
+            vec![
+                item("Associated Application", None, None, vec![]),
+                item("", None, None, vec![]),
+                item("Text Edit", Some('d'), None, vec![]),
+            ],
+        ),
+        item("Save File", Some('s'), Some("Ctrl+S"), vec![]),
+        item("Save File As...", Some('a'), Some("F12"), vec![]),
+        item("Explorer", Some('x'), None, vec![]),
+    ]
+}
