@@ -30,6 +30,8 @@ pub const SCENES: &[&str] = &[
     "text-find-bar",
     "dlg-text-session-settings",
     "dlg-options",
+    "table-basic",
+    "table-cursor-on-diff",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -45,6 +47,7 @@ pub enum SceneView {
     Text,
     Folder,
     Home,
+    Table,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
@@ -61,7 +64,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 14] = [
+pub const REGISTRY: [Scene; 16] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -137,6 +140,18 @@ pub const REGISTRY: [Scene; 14] = [
         view: SceneView::Text,
         preset: Preset::FirstRow,
     },
+    // Reference: table pair opened, no operation.
+    Scene {
+        name: "table-basic",
+        view: SceneView::Table,
+        preset: Preset::FirstRow,
+    },
+    // Reference: "left grid differing cell" clicked (C3).
+    Scene {
+        name: "table-cursor-on-diff",
+        view: SceneView::Table,
+        preset: Preset::CursorOnDifference,
+    },
 ];
 /// Client size for scenes that capture a dialog alone.
 pub fn scene_window_size(scene: &str) -> Option<[f32; 2]> {
@@ -180,6 +195,10 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
             PathBuf::from(TEXT_LONG_RIGHT),
         )),
         SceneView::Text => Some((PathBuf::from(TEXT_LEFT), PathBuf::from(TEXT_RIGHT))),
+        SceneView::Table => Some((
+            PathBuf::from("tools/visual/corpus/table-left.csv"),
+            PathBuf::from("tools/visual/corpus/table-right.csv"),
+        )),
         SceneView::Folder => Some((
             PathBuf::from("tools/visual/corpus/folder-left"),
             PathBuf::from("tools/visual/corpus/folder-right"),
