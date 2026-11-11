@@ -1,0 +1,71 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.20s
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\icon-catalog.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\icon-catalog.repeat.png size=1384x961 ready=true quiet_frames=2
+icon-catalog SHA256=A65C53F7EA6393DB87094240C3822637DF09BFF196AAAFC0A434B4872D36B52C verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\chrome-demo.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\chrome-demo.repeat.png size=1384x961 ready=true quiet_frames=2
+chrome-demo SHA256=532DC16ACD33B3C3FBB7CF730A8E8F85E9BA1E99C656F489DB95A327086F31DD verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-basic.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-basic.repeat.png size=1384x961 ready=true quiet_frames=2
+text-basic SHA256=563D91C3B00F4B371D6822C9E65C40375BDC77751B5C25C25376D514D4219138 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-basic.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-basic.repeat.png size=1384x961 ready=true quiet_frames=2
+folder-basic SHA256=BCFE37E8956347D4A9316559F2863606B7137C11BA8CB7C736889D3549D7CF6A verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-diffs-filter.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-diffs-filter.repeat.png size=1384x961 ready=true quiet_frames=2
+text-diffs-filter SHA256=28FCE048C5D74C841E6A79103B87A61EA05944A1751A9F05F09CD22EBE3835B7 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-cursor-on-diff.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-cursor-on-diff.repeat.png size=1384x961 ready=true quiet_frames=2
+text-cursor-on-diff SHA256=FD8E1082B456F358D73716AE61EBA888913ADE7229D5E9E7DDABD2A8EB089954 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-expanded.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-expanded.repeat.png size=1384x961 ready=true quiet_frames=2
+folder-expanded SHA256=86977D7EBDC0B3DFD72294CEED543B8D9711E49739C626269A8B9E9C972C4768 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-diffs-filter.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\folder-diffs-filter.repeat.png size=1384x961 ready=true quiet_frames=2
+folder-diffs-filter SHA256=060B1F8C77C77E5BEAD571012B51A76B6A3CF8C72A0077D4164FB1F50ECEC450 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-long-scrolled.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-long-scrolled.repeat.png size=1384x961 ready=true quiet_frames=2
+text-long-scrolled SHA256=2AEED0BE1D9AFE490898222655FA4C026C56C92032065EB8334E8BFD90E8C23A verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\home.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\home.repeat.png size=1384x961 ready=true quiet_frames=2
+home SHA256=84C222243E8063FE748F1B623473DA8F04F94F6DF50EA10B760C2B22BBFDFFA0 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-menu-edit.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-menu-edit.repeat.png size=1384x961 ready=true quiet_frames=2
+text-menu-edit SHA256=28E75965312B88A031A2BC6DE9E2BE1E6443B9AC9FE0854443CBAA7243D6E44F verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-find-bar.png size=1384x961 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\text-find-bar.repeat.png size=1384x961 ready=true quiet_frames=2
+text-find-bar SHA256=F39376785B7C1BE381D48E5D49D003B6E66E31A99E3EA06961FBB8ADE9481AE6 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\dlg-text-session-settings.png size=583x563 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\dlg-text-session-settings.repeat.png size=583x563 ready=true quiet_frames=2
+dlg-text-session-settings SHA256=2A224A7DB9C415485C581EF888F318D1BF681E185C187353CF5CCBFA32872FB4 verified=True
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\dlg-options.png size=859x655 ready=true quiet_frames=2
+matcha.font message="Microsoft YaHei UI" size_px=12 path=C:\WINDOWS\Fonts\msyh.ttc editor=Consolas size_pt=10
+snapshot.saved=D:\Github\Matcha\target\visual\matcha\dlg-options.repeat.png size=859x655 ready=true quiet_frames=2
+dlg-options SHA256=E9C43E2665618CBEC6CE577266BDB4D11332A37AE50E02BB8ABAC549405C6CEE verified=True
