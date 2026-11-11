@@ -32,6 +32,7 @@ pub const SCENES: &[&str] = &[
     "dlg-options",
     "table-basic",
     "table-cursor-on-diff",
+    "folder-sync",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -64,7 +65,7 @@ pub struct Scene {
     pub view: SceneView,
     pub preset: Preset,
 }
-pub const REGISTRY: [Scene; 16] = [
+pub const REGISTRY: [Scene; 17] = [
     Scene {
         name: "icon-catalog",
         view: SceneView::Icons,
@@ -151,6 +152,12 @@ pub const REGISTRY: [Scene; 16] = [
         name: "table-cursor-on-diff",
         view: SceneView::Table,
         preset: Preset::CursorOnDifference,
+    },
+    // Reference: folder pair opened in Folder Sync, no operation.
+    Scene {
+        name: "folder-sync",
+        view: SceneView::Folder,
+        preset: Preset::FirstRow,
     },
 ];
 /// Client size for scenes that capture a dialog alone.

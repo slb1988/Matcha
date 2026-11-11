@@ -1,7 +1,7 @@
 # Matcha 确定性客户区快照；所有路径相对仓库根，与调用者当前目录无关。
 [CmdletBinding()]
 param(
-    [ValidateSet('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff')]
+    [ValidateSet('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff','folder-sync')]
     [string]$Scene = 'text-basic',
     [switch]$All,
     [switch]$Verify,
@@ -16,7 +16,7 @@ try {
     & cargo build --release -p bcompare
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" }
     $exe = Join-Path $root 'target/release/matcha.exe'
-    $scenes = if ($All) { @('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff') } else { @($Scene) }
+    $scenes = if ($All) { @('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff','folder-sync') } else { @($Scene) }
     $outDir = Join-Path $root 'target/visual/matcha'
     New-Item -ItemType Directory -Force $outDir | Out-Null
     $results = @()
