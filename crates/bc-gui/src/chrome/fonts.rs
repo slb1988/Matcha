@@ -101,15 +101,18 @@ pub fn install(ctx: &egui::Context) {
         .and_then(|handle| handle.join().ok())
         .unwrap_or_else(resolve);
     crate::perf::span("fonts:resolved", t);
-    if let Some(font) = &system {
-        eprintln!(
-            "matcha.font message={:?} size_px={} path={} editor=Consolas size_pt=10",
-            font.family,
-            font.size_px,
-            font.path.display()
-        );
-    } else {
-        eprintln!("matcha.font: SPI message font unavailable; using Segoe UI/bundled fallback");
+    // 诊断只在计时运行（`MATCHA_PERF` / `MATCHA_TABLE_PERF`）输出：命令行用户的终端里不应出现。
+    if crate::perf::enabled() {
+        if let Some(font) = &system {
+            eprintln!(
+                "matcha.font message={:?} size_px={} path={} editor=Consolas size_pt=10",
+                font.family,
+                font.size_px,
+                font.path.display()
+            );
+        } else {
+            eprintln!("matcha.font: SPI message font unavailable; using Segoe UI/bundled fallback");
+        }
     }
     ctx.set_fonts(definitions);
     set_sizes(
