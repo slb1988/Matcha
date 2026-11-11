@@ -858,3 +858,187 @@ mod tests {
         }
     }
 }
+
+/// Large (64 px) session-type pictograms for the Home icon grid. Original
+/// vector drawings of generic folder / sync / document / sheet motifs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SessionIcon {
+    FolderCompare,
+    FolderSync,
+    TextCompare,
+    TableCompare,
+}
+const FOLDER_BACK: Color32 = Color32::from_rgb(232, 196, 120);
+const FOLDER_FRONT: Color32 = Color32::from_rgb(250, 222, 158);
+const FOLDER_EDGE: Color32 = Color32::from_rgb(176, 136, 70);
+const PAGE_EDGE: Color32 = Color32::from_rgb(128, 128, 128);
+const PAGE_LINE: Color32 = Color32::from_rgb(150, 150, 150);
+
+fn big_folder(painter: &Painter, r: Rect) {
+    let edge = Stroke::new(1.0, FOLDER_EDGE);
+    // Back panel with a tab on the left.
+    let tab = Rect::from_min_max(r.left_top(), r.left_top() + Vec2::new(r.width() * 0.4, 9.0));
+    painter.rect_filled(tab, 3.0, FOLDER_BACK);
+    painter.rect_stroke(tab, 3.0, edge, StrokeKind::Inside);
+    let back = Rect::from_min_max(r.left_top() + Vec2::new(0.0, 5.0), r.right_bottom());
+    painter.rect_filled(back, 2.0, FOLDER_BACK);
+    painter.rect_stroke(back, 2.0, edge, StrokeKind::Inside);
+    // Front panel: lighter, covering the lower part.
+    let front = Rect::from_min_max(r.left_top() + Vec2::new(0.0, 12.0), r.right_bottom());
+    let mut mesh = egui::Mesh::default();
+    let i = mesh.vertices.len() as u32;
+    for (p, c) in [
+        (front.left_top(), Color32::from_rgb(252, 232, 184)),
+        (front.right_top(), Color32::from_rgb(252, 232, 184)),
+        (front.right_bottom(), FOLDER_FRONT),
+        (front.left_bottom(), FOLDER_FRONT),
+    ] {
+        mesh.colored_vertex(p, c);
+    }
+    mesh.add_triangle(i, i + 1, i + 2);
+    mesh.add_triangle(i, i + 2, i + 3);
+    painter.add(egui::Shape::mesh(mesh));
+    painter.rect_stroke(front, 2.0, edge, StrokeKind::Inside);
+}
+/// Two overlapping folders (back one up and to the right): "compare".
+fn folder_pair(painter: &Painter, c: Pos2) {
+    big_folder(
+        painter,
+        Rect::from_min_size(c + Vec2::new(-22.0, -28.0), Vec2::new(50.0, 46.0)),
+    );
+    big_folder(
+        painter,
+        Rect::from_min_size(c + Vec2::new(-29.0, -21.0), Vec2::new(50.0, 49.0)),
+    );
+}
+fn page(painter: &Painter, r: Rect, lines: bool) {
+    let fold = 10.0;
+    let outline = vec![
+        r.left_top(),
+        Pos2::new(r.right() - fold, r.top()),
+        Pos2::new(r.right(), r.top() + fold),
+        r.right_bottom(),
+        r.left_bottom(),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        outline.clone(),
+        Color32::WHITE,
+        Stroke::NONE,
+    ));
+    painter.add(egui::Shape::closed_line(
+        outline,
+        Stroke::new(1.0, PAGE_EDGE),
+    ));
+    painter.line_segment(
+        [
+            Pos2::new(r.right() - fold, r.top()),
+            Pos2::new(r.right() - fold, r.top() + fold),
+        ],
+        Stroke::new(1.0, PAGE_EDGE),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(r.right() - fold, r.top() + fold),
+            Pos2::new(r.right(), r.top() + fold),
+        ],
+        Stroke::new(1.0, PAGE_EDGE),
+    );
+    if lines {
+        let mut y = r.top() + 16.0;
+        while y < r.bottom() - 5.0 {
+            painter.line_segment(
+                [
+                    Pos2::new(r.left() + 6.0, y + 0.5),
+                    Pos2::new(r.right() - 6.0, y + 0.5),
+                ],
+                Stroke::new(1.0, PAGE_LINE),
+            );
+            y += 5.0;
+        }
+    }
+}
+/// Paint a session-type pictogram centered in `rect` (designed for 64x64).
+pub fn paint_session(painter: &Painter, rect: Rect, icon: SessionIcon) {
+    let c = rect.center();
+    match icon {
+        SessionIcon::FolderCompare => folder_pair(painter, c),
+        SessionIcon::FolderSync => {
+            folder_pair(painter, c);
+            let center = c + Vec2::new(-4.0, 8.0);
+            painter.circle_filled(center, 15.0, Color32::from_rgb(250, 250, 252));
+            let stroke = Stroke::new(4.0, Color32::from_rgb(52, 120, 200));
+            arc(painter, center, 11.0, 3.6, 5.9, stroke);
+            arrow_head(
+                painter,
+                center + Vec2::angled(5.9) * 11.0,
+                5.9 + std::f32::consts::FRAC_PI_2,
+                Color32::from_rgb(52, 120, 200),
+            );
+            let stroke = Stroke::new(4.0, Color32::from_rgb(140, 90, 190));
+            arc(painter, center, 11.0, 0.46, 2.76, stroke);
+            arrow_head(
+                painter,
+                center + Vec2::angled(2.76) * 11.0,
+                2.76 + std::f32::consts::FRAC_PI_2,
+                Color32::from_rgb(140, 90, 190),
+            );
+        }
+        SessionIcon::TextCompare => {
+            let back = Rect::from_min_size(c + Vec2::new(-14.0, -30.0), Vec2::new(38.0, 50.0));
+            page(painter, back, false);
+            let front = Rect::from_min_size(c + Vec2::new(-24.0, -24.0), Vec2::new(38.0, 54.0));
+            page(painter, front, true);
+        }
+        SessionIcon::TableCompare => {
+            let sheet = Rect::from_center_size(c, Vec2::new(46.0, 54.0));
+            page(painter, sheet, false);
+            let grid = Rect::from_min_max(
+                sheet.left_top() + Vec2::new(5.0, 14.0),
+                sheet.right_bottom() - Vec2::new(5.0, 5.0),
+            );
+            painter.rect_filled(
+                Rect::from_min_max(grid.left_top(), Pos2::new(grid.right(), grid.top() + 7.0)),
+                0.0,
+                Color32::from_rgb(200, 222, 196),
+            );
+            let line = Stroke::new(1.0, PAGE_LINE);
+            let mut y = grid.top();
+            while y <= grid.bottom() + 0.1 {
+                painter.line_segment(
+                    [
+                        Pos2::new(grid.left(), y + 0.5),
+                        Pos2::new(grid.right(), y + 0.5),
+                    ],
+                    line,
+                );
+                y += 7.0;
+            }
+            for i in 0..=3 {
+                let x = grid.left() + grid.width() * i as f32 / 3.0;
+                painter.line_segment(
+                    [
+                        Pos2::new(x.round() + 0.5, grid.top()),
+                        Pos2::new(x.round() + 0.5, grid.bottom()),
+                    ],
+                    line,
+                );
+            }
+        }
+    }
+}
+/// Small 14x12 "drawer" glyph for session-tree group nodes.
+pub fn paint_drawer(painter: &Painter, rect: Rect, fill: Color32, handle: Color32) {
+    painter.rect_filled(rect, 1.0, fill);
+    painter.rect_stroke(
+        rect,
+        1.0,
+        Stroke::new(1.0, Color32::from_rgb(114, 114, 114)),
+        StrokeKind::Inside,
+    );
+    let c = rect.center();
+    painter.rect_filled(
+        Rect::from_center_size(c + Vec2::new(0.0, -1.0), Vec2::new(4.0, 2.0)),
+        0.0,
+        handle,
+    );
+}

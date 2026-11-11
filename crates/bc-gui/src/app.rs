@@ -159,9 +159,12 @@ impl MatchaApp {
             });
         });
     }
-    /// 文本/文件夹视图自带 chrome 菜单栏，不再绘制应用顶条。
+    /// 文本/文件夹/Home 视图自带 chrome 菜单栏，不再绘制应用顶条。
     fn has_own_chrome(&self) -> bool {
-        matches!(self.view, View::TextCompare(_) | View::FolderCompare(_))
+        matches!(
+            self.view,
+            View::TextCompare(_) | View::FolderCompare(_) | View::Home(_)
+        )
     }
 }
 impl eframe::App for MatchaApp {
@@ -316,6 +319,7 @@ impl eframe::App for MatchaApp {
                 View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::TableCompare(v) => v.is_ready(),
                 View::FolderCompare(v) => !v.busy(),
+                View::Home(_) => true,
                 _ => false,
             };
             if ready && !self.snapshot_preset_applied {
@@ -341,6 +345,7 @@ impl eframe::App for MatchaApp {
                 View::TextCompare(v) => v.is_ready(),
                 View::TableCompare(v) => v.is_ready(),
                 View::FolderCompare(v) => !v.busy(),
+                View::Home(_) => true,
                 _ => false,
             };
             if ready {
@@ -389,6 +394,11 @@ impl eframe::App for MatchaApp {
             self.view = View::FolderCompare(Box::new(DirCompareView::open(
                 &ctx, left, right, false, false,
             )));
+        } else if let Some(HomeAction::OpenFolderSync { left, right }) = &home_action {
+            self.view = View::FolderSync(Box::new(SyncView::open(&ctx, left, right)));
+        } else if let Some(HomeAction::Exit) = &home_action {
+            self.exit_confirmed = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else if let Some(HomeAction::OpenTableCompare { left, right }) = home_action {
             match TableCompareView::open(&left, &right) {
                 Ok(v) => {
