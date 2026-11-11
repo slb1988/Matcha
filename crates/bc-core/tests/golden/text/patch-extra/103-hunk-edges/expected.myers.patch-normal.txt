@@ -1,0 +1,13 @@
+diff -r D:\Github\Matcha\target\golden-work\103-hunk-edges\left.txt D:\Github\Matcha\target\golden-work\103-hunk-edges\right.txt
+11c11
+< line 11
+---
+> CHANGED 11
+25c25
+< line 25
+---
+> CHANGED 25
+40c40
+< line 40
+---
+> CHANGED 40

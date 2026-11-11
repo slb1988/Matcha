@@ -68,6 +68,46 @@ fn myers_never_align_switch_selects_unpaired_entry() {
 }
 
 #[test]
+fn standard_and_patience_block_switches_follow_the_alignment_spec() {
+    use bc_core::{align::AlignStrategy, DiffKind};
+    let left = "alpha\ncommonAnchor\nfoo one\nbar two\nomega\n";
+    let right = "alpha\ncommonAnchor\nbar 2\nfoo 1\nomega\n";
+    let shape = |strategy, closeness, never| {
+        let mut rules = TextRules::default();
+        rules.alignment.strategy = strategy;
+        rules.alignment.use_closeness = closeness;
+        rules.alignment.never_align_differences = never;
+        let map = TextMap::compare(content(left), content(right), rules).unwrap();
+        map.rows()
+            .map(|r| (r.left, r.right, r.kind))
+            .collect::<Vec<_>>()
+    };
+    let positional = vec![
+        (Some(0), Some(0), DiffKind::Same),
+        (Some(1), Some(1), DiffKind::Same),
+        (Some(2), Some(2), DiffKind::Changed),
+        (Some(3), Some(3), DiffKind::Changed),
+        (Some(4), Some(4), DiffKind::Same),
+    ];
+    let closeness = vec![
+        (Some(0), Some(0), DiffKind::Same),
+        (Some(1), Some(1), DiffKind::Same),
+        (Some(2), None, DiffKind::LeftOnly),
+        (Some(3), Some(2), DiffKind::Changed),
+        (None, Some(3), DiffKind::RightOnly),
+        (Some(4), Some(4), DiffKind::Same),
+    ];
+    for strategy in [AlignStrategy::Smart, AlignStrategy::Patience] {
+        assert_eq!(shape(strategy, false, false), positional, "{strategy:?}");
+        assert_eq!(shape(strategy, true, false), closeness, "{strategy:?}");
+        let orphaned = shape(strategy, true, true);
+        assert_eq!(orphaned.len(), 7, "{strategy:?}");
+        assert!(orphaned.iter().all(|r| r.2 != DiffKind::Changed));
+    }
+    assert_eq!(shape(AlignStrategy::Quick, true, false), positional);
+}
+
+#[test]
 fn copy_insert_delete_and_unterminated_joins() {
     for (left, right) in [("a\nnew\nz", "a\nz"), ("a\nz", "a\nold\nz"), ("a\nb", "a")] {
         let mut map = TextMap::compare(content(left), content(right), Default::default()).unwrap();

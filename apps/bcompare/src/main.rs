@@ -17,6 +17,9 @@
 //! 得到一对路径时改写为普通的 `<left> <right>` 参数，再走上面的单实例转交（开新标签页）。
 //! `/shellmenu=on|off` 写设置并注册/注销后退出。
 //!
+//! `@script` 与 `/report=…`（Matcha 扩展）：在本进程内无界面执行，不参与单实例；报告写到文件或
+//! 标准输出，错误写到标准错误（无控制台时合并为消息框），退出码见 `bc_script::runner`。
+//!
 //! `/qc[=type]`：在本进程内比较两个文件，不开窗口、不参与单实例，结果为参考表中的退出码
 //! （1/11 字节模式，2/12/13 规则模式），并向 stdout 写一行结果（`/silent` 时不写）。
 //!
@@ -35,7 +38,8 @@ mod routing;
 use bc_gui::remote::{Outcome, RemoteOpen, RemoteSender};
 use bc_instance::{Reply, Request, Responder, Role, WAIT_ENV};
 use bc_script::cli::{self, CliArgs};
-use bc_script::ExitCode as Code;
+use bc_script::runner::{RunnerOptions, Script, ScriptRunner, Streams};
+use bc_script::{Command, ExitCode as Code};
 use console::Kind;
 use routing::Route;
 use std::path::{Path, PathBuf};
@@ -112,6 +116,12 @@ fn main() -> ExitCode {
             console::tell(Kind::Info, &text);
             ExitCode::SUCCESS
         }
+        Route::Script { path, args } => run_script(&path, &args, cli.silent()),
+        Route::Report {
+            left,
+            right,
+            switches,
+        } => run_report(&left, &right, &switches, cli.silent()),
         Route::QuickCompare { left, right, mode } => {
             quick_compare(&left, &right, mode, cli.silent())
         }
@@ -131,6 +141,67 @@ fn main() -> ExitCode {
         }
         Route::SingleInstance => single_instance(dev.into_launch(pair), args, wait),
     }
+}
+
+/// `@script`：加载（105/106/100 在执行前确定）后无界面执行。
+fn run_script(path: &Path, args: &[String], silent: bool) -> ExitCode {
+    match Script::load(path, args) {
+        Ok(script) => run_headless(&script, silent),
+        Err(failure) => {
+            console::tell(Kind::Error, &failure.message);
+            exit(failure.code)
+        }
+    }
+}
+
+/// `/report=…`：合成一条与脚本 `text-report` 完全相同的请求，走同一执行路径。
+fn run_report(left: &Path, right: &Path, switches: &cli::ReportSwitches, silent: bool) -> ExitCode {
+    let request = bc_script::parser::shortcut_report(
+        &switches.layout,
+        switches.options.as_deref(),
+        switches.file.as_deref(),
+        &left.to_string_lossy(),
+        &right.to_string_lossy(),
+    );
+    match request {
+        Ok(request) => {
+            let raw = format!("/report={}", switches.layout);
+            run_headless(&Script::single(Command::TextReport(request), raw), silent)
+        }
+        Err(e) => {
+            console::tell(Kind::Error, &e.message);
+            exit(Code::UnknownError)
+        }
+    }
+}
+
+/// 报告进标准输出（或文件），错误进标准错误（无控制台时合并为消息框）。写到标准输出的
+/// 报告要求进程确有可用的标准输出，否则在执行任何命令前失败。
+fn run_headless(script: &Script, silent: bool) -> ExitCode {
+    if script.writes_to_stdout() && !console::has_stream(Kind::Info) {
+        console::tell(
+            Kind::Error,
+            "the report goes to standard output, but this process has none: run it from a \
+             console (matcha …) or write to a file (output-to:<file>, /reportfile=<path>)",
+        );
+        return exit(Code::UnknownError);
+    }
+    let mut runner = ScriptRunner::headless(RunnerOptions {
+        silent,
+        close_when_done: false,
+    });
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
+    let mut stderr = console::ErrorSink::new();
+    let code = runner.run(
+        script,
+        &mut Streams {
+            stdout: &mut stdout,
+            stderr: &mut stderr,
+        },
+    );
+    stderr.finish();
+    exit(code)
 }
 
 /// `/qc`：不开窗口；结果一行写到 stdout（`/silent` 时不写），以参考表中的退出码结束。

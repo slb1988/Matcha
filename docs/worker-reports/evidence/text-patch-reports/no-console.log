@@ -1,0 +1,5 @@
+﻿stdout report: message box title = 'Matcha'
+stdout report: exit after closing the box = 100
+file report: exited by itself = True; window title = ''; exit = 0
+file report: file = True
+1c1 | < x | --- | > y

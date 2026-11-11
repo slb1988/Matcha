@@ -1,0 +1,7 @@
+--- D:\Github\Matcha\target\golden-work\020-keyword-case\left.pas	2026-11-11 15:41:55.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\020-keyword-case\right.pas	2026-11-11 15:41:55.000000000 +0800
+@@ -1,2 +1,2 @@
+-BEGIN
+-END;
++begin
++end;

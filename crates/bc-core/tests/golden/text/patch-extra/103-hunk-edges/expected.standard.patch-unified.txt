@@ -1,0 +1,47 @@
+--- D:\Github\Matcha\target\golden-work\103-hunk-edges\left.txt	2026-11-11 15:45:06.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\103-hunk-edges\right.txt	2026-11-11 15:45:06.000000000 +0800
+@@ -5,13 +5,13 @@
+ line 05
+ line 06
+ line 07
+ line 08
+ line 09
+ line 10
+-line 11
++CHANGED 11
+ line 12
+ line 13
+ line 14
+ line 15
+ line 16
+ line 17
+@@ -19,13 +19,13 @@
+ line 19
+ line 20
+ line 21
+ line 22
+ line 23
+ line 24
+-line 25
++CHANGED 25
+ line 26
+ line 27
+ line 28
+ line 29
+ line 30
+ line 31
+@@ -34,13 +34,13 @@
+ line 34
+ line 35
+ line 36
+ line 37
+ line 38
+ line 39
+-line 40
++CHANGED 40
+ line 41
+ line 42
+ line 43
+ line 44
+ line 45
+ line 46

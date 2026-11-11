@@ -1,0 +1,2 @@
+﻿--- D:\Github\Matcha\target\golden-work\027-utf16-endianness\left.txt	2026-11-11 15:41:57.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\027-utf16-endianness\right.txt	2026-11-11 15:41:57.000000000 +0800

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bcreport created="11/11/2026 5:32:26 PM">
+	<ltpath/>
+	<rtpath/>
+	<filecomparison created="11/11/2026 5:32:26 PM">
+		<filename1>D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\left.txt</filename1>
+		<filename2>D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\right.txt</filename2>
+		<linecomp status="same">
+			<text ltid="1" rtid="1">begin</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="2">alpha = 1</text>
+			<text rtid="2">alpha = 10</text>
+		</linecomp>
+		<linecomp status="different">
+			<text ltid="3">beta = 2</text>
+			<text rtid="3">beta = 20</text>
+		</linecomp>
+		<linecomp status="rightorphan">
+			<text rtid="4">gamma = 30</text>
+		</linecomp>
+		<linecomp status="same">
+			<text ltid="4" rtid="5">end</text>
+		</linecomp>
+	</filecomparison>
+</bcreport>

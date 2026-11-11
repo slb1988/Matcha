@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\008-append\left.txt D:\Github\Matcha\target\golden-work\008-append\right.txt
+2a3
+> tail

@@ -1,0 +1,8 @@
+diff -r D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\left.txt D:\Github\Matcha\target\golden-work\033-unequal-2v3-tail\right.txt
+2,3c2,4
+< alpha = 1
+< beta = 2
+---
+> alpha = 10
+> beta = 20
+> gamma = 30

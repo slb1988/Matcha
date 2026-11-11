@@ -1,0 +1,7 @@
+diff -r D:\Github\Matcha\target\golden-work\034-never-align-crossed\left.txt D:\Github\Matcha\target\golden-work\034-never-align-crossed\right.txt
+3,4c3,4
+< foo one
+< bar two
+---
+> bar 2
+> foo 1

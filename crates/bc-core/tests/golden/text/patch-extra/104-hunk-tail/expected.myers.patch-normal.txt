@@ -1,0 +1,9 @@
+diff -r D:\Github\Matcha\target\golden-work\104-hunk-tail\left.txt D:\Github\Matcha\target\golden-work\104-hunk-tail\right.txt
+10c10
+< line 10
+---
+> CHANGED 10
+27c27
+< line 27
+---
+> CHANGED 27

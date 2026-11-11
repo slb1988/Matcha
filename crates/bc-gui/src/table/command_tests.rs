@@ -153,7 +153,10 @@ fn align_with_opposite_row_clear_and_keyboard_undo_redo_target_the_correct_histo
     edit(&ctx, &mut v, "Align With...");
     click_cell(&ctx, &mut v, 0, 1, 0);
     assert_eq!(v.align_with, Some((0, 0)));
-    click_cell(&ctx, &mut v, 1, 2, 0);
+    // Unmatched keys are tie-paired by the shared Smart aligner and then split by key,
+    // so the orphans interleave (L "1", R "3", L "2", R "4"): right source row 0 is
+    // display row 1.
+    click_cell(&ctx, &mut v, 1, 1, 0);
     ready(&mut v);
     assert_eq!(v.pair.as_ref().unwrap().map.overrides().pairs(), &[(0, 0)]);
     assert_eq!(v.grid.active, 1);

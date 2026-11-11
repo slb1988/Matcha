@@ -1,0 +1,21 @@
+diff -r D:\Github\Matcha\target\golden-work\102-hunk-gaps\left.txt D:\Github\Matcha\target\golden-work\102-hunk-gaps\right.txt
+5c5
+< line 05
+---
+> CHANGED 05
+14c14
+< line 14
+---
+> CHANGED 14
+24c24
+< line 24
+---
+> CHANGED 24
+37c37
+< line 37
+---
+> CHANGED 37
+58c58
+< line 58
+---
+> CHANGED 58

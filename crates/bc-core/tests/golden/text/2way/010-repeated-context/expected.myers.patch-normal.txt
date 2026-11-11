@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\010-repeated-context\left.txt D:\Github\Matcha\target\golden-work\010-repeated-context\right.txt
+2a3
+> inserted

@@ -230,8 +230,10 @@ dependencies = [
  "bc-engine-dir",
  "bc-engine-table",
  "bc-engine-text",
+ "bc-formats",
  "bc-jobs",
  "bc-session",
+ "quick-xml 0.41.0",
 ]
 
 [[package]]
@@ -248,6 +250,7 @@ dependencies = [
  "bc-report",
  "bc-session",
  "bc-vfs",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

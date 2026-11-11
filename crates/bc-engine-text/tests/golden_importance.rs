@@ -14,8 +14,8 @@ fn all_reference_rows_alignment_and_importance() {
     }
     assert_eq!(
         cases.len(),
-        30,
-        "first corpus must contain all 30 planned cases"
+        34,
+        "corpus must contain the 30 original cases and the 4 alignment-spec cases"
     );
     let known = std::fs::read_to_string(root.join("../../KNOWN_DIFFS.md")).unwrap_or_default();
     let mut quick_failures = Vec::new();
@@ -40,6 +40,7 @@ fn all_reference_rows_alignment_and_importance() {
             flags.embedded_whitespace_unimportant = case.flag("embedded_unimportant");
             flags.trailing_whitespace_unimportant = case.flag("trailing_unimportant");
             flags.case_unimportant = case.flag("case_unimportant");
+            rules.alignment.never_align_differences = case.flag("never_align_diffs");
             flags.line_endings_unimportant = !case.flag("compare_endings");
             if case.flag("comment_unimportant") {
                 flags.unimportant.push(bc_formats::ElementKind::Comment);

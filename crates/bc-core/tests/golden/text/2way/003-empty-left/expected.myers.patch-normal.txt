@@ -1,0 +1,4 @@
+diff -r D:\Github\Matcha\target\golden-work\003-empty-left\left.txt D:\Github\Matcha\target\golden-work\003-empty-left\right.txt
+0a1,2
+> alpha
+> beta

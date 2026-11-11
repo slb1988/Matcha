@@ -1,0 +1,7 @@
+diff -r D:\Github\Matcha\target\golden-work\105-unimportant-orphans\left.cpp D:\Github\Matcha\target\golden-work\105-unimportant-orphans\right.cpp
+4d3
+< // old comment
+9a9
+> // new comment
+14d13
+< int m;

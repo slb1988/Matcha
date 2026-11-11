@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\018-trailing-whitespace\left.txt D:\Github\Matcha\target\golden-work\018-trailing-whitespace\right.txt
+1c1
+< alpha 	
+---
+> alpha

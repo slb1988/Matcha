@@ -192,3 +192,194 @@ fn session_overrides_reject_crossing_and_can_be_cleared() {
     anchors.clear();
     assert!(anchors.pairs().is_empty());
 }
+
+/// Spec cases: exact `(left, right, kind)` sequences (0-based) per strategy/switches.
+mod spec {
+    use bc_core::{
+        align::{AlignInput, Aligner, PatienceAlign, QuickAlign, SmartAlign, SmartAlignOptions},
+        hash::LineHasher,
+        line::LineList,
+        DiffKind::{self, Changed as C, LeftOnly as L, RightOnly as R, Same as S},
+    };
+
+    type Row = (Option<usize>, Option<usize>, DiffKind);
+
+    const CROSS_LEFT: &str = "alpha\ncommonAnchor\nfoo one\nbar two\nomega\n";
+    const CROSS_RIGHT: &str = "alpha\ncommonAnchor\nbar 2\nfoo 1\nomega\n";
+
+    enum Mode {
+        Myers,
+        MyersNeverAlign,
+        Standard(SmartAlignOptions),
+        Patience(SmartAlignOptions),
+    }
+
+    fn rows(mode: Mode, left: &str, right: &str) -> Vec<Row> {
+        let l = LineList::from_bytes(left.as_bytes().to_vec());
+        let r = LineList::from_bytes(right.as_bytes().to_vec());
+        let lh = LineHasher::default().hash_lines(&l);
+        let rh = LineHasher::default().hash_lines(&r);
+        let li = AlignInput {
+            hashes: &lh,
+            lines: Some(&l),
+            ..Default::default()
+        };
+        let ri = AlignInput {
+            hashes: &rh,
+            lines: Some(&r),
+            ..Default::default()
+        };
+        let map = match mode {
+            Mode::Myers => QuickAlign.align2(li, ri),
+            Mode::MyersNeverAlign => QuickAlign.align2_unpaired(li, ri),
+            Mode::Standard(options) => SmartAlign { options }.align2(li, ri),
+            Mode::Patience(options) => PatienceAlign { options }.align2(li, ri),
+        };
+        map.rows()
+            .iter()
+            .map(|row| (row.left, row.right, row.kind))
+            .collect()
+    }
+
+    fn closeness(on: bool) -> SmartAlignOptions {
+        SmartAlignOptions {
+            use_closeness: on,
+            ..Default::default()
+        }
+    }
+
+    fn never_align() -> SmartAlignOptions {
+        SmartAlignOptions {
+            never_align_diffs: true,
+            ..Default::default()
+        }
+    }
+
+    const POSITIONAL_CROSS: [Row; 5] = [
+        (Some(0), Some(0), S),
+        (Some(1), Some(1), S),
+        (Some(2), Some(2), C),
+        (Some(3), Some(3), C),
+        (Some(4), Some(4), S),
+    ];
+
+    #[test]
+    fn crossed_reorder_myers_and_closeness_off_pair_by_position() {
+        assert_eq!(rows(Mode::Myers, CROSS_LEFT, CROSS_RIGHT), POSITIONAL_CROSS);
+        assert_eq!(
+            rows(Mode::Standard(closeness(false)), CROSS_LEFT, CROSS_RIGHT),
+            POSITIONAL_CROSS
+        );
+    }
+
+    #[test]
+    fn crossed_reorder_closeness_keeps_only_the_later_crossing_pair() {
+        let expected = [
+            (Some(0), Some(0), S),
+            (Some(1), Some(1), S),
+            (Some(2), None, L),
+            (Some(3), Some(2), C),
+            (None, Some(3), R),
+            (Some(4), Some(4), S),
+        ];
+        assert_eq!(
+            rows(Mode::Standard(closeness(true)), CROSS_LEFT, CROSS_RIGHT),
+            expected
+        );
+        assert_eq!(
+            rows(Mode::Standard(Default::default()), CROSS_LEFT, CROSS_RIGHT),
+            expected,
+            "closeness is the Standard default"
+        );
+        assert_eq!(
+            rows(Mode::Patience(closeness(true)), CROSS_LEFT, CROSS_RIGHT),
+            expected
+        );
+    }
+
+    #[test]
+    fn never_align_diffs_orphans_the_whole_block() {
+        let expected = [
+            (Some(0), Some(0), S),
+            (Some(1), Some(1), S),
+            (Some(2), None, L),
+            (Some(3), None, L),
+            (None, Some(2), R),
+            (None, Some(3), R),
+            (Some(4), Some(4), S),
+        ];
+        assert_eq!(
+            rows(Mode::MyersNeverAlign, CROSS_LEFT, CROSS_RIGHT),
+            expected
+        );
+        assert_eq!(
+            rows(Mode::Standard(never_align()), CROSS_LEFT, CROSS_RIGHT),
+            expected
+        );
+        assert_eq!(
+            rows(Mode::Patience(never_align()), CROSS_LEFT, CROSS_RIGHT),
+            expected
+        );
+    }
+
+    #[test]
+    fn dissimilar_equal_blocks_tie_into_pairs_with_closeness() {
+        let left = "begin\nabcdefghij\nklmnopqrst\nuvwxyzabcd\nend\n";
+        let right = "begin\n0123456789\n9876543210\n5678901234\nend\n";
+        let expected: Vec<Row> = (0..5)
+            .map(|i| (Some(i), Some(i), if i == 0 || i == 4 { S } else { C }))
+            .collect();
+        assert_eq!(rows(Mode::Myers, left, right), expected);
+        assert_eq!(rows(Mode::Standard(closeness(true)), left, right), expected);
+        assert_eq!(
+            rows(Mode::Standard(closeness(false)), left, right),
+            expected
+        );
+    }
+
+    #[test]
+    fn unequal_block_pairs_then_orphans_the_tail() {
+        let left = "begin\nalpha = 1\nbeta = 2\nend\n";
+        let right = "begin\nalpha = 10\nbeta = 20\ngamma = 30\nend\n";
+        let expected = [
+            (Some(0), Some(0), S),
+            (Some(1), Some(1), C),
+            (Some(2), Some(2), C),
+            (None, Some(3), R),
+            (Some(3), Some(4), S),
+        ];
+        assert_eq!(rows(Mode::Myers, left, right), expected);
+        assert_eq!(rows(Mode::Standard(closeness(true)), left, right), expected);
+        assert_eq!(
+            rows(Mode::Standard(closeness(false)), left, right),
+            expected
+        );
+    }
+
+    #[test]
+    fn closeness_moves_the_orphan_to_the_dissimilar_line() {
+        // Position would pair "gamma" with "alpha"; closeness orphans "gamma" instead.
+        let left = "begin\nalpha = 1\nbeta = 2\nend\n";
+        let right = "begin\ngamma = 30\nalpha = 10\nbeta = 20\nend\n";
+        assert_eq!(
+            rows(Mode::Standard(closeness(true)), left, right),
+            [
+                (Some(0), Some(0), S),
+                (None, Some(1), R),
+                (Some(1), Some(2), C),
+                (Some(2), Some(3), C),
+                (Some(3), Some(4), S),
+            ]
+        );
+        assert_eq!(
+            rows(Mode::Standard(closeness(false)), left, right),
+            [
+                (Some(0), Some(0), S),
+                (Some(1), Some(1), C),
+                (Some(2), Some(2), C),
+                (None, Some(3), R),
+                (Some(3), Some(4), S),
+            ]
+        );
+    }
+}

@@ -44,75 +44,101 @@ fn compare(
     map
 }
 #[test]
-fn similar_change_is_paired_but_unrelated_replacements_are_not() {
+fn similar_change_is_paired_and_unrelated_equal_blocks_tie_into_pairs() {
     let map = compare(
-        "before\ntotal = price * qty\nafter",
-        "before\ntotal = price * quantity\nafter",
+        "before
+total = price * qty
+after",
+        "before
+total = price * quantity
+after",
         Default::default(),
         None,
         None,
     );
     assert_eq!(map.len(), 3);
     assert_eq!(map.row(1).unwrap().kind, DiffKind::Changed);
+    // Closeness ties keep the pair: completely dissimilar equal-count blocks pair up.
     let map = compare(
-        "AAAA\nBBBB\nCCCC",
-        "1111\n2222\n3333",
+        "AAAA
+BBBB
+CCCC",
+        "1111
+2222
+3333",
         Default::default(),
         None,
         None,
     );
-    assert_eq!(map.len(), 6);
-    assert!(map
-        .rows()
-        .iter()
-        .all(|r| r.left.is_none() || r.right.is_none()));
+    assert_eq!(map.len(), 3);
+    assert!(map.rows().iter().all(|r| r.kind == DiffKind::Changed));
 }
 #[test]
-fn offset_tolerance_and_similarity_threshold_are_honored() {
+fn closeness_prefers_the_similar_line_over_position() {
     let map = compare(
         "value = old",
-        "unrelated ZZZ\nvalue = new",
+        "unrelated ZZZ
+value = new",
         Default::default(),
         None,
         None,
     );
     assert_eq!(map.row_of_left(0), map.row_of_right(1));
-    let map = compare(
-        "value = old",
-        "unrelated ZZZ\nvalue = new",
-        SmartAlignOptions {
-            skew_tolerance: 0,
-            ..Default::default()
-        },
-        None,
-        None,
-    );
-    assert_ne!(map.row_of_left(0), map.row_of_right(1));
-    let map = compare(
-        "value = old",
-        "value = new",
-        SmartAlignOptions {
-            pair_similarity_threshold: 1.0,
-            ..Default::default()
-        },
-        None,
-        None,
-    );
     assert_eq!(map.len(), 2);
+    // Without closeness the first lines pair by position, no similarity check.
+    let map = compare(
+        "value = old",
+        "unrelated ZZZ
+value = new",
+        SmartAlignOptions {
+            use_closeness: false,
+            ..Default::default()
+        },
+        None,
+        None,
+    );
+    assert_eq!(map.row_of_left(0), map.row_of_right(0));
+    assert_eq!(map.row(1).unwrap().kind, DiffKind::RightOnly);
+    let map = compare(
+        "value = old",
+        "unrelated ZZZ
+value = new",
+        SmartAlignOptions {
+            never_align_diffs: true,
+            ..Default::default()
+        },
+        None,
+        None,
+    );
+    assert_eq!(map.len(), 3);
+    assert!(map.rows().iter().all(|r| r.kind != DiffKind::Changed));
 }
 #[test]
 fn matching_dfm_object_weights_anchor_before_unweighted_caption() {
     let map = compare(
-        "object Left: TFoo\nCaption = alpha",
-        "Caption = alphb\nobject Right: TFoo",
+        "object Left: TFoo
+Caption = alpha",
+        "Caption = alphb
+object Right: TFoo",
         Default::default(),
         Some(&[LineWeight(4), LineWeight(0)]),
         Some(&[LineWeight(0), LineWeight(4)]),
     );
     assert_eq!(map.row_of_left(0), map.row_of_right(1));
+    // Unweighted, the closer caption lines win the single monotone pair.
+    let map = compare(
+        "object Left: TFoo
+Caption = alpha",
+        "Caption = alphb
+object Right: TFoo",
+        Default::default(),
+        None,
+        None,
+    );
+    assert_eq!(map.row_of_left(1), map.row_of_right(0));
 }
 #[test]
-fn unicode_case_whitespace_and_long_lines_are_bounded() {
+fn unicode_case_whitespace_and_long_lines_are_handled() {
     let map = compare(
         "Ä Value = alpha",
         "ä value=alpha",
@@ -124,12 +150,39 @@ fn unicode_case_whitespace_and_long_lines_are_bounded() {
         None,
     );
     assert_eq!(map.len(), 1);
+    // Long lines with no common byte score the -40 floor, tying two gaps: still paired.
     let left = "a".repeat(500_000);
     let right = "b".repeat(500_000);
-    assert_eq!(
-        compare(&left, &right, Default::default(), None, None).len(),
-        2
-    );
+    let map = compare(&left, &right, Default::default(), None, None);
+    assert_eq!(map.len(), 1);
+    assert_eq!(map.row(0).unwrap().kind, DiffKind::Changed);
+}
+#[test]
+fn oversized_blocks_skip_the_dp_and_pair_by_position() {
+    let n = bc_core::align::CLOSENESS_MAX_SIDE + 1;
+    let left: String = (0..n)
+        .map(|i| {
+            format!(
+                "left {i}
+"
+            )
+        })
+        .collect();
+    let right: String = (0..n)
+        .map(|i| {
+            format!(
+                "RIGHT#{i}
+"
+            )
+        })
+        .collect();
+    let map = compare(&left, &right, Default::default(), None, None);
+    assert_eq!(map.len(), n);
+    assert!(map
+        .rows()
+        .iter()
+        .enumerate()
+        .all(|(i, r)| r.left == Some(i) && r.right == Some(i) && r.kind == DiffKind::Changed));
 }
 #[test]
 fn hashes_only_callers_keep_quick_output_and_bad_metadata_is_rejected() {
@@ -147,13 +200,18 @@ fn hashes_only_callers_keep_quick_output_and_bad_metadata_is_rejected() {
         },
     );
     assert_eq!(map.len(), 2);
-    let options = SmartAlignOptions {
-        pair_similarity_threshold: f32::NAN,
-        ..Default::default()
-    };
-    assert!(SmartAlign { options }
+    let lines = LineList::from_bytes(
+        b"a
+b"
+        .to_vec(),
+    );
+    assert!(SmartAlign::default()
         .align2_with_overrides(
-            AlignInput::default(),
+            AlignInput {
+                hashes: &l,
+                lines: Some(&lines),
+                ..Default::default()
+            },
             AlignInput::default(),
             &Default::default()
         )

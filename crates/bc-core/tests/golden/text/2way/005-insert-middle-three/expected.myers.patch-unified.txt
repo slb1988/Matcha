@@ -1,0 +1,10 @@
+--- D:\Github\Matcha\target\golden-work\005-insert-middle-three\left.txt	2026-11-11 15:41:49.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\005-insert-middle-three\right.txt	2026-11-11 15:41:49.000000000 +0800
+@@ -1,4 +1,7 @@
+ one
+ two
++new A
++new B
++new C
+ three
+ four

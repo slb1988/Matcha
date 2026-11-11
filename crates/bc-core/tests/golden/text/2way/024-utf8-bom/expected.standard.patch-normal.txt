@@ -1,0 +1,1 @@
+﻿diff -r D:\Github\Matcha\target\golden-work\024-utf8-bom\left.txt D:\Github\Matcha\target\golden-work\024-utf8-bom\right.txt

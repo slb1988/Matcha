@@ -1,0 +1,2 @@
+﻿--- D:\Github\Matcha\target\golden-work\024-utf8-bom\left.txt	2026-11-11 15:41:56.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\024-utf8-bom\right.txt	2026-11-11 15:41:56.000000000 +0800

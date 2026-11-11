@@ -37,7 +37,7 @@ python tools/golden/test_table_parity.py
 
 ## 文本线既有结果
 
-Wave 3b 已完成 **30 个合成用例 × Myers/Standard 两种策略 = 60 份原始 XML**。Myers 30/30（100%），Standard + closeness 29/30（96.67%）；唯一“不相似不强配”差异在 [KNOWN_DIFFS](../../crates/bc-core/tests/golden/KNOWN_DIFFS.md) 保存输入与双方完整输出，并由测试钉住，不能扩大成任意错误白名单。
+Wave 3b 完成 30 个合成用例，文本对齐规格又增加 031–034，现为 **34 个用例 × Myers/Standard 两种策略 = 68 份原始 XML**。Myers 34/34（100%）；按文本对齐规格实现 closeness DP 后 Standard + closeness 也是 34/34，原“不相似不强配”例外已撤销，[KNOWN_DIFFS](../../crates/bc-core/tests/golden/KNOWN_DIFFS.md) 无正式差异。`031`–`034` 是文本对齐规格的验收用例，2026-11-11 用本脚本采集了 XML 与 patch（8 份 XML 的行序列与规格推导的期望逐行一致）；`case.properties` 的 `never_align_diffs=true` 会让本脚本把两套会话的 `NeverAlignDiffs` 都设为 True。
 
 ### 正式模式
 
@@ -88,6 +88,38 @@ cargo test -p bc-engine-text --test golden_importance -- --nocapture
 ```
 
 锁测试使用独立临时文件，不调用参考程序、不读写设置。若进程异常终止，应由协调者确认锁持有进程确已退出后再处理残留锁；不要按文件年龄擅自抢占。恢复设置前同样必须持有全局锁并关闭参考程序，使用本次时间戳备份，避免覆盖备份后用户的新改动。
+
+## patch 报告协议
+
+`gen_patch_expected.ps1` 是 `gen_expected.ps1 -Layout patch` 的薄封装：锁、备份、两个临时命名会话与按字节恢复完全相同，只是每个用例改为执行 `text-report layout:patch options:patch-<normal|context|unified> output-to:<文件> "matcha-golden-<profile>"`。`-DryRun` 只列出目标路径，不取锁、不碰参考设置。
+
+```powershell
+./tools/golden/gen_patch_expected.ps1 -DryRun
+./tools/golden/gen_patch_expected.ps1 -ReferenceExe '<本机参考程序 exe>' -WorkerId '<本次运行标识>' -LockTimeoutSeconds 30
+./tools/golden/gen_patch_expected.ps1 -CorpusRoot crates/bc-core/tests/golden/text/patch-extra -ReferenceExe '<…>' -WorkerId '<…>'
+```
+
+语料：`text/2way` 34 例 × 2 套规则 × 3 种格式 = 204 份（031–034 于 2026-11-11 补采），另加 `005` 的 `title:` 样本与 `013/014/016/017/018/019/030` 的 `ignore-unimportant` 样本（`expected.<profile>.patch-unified.ignore-unimportant.txt`）共 15 份；`text/patch-extra/101–110` 是只为 patch 设计的探针（不进入 30 例 XML 回归，避免改变其“恰好 30 例”断言），各 6 份：101–104 定位差异块的上下文与合并规则，105–110 定位 normal 格式的空范围写法。2026-11-11 采集，参考进程退出码均为 0，每次运行后设置按字节恢复校验通过。
+
+由样本归纳的格式（每条后括号为证据样本，路径相对 `crates/bc-core/tests/golden/text/`）：
+
+- **整体风格**：GNU diff 的三种输出格式（`2way/005-insert-middle-three/expected.myers.patch-{normal,context,unified}.txt`）。
+- **换行与编码**：每行以 CRLF 结尾，包括文件头（`2way/005…/expected.myers.patch-unified.txt`）；内容统一写成 UTF-8，与输入编码无关——UTF-16 输入也输出 UTF-8（`2way/025-utf16le-versus-utf8/…patch-unified.txt`）。
+- **BOM**：任一输入带 BOM 时输出以 UTF-8 BOM 开头（左侧 BOM：`2way/024-utf8-bom/…`；两侧 BOM：`2way/027-utf16-endianness/…`；UTF-16 左侧：`2way/025…`、`026…`），否则无 BOM，包括含非 ASCII 的无 BOM UTF-8 输入（`2way/028-unicode-change/…`）。只有右侧带 BOM 与 ANSI 代码页输入**未采样**，按“任一侧”实现并在此标注未验证。
+- **normal 文件头**：一行 `diff -r <左路径> <右路径>`，路径为会话里的绝对路径、反斜杠、不加引号（`2way/005…/expected.myers.patch-normal.txt`）。路径含空格时是否加引号**未采样**。
+- **context/unified 文件头**：`*** <左路径>\t<时间>` + `--- <右路径>\t<时间>`（context），`--- <左路径>\t<时间>` + `+++ <右路径>\t<时间>`（unified）；时间为文件修改时间的本地时间 `YYYY-MM-DD HH:MM:SS.000000000 +hhmm`，小数秒恒为 9 个 0（`2way/005…/expected.myers.patch-{context,unified}.txt`）。
+- **两侧无差异**：仍输出文件头，没有任何差异块（`2way/001-identical/…`、`2way/002-empty-both/…`）；仅最后一行有无换行不同也算无差异，且从不输出 `\ No newline at end of file`（`2way/022-final-newline/…`）；仅行尾 CRLF/LF 不同同样无差异（`2way/021-crlf-versus-lf/…`）。
+- **上下文行数为 6**（不是 GNU 默认的 3）：差异块从首个差异前 6 行开始、到末个差异后 6 行结束，在文件开头处截断（`patch-extra/103-hunk-edges/…`：差异在 11/25/40 行，块为 5–17、19–31、34–46）。
+- **合并规则**：相邻两处差异之间不变行 ≤ 12（= 2 × 6）时合并为同一块，≥ 13 时分块（`patch-extra/102-hunk-gaps/…` 间隔 8/9/12 合并、20 分开；`patch-extra/103…` 间隔 13、14 分开）。
+- **文件末尾**：末个差异之后剩余不变行 ≤ 12 时，该块一直延伸到文件末尾；≥ 13 时只带 6 行（`patch-extra/102…` 剩 12 行 → 块至第 70 行；`patch-extra/104-hunk-tail/…` 剩 13 行 → 只到 27+6=33）。文件开头没有对应规则（`patch-extra/103…` 首个差异前 10 行，块仍从第 5 行开始）。
+- **unified 块头**：`@@ -<起>,<行数> +<起>,<行数> @@`，行数为 1 时省略 `,1`（`2way/013-comment-change/…`：`@@ -1 +1 @@`），空范围写 `<起>,0` 且起始为前一行（`2way/003-empty-left/…`：`@@ -0,0 +1,2 @@`）；块内先列全部 `-` 行再列 `+` 行（`2way/012-unrelated-replacement/…`），行前缀为 ` `/`-`/`+` 后直接接正文。
+- **context 块**：每块以 `***************` 开头，`*** <范围> ****` 与 `--- <范围> ----` 两段；范围为 `起,止`，单行只写一个数，空范围写 `0`（`2way/003…`：`*** 0 ****`）；行前缀 `  `、`- `、`+ `、`! `（两个字符）；某一侧只有上下文时该侧只写范围行、不列内容（`2way/005…` 左侧、`2way/006-delete-middle-three/…` 右侧）；同一差异段两侧都有行时两侧都用 `! `（`2way/012…`、`2way/013…`）。
+- **normal 块**：`<左范围><a|c|d><右范围>`，范围为 `起,止` 或单行一个数，`a` 的左范围与 `d` 的右范围写前一行号（`2way/003…`：`0a1,2`；`2way/004-empty-right/…`：`1,2d0`；`2way/006…`：`3,5d2`；`patch-extra/108…`：`3d2`）。**例外**：前一行号恰为 1 时写 `0`，与 GNU 不同，且与重要性无关（`2way/014…`、`patch-extra/106…`：`2d0`；`patch-extra/107-plain-delete-second/…`：普通文本的重要删除也是 `2d0`；`patch-extra/109-insert-after-first/…`：`0a2`；`patch-extra/110…`：`2,3d0`）；context/unified 的空范围只在整侧为空时出现，不受影响；左行 `< `、右行 `> `，`c` 块两侧之间一行 `---`（`2way/012…`）；不带上下文，每个差异段各成一块（`patch-extra/102…`）。
+- **不重要差异**：默认按普通差异输出（`2way/013…patch-normal.txt`）；`ignore-unimportant` 时仅含不重要差异的段不输出，结果只剩文件头（`2way/013、016、017、018、019、030 …patch-unified.ignore-unimportant.txt`）；只在一侧存在的不重要行（整行注释被删除）同样不输出（`2way/014-comment-deletion/…ignore-unimportant.txt`）。被忽略的单侧行落在其他差异块的上下文范围内时如何显示**未采样**。
+- **`title:`**：不出现在纯文本 patch 中，输出与不带标题时逐字节相同（`2way/005…/expected.myers.patch-unified.title.txt` 对比 `expected.myers.patch-unified.txt`，仅时间戳相同）。
+- **两套规则**：去掉文件头时间戳后，`2way` 全部 30 例与 `patch-extra` 4 例的 myers/standard 输出逐字节相同（含 XML 中唯一对齐差异用例 `2way/012…`：参考在两套规则下都按“改动”输出）。
+
+回归测试只归一化两处：文件头里的时间戳，以及 `D:\Github\Matcha\target\golden-work\` 这个采集时的工作目录前缀；其余字节严格比较。
 
 ## 文件夹黄金与 GUI 验证工具
 

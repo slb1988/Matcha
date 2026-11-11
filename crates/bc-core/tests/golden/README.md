@@ -27,10 +27,12 @@ Conventions
 Wave 3 now includes 30 synthetic UTF-8 input-template pairs and case.properties.
 The generator stages real encoded/line-ended working files; source templates remain
 UTF-8. Expected reports are named expected.myers.xml / expected.standard.xml and must
-be checked in verbatim. The complete 60-report oracle set is checked in: Myers matches 30/30 cases and
-Standard+closeness 29/30 (one documented intentional difference). See
-`tools/golden/README.md` and `KNOWN_DIFFS.md`. Absent oracle tests still announce a
-skip for an empty corpus, but partial sets fail; the committed corpus does not skip.
-Diagnostic reports outside this tree are not formal exceptions. Engine regression
-checks all 30 cases, including raw importance; core also checks the 26
-format-independent normalized alignment cases.
+be checked in verbatim. The complete 68-report oracle set is checked in: Myers and Standard+closeness both
+match 34/34 cases, with no documented exception. See `tools/golden/README.md` and
+`KNOWN_DIFFS.md`.
+
+Cases `031`–`034` are the acceptance cases of
+`docs/reference-parity/text-alignment-implementation-prompt.md` (crossed 2v2 reorder,
+dissimilar tie→pair block, 2v3 tail orphan, and `never_align_diffs=true`). Their
+expectations were first written from the spec, then replaced by reference captures
+whose rows matched the spec exactly; they also carry patch samples.

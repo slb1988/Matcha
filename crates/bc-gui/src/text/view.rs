@@ -48,7 +48,10 @@ pub enum ViewAction {
     /// Session > New Tab。
     NewTab,
     Exit,
-    CompareParentFolders { left: PathBuf, right: PathBuf },
+    CompareParentFolders {
+        left: PathBuf,
+        right: PathBuf,
+    },
 }
 #[derive(Clone)]
 enum Pending {
@@ -406,6 +409,38 @@ impl TextCompareView {
             &self.expanded,
             true,
         );
+    }
+    /// Character-level difference segments of the current row for the line-detail pane
+    /// (reference: `he{asd}lo` / `he{l}lo`, not a whole red line).
+    fn detail_segments(&mut self, prefs: &Prefs) -> [Option<status_bar::DetailSegments>; 2] {
+        let row = self.row(self.current_row);
+        let ignore = self.map.rules.ignore_unimportant;
+        let (Some(left), Some(right)) = (row.left, row.right) else {
+            return [None, None];
+        };
+        if row.importance.with_ignore_unimportant(ignore) == Importance::Same {
+            return [None, None];
+        }
+        self.ensure_inline(self.current_row);
+        let Some(diff) = self.inline.get(&self.current_row) else {
+            return [None, None];
+        };
+        let segments = |spans: &[bc_engine_text::inline::InlineSpan]| {
+            spans
+                .iter()
+                .filter(|s| s.importance.with_ignore_unimportant(ignore) != Importance::Same)
+                .map(|s| {
+                    (
+                        s.range.clone(),
+                        super::render::diff_ink(&prefs.colors, s.importance),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        [
+            Some((left, segments(&diff.left))),
+            Some((right, segments(&diff.right))),
+        ]
     }
     pub(crate) fn row(&self, row: usize) -> TextMapRow {
         if !self.map.is_stale() {
@@ -1075,12 +1110,14 @@ impl TextCompareView {
                 )
             })
         };
+        let inline = self.detail_segments(prefs);
         status_bar::details(
             ui,
             details,
             [&self.map.left, &self.map.right],
             &self.editors,
             style,
+            inline,
             self.active,
         );
         let status = egui::Rect::from_min_size(

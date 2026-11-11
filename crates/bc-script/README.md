@@ -1,8 +1,34 @@
 # bc-script
 
 Scripting engine, command-line parsing and the exit-code table (FR-S1, FR-S2). Shares the
-internal command API with the GUI so scripted and interactive behaviour match. Parsing
-and execution bodies are `todo!()`; the tables are complete.
+internal command API with the GUI so scripted and interactive behaviour match.
+
+## Script support in this build (change `text-patch-reports`)
+
+`@script` runs headless in the starting process. Syntax: one command per line,
+case-insensitive keywords and options, `#` comments outside double quotes, trailing `&`
+continuation (the logical line keeps its first line number), double quotes group and are
+removed. Substitution happens when the script is parsed: `%1`…`%9` are the arguments after
+the script name that do not start with `/` (missing → empty), `%date%` (`yyyy-mm-dd`),
+`%time%` (regional format), `%fn_time%` (`hh-mm-ss`), `%NAME%` an environment variable
+(case-sensitive; left as written when undefined). Script files: BOM → UTF-8/UTF-16,
+otherwise UTF-8, or the system ANSI code page when not valid UTF-8.
+
+| command | status |
+|---|---|
+| `text-report` | `layout:patch` with `patch-normal|patch-context|patch-unified`, `ignore-unimportant`, `title:`; two file names as `<comparison>`; `output-to:<file>` or `output-to:-` (standard output, **Matcha extension**) |
+| `log`, `option`, `beep` | as in the reference (`option confirm:` is accepted; nothing asks yet) |
+| the other 25 (incl. `file-report`, `load`, `select`, `folder-report`) | recognised, rejected as not supported |
+
+The whole script is parsed before anything runs. Rejections:
+
+| problem | exit |
+|---|---|
+| script file unreadable | 105 |
+| unknown command, invalid argument, missing `layout:`/`output-to:` | 106 |
+| reference command/layout/target this build does not run (other layouts, printer, clipboard, `html-*`, session or selection as comparison) | 100 |
+
+A syntax error anywhere wins over an unsupported command. Each rejection names the line.
 
 ## Responsibilities
 
@@ -12,7 +38,10 @@ and execution bodies are `todo!()`; the tables are complete.
 - `command::CommandKind` / `Command` – every script command with typed arguments
   (`criteria`, `filter`, `select` masks, `copyto path:` modes, `sync update|mirror`,
   `snapshot` flags, report arguments via `bc_report::ReportRequest`).
-- `parser` – script file syntax (comments, `&` continuation, quoting, `%n` substitution).
+- `parser` – script file syntax (comments, `&` continuation, quoting, substitution) and the
+  argument grammar of the supported commands; `ScriptError` carries the line and the kind.
+- `platform` – local time, regional time format, ANSI code page, beep (the only module
+  allowed to use `unsafe`, via `windows-sys` on Windows).
 - `cli::Switch` – all switches: `/? /h /help /automerge /center= /closescript /edit
   /expandall /favorleft /favorright /filters= /force /fv= /iu /mergeoutput= /nobackups
   /qc[=] /reviewconflicts /ro /ro1 /ro2 (/readonly /lro /rro) /savetarget= /silent /solo
@@ -23,7 +52,7 @@ and execution bodies are `todo!()`; the tables are complete.
 ## Dependency boundary
 
 Everything below the GUI: `bc-core`, `bc-formats`, `bc-vfs`, `bc-jobs`, the four engines,
-`bc-session`, `bc-report`. **Never `bc-gui`** – the console launcher path must work
+`bc-session`, `bc-report`; `windows-sys` on Windows (`platform` only). **Never `bc-gui`** – the console launcher path must work
 without a window.
 
 ## Exit codes (verbatim from the command-line reference)

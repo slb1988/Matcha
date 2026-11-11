@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\109-insert-after-first\left.txt D:\Github\Matcha\target\golden-work\109-insert-after-first\right.txt
+0a2
+> new

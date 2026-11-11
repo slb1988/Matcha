@@ -1,0 +1,7 @@
+diff -r D:\Github\Matcha\target\golden-work\009-move-block\left.txt D:\Github\Matcha\target\golden-work\009-move-block\right.txt
+0a1,2
+> D moved
+> E moved
+4,5d5
+< D moved
+< E moved

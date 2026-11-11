@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\106-orphan-after-first\left.cpp D:\Github\Matcha\target\golden-work\106-orphan-after-first\right.cpp
+2d0
+< // old comment

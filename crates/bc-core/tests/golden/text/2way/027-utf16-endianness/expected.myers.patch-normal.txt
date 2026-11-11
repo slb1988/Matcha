@@ -1,0 +1,1 @@
+﻿diff -r D:\Github\Matcha\target\golden-work\027-utf16-endianness\left.txt D:\Github\Matcha\target\golden-work\027-utf16-endianness\right.txt

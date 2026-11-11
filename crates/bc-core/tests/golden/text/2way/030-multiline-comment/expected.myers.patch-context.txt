@@ -1,0 +1,15 @@
+*** D:\Github\Matcha\target\golden-work\030-multiline-comment\left.cpp	2026-11-11 15:41:58.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\030-multiline-comment\right.cpp	2026-11-11 15:41:58.000000000 +0800
+***************
+*** 1,5 ****
+  int a;
+  /* first
+! old inside text
+  last */
+  int b;
+--- 1,5 ----
+  int a;
+  /* first
+! new inside text
+  last */
+  int b;

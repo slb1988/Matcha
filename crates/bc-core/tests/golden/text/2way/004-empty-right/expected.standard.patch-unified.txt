@@ -1,0 +1,5 @@
+--- D:\Github\Matcha\target\golden-work\004-empty-right\left.txt	2026-11-11 15:41:49.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\004-empty-right\right.txt	2026-11-11 15:41:49.000000000 +0800
+@@ -1,2 +0,0 @@
+-alpha
+-beta

@@ -1,0 +1,15 @@
+*** D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\left.txt	2026-11-11 17:32:44.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\031-crossed-reorder-2v2\right.txt	2026-11-11 17:32:44.000000000 +0800
+***************
+*** 1,5 ****
+  alpha
+  commonAnchor
+! foo one
+! bar two
+  omega
+--- 1,5 ----
+  alpha
+  commonAnchor
+! bar 2
+! foo 1
+  omega

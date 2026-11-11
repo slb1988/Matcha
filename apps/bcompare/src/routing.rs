@@ -1,7 +1,7 @@
 //! 命令行路由：开发用 `--` 开关的预处理，以及“自己开窗口 / 转交常驻实例 / 报错”的判定。
 //! 纯逻辑，无 I/O，便于单测。
 use bc_gui::bench::BenchOptions;
-use bc_script::cli::{CliArgs, ContentCompare, Invocation, Switch};
+use bc_script::cli::{CliArgs, ContentCompare, Invocation, ReportSwitches, Switch};
 use std::path::{Path, PathBuf};
 
 /// 开发/测试用开关（不属于参考命令行）：`--bench[=N]`、`--bench-dir`、`--bench-table`、
@@ -124,6 +124,14 @@ pub enum Route {
     Standalone,
     /// 默认：已有实例则转交，否则成为常驻实例。
     SingleInstance,
+    /// `@script [args]`：本进程内无界面执行脚本，不开窗口、不转交。
+    Script { path: PathBuf, args: Vec<String> },
+    /// `/report=…`：本进程内为两个文件生成文本报告（等价于一行 `text-report`），不开窗口、不转交。
+    Report {
+        left: PathBuf,
+        right: PathBuf,
+        switches: ReportSwitches,
+    },
     /// `/qc[=type]`：本进程内比较两个文件，不开窗口、不转交，结果只用退出码（与一行文本）表达。
     QuickCompare {
         left: PathBuf,
@@ -138,6 +146,24 @@ pub enum Route {
 pub fn route(dev: &DevFlags, cli: &CliArgs, perf_env: bool) -> Route {
     if cli.has(|s| matches!(s, Switch::Help)) {
         return Route::Help;
+    }
+    if let Invocation::Script { path, args } = &cli.invocation {
+        return Route::Script {
+            path: path.clone(),
+            args: args.clone(),
+        };
+    }
+    if let Some(switches) = cli.report() {
+        return match &cli.invocation {
+            Invocation::Files(left, right) | Invocation::Folders(left, right) => Route::Report {
+                left: left.clone(),
+                right: right.clone(),
+                switches,
+            },
+            _ => Route::Unsupported(
+                "/report needs exactly two files: matcha /report=<layout> <left> <right>".into(),
+            ),
+        };
     }
     if let Some(route) = quick_compare(cli) {
         return route;
@@ -164,11 +190,14 @@ fn quick_compare(cli: &CliArgs) -> Option<Route> {
     })
 }
 
-/// 尚未实现的调用（脚本、合并、会话名、补丁、包、stdin）。常驻实例收到转交请求时也用它
-/// 拒绝：`/qc` 总在发起进程内执行，不应被转交。
+/// 尚未实现的调用（合并、会话名、补丁、包、stdin）。常驻实例收到转交请求时也用它
+/// 拒绝：`/qc`、`/report` 与脚本总在发起进程内执行，不应被转交。
 pub fn unsupported(cli: &CliArgs) -> Option<String> {
     if cli.has(|s| matches!(s, Switch::QuickCompare(_))) {
         return Some("/qc runs in the starting process and cannot be handed off".into());
+    }
+    if cli.report().is_some() {
+        return Some("/report runs in the starting process and cannot be handed off".into());
     }
     let what = match &cli.invocation {
         Invocation::Home
@@ -178,7 +207,9 @@ pub fn unsupported(cli: &CliArgs) -> Option<String> {
         Invocation::Session(name) => format!("opening saved session {name:?}"),
         Invocation::Workspace(name) => format!("opening workspace {name:?}"),
         Invocation::Merge3 { .. } | Invocation::Merge4 { .. } => "Text Merge".into(),
-        Invocation::Script { .. } => "scripts".into(),
+        Invocation::Script { .. } => {
+            return Some("scripts run in the starting process and cannot be handed off".into())
+        }
         Invocation::Package(_) => "settings packages".into(),
         Invocation::Patch(_) => "Text Patch".into(),
         Invocation::Stdin => "reading stdin".into(),
@@ -288,8 +319,8 @@ mod tests {
         for args in [
             &["/qc", "a"][..],
             &["/qc", "a", "b", "c"],
+            &["/report=patch", "a"],
             &["a", "b", "c"],
-            &["@script.txt"],
             &["MySession"],
             &["x.patch"],
             &["-"],
@@ -297,6 +328,52 @@ mod tests {
             assert!(
                 matches!(routed(args), Route::Unsupported(_)),
                 "{args:?} should be unsupported"
+            );
+        }
+    }
+
+    #[test]
+    fn scripts_and_reports_run_locally() {
+        let w = Path::new("C:/work");
+        assert_eq!(
+            routed(&["/solo", "@s.txt", "a b.txt", "/silent"]),
+            Route::Script {
+                path: w.join("s.txt"),
+                args: vec!["a b.txt".into(), "/silent".into()],
+            }
+        );
+        assert_eq!(
+            routed(&[
+                "/solo",
+                "/report=patch-unified",
+                "/reportfile=o.patch",
+                "a.txt",
+                "b.txt"
+            ]),
+            Route::Report {
+                left: w.join("a.txt"),
+                right: w.join("b.txt"),
+                switches: ReportSwitches {
+                    layout: "patch-unified".into(),
+                    options: None,
+                    file: Some("o.patch".into()),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn running_instances_refuse_handed_off_scripts_and_reports() {
+        let cli = |args: &[&str]| CliArgs::parse_in(args, Path::new("C:/work")).unwrap();
+        for args in [
+            &["@s.txt"][..],
+            &["/report=patch", "a", "b"],
+            &["/qc", "a", "b"],
+        ] {
+            let message = unsupported(&cli(args)).unwrap_or_default();
+            assert!(
+                message.contains("cannot be handed off"),
+                "{args:?}: {message}"
             );
         }
     }

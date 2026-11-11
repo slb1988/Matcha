@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\013-comment-change\left.cpp D:\Github\Matcha\target\golden-work\013-comment-change\right.cpp
+1c1
+< int count = 1; // previous note
+---
+> int count = 1; // updated note

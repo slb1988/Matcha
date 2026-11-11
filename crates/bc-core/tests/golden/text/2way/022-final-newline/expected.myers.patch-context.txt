@@ -1,0 +1,2 @@
+*** D:\Github\Matcha\target\golden-work\022-final-newline\left.txt	2026-11-11 15:41:55.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\022-final-newline\right.txt	2026-11-11 15:41:55.000000000 +0800

@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\030-multiline-comment\left.cpp D:\Github\Matcha\target\golden-work\030-multiline-comment\right.cpp
+3c3
+< old inside text
+---
+> new inside text

@@ -143,6 +143,43 @@ fn quick_compare_never_hands_off() {
     assert!(primary.rx.try_recv().is_err());
 }
 
+/// 脚本与 `/report` 同样在发起进程内完成：已有常驻实例时也不转交、不开窗口。
+#[test]
+fn scripts_and_reports_never_hand_off() {
+    let primary = fake_primary("scripts");
+    let cwd = work_dir("scripts");
+    std::fs::write(
+        cwd.join("a.txt"),
+        "x
+",
+    )
+    .unwrap();
+    std::fs::write(
+        cwd.join("b.txt"),
+        "y
+",
+    )
+    .unwrap();
+    std::fs::write(
+        cwd.join("s.txt"),
+        "text-report layout:patch output-to:out.patch a.txt b.txt
+",
+    )
+    .unwrap();
+    let child = primary.spawn(&matcha(), &["@s.txt"], &cwd, false);
+    assert_eq!(exit_code(child), Some(0));
+    assert!(cwd.join("out.patch").is_file());
+    let child = primary.spawn(
+        &matcha(),
+        &["/report=patch", "/reportfile=r.patch", "a.txt", "b.txt"],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(child), Some(0));
+    assert!(cwd.join("r.patch").is_file());
+    assert!(primary.rx.try_recv().is_err());
+}
+
 /// `matcha-compc` → `matcha` → 常驻实例的完整链路。启动器属于另一个包，只有
 /// `cargo test --workspace`（或先构建过 bcomp）时才在同一目录里。
 #[test]

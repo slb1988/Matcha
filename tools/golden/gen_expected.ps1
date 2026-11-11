@@ -1,13 +1,20 @@
 <#
-Generates raw reference XML from synthetic UTF-8 templates. No key/license files
+Generates raw reference reports from synthetic UTF-8 templates. No key/license files
 are accessed. Normal mode builds verified corpus rule templates by default; explicit
 custom templates remain supported and are preflighted. Diagnostic mode is deliberately
 forbidden from writing to the checked-in oracle corpus.
+
+-Layout xml (default) writes expected.<profile>.xml; -Layout patch writes the three patch
+formats per profile (expected.<profile>.patch-<fmt>.txt) plus the extra samples in
+$PatchExtras. -DryRun prints every target path and exits before taking the lock or
+touching any reference setting (ReferenceExe/WorkerId are then not needed).
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][string]$ReferenceExe,
-    [Parameter(Mandatory=$true)][string]$WorkerId,
+    [string]$ReferenceExe='',
+    [string]$WorkerId='',
+    [ValidateSet('xml','patch')][string]$Layout='xml',
+    [switch]$DryRun,
     [ValidateRange(0,600)][int]$LockTimeoutSeconds=600,
     [string]$CorpusRoot='',
     [string]$OutputRoot='',
@@ -21,6 +28,53 @@ param(
 $ErrorActionPreference='Stop'
 $scriptRoot=Split-Path -Parent $MyInvocation.MyCommand.Path
 if(!$CorpusRoot){$CorpusRoot=Join-Path $scriptRoot '../../crates/bc-core/tests/golden/text/2way'}
+# Extra patch samples: `title:` placement and `ignore-unimportant` on the cases whose
+# rule templates mark something unimportant.
+$PatchExtras=@{
+    '005-insert-middle-three'=@(@{Mode='myers';Suffix='patch-unified.title';Options='patch-unified';Title='Matcha Golden Title'})
+}
+foreach($name in @('013-comment-change','014-comment-deletion','016-indent-ignored','017-embedded-whitespace','018-trailing-whitespace','019-case-ignored','030-multiline-comment')){
+    $PatchExtras[$name]=@(foreach($mode in @('myers','standard')){@{Mode=$mode;Suffix='patch-unified.ignore-unimportant';Options='patch-unified,ignore-unimportant';Title=''}})
+}
+# Every report one case produces: target leaf name + the text-report line that writes it.
+function Report-Lines([string]$caseName,[string]$destination) {
+    $lines=@()
+    foreach($mode in @('myers','standard')) {
+        if($Layout -eq 'xml') {
+            $leaf="expected.$mode.xml"
+            $lines+=@{Leaf=$leaf;Command="text-report layout:xml options:display-all output-to:`"$(Join-Path $destination $leaf)`" `"matcha-golden-$mode`""}
+        } else {
+            foreach($format in @('normal','context','unified')) {
+                $leaf="expected.$mode.patch-$format.txt"
+                $lines+=@{Leaf=$leaf;Command="text-report layout:patch options:patch-$format output-to:`"$(Join-Path $destination $leaf)`" `"matcha-golden-$mode`""}
+            }
+        }
+    }
+    if($Layout -eq 'patch' -and $PatchExtras.ContainsKey($caseName)) {
+        foreach($extra in $PatchExtras[$caseName]) {
+            $leaf="expected.$($extra.Mode).$($extra.Suffix).txt"
+            $title=if($extra.Title){" title:`"$($extra.Title)`""}else{''}
+            $lines+=@{Leaf=$leaf;Command="text-report layout:patch options:$($extra.Options)$title output-to:`"$(Join-Path $destination $leaf)`" `"matcha-golden-$($extra.Mode)`""}
+        }
+    }
+    return ,$lines
+}
+if($DryRun) {
+    $root=(Resolve-Path -LiteralPath $CorpusRoot).Path
+    $destinationRoot=if($OutputRoot){[IO.Path]::GetFullPath($OutputRoot)}else{$root}
+    $count=0
+    foreach($case in @(Get-ChildItem -LiteralPath $root -Directory | Where-Object {
+        (Test-Path -LiteralPath (Join-Path $_.FullName 'case.properties')) -and (!$CaseNames.Count -or $CaseNames -contains $_.Name)
+    } | Sort-Object Name)) {
+        foreach($line in (Report-Lines $case.Name (Join-Path $destinationRoot $case.Name))) {
+            Write-Output (Join-Path (Join-Path $destinationRoot $case.Name) $line.Leaf)
+            $count++
+        }
+    }
+    Write-Output "dry run: $count report(s); no lock taken, no reference setting touched"
+    return
+}
+if(!$ReferenceExe -or !$WorkerId){throw 'ReferenceExe and WorkerId are required unless -DryRun'}
 if(!$ComparisonTemplates){$ComparisonTemplates=Join-Path $scriptRoot 'profiles'}
 if(!$DiagnosticInheritRules -and !$PSBoundParameters.ContainsKey('ComparisonTemplates')) {
     & (Join-Path $scriptRoot 'build_rule_templates.ps1') -CorpusRoot $CorpusRoot -OutputDirectory $ComparisonTemplates
@@ -160,7 +214,7 @@ try {
         foreach($mode in @('myers','standard')) {
             $align=if($mode -eq 'myers'){'alignQuick'}else{'alignSmart'}
             $closeness=if($mode -eq 'standard'){'True'}else{'False'}
-            $never=if($mode -eq 'myers' -and $MyersNeverAlignDifferences){'True'}else{'False'}
+            $never=if(($mode -eq 'myers' -and $MyersNeverAlignDifferences) -or (Get-Property $props 'never_align_diffs' 'false') -eq 'true'){'True'}else{'False'}
             $nodes+="`t<TTextCompareSession Value=`"matcha-golden-$mode`">`r`n"
             $nodes+="`t`t<LastModified Value=`"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`"/>`r`n`t`t<Specs>`r`n"
             $nodes+="`t`t`t<Left Value=`"$(Escape-Xml $left)`"/>`r`n`t`t`t<Right Value=`"$(Escape-Xml $right)`"/>`r`n`t`t</Specs>`r`n"
@@ -170,17 +224,20 @@ try {
         [IO.File]::WriteAllText($SessionsPath,$base.Insert($close,$nodes),$utf8)
         $log=Join-Path $directory 'generation.log';$script=Join-Path $directory 'report.txt'
         $commands="log verbose `"$log`"`r`nload <default>`r`n"
-        foreach($mode in @('myers','standard')) {
-            $report=Join-Path $destination "expected.$mode.xml"
-            $commands+="text-report layout:xml options:display-all output-to:`"$report`" `"matcha-golden-$mode`"`r`n"
+        $reports=Report-Lines $case.Name $destination
+        foreach($line in $reports) {
+            # Fresh reports only: a leftover file must never pass as a new capture.
+            $path=Join-Path $destination $line.Leaf
+            if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path}
+            $commands+="$($line.Command)`r`n"
         }
         [IO.File]::WriteAllText($script,$commands,$utf8)
         $ownedProcess=Start-Process -FilePath $ReferenceExe -ArgumentList @(('"@'+$script+'"'),'/silent','/solo') -PassThru
         if(!$ownedProcess.WaitForExit(60000)){$ownedProcess.Kill();$ownedProcess.WaitForExit();throw 'Owned report process timed out'}
         $exit=$ownedProcess.ExitCode;$ownedProcess=$null
         if($exit -ne 0){throw "Reference report failed for $($case.Name), exit $exit; see $log"}
-        foreach($mode in @('myers','standard')) {
-            $path=Join-Path $destination "expected.$mode.xml"
+        foreach($line in $reports) {
+            $path=Join-Path $destination $line.Leaf
             if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw "Missing report $path"}
         }
         Write-Output "generated $($case.Name)"

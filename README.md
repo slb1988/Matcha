@@ -112,10 +112,23 @@ cargo xtask dist        # → target/dist/matcha-<version>-windows-<arch>/
 
 Windows fixes the subsystem at link time, hence two files; in Git Bash type `matcha.com`.
 
-Without a window: `matcha /qc a.txt b.txt` compares two files and exits with the reference
-code (rules-based 2 same / 12 similar / 13 different; `/qc=binary|crc|size` 1 / 11), printing
-the result as one line unless `/silent`. Scripts with `text-report` (diff to a file) are not
-implemented yet.
+Without a window (all run in the starting process, never in an open Matcha window):
+
+```bat
+matcha /qc a.txt b.txt                                   :: exit 2 same / 12 similar / 13 different
+matcha /report=patch-unified a.txt b.txt                 :: unified diff to the console
+matcha /report=patch a.txt b.txt > diff.patch            :: or redirect / pipe it
+matcha /report=patch /reportfile=diff.patch a.txt b.txt  :: or write a file directly
+matcha @diff.txt a.txt b.txt                             :: run a script (%1 %2 = a.txt b.txt)
+```
+
+`/qc` prints its result as one line unless `/silent` (`/qc=binary|crc|size` → 1 / 11).
+`/report=` takes `patch`, `patch-normal`, `patch-context` or `patch-unified`, with
+`/reportoptions=ignore-unimportant`; it exits 0 whether or not the files differ. Scripts
+support `text-report layout:patch` with `output-to:<file>` or `output-to:-` (standard output),
+plus `log`, `option` and `beep`; other commands are rejected before anything runs (see
+`crates/bc-script/README.md`). `/report`, `output-to:-` and `/reportfile` are Matcha
+extensions. The patch bytes follow Beyond Compare's own patch reports (`tools/golden/README.md`).
 macOS gets `Matcha.app` plus `bin/` symlinks (layout reserved, not yet verified on a Mac).
 Details: `docs/decisions/301-windows-subsystem-split.md`.
 

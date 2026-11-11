@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\028-unicode-change\left.txt D:\Github\Matcha\target\golden-work\028-unicode-change\right.txt
+1c1
+< 消息: 你好世界，版本 v1 🙂
+---
+> 消息: 你好世界，版本 v2 🙂

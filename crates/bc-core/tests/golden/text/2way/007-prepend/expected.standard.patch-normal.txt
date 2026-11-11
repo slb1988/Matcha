@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\007-prepend\left.txt D:\Github\Matcha\target\golden-work\007-prepend\right.txt
+0a1
+> header

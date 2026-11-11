@@ -1,0 +1,9 @@
+diff -r D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\left.txt D:\Github\Matcha\target\golden-work\032-dissimilar-tie-pair\right.txt
+2,4c2,4
+< abcdefghij
+< klmnopqrst
+< uvwxyzabcd
+---
+> 0123456789
+> 9876543210
+> 5678901234
