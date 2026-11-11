@@ -68,6 +68,13 @@ impl MatchaApp {
         crate::perf::mark("app:fonts-installed");
         let mut home = HomeView::new(options.left.as_ref(), options.right.as_ref());
         let view = match (&options.left, &options.right) {
+            (Some(l), Some(r))
+                if l.is_dir()
+                    && r.is_dir()
+                    && options.snapshot.as_deref() == Some("folder-sync") =>
+            {
+                View::FolderSync(Box::new(SyncView::open(&cc.egui_ctx, l, r)))
+            }
             (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
                 DirCompareView::open(&cc.egui_ctx, l, r, false, options.bench_dir),
             )),
@@ -166,7 +173,11 @@ impl MatchaApp {
     fn has_own_chrome(&self) -> bool {
         matches!(
             self.view,
-            View::TextCompare(_) | View::TableCompare(_) | View::FolderCompare(_) | View::Home(_)
+            View::TextCompare(_)
+                | View::TableCompare(_)
+                | View::FolderCompare(_)
+                | View::FolderSync(_)
+                | View::Home(_)
         )
     }
 }
@@ -326,8 +337,8 @@ impl eframe::App for MatchaApp {
                 View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::FolderCompare(v) => !v.busy(),
+                View::FolderSync(v) => !v.folder.busy() && v.folder.snapshot.sync_stats.is_some(),
                 View::Home(_) => true,
-                _ => false,
             };
             if ready && !self.snapshot_preset_applied {
                 match &mut self.view {
@@ -344,6 +355,7 @@ impl eframe::App for MatchaApp {
                     View::FolderCompare(v) => {
                         v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
                     }
+                    View::FolderSync(v) => v.snapshot_preset(),
                     _ => {}
                 }
                 self.snapshot_preset_applied = true;
@@ -379,7 +391,12 @@ impl eframe::App for MatchaApp {
             }
         }
         let mut folder_go_home = false;
-        if let View::FolderCompare(view) = &mut self.view {
+        let folder = match &mut self.view {
+            View::FolderCompare(view) => Some(&mut **view),
+            View::FolderSync(view) => Some(&mut view.folder),
+            _ => None,
+        };
+        if let Some(view) = folder {
             if view.take_exit_request() {
                 self.exit_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

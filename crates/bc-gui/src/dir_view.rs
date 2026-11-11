@@ -14,7 +14,6 @@ use crate::{
     log_panel::LogPanel,
     text::{TextCompareView, ViewAction},
 };
-use bc_core::Side;
 use bc_engine_dir::{
     criteria::ContentCompare,
     filter::{ContentFilter, FilterClock, FolderDisplay},
@@ -116,6 +115,25 @@ pub struct RenderRow {
     pub ignored: bool,
     pub center: String,
     pub conflict: bool,
+    /// Sync plan marks of this row (`SYNC_*` bits), drawn in the arrow column.
+    pub sync_mark: u8,
+}
+pub const SYNC_TO_RIGHT: u8 = 1;
+pub const SYNC_TO_LEFT: u8 = 2;
+pub const SYNC_DELETE_LEFT: u8 = 4;
+pub const SYNC_DELETE_RIGHT: u8 = 8;
+pub const SYNC_CONFLICT: u8 = 16;
+/// Per-direction totals of the sync plan (operations area summary lines).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SyncSummary {
+    /// (files, folders, bytes) copied to the left / right side.
+    pub to_left: (usize, usize, u64),
+    pub to_right: (usize, usize, u64),
+    /// (files, folders) deleted on the left / right side.
+    pub delete_left: (usize, usize),
+    pub delete_right: (usize, usize),
+    /// Unresolved conflicts (files / folders) that need a decision.
+    pub prompts: (usize, usize),
 }
 #[derive(Clone)]
 pub struct Snapshot {
@@ -126,6 +144,7 @@ pub struct Snapshot {
     pub folders: usize,
     pub paths: [String; 2],
     pub sync_stats: Option<SyncStatistics>,
+    pub sync_summary: Option<SyncSummary>,
     pub clock: FilterClock,
     /// 每侧根所在卷的剩余空间标签（如 "50.6 GB free on C:\\"）；查询失败为 None。
     pub free: [Option<String>; 2],
@@ -141,6 +160,7 @@ impl Default for Snapshot {
             folders: 0,
             paths: Default::default(),
             sync_stats: None,
+            sync_summary: None,
             clock: utc_clock(),
             free: Default::default(),
             complete: false,
@@ -327,17 +347,23 @@ impl Model {
             tree: DirTree::new(),
             vfs: Arc::new(VfsManager::local_only()),
             filters: Default::default(),
-            view: ViewOptions::default(),
+            view: sync_view_options(sync),
             criteria: Criteria::default(),
             handling: Default::default(),
             pairing: PairingOptions::default(),
             scan: ScanOptions {
                 scan_orphans: sync || bench,
-                expand_on_load: bench,
+                // Reference: the sync view opens fully expanded.
+                expand_on_load: bench || sync,
                 ..Default::default()
             },
             clock: utc_clock(),
-            sync_mode: sync.then_some((SyncMode::default(), false, false)),
+            // Reference default sync operation: Update Both.
+            sync_mode: sync.then_some((
+                SyncMode::Update(bc_engine_dir::sync::SyncDirection::Both),
+                false,
+                false,
+            )),
             sync_plan: None,
             sync_baseline: None,
             watcher: None,
@@ -808,6 +834,7 @@ impl Model {
                             (
                                 choice_label(i.effective()).to_owned(),
                                 i.unresolved_conflict(),
+                                sync_mark(i),
                             ),
                         )
                     })
@@ -831,8 +858,8 @@ impl Model {
                     .path
                     .to_local_path()?;
                 let attrs = attrs_label(entry.attrs);
-                // 同步视图保持旧 UTC/占位文本；比较视图按参考用本地时间与空白占位。
-                let compare = self.sync_mode.is_none();
+                // 比较与同步视图都按参考用本地时间与空白占位。
+                let compare = true;
                 let cells = [
                     entry
                         .size
@@ -881,7 +908,7 @@ impl Model {
                 })
             });
             let action = row.node.and_then(|id| actions.get(&id));
-            let mut center = if let Some((text, _)) = action {
+            let mut center = if let Some((text, _, _)) = action {
                 text.clone()
             } else {
                 let content = node.and_then(|n| n.content_status).or_else(|| {
@@ -902,7 +929,8 @@ impl Model {
                     ".".into()
                 }
             };
-            let mut conflict = action.is_some_and(|(_, c)| *c);
+            let mut conflict = action.is_some_and(|(_, c, _)| *c);
+            let sync_mark = action.map_or(0, |(_, _, m)| *m);
             if node.is_some_and(|n| n.is_dir) {
                 if let Some(summary) = row
                     .node
@@ -944,6 +972,7 @@ impl Model {
                 ignored: node.is_some_and(|n| n.ignored),
                 center,
                 conflict,
+                sync_mark,
             });
         }
         // 比较视图的“Files”开关只隐藏文件行；同步视图保持全部行。
@@ -990,6 +1019,7 @@ impl Model {
                     .map_or(String::new(), ToString::to_string)
             }),
             sync_stats: self.sync_plan.as_ref().map(SyncPlan::statistics),
+            sync_summary: self.sync_plan.as_ref().map(sync_summary),
             clock: self.clock,
             free: self.free.clone(),
             complete,
@@ -1603,6 +1633,74 @@ pub fn status_icon(status: CompareStatus) -> &'static str {
         Error => "!",
     }
 }
+/// Initial view options: the sync view lists only items that differ (the
+/// reference preview hides identical files/folders); compare shows all.
+fn sync_view_options(sync: bool) -> ViewOptions {
+    let mut options = ViewOptions::default();
+    if sync {
+        options.display = bc_engine_dir::filter::DisplayFilter::Mismatches;
+    }
+    options
+}
+/// Arrow-column marks of one sync item.
+fn sync_mark(item: &bc_engine_dir::sync::SyncItem) -> u8 {
+    if item.unresolved_conflict() {
+        return SYNC_CONFLICT;
+    }
+    match item.effective() {
+        SyncChoice::CopyLeftToRight => SYNC_TO_RIGHT,
+        SyncChoice::CopyRightToLeft => SYNC_TO_LEFT,
+        SyncChoice::DeleteLeft => SYNC_DELETE_LEFT,
+        SyncChoice::DeleteRight => SYNC_DELETE_RIGHT,
+        _ => 0,
+    }
+}
+/// Plan totals for the operations-area summary (copy counts/bytes, deletes,
+/// prompts); bytes are the source side's file sizes.
+fn sync_summary(plan: &SyncPlan) -> SyncSummary {
+    let mut summary = SyncSummary::default();
+    for item in &plan.items {
+        let size = |side: usize| item.sides[side].as_ref().and_then(|e| e.size).unwrap_or(0);
+        let count = |files: &mut usize, folders: &mut usize| {
+            if item.is_dir {
+                *folders += 1;
+            } else {
+                *files += 1;
+            }
+        };
+        if item.unresolved_conflict() {
+            let (f, d) = &mut summary.prompts;
+            count(f, d);
+            continue;
+        }
+        match item.effective() {
+            SyncChoice::CopyLeftToRight => {
+                let (f, d, b) = &mut summary.to_right;
+                count(f, d);
+                if !item.is_dir {
+                    *b += size(0);
+                }
+            }
+            SyncChoice::CopyRightToLeft => {
+                let (f, d, b) = &mut summary.to_left;
+                count(f, d);
+                if !item.is_dir {
+                    *b += size(1);
+                }
+            }
+            SyncChoice::DeleteLeft => {
+                let (f, d) = &mut summary.delete_left;
+                count(f, d);
+            }
+            SyncChoice::DeleteRight => {
+                let (f, d) = &mut summary.delete_right;
+                count(f, d);
+            }
+            _ => {}
+        }
+    }
+    summary
+}
 pub fn choice_label(choice: SyncChoice) -> &'static str {
     match choice {
         SyncChoice::LeaveAlone => "Leave",
@@ -1916,7 +2014,7 @@ impl DirCompareView {
             pairing: PairingOptions::default(),
             scan: ScanOptions {
                 scan_orphans: sync_mode || bench,
-                expand_on_load: bench,
+                expand_on_load: bench || sync_mode,
                 ..Default::default()
             },
             align_left: String::new(),
@@ -1934,10 +2032,11 @@ impl DirCompareView {
             context_row: None,
             selection_totals: None,
         };
-        if !sync_mode {
-            // 参考：比较视图过滤栏默认 *.*，日志区默认打开。
-            view.filters.names = "*.*".into();
-            view.log_panel.open = true;
+        // 参考：过滤框默认 *.*，日志区默认打开（比较与同步视图相同）。
+        view.filters.names = "*.*".into();
+        view.log_panel.open = true;
+        if sync_mode {
+            view.filters.options = sync_view_options(true);
         }
         view
     }
@@ -2002,7 +2101,7 @@ impl DirCompareView {
                 self.anchor = None;
             }
             self.snapshot = snapshot;
-            if self.snapshot.complete && !self.chrome_log_logged && !self.sync_mode {
+            if self.snapshot.complete && !self.chrome_log_logged {
                 self.chrome_log_logged = true;
                 self.chrome_log.push(format!(
                     "Load comparison: {} <-> {}",
@@ -2014,10 +2113,8 @@ impl DirCompareView {
         for notice in notices {
             match notice {
                 Notice::Message(text) => {
-                    if !self.sync_mode {
-                        self.chrome_log.push(text.clone());
-                        self.chrome_log.truncate(200);
-                    }
+                    self.chrome_log.push(text.clone());
+                    self.chrome_log.truncate(200);
                     self.message = text;
                 }
                 Notice::Clipboard(text) => ctx.copy_text(text),
@@ -2393,369 +2490,6 @@ impl DirCompareView {
             recursive,
         });
     }
-    fn columns_menu(&mut self, ui: &mut egui::Ui) {
-        for column in Column::OPTIONAL {
-            let mut enabled = self.columns.contains(&column);
-            if ui.checkbox(&mut enabled, column.label()).changed() {
-                self.set_column(column, enabled);
-            }
-        }
-        ui.small(COLUMNS_NOTE);
-    }
-    fn set_column(&mut self, column: Column, enabled: bool) {
-        if enabled {
-            self.columns.push(column);
-            if matches!(column, Column::Crc | Column::Version) {
-                self.send(Command::Details {
-                    selection: (!self.selection.items.is_empty()).then(|| self.selection.clone()),
-                    crc: column == Column::Crc,
-                    version: column == Column::Version,
-                });
-            }
-        } else {
-            self.columns.retain(|c| *c != column);
-        }
-    }
-    /// Header right-click menu: the same column toggles as `columns_menu`.
-    fn column_items(&self) -> Vec<crate::chrome::menubar::MenuItem> {
-        use crate::chrome::menubar::{MenuItem, MenuItemKind};
-        let mut items: Vec<_> = Column::OPTIONAL
-            .iter()
-            .enumerate()
-            .map(|(i, column)| MenuItem {
-                kind: MenuItemKind::Check {
-                    checked: self.columns.contains(column),
-                },
-                ..MenuItem::action(column.label(), format!("column:{i}"))
-            })
-            .collect();
-        items.push(MenuItem {
-            enabled: false,
-            ..MenuItem::action(COLUMNS_NOTE, "")
-        });
-        items
-    }
-    fn column_action(&mut self, action: &str) {
-        if let Some(column) = action
-            .strip_prefix("column:")
-            .and_then(|i| i.parse::<usize>().ok())
-            .and_then(|i| Column::OPTIONAL.get(i).copied())
-        {
-            let enabled = !self.columns.contains(&column);
-            self.set_column(column, enabled);
-        }
-    }
-    fn action_menu(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Open folders in new view").clicked() {
-            self.open_folder_selection();
-            ui.close();
-        }
-        if ui.button("Open selected file pair").clicked() {
-            self.open_pair();
-            ui.close();
-        }
-        if ui.button("Compare to (pick another file)").clicked() {
-            self.compare_to = true;
-            self.align_to = false;
-            ui.close();
-        }
-        if ui.button("Align with (pick other side)").clicked() {
-            self.align_to = true;
-            self.compare_to = false;
-            ui.close();
-        }
-        ui.menu_button("Quick compare", |ui| {
-            for (mode, label) in [
-                (ContentCompare::Size, "Size"),
-                (ContentCompare::Crc, "CRC"),
-                (ContentCompare::Binary, "Binary"),
-                (ContentCompare::RulesBased, "Rules-based"),
-            ] {
-                if ui.button(label).clicked() {
-                    match self.selected_pair() {
-                        Ok(paths) => self.send(Command::Quick(paths, mode)),
-                        Err(e) => self.message = e,
-                    }
-                    ui.close();
-                }
-            }
-        });
-        ui.menu_button("Compare contents", |ui| {
-            for (mode, label) in [
-                (ContentCompare::Crc, "CRC"),
-                (ContentCompare::Binary, "Binary"),
-                (ContentCompare::RulesBased, "Rules-based"),
-            ] {
-                if ui.button(label).clicked() {
-                    self.send(Command::Compare {
-                        selection: self.selection.clone(),
-                        mode,
-                    });
-                    ui.close();
-                }
-            }
-        });
-        ui.separator();
-        for (label, op) in [
-            (
-                "Copy to right",
-                DirOp::Copy {
-                    from: Side::Left,
-                    to: Side::Right,
-                },
-            ),
-            (
-                "Copy to left",
-                DirOp::Copy {
-                    from: Side::Right,
-                    to: Side::Left,
-                },
-            ),
-            ("Copy to other side", DirOp::CopyOther),
-            (
-                "Move to right",
-                DirOp::Move {
-                    from: Side::Left,
-                    to: Side::Right,
-                },
-            ),
-            (
-                "Move to left",
-                DirOp::Move {
-                    from: Side::Right,
-                    to: Side::Left,
-                },
-            ),
-            ("Move to other side", DirOp::MoveOther),
-            ("Exchange", DirOp::Exchange),
-            ("Exclude", DirOp::Exclude),
-            ("Mark ignored", DirOp::Ignored(true)),
-            ("Clear ignored", DirOp::Ignored(false)),
-            ("Copy filenames", DirOp::CopyFilename),
-        ] {
-            if ui.button(label).clicked() {
-                if op == DirOp::CopyFilename {
-                    self.operate(op, false);
-                } else {
-                    let both = self
-                        .selection
-                        .items
-                        .iter()
-                        .map(|(_, s)| *s)
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        > 1;
-                    let direction = both && matches!(op, DirOp::CopyOther | DirOp::MoveOther);
-                    self.scope = Some(dialogs::scope::ScopeDialog::new(
-                        op,
-                        self.handling.include_hidden || self.filters.options.suppress_filters,
-                        direction,
-                    ));
-                }
-                ui.close();
-            }
-        }
-        for (label, op) in [
-            ("Copy to side...", DirOp::CopyOther),
-            ("Move to side...", DirOp::MoveOther),
-        ] {
-            if ui.button(label).clicked() {
-                self.scope = Some(dialogs::scope::ScopeDialog::new(
-                    op,
-                    self.handling.include_hidden,
-                    true,
-                ));
-                ui.close();
-            }
-        }
-        for (label, kind) in [
-            ("Copy to folder...", Kind::CopyTo),
-            ("Move to folder...", Kind::MoveTo),
-            ("Delete...", Kind::Delete),
-            ("Rename...", Kind::Rename),
-            ("Attributes...", Kind::Attributes),
-            ("Touch...", Kind::Touch),
-            ("New folder...", Kind::NewFolder),
-        ] {
-            if ui.button(label).clicked() {
-                let mut dialog = OperationDialog::new(kind);
-                dialog.include_hidden =
-                    self.handling.include_hidden || self.filters.options.suppress_filters;
-                dialog.recent = self.paths.recent.clone();
-                self.operation = Some(dialog);
-                ui.close();
-            }
-        }
-        ui.separator();
-        for (label, expanded, recursive) in [
-            ("Open folder", true, false),
-            ("Close folder", false, false),
-            ("Open subfolders", true, true),
-            ("Close subfolders", false, true),
-        ] {
-            if ui.button(label).clicked() {
-                self.expand_selection(expanded, recursive);
-                ui.close();
-            }
-        }
-        if ui.button("Set as base folder").clicked() {
-            self.set_base(false, false);
-            ui.close();
-        }
-        if ui.button("Set as base on other side").clicked() {
-            self.set_base(true, false);
-            ui.close();
-        }
-        if ui.button("Set as base folders").clicked() {
-            self.set_base(false, true);
-            ui.close();
-        }
-        if ui.button("Refresh selection").clicked() {
-            self.send(Command::Refresh {
-                selection: Some(self.selection.clone()),
-                full: false,
-            });
-            ui.close();
-        }
-    }
-    fn toolbar(&mut self, ui: &mut egui::Ui) -> Option<[PathBuf; 2]> {
-        let mut switch = None;
-        ui.horizontal(|ui| {
-            ui.menu_button("Session", |ui| {
-                if ui.button("Browse base folders...").clicked() {
-                    self.paths.open = true;
-                    ui.close();
-                }
-                if ui.button("Swap sides").clicked() {
-                    self.reload([self.paths.right.clone(), self.paths.left.clone()], true);
-                    ui.close();
-                }
-                for (label, target) in [
-                    ("Up left", Target::Left),
-                    ("Up right", Target::Right),
-                    ("Up both", Target::All),
-                ] {
-                    if ui.button(label).clicked() {
-                        self.up(target);
-                        ui.close();
-                    }
-                }
-                if ui.button("Compare parent folders (new view)").clicked() {
-                    let paths = self
-                        .paths()
-                        .map(|p| p.parent().map(Path::to_path_buf).unwrap_or(p));
-                    self.new_folder_view(paths);
-                    ui.close();
-                }
-                if ui.button("Comparison rules / handling...").clicked() {
-                    self.rules_open = true;
-                    ui.close();
-                }
-                if ui
-                    .button(if self.sync_mode {
-                        "Compare base folders"
-                    } else {
-                        "Sync base folders"
-                    })
-                    .clicked()
-                {
-                    switch = Some(self.paths());
-                    ui.close();
-                }
-            });
-            ui.menu_button("Actions", |ui| self.action_menu(ui));
-            ui.menu_button("Selection", |ui| {
-                for (label, mask) in [
-                    ("Select all", "all"),
-                    ("Select all files", "files"),
-                    ("Select newer left", "newer-left"),
-                    ("Select newer right", "newer-right"),
-                    ("Select newer both", "newer"),
-                    ("Select orphans left", "orphan-left"),
-                    ("Select orphans right", "orphan-right"),
-                    ("Select orphans both", "orphans"),
-                ] {
-                    if ui.button(label).clicked() {
-                        self.selection.items.clear();
-                        self.select_visible(mask, false);
-                        ui.close();
-                    }
-                }
-                if ui.button("Invert selection").clicked() {
-                    self.select_visible("all", true);
-                    ui.close();
-                }
-            });
-            ui.menu_button("View", |ui| {
-                ui.checkbox(&mut self.toolbar, "Toolbar");
-                ui.checkbox(&mut self.log_panel.open, "Log");
-                ui.checkbox(&mut self.legend_open, "Legend");
-                ui.checkbox(
-                    &mut self.filters.show_none_option,
-                    "Advanced: Show none filter",
-                );
-                self.columns_menu(ui);
-            });
-            if ui.button("Rules").clicked() {
-                self.rules_open = true;
-            }
-            if ui.button("Find").clicked() {
-                self.find.open = true;
-            }
-            if ui.button("Find next").clicked() {
-                self.find_next(false);
-            }
-            if ui.button("Find previous").clicked() {
-                self.find_next(true);
-            }
-        });
-        if self.toolbar {
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(self.history_at > 0, egui::Button::new("Back"))
-                    .clicked()
-                {
-                    self.history_at -= 1;
-                    self.reload(self.history[self.history_at].clone(), false);
-                }
-                if ui
-                    .add_enabled(
-                        self.history_at + 1 < self.history.len(),
-                        egui::Button::new("Forward"),
-                    )
-                    .clicked()
-                {
-                    self.history_at += 1;
-                    self.reload(self.history[self.history_at].clone(), false);
-                }
-                if ui.button("Expand all").clicked() {
-                    self.send(Command::ExpandAll(true));
-                }
-                if ui.button("Collapse all").clicked() {
-                    self.send(Command::ExpandAll(false));
-                }
-                if ui.button("Refresh").clicked() {
-                    self.send(Command::Refresh {
-                        selection: None,
-                        full: false,
-                    });
-                }
-                if ui.button("Full refresh").clicked() {
-                    self.send(Command::Refresh {
-                        selection: None,
-                        full: true,
-                    });
-                }
-                if ui.button("Previous difference").clicked() {
-                    self.navigate(true, false);
-                }
-                if ui.button("Next difference").clicked() {
-                    self.navigate(false, false);
-                }
-            });
-        }
-        switch
-    }
     fn rules_dialog(&mut self, ctx: &egui::Context) {
         let mut open = self.rules_open;
         let mut apply = false;
@@ -2825,58 +2559,9 @@ impl DirCompareView {
         self.poll(&ctx);
         let mut switch = None;
         let busy = self.busy();
-        if self.sync_mode {
-            // 同步视图本期不换肤：沿用旧行式布局。
-            ui.add_enabled_ui(!busy && self.child.is_none(), |ui| {
-                switch = self.toolbar(ui).map(|paths| (!self.sync_mode, paths));
-                let change = self.filters.ui_legacy(ui, !self.sync_mode);
-                if change.save_presets {
-                    self.send(Command::SavePresets(self.filters.presets.to_xml()));
-                }
-                if change.apply {
-                    self.send(Command::Filters {
-                        names: self.filters.names.clone(),
-                        other: self.filters.other.clone(),
-                        content: self.filters.content.clone(),
-                        exclude_containing: self.filters.exclude_containing,
-                        view: self.filters.options,
-                    });
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label(format!("{}  |  {}", self.paths.left, self.paths.right));
-            });
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "{} files, {} folders; {} visible rows; {} selected",
-                    self.snapshot.files,
-                    self.snapshot.folders,
-                    self.row_count(),
-                    self.selection.items.len()
-                ));
-                if busy {
-                    let p = self.shared.progress.lock().unwrap().clone();
-                    let fraction = p
-                        .total
-                        .filter(|n| *n > 0)
-                        .map_or(0.0, |n| p.current as f32 / n as f32);
-                    ui.add(
-                        egui::ProgressBar::new(fraction)
-                            .desired_width(180.0)
-                            .text(&p.message),
-                    );
-                    if ui.button("Cancel task").clicked() {
-                        self.cancel();
-                    }
-                } else {
-                    ui.label(&self.message);
-                }
-            });
-            if let Some(path) = self.log_panel.ui(ui, &self.shared.log) {
-                self.send(Command::SaveLog(path.into()));
-            }
-            ui.add_enabled_ui(self.child.is_none(), |ui| self.draw_table(ui));
-        } else {
+        // The sync view draws its own chrome (sync_view.rs) from the shared
+        // tree/log/status renderers before handing over for dialogs/keys.
+        if !self.sync_mode {
             switch = self.chrome_ui(ui, busy);
         }
         if let Some(paths) = self.paths.show(&ctx) {
@@ -3003,8 +2688,8 @@ impl DirCompareView {
             if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::ArrowRight)) {
                 self.restrict_side(1);
             }
-            if !self.sync_mode {
-                // 参考快捷键（比较视图）：导航/选择/刷新/查找。
+            {
+                // 参考快捷键：导航（同步视图为冲突）/选择/刷新/查找。
                 let pressed = |key: egui::Key, ctrl: bool, shift: bool, alt: bool| {
                     ctx.input(|i| {
                         i.key_pressed(key)
@@ -3014,10 +2699,10 @@ impl DirCompareView {
                     })
                 };
                 if pressed(egui::Key::N, true, false, false) {
-                    self.navigate(false, false);
+                    self.navigate(false, self.sync_mode);
                 }
                 if pressed(egui::Key::P, true, false, false) {
-                    self.navigate(true, false);
+                    self.navigate(true, self.sync_mode);
                 }
                 if pressed(egui::Key::A, true, false, false) {
                     self.selection.items.clear();
@@ -3064,14 +2749,14 @@ impl DirCompareView {
                     self.history_at += 1;
                     self.reload(self.history[self.history_at].clone(), false);
                 }
-                if pressed(egui::Key::F2, false, false, false) && !busy {
+                if pressed(egui::Key::F2, false, false, false) && !busy && !self.sync_mode {
                     let mut dialog = OperationDialog::new(Kind::Rename);
                     dialog.include_hidden =
                         self.handling.include_hidden || self.filters.options.suppress_filters;
                     dialog.recent = self.paths.recent.clone();
                     self.operation = Some(dialog);
                 }
-                if pressed(egui::Key::Insert, false, false, false) && !busy {
+                if pressed(egui::Key::Insert, false, false, false) && !busy && !self.sync_mode {
                     let mut dialog = OperationDialog::new(Kind::NewFolder);
                     dialog.include_hidden =
                         self.handling.include_hidden || self.filters.options.suppress_filters;
@@ -3097,275 +2782,6 @@ impl DirCompareView {
             }
         }
         switch
-    }
-    fn draw_table(&mut self, ui: &mut egui::Ui) {
-        let columns = self.columns.clone();
-        let data_width: f32 = columns.iter().map(|c| c.width()).sum();
-        let center_width = if self.sync_mode { 88.0 } else { 48.0 };
-        let width = ui
-            .available_width()
-            .max(2.0 * (data_width + 180.0) + center_width);
-        let half = (width - center_width) / 2.0;
-        let name_width = half - data_width;
-        let mut sort = None;
-        let mut column_action = None;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            for side in 0..2 {
-                if side == 1 {
-                    ui.add_space(center_width);
-                }
-                let header = ui.add_sized(
-                    [name_width, 20.0],
-                    egui::Button::new(if side == 0 { "Left name" } else { "Right name" }),
-                );
-                if header.clicked() {
-                    sort = Some((Column::Name, side));
-                }
-                if let Some(action) =
-                    crate::chrome::popup::context_menu(&header, || self.column_items())
-                {
-                    column_action = Some(action);
-                }
-                for column in &columns {
-                    let header =
-                        ui.add_sized([column.width(), 20.0], egui::Button::new(column.label()));
-                    if header.clicked() {
-                        sort = Some((*column, side));
-                    }
-                    if let Some(action) =
-                        crate::chrome::popup::context_menu(&header, || self.column_items())
-                    {
-                        column_action = Some(action);
-                    }
-                }
-            }
-        });
-        if let Some(action) = column_action {
-            self.column_action(&action);
-        }
-        if let Some((column, side)) = sort {
-            let reverse = self.sort.0 == column && self.sort.1 == side && !self.sort.2;
-            self.sort = (column, side, reverse);
-            self.send(Command::Sort(column, side, reverse));
-        }
-        if let Some(row) = self.pending_scroll.take() {
-            self.scroll_y = row.min(self.row_count().saturating_sub(1)) as f32 * ROW_HEIGHT;
-        }
-        let snapshot = self.snapshot.clone();
-        let mut drawn = 0;
-        let mut first_drawn = None;
-        let mut click = None;
-        let mut context_command = None;
-        let palette = self.palette;
-        let selection = &self.selection;
-        let automatic = self.scan.automatic;
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let result = egui::ScrollArea::both()
-            .id_salt("folder_rows")
-            .auto_shrink([false, false])
-            .vertical_scroll_offset(self.scroll_y)
-            .show_rows(ui, ROW_HEIGHT, snapshot.rows.len(), |ui, range| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.set_min_width(width);
-                for index in range {
-                    first_drawn.get_or_insert(index);
-                    let row = &snapshot.rows[index];
-                    let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(width, ROW_HEIGHT), egui::Sense::click());
-                    drawn += 1;
-                    ui.painter().rect_filled(
-                        rect,
-                        0.0,
-                        if index % 2 == 0 {
-                            egui::Color32::from_rgb(253, 253, 250)
-                        } else {
-                            egui::Color32::from_rgb(245, 247, 245)
-                        },
-                    );
-                    for side in 0..2 {
-                        let x = rect.left() + if side == 0 { 0.0 } else { half + center_width };
-                        let cell_rect = egui::Rect::from_min_size(
-                            egui::pos2(x, rect.top()),
-                            egui::vec2(half, ROW_HEIGHT),
-                        );
-                        let Some(item) = &row.sides[side] else {
-                            continue;
-                        };
-                        if selection.items.contains(&(item.node, side)) {
-                            ui.painter().rect_filled(
-                                cell_rect,
-                                0.0,
-                                egui::Color32::from_rgb(215, 230, 253),
-                            );
-                        }
-                        let color = legend::side_color(palette, row.status, side, row.teal[side]);
-                        let indent = row.depth as f32 * 14.0;
-                        let text_x = x + 6.0 + indent;
-                        if row.directory {
-                            let p = egui::pos2(text_x, rect.center().y);
-                            let folder_color = if !automatic && row.pending && !row.expanded {
-                                legend::color(palette.unscanned)
-                            } else {
-                                color
-                            };
-                            let body = egui::Rect::from_min_size(
-                                p + egui::vec2(0.0, -3.0),
-                                egui::vec2(12.0, 8.0),
-                            );
-                            let tab = egui::Rect::from_min_size(
-                                p + egui::vec2(1.0, -6.0),
-                                egui::vec2(5.0, 3.0),
-                            );
-                            ui.painter().rect_filled(tab, 1.0, folder_color);
-                            if row.pending && automatic {
-                                ui.painter().rect_stroke(
-                                    body,
-                                    1.0,
-                                    egui::Stroke::new(1.2, folder_color),
-                                    egui::StrokeKind::Inside,
-                                );
-                            } else {
-                                ui.painter().rect_filled(body, 1.0, folder_color);
-                                if !automatic && row.pending {
-                                    ui.painter().rect_stroke(
-                                        body,
-                                        1.0,
-                                        egui::Stroke::new(1.0, egui::Color32::GRAY),
-                                        egui::StrokeKind::Inside,
-                                    );
-                                }
-                            }
-                            if row.red {
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(
-                                        egui::pos2(text_x + 10.0, rect.top() + 2.0),
-                                        egui::vec2(4.0, 4.0),
-                                    ),
-                                    0.0,
-                                    legend::color(palette.different),
-                                );
-                            }
-                            if row.purple {
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(
-                                        egui::pos2(text_x + 10.0, rect.bottom() - 6.0),
-                                        egui::vec2(4.0, 4.0),
-                                    ),
-                                    0.0,
-                                    legend::color(palette.orphan),
-                                );
-                            }
-                        }
-                        if item.entry.error.is_some() {
-                            ui.painter().text(
-                                egui::pos2(text_x + 4.0, rect.center().y),
-                                egui::Align2::LEFT_CENTER,
-                                "x",
-                                egui::FontId::monospace(13.0),
-                                egui::Color32::RED,
-                            );
-                        }
-                        let clipped = ui.painter().with_clip_rect(egui::Rect::from_min_max(
-                            egui::pos2(x, rect.top()),
-                            egui::pos2(x + name_width - 3.0, rect.bottom()),
-                        ));
-                        clipped.text(
-                            egui::pos2(
-                                text_x + if row.directory { 19.0 } else { 4.0 },
-                                rect.center().y,
-                            ),
-                            egui::Align2::LEFT_CENTER,
-                            &item.label,
-                            egui::FontId::monospace(13.0),
-                            color,
-                        );
-                        let mut field_x = x + name_width;
-                        for column in &columns {
-                            let at = Column::OPTIONAL.iter().position(|c| c == column).unwrap();
-                            let bounds = egui::Rect::from_min_size(
-                                egui::pos2(field_x, rect.top()),
-                                egui::vec2(column.width() - 3.0, ROW_HEIGHT),
-                            );
-                            ui.painter().with_clip_rect(bounds).text(
-                                bounds.left_center(),
-                                egui::Align2::LEFT_CENTER,
-                                &item.cells[at],
-                                egui::FontId::monospace(12.0),
-                                color,
-                            );
-                            field_x += column.width();
-                        }
-                    }
-                    let center = egui::Rect::from_min_size(
-                        egui::pos2(rect.left() + half, rect.top()),
-                        egui::vec2(center_width, ROW_HEIGHT),
-                    );
-                    ui.painter().text(
-                        center.center(),
-                        egui::Align2::CENTER_CENTER,
-                        &row.center,
-                        egui::FontId::monospace(12.0),
-                        if row.conflict {
-                            egui::Color32::RED
-                        } else {
-                            egui::Color32::DARK_GRAY
-                        },
-                    );
-                    let response=response.on_hover_ui(|ui|{
-                        for item in row.sides.iter().flatten(){ui.label(item.path.display().to_string());if let Some(error)=&item.entry.error{ui.colored_label(egui::Color32::RED,error);}}
-                        if row.node.is_none(){ui.small("Flattened pair: operations use these actual paths; orphans retain their original relative path.");}
-                    });
-                    if response.clicked() || response.double_clicked() {
-                        let x = response
-                            .interact_pointer_pos()
-                            .map_or(center.center().x, |p| p.x);
-                        let side = if x < center.left() {
-                            Some(0)
-                        } else if x > center.right() {
-                            Some(1)
-                        } else {
-                            None
-                        };
-                        click = Some((
-                            index,
-                            side,
-                            response.double_clicked(),
-                            ui.input(|i| i.modifiers),
-                        ));
-                    }
-                    let directory = row.directory;
-                    if let Some(kind) =
-                        crate::chrome::popup::context_menu(&response, || row_menu(directory))
-                            .and_then(|a| row_command(&a))
-                    {
-                        context_command = Some((index, kind));
-                    }
-                }
-            });
-        self.scroll_y = result.state.clamped_offset().y;
-        self.last_stats = DirFrameStats {
-            rows_drawn: drawn,
-            top_row: first_drawn.unwrap_or(0),
-        };
-        if let Some((index, side, double, modifiers)) = click {
-            self.clicked(index, side, double, modifiers);
-        }
-        if let Some((index, kind)) = context_command {
-            self.focus_row(index, None);
-            if kind == 1 {
-                self.open_pair();
-            } else if kind == 2 {
-                let row = &self.snapshot.rows[index];
-                if let Some(node) = row.node {
-                    self.send(Command::Expand {
-                        nodes: vec![node],
-                        expanded: !row.expanded,
-                        recursive: false,
-                    });
-                }
-            }
-        }
     }
     fn clicked(
         &mut self,
@@ -3455,6 +2871,10 @@ const CHROME_FILTERBAR: f32 = 45.0;
 const CHROME_PATHBAR: f32 = 26.0;
 const CHROME_LOG: f32 = 106.0;
 const CHROME_GAP: f32 = 37.0;
+/// Sync view arrow column (tokens `folder-sync` region `arrows`: 117 px) with
+/// three sub-columns split at +38 / +77 / +116.
+const SYNC_GAP: f32 = 117.0;
+const SYNC_ARROW_LINES: [f32; 4] = [0.0, 38.0, 77.0, 116.0];
 const CHROME_SCROLLBAR: f32 = 18.0;
 
 const TREE_STRIPE: egui::Color32 = egui::Color32::from_rgb(248, 250, 249);
@@ -3474,6 +2894,76 @@ pub struct RowLine {
 }
 
 /// 正向一次扫描求每行父连接线的起点（祖先栈）。
+/// Sync arrow column glyphs: copy arrows in the source side's sub-column
+/// (left → right in the first, right → left in the third), "?" in both for an
+/// unresolved conflict, a red "×" over the side being deleted. Original
+/// vector drawing (block arrow, yellow fill, brown outline).
+fn paint_sync_mark(painter: &egui::Painter, column_left: f32, row_top: f32, mark: u8) {
+    let center = |sub: usize| {
+        egui::pos2(
+            (column_left + (SYNC_ARROW_LINES[sub] + SYNC_ARROW_LINES[sub + 1]) / 2.0).round() + 0.5,
+            row_top + CHROME_ROW / 2.0,
+        )
+    };
+    let fill = egui::Color32::from_rgb(250, 214, 92);
+    let ink = egui::Color32::from_rgb(140, 100, 20);
+    let arrow = |c: egui::Pos2, right: bool| {
+        let s = if right { 1.0 } else { -1.0 };
+        let points: Vec<egui::Pos2> = [
+            (-6.0, -2.0),
+            (0.0, -2.0),
+            (0.0, -5.0),
+            (6.0, 0.0),
+            (0.0, 5.0),
+            (0.0, 2.0),
+            (-6.0, 2.0),
+        ]
+        .iter()
+        .map(|(x, y)| c + egui::vec2(x * s, *y))
+        .collect();
+        // Head and shaft are filled separately (the outline is concave).
+        painter.add(egui::Shape::convex_polygon(
+            vec![points[2], points[3], points[4]],
+            fill,
+            egui::Stroke::NONE,
+        ));
+        painter.rect_filled(egui::Rect::from_two_pos(points[0], points[5]), 0.0, fill);
+        let mut outline = points;
+        outline.push(outline[0]);
+        painter.add(egui::Shape::line(outline, egui::Stroke::new(1.0, ink)));
+    };
+    if mark & SYNC_CONFLICT != 0 {
+        for sub in [0, 2] {
+            painter.text(
+                center(sub),
+                egui::Align2::CENTER_CENTER,
+                "?",
+                egui::FontId::proportional(15.0),
+                egui::Color32::BLACK,
+            );
+        }
+    }
+    if mark & SYNC_TO_RIGHT != 0 {
+        arrow(center(0), true);
+    }
+    if mark & SYNC_TO_LEFT != 0 {
+        arrow(center(2), false);
+    }
+    for (bit, sub) in [(SYNC_DELETE_LEFT, 0), (SYNC_DELETE_RIGHT, 2)] {
+        if mark & bit != 0 {
+            let c = center(sub);
+            let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 30, 30));
+            painter.line_segment(
+                [c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)],
+                stroke,
+            );
+            painter.line_segment(
+                [c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)],
+                stroke,
+            );
+        }
+    }
+}
 fn row_lines(rows: &[RenderRow]) -> Vec<RowLine> {
     let mut out = Vec::with_capacity(rows.len());
     let mut ancestors: Vec<usize> = Vec::new();
@@ -3580,7 +3070,6 @@ fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui
 }
 
 /// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
-const COLUMNS_NOTE: &str = "Owner/group/VCS require providers not shipped in this wave.";
 /// Row right-click menu (same entries as before the re-skin).
 fn row_menu(directory: bool) -> Vec<crate::chrome::menubar::MenuItem> {
     use crate::chrome::menubar::MenuItem;
@@ -4371,6 +3860,45 @@ impl DirCompareView {
     pub fn take_home_request(&mut self) -> bool {
         std::mem::take(&mut self.home_requested)
     }
+    /// Base folder texts of both sides (sync paths area).
+    pub(crate) fn path_texts(&self) -> [String; 2] {
+        [self.paths.left.clone(), self.paths.right.clone()]
+    }
+    /// Load new base folders (sync paths area Enter / history).
+    pub(crate) fn open_paths(&mut self, paths: [String; 2]) {
+        self.reload(paths, true);
+    }
+    /// Applied file-name filter text (sync Filters box).
+    pub(crate) fn filter_names(&self) -> &str {
+        &self.filters.names
+    }
+    /// Apply a new file-name filter through the existing view-options path.
+    pub(crate) fn set_filter_names(&mut self, names: String) {
+        self.filters.names = names;
+        self.apply_view_options();
+    }
+    pub(crate) fn toolbar_visible(&self) -> bool {
+        self.toolbar
+    }
+    pub(crate) fn log_visible(&self) -> bool {
+        self.log_panel.open
+    }
+    /// Check state of shared view commands (menus/toolbar toggles).
+    pub(crate) fn view_checked(&self, id: &str) -> Option<bool> {
+        Some(match id {
+            "Ignore Unimportant Differences" => self.filters.options.ignore_unimportant,
+            "Suppress Filters" => self.filters.options.suppress_filters,
+            "Legend" => self.legend_open,
+            "Log" => self.log_panel.open,
+            "Toolbar" => self.toolbar,
+            "column-size" => self.columns.contains(&Column::Size),
+            "column-modified" => self.columns.contains(&Column::Modified),
+            "column-crc" => self.columns.contains(&Column::Crc),
+            "column-version" => self.columns.contains(&Column::Version),
+            "column-attrs" => self.columns.contains(&Column::Attrs),
+            _ => return None,
+        })
+    }
     /// 快照预置：与参考操作等价（folder-expanded = Ctrl+A + Expand All；
     /// folder-diffs-filter = 工具栏 Diffs；folder-basic = 折叠 + 首行选中）。
     pub fn snapshot_preset(&mut self, scene: &str) {
@@ -4490,7 +4018,7 @@ impl DirCompareView {
         self.menus = menus;
     }
     /// 菜单与工具栏统一动作入口；返回 Some 表示要切换比较/同步视图。
-    fn folder_command(&mut self, id: &str) -> Option<FolderNavigation> {
+    pub(crate) fn folder_command(&mut self, id: &str) -> Option<FolderNavigation> {
         use bc_engine_dir::filter::{DisplayFilter as D, FolderDisplay as F};
         match id {
             "Home" => {
@@ -4603,6 +4131,7 @@ impl DirCompareView {
             "Log" => self.log_panel.open = !self.log_panel.open,
             "Toolbar" => self.toolbar = !self.toolbar,
             "Open Folder" => self.expand_selection(true, false),
+            "Close Folder" => self.expand_selection(false, false),
             "Open Subfolders" => self.expand_selection(true, true),
             "Close Subfolders" => self.expand_selection(false, true),
             "Set as Base Folders" => self.set_base(false, true),
@@ -5025,8 +4554,8 @@ impl DirCompareView {
         switch
     }
     /// 窗口总宽 → (左树宽, 右树宽)；中缝与右侧滚动条固定。
-    fn chrome_split(width: f32) -> (f32, f32) {
-        let content = (width - CHROME_GAP - CHROME_SCROLLBAR).max(2.0);
+    fn chrome_split(width: f32, gap: f32) -> (f32, f32) {
+        let content = (width - gap - CHROME_SCROLLBAR).max(2.0);
         let left = (content / 2.0).ceil();
         (left, content - left)
     }
@@ -5041,7 +4570,7 @@ impl DirCompareView {
             bar.top(),
             egui::Stroke::new(1.0, egui::Color32::WHITE),
         );
-        let (left_w, _) = Self::chrome_split(bar.width());
+        let (left_w, _) = Self::chrome_split(bar.width(), CHROME_GAP);
         let split_x = bar.left() + left_w + CHROME_GAP;
         let mut reload: Option<[String; 2]> = None;
         for side in 0..2 {
@@ -5228,12 +4757,21 @@ impl DirCompareView {
         }
     }
     /// 双树 + 列头 + 中缝 + 右侧平坦滚动条。绘制只访问可见行。
-    fn draw_grid(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let (left_w, right_w) = Self::chrome_split(rect.width());
+    /// Width of the column between the trees: compare 37 px, sync 117 px.
+    fn center_gap(&self) -> f32 {
+        if self.sync_mode {
+            SYNC_GAP
+        } else {
+            CHROME_GAP
+        }
+    }
+    pub(crate) fn draw_grid(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let gap = self.center_gap();
+        let (left_w, right_w) = Self::chrome_split(rect.width(), gap);
         let painter = ui.painter().clone();
         let left = egui::Rect::from_min_size(rect.min, egui::vec2(left_w, rect.height()));
         let right = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + left_w + CHROME_GAP, rect.top()),
+            egui::pos2(rect.left() + left_w + gap, rect.top()),
             egui::vec2(right_w, rect.height()),
         );
         let scroll = egui::Rect::from_min_size(
@@ -5317,18 +4855,45 @@ impl DirCompareView {
                 }
             }
             // 外缘：块右边 #A0A0A0；右树左缘同（起于顶两条高光之下）。
-            painter.rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(header.right() - 1.0, header.top() + 2.0),
-                    egui::vec2(1.0, CHROME_HEADER - 2.0),
-                ),
-                0.0,
-                HEADER_EDGE,
-            );
-            if side == 1 {
+            // 同步视图的内侧边线由箭头列自己绘制。
+            if !(self.sync_mode && side == 0) {
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(header.right() - 1.0, header.top() + 2.0),
+                        egui::vec2(1.0, CHROME_HEADER - 2.0),
+                    ),
+                    0.0,
+                    HEADER_EDGE,
+                );
+            }
+            if side == 1 && !self.sync_mode {
                 painter.rect_filled(
                     egui::Rect::from_min_size(
                         egui::pos2(header.left(), header.top() + 2.0),
+                        egui::vec2(1.0, CHROME_HEADER - 2.0),
+                    ),
+                    0.0,
+                    HEADER_EDGE,
+                );
+            }
+        }
+        if self.sync_mode {
+            // Arrow column header: three empty cells (#E5E5E5 | #A0A0A0 lines).
+            for (i, dx) in SYNC_ARROW_LINES.iter().enumerate() {
+                let x = left.right() + dx;
+                if i > 0 {
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(x - 1.0, rect.top() + 2.0),
+                            egui::vec2(1.0, CHROME_HEADER - 2.0),
+                        ),
+                        0.0,
+                        HEADER_SEP,
+                    );
+                }
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(x, rect.top() + 2.0),
                         egui::vec2(1.0, CHROME_HEADER - 2.0),
                     ),
                     0.0,
@@ -5528,6 +5093,9 @@ impl DirCompareView {
                     cx += w;
                 }
             }
+            if self.sync_mode && row.sync_mark != 0 {
+                paint_sync_mark(&painter, left.right(), y, row.sync_mark);
+            }
             // 焦点虚框（跨双树与中缝）。
             if self.focus == Some(index) && selected {
                 let r = egui::Rect::from_min_max(
@@ -5561,22 +5129,24 @@ impl DirCompareView {
             0.0,
             egui::Color32::from_rgb(254, 254, 254),
         );
-        painter.rect_filled(
-            egui::Rect::from_min_size(
-                egui::pos2(left.right() - 1.0, rows_area.top()),
-                egui::vec2(1.0, content_bottom - rows_area.top()),
-            ),
-            0.0,
-            TREE_EDGE,
-        );
-        painter.rect_filled(
-            egui::Rect::from_min_size(
-                egui::pos2(right.left(), rows_area.top()),
-                egui::vec2(1.0, content_bottom - rows_area.top()),
-            ),
-            0.0,
-            TREE_EDGE,
-        );
+        let seams: Vec<f32> = if self.sync_mode {
+            SYNC_ARROW_LINES
+                .iter()
+                .map(|dx| left.right() + dx)
+                .collect()
+        } else {
+            vec![left.right() - 1.0, right.left()]
+        };
+        for x in seams {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(x, rows_area.top()),
+                    egui::vec2(1.0, content_bottom - rows_area.top()),
+                ),
+                0.0,
+                TREE_EDGE,
+            );
+        }
         // 交互：点击/双击/右键/滚轮。
         let response = ui.interact(
             rows_area,
@@ -5705,7 +5275,7 @@ impl DirCompareView {
         );
     }
     /// 日志区（106 px）：左侧齿轮/保存图标，#E3E7ED 文本框，右侧面板灰条。
-    fn draw_log(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+    pub(crate) fn draw_log(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         let painter = ui.painter().clone();
         painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
         painter.hline(
@@ -5841,7 +5411,7 @@ impl DirCompareView {
         }
     }
     /// 状态栏（25 px）：空闲显示 “Shows ...” 图例；纯文件选择时显示每侧文件数/字节与剩余空间。
-    fn draw_status(&mut self, ui: &mut egui::Ui, rect: egui::Rect, busy: bool) {
+    pub(crate) fn draw_status(&mut self, ui: &mut egui::Ui, rect: egui::Rect, busy: bool) {
         use crate::chrome::statusbar::{self, StatusField};
         let fields: Vec<StatusField>;
         if busy {
@@ -5873,7 +5443,36 @@ impl DirCompareView {
                 any,
                 only_files,
             } = totals;
-            if any && only_files {
+            if self.sync_mode {
+                // Sync: per-side file totals (selection when files are
+                // selected, otherwise every listed file) and free space.
+                let counts = if any && only_files {
+                    counts
+                } else {
+                    let mut all = [(0usize, 0u64); 2];
+                    for row in self.snapshot.rows.iter().filter(|r| !r.directory) {
+                        for (side, item) in row.sides.iter().enumerate() {
+                            if let Some(item) = item {
+                                all[side].0 += 1;
+                                all[side].1 += item.entry.size.unwrap_or(0);
+                            }
+                        }
+                    }
+                    all
+                };
+                let free = |side: usize| self.snapshot.free[side].clone().unwrap_or_default();
+                let selected =
+                    |side: usize| format!("{} file(s), {} bytes", counts[side].0, counts[side].1);
+                let (left_w, _) = Self::chrome_split(rect.width(), SYNC_GAP);
+                let half = (left_w / 2.0).floor();
+                fields = vec![
+                    StatusField::fixed(selected(0), half),
+                    StatusField::fixed(free(0), left_w - half),
+                    StatusField::fixed("", SYNC_GAP),
+                    StatusField::fixed(selected(1), half + 1.0),
+                    StatusField::flexible(free(1)),
+                ];
+            } else if any && only_files {
                 let free = |side: usize| {
                     self.snapshot.free[side]
                         .clone()
@@ -5939,6 +5538,7 @@ impl Drop for DirCompareView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bc_core::Side;
     use std::sync::atomic::AtomicUsize;
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     struct Temp(PathBuf);
@@ -6698,6 +6298,11 @@ mod tests {
         let temp = Temp::new();
         let ctx = egui::Context::default();
         let mut view = temp.view(&ctx, true);
+        wait(&mut view, &ctx);
+        // The sync view lists differences only by default; show the same
+        // file too for the quick-compare checks below.
+        view.filters.options.display = bc_engine_dir::filter::DisplayFilter::All;
+        view.apply_view_options();
         wait(&mut view, &ctx);
         view.send(Command::Details {
             selection: None,
