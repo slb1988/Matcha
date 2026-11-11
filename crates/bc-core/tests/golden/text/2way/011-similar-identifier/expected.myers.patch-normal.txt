@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\011-similar-identifier\left.txt D:\Github\Matcha\target\golden-work\011-similar-identifier\right.txt
+2c2
+< total = price * qty
+---
+> total = price * quantity

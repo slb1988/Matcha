@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\006-delete-middle-three\left.txt D:\Github\Matcha\target\golden-work\006-delete-middle-three\right.txt
+3,5d2
+< old A
+< old B
+< old C

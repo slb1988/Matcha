@@ -1,0 +1,32 @@
+--- D:\Github\Matcha\target\golden-work\104-hunk-tail\left.txt	2026-11-11 15:45:56.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\104-hunk-tail\right.txt	2026-11-11 15:45:56.000000000 +0800
+@@ -4,13 +4,13 @@
+ line 04
+ line 05
+ line 06
+ line 07
+ line 08
+ line 09
+-line 10
++CHANGED 10
+ line 11
+ line 12
+ line 13
+ line 14
+ line 15
+ line 16
+@@ -21,13 +21,13 @@
+ line 21
+ line 22
+ line 23
+ line 24
+ line 25
+ line 26
+-line 27
++CHANGED 27
+ line 28
+ line 29
+ line 30
+ line 31
+ line 32
+ line 33

@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\005-insert-middle-three\left.txt D:\Github\Matcha\target\golden-work\005-insert-middle-three\right.txt
+2a3,5
+> new A
+> new B
+> new C

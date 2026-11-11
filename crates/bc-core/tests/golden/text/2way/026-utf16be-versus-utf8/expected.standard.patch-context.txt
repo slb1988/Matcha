@@ -1,0 +1,2 @@
+﻿*** D:\Github\Matcha\target\golden-work\026-utf16be-versus-utf8\left.txt	2026-11-11 15:41:57.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\026-utf16be-versus-utf8\right.txt	2026-11-11 15:41:57.000000000 +0800

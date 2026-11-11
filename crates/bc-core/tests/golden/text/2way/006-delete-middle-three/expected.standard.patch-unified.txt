@@ -1,0 +1,10 @@
+--- D:\Github\Matcha\target\golden-work\006-delete-middle-three\left.txt	2026-11-11 15:41:50.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\006-delete-middle-three\right.txt	2026-11-11 15:41:50.000000000 +0800
+@@ -1,7 +1,4 @@
+ one
+ two
+-old A
+-old B
+-old C
+ three
+ four

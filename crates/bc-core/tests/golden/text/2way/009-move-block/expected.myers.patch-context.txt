@@ -1,0 +1,15 @@
+*** D:\Github\Matcha\target\golden-work\009-move-block\left.txt	2026-11-11 15:41:51.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\009-move-block\right.txt	2026-11-11 15:41:51.000000000 +0800
+***************
+*** 1,5 ****
+  A unique
+  B unique
+  C unique
+- D moved
+- E moved
+--- 1,5 ----
++ D moved
++ E moved
+  A unique
+  B unique
+  C unique

@@ -1,0 +1,11 @@
+*** D:\Github\Matcha\target\golden-work\010-repeated-context\left.txt	2026-11-11 15:41:51.000000000 +0800
+--- D:\Github\Matcha\target\golden-work\010-repeated-context\right.txt	2026-11-11 15:41:51.000000000 +0800
+***************
+*** 1,5 ****
+--- 1,6 ----
+  start
+  repeat
++ inserted
+  middle unique
+  repeat
+  end

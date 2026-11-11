@@ -1,0 +1,1 @@
+﻿diff -r D:\Github\Matcha\target\golden-work\026-utf16be-versus-utf8\left.txt D:\Github\Matcha\target\golden-work\026-utf16be-versus-utf8\right.txt

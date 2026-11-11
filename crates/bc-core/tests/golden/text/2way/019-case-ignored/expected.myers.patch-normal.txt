@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\019-case-ignored\left.txt D:\Github\Matcha\target\golden-work\019-case-ignored\right.txt
+1c1
+< Print VALUE
+---
+> print value

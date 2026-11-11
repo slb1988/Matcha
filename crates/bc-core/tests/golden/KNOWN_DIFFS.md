@@ -64,6 +64,10 @@ end
 
 原始参考报告：[expected.standard.xml](text/2way/012-unrelated-replacement/expected.standard.xml)。两侧文本文件与报告同目录。Myers 展示层按参考打包，本用例的 Myers 输出已经逐行相等；不能把这个 Standard 例外扩展为 Myers 例外。
 
+## patch 报告
+
+patch 黄金（`expected.<profile>.patch-*.txt`，协议见 `tools/golden/README.md` 的“patch 报告协议”）**不登记任何例外**。上表唯一的对齐差异 standard / `012-unrelated-replacement` 在 patch 中不可见：patch 以“连续的非相同行”为一个差异段，项目的三行删除加三行插入与参考的三行改动都成为同一个 `2,4c2,4` 段，context 两侧都用 `! `，unified 都是先三行 `-` 再三行 `+`；参考自身在两套规则下的 patch 输出也逐字节相同。`bc-report` 的黄金回归对该用例按普通用例严格比较。
+
 ## 历史诊断（不构成额外白名单）
 
 Wave 3 的诊断记录及其原始 XML 保留在 tools/golden/evidence：

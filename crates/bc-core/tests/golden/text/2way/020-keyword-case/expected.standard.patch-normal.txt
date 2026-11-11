@@ -1,0 +1,7 @@
+diff -r D:\Github\Matcha\target\golden-work\020-keyword-case\left.pas D:\Github\Matcha\target\golden-work\020-keyword-case\right.pas
+1,2c1,2
+< BEGIN
+< END;
+---
+> begin
+> end;

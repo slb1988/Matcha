@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\015-indent-important\left.txt D:\Github\Matcha\target\golden-work\015-indent-important\right.txt
+2c2
+<   value = item;
+---
+>     value = item;

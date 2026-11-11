@@ -1,0 +1,1 @@
+diff -r D:\Github\Matcha\target\golden-work\021-crlf-versus-lf\left.txt D:\Github\Matcha\target\golden-work\021-crlf-versus-lf\right.txt

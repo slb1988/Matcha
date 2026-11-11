@@ -1,0 +1,5 @@
+--- D:\Github\Matcha\target\golden-work\028-unicode-change\left.txt	2026-11-11 15:41:57.000000000 +0800
++++ D:\Github\Matcha\target\golden-work\028-unicode-change\right.txt	2026-11-11 15:41:57.000000000 +0800
+@@ -1 +1 @@
+-消息: 你好世界，版本 v1 🙂
++消息: 你好世界，版本 v2 🙂

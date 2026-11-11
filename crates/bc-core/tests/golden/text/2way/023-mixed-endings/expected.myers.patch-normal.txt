@@ -1,0 +1,1 @@
+diff -r D:\Github\Matcha\target\golden-work\023-mixed-endings\left.txt D:\Github\Matcha\target\golden-work\023-mixed-endings\right.txt

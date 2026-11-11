@@ -4,9 +4,9 @@
 
 ## 1. 参考样本采集（先行，确定 patch 字节格式）
 
-- [ ] 1.1 新增 `tools/golden/gen_patch_expected.ps1`：完全沿用 `gen_expected.ps1` 的共享锁、备份、临时命名会话（`matcha-golden-myers`/`matcha-golden-standard`）与 finally 恢复流程，对 30 个两路用例 × 2 套规则 × `patch-normal|patch-context|patch-unified` 生成 `expected.<profile>.patch-<fmt>.txt`，并加采“两侧相同”“含非 ASCII 的 UTF-8”“UTF-16 输入”“无末尾换行”“带 `title:`”样本；提供不调用参考工具的 `-DryRun`；验证 `-DryRun` 列出 180 + 边界样本的目标路径且不触碰参考配置
-- [ ] 1.2 在本机持锁运行采集（需要本机参考程序；按 README 协议传 `-ReferenceExe`/`-WorkerId`），入库原始字节；验证每份样本非空（相同文件样本除外）、设置文件恢复校验通过、`git status` 无私人备份或二进制
-- [ ] 1.3 从样本归纳并写入 `tools/golden/README.md` 的“patch 报告协议”节：三种格式的文件头（路径写法、时间戳格式）、上下文行数、块头写法、无末尾换行标记、换行符、输出编码与 BOM、相同文件时的输出、`title:` 是否出现；对齐差异用例在 `crates/bc-core/tests/golden/KNOWN_DIFFS.md` 追加对应 patch 条目；验证 README 中每条结论都指向一份具体样本
+- [x] 1.1 新增 `tools/golden/gen_patch_expected.ps1`：完全沿用 `gen_expected.ps1` 的共享锁、备份、临时命名会话（`matcha-golden-myers`/`matcha-golden-standard`）与 finally 恢复流程，对 30 个两路用例 × 2 套规则 × `patch-normal|patch-context|patch-unified` 生成 `expected.<profile>.patch-<fmt>.txt`，并加采“两侧相同”“含非 ASCII 的 UTF-8”“UTF-16 输入”“无末尾换行”“带 `title:`”样本；提供不调用参考工具的 `-DryRun`；验证 `-DryRun` 列出 180 + 边界样本的目标路径且不触碰参考配置
+- [x] 1.2 在本机持锁运行采集（需要本机参考程序；按 README 协议传 `-ReferenceExe`/`-WorkerId`），入库原始字节；验证每份样本非空（相同文件样本除外）、设置文件恢复校验通过、`git status` 无私人备份或二进制
+- [x] 1.3 从样本归纳并写入 `tools/golden/README.md` 的“patch 报告协议”节：三种格式的文件头（路径写法、时间戳格式）、上下文行数、块头写法、无末尾换行标记、换行符、输出编码与 BOM、相同文件时的输出、`title:` 是否出现；对齐差异用例在 `crates/bc-core/tests/golden/KNOWN_DIFFS.md` 追加对应 patch 条目；验证 README 中每条结论都指向一份具体样本
 
 ## 2. 报告模型与 patch 渲染（bc-report）
 

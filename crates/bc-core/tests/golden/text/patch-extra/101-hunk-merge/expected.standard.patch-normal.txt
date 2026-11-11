@@ -1,0 +1,17 @@
+diff -r D:\Github\Matcha\target\golden-work\101-hunk-merge\left.txt D:\Github\Matcha\target\golden-work\101-hunk-merge\right.txt
+3c3
+< line 03
+---
+> CHANGED 03
+10c10
+< line 10
+---
+> CHANGED 10
+18c18
+< line 18
+---
+> CHANGED 18
+24c24
+< line 24
+---
+> CHANGED 24

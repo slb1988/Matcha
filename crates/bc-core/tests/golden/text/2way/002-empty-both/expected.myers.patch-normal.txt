@@ -1,0 +1,1 @@
+diff -r D:\Github\Matcha\target\golden-work\002-empty-both\left.txt D:\Github\Matcha\target\golden-work\002-empty-both\right.txt

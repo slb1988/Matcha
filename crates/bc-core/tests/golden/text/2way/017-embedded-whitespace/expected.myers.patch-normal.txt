@@ -1,0 +1,5 @@
+diff -r D:\Github\Matcha\target\golden-work\017-embedded-whitespace\left.txt D:\Github\Matcha\target\golden-work\017-embedded-whitespace\right.txt
+1c1
+< alpha + beta
+---
+> alpha   +   beta

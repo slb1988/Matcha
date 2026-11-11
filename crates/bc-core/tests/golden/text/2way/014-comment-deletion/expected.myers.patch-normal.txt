@@ -1,0 +1,3 @@
+diff -r D:\Github\Matcha\target\golden-work\014-comment-deletion\left.cpp D:\Github\Matcha\target\golden-work\014-comment-deletion\right.cpp
+2d0
+< // standalone old comment

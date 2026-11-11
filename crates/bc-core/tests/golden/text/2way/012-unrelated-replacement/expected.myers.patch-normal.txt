@@ -1,0 +1,9 @@
+diff -r D:\Github\Matcha\target\golden-work\012-unrelated-replacement\left.txt D:\Github\Matcha\target\golden-work\012-unrelated-replacement\right.txt
+2,4c2,4
+< AAAA
+< BBBB
+< CCCC
+---
+> 1111
+> 2222
+> 3333

@@ -1,0 +1,1 @@
+diff -r D:\Github\Matcha\target\golden-work\022-final-newline\left.txt D:\Github\Matcha\target\golden-work\022-final-newline\right.txt
