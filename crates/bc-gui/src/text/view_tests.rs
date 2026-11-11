@@ -870,3 +870,36 @@ fn text_interaction_latency() {
     v.scroll_to_row(v.row_count());
     timed("jump to end", &mut v, vec![]);
 }
+
+#[test]
+fn filtered_lines_separators_are_thin_rows_and_jumps_follow_them() {
+    let ctx = egui::Context::default();
+    let left = (0..400).map(|i| format!("line {i}\n")).collect::<String>();
+    let right = left
+        .replace("line 100\n", "LINE 100\n")
+        .replace("line 300\n", "LINE 300\n");
+    let mut v = view(&left, &right);
+    // Differences without context lines (the reference filter scene).
+    v.context_enabled = false;
+    v.filter = DisplayFilter::Differences;
+    v.rebuild_projection();
+    let out = frame(&ctx, &mut v, vec![]);
+    let folds: Vec<f32> = text_shapes(&out)
+        .iter()
+        .filter(|(t, _)| t.ends_with("FILTERED LINES"))
+        .map(|(_, r)| r.center().y)
+        .collect();
+    // Fold, difference rows, fold: separators are 9 px + whole 15 px rows
+    // apart (uniform 15 px rows would give a multiple of 15).
+    assert!(folds.len() >= 2, "{folds:?}");
+    let gap = folds[1] - folds[0];
+    assert!(gap > 9.0 && ((gap - 9.0) % 15.0).abs() < 0.01, "{folds:?}");
+    // Jumping to a display row lands its top at row offsets that account for
+    // the thin separators, and top_row maps back.
+    let g = super::super::projection::RowGeometry::for_row_height(v.row_height());
+    let row = v.projection.len() - 2;
+    v.scroll_to_row(row);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.y.min(v.projection.y_of(row, g)), v.scroll.y);
+    assert!(v.top_row(v.row_height()) <= row);
+}

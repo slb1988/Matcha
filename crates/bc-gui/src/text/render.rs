@@ -2,7 +2,7 @@
 use super::{
     editor::{byte_at_char, Caret},
     gutter,
-    projection::{DisplayFilter, DisplayRow},
+    projection::{DisplayFilter, DisplayRow, RowGeometry},
     view::{editor_id, index},
     TextCompareView,
 };
@@ -52,11 +52,12 @@ impl TextCompareView {
         });
         let snapshot = self.content(s).snapshot();
         let row_height = self.row_height();
+        let geometry = RowGeometry::for_row_height(row_height);
         // Clamp before either pane renders, including programmatic jumps in short files.
         self.scroll.y = self
             .scroll
             .y
-            .min((self.projection.len() as f32 * row_height - remaining + 16.0).max(0.0));
+            .min((self.projection.height(geometry) - remaining + 16.0).max(0.0));
         let scroll = self.scroll;
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.spacing_mut().scroll.bar_width = 16.0;
@@ -65,7 +66,7 @@ impl TextCompareView {
         ui.add_space(1.0);
         // 参考在内容放得下时不显示水平滚动条。
         let need_hscroll = self.content_width > rect.width() - 20.0;
-        let need_vscroll_pre = self.projection.len() as f32 * row_height
+        let need_vscroll_pre = self.projection.height(geometry)
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
         let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
@@ -77,352 +78,389 @@ impl TextCompareView {
             .max_height(remaining - 1.0)
             .vertical_scroll_offset(scroll.y)
             .horizontal_scroll_offset(scroll.x)
-            .show_rows(ui, row_height, self.projection.len(), |ui, range| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                let first = self.projection.row(range.start);
-                // `show_rows` over-scans one row past the viewport; the
-                // thumbnail frame covers only rows that are (partly) shown.
-                let shown = (ui.clip_rect().height() / row_height).ceil() as usize;
-                let shown_end = range.end.min(range.start + shown.max(1));
-                let last = self.projection.row(shown_end.saturating_sub(1));
-                // Shown source rows (the thumbnail viewport): a fold at either
-                // edge contributes none of its hidden rows.
-                let start = match first {
-                    Some(DisplayRow::Text(n)) => n,
-                    Some(DisplayRow::Fold(r)) => r.end,
-                    None => 0,
+            // `ScrollArea::show_rows` with per-row heights from the projection
+            // (gap folds are thin rows); the arithmetic is egui's own when
+            // every row has the same height.
+            .show_viewport(ui, |ui, viewport| {
+                let total = self.projection.len();
+                ui.set_height(self.projection.height(geometry).max(0.0));
+                let mut min_row = self.projection.display_at(viewport.min.y, geometry);
+                let mut max_row = if self.projection.has_thin_folds() {
+                    self.projection.display_at(viewport.max.y, geometry) + 2
+                } else {
+                    (viewport.max.y / row_height).ceil() as usize + 1
                 };
-                let end = match last {
-                    Some(DisplayRow::Text(n)) => n + 1,
-                    Some(DisplayRow::Fold(r)) => r.start,
-                    None => 0,
-                };
-                self.visible = start..end.max(start);
-                for display in range {
-                    let Some(projected) = self.projection.row(display) else {
-                        continue;
+                if max_row > total {
+                    let diff = max_row.saturating_sub(min_row);
+                    max_row = total;
+                    min_row = total.saturating_sub(diff);
+                }
+                let y_min = ui.max_rect().top() + self.projection.y_of(min_row, geometry);
+                let y_max = ui.max_rect().top() + self.projection.y_of(max_row, geometry);
+                let rows = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rows), |ui| {
+                    ui.skip_ahead_auto_ids(min_row);
+                    let range = min_row..max_row;
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let first = self.projection.row(range.start);
+                    // The row range over-scans past the viewport; the thumbnail
+                    // frame covers only rows that are (partly) shown.
+                    let shown_end = if self.projection.has_thin_folds() {
+                        range
+                            .end
+                            .min(self.projection.display_at(viewport.max.y - 0.5, geometry) + 1)
+                    } else {
+                        let shown = (ui.clip_rect().height() / row_height).ceil() as usize;
+                        range.end.min(range.start + shown.max(1))
                     };
-                    if let DisplayRow::Fold(hidden) = projected {
+                    let last = self.projection.row(shown_end.saturating_sub(1));
+                    // Shown source rows (the thumbnail viewport): a fold at either
+                    // edge contributes none of its hidden rows.
+                    let start = match first {
+                        Some(DisplayRow::Text(n)) => n,
+                        Some(DisplayRow::Fold(r)) => r.end,
+                        None => 0,
+                    };
+                    let end = match last {
+                        Some(DisplayRow::Text(n)) => n + 1,
+                        Some(DisplayRow::Fold(r)) => r.start,
+                        None => 0,
+                    };
+                    self.visible = start..end.max(start);
+                    for display in range {
+                        let Some(projected) = self.projection.row(display) else {
+                            continue;
+                        };
+                        if let DisplayRow::Fold(hidden) = projected {
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(
+                                    ui.available_width().max(200.0),
+                                    self.projection.row_height(display, geometry),
+                                ),
+                                egui::Sense::click(),
+                            );
+                            let viewport_rect = egui::Rect::from_min_max(
+                                egui::pos2(ui.clip_rect().left(), rect.top()),
+                                egui::pos2(ui.clip_rect().right(), rect.bottom()),
+                            );
+                            if self.filter == DisplayFilter::Context {
+                                ui.painter().rect_filled(
+                                    viewport_rect,
+                                    0.0,
+                                    ui.visuals().faint_bg_color,
+                                );
+                                ui.painter().text(
+                                    viewport_rect.left_center() + egui::vec2(8.0, 0.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!(
+                                        "··· {} hidden rows — click to expand ···",
+                                        hidden.len()
+                                    ),
+                                    egui::FontId::monospace(self.font_size),
+                                    ui.visuals().weak_text_color(),
+                                );
+                            } else {
+                                // 参考：灰底、横向细分线、居中灰色小字「N FILTERED LINES」。
+                                ui.painter().rect_filled(
+                                    viewport_rect,
+                                    0.0,
+                                    crate::chrome::theme::PANEL_BG,
+                                );
+                                let ink = egui::Color32::from_rgb(105, 105, 105);
+                                let cy = viewport_rect.center().y;
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(viewport_rect.left(), cy),
+                                        egui::pos2(viewport_rect.right(), cy),
+                                    ],
+                                    egui::Stroke::new(1.0, ink),
+                                );
+                                let galley = ui.painter().layout_no_wrap(
+                                    format!("{} FILTERED LINES", hidden.len()),
+                                    egui::FontId::proportional(8.666667),
+                                    ink,
+                                );
+                                let text_rect = egui::Rect::from_center_size(
+                                    viewport_rect.center(),
+                                    galley.size() + egui::vec2(12.0, 0.0),
+                                );
+                                ui.painter().rect_filled(
+                                    text_rect,
+                                    0.0,
+                                    crate::chrome::theme::PANEL_BG,
+                                );
+                                ui.painter().galley(
+                                    egui::pos2(
+                                        text_rect.center().x - galley.size().x / 2.0,
+                                        cy - galley.size().y / 2.0,
+                                    ),
+                                    galley,
+                                    ink,
+                                );
+                            }
+                            if response.clicked() {
+                                self.expand(hidden);
+                            }
+                            continue;
+                        }
+                        let DisplayRow::Text(row) = projected else {
+                            unreachable!()
+                        };
+                        let mapped = self.row(row);
+                        let line = index(mapped, s);
+                        let text = line
+                            .and_then(|i| snapshot.lines.line_bytes(i))
+                            .map(|b| std::str::from_utf8(b).unwrap())
+                            .unwrap_or_default();
+                        let ending = line.and_then(|i| snapshot.lines.ending(i));
+                        let mut importance = mapped.importance;
+                        // A mixed difference section is important, while each inline span retains its own importance.
+                        if let Some(section) = mapped.section {
+                            if let Some(section) = self.sections.get(section) {
+                                importance = section.importance;
+                            }
+                        }
+                        importance =
+                            importance.with_ignore_unimportant(self.map.rules.ignore_unimportant);
+
+                        let glyph = self.font_size * 0.62;
+                        self.content_width = self
+                            .content_width
+                            .max((text.len() as f32 * glyph + 100.0).min(20_000_000.0));
+                        let width = ui.available_width().max(self.content_width);
                         let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width().max(200.0), row_height),
-                            egui::Sense::click(),
+                            egui::vec2(width, row_height),
+                            egui::Sense::click_and_drag(),
                         );
                         let viewport_rect = egui::Rect::from_min_max(
                             egui::pos2(ui.clip_rect().left(), rect.top()),
                             egui::pos2(ui.clip_rect().right(), rect.bottom()),
                         );
-                        if self.filter == DisplayFilter::Context {
-                            ui.painter().rect_filled(
-                                viewport_rect,
-                                0.0,
-                                ui.visuals().faint_bg_color,
-                            );
-                            ui.painter().text(
-                                viewport_rect.left_center() + egui::vec2(8.0, 0.0),
-                                egui::Align2::LEFT_CENTER,
-                                format!("··· {} hidden rows — click to expand ···", hidden.len()),
-                                egui::FontId::monospace(self.font_size),
-                                ui.visuals().weak_text_color(),
-                            );
-                        } else {
-                            // 参考：灰底、横向细分线、居中灰色小字「N FILTERED LINES」。
-                            ui.painter().rect_filled(
-                                viewport_rect,
-                                0.0,
-                                crate::chrome::theme::PANEL_BG,
-                            );
-                            let ink = egui::Color32::from_rgb(105, 105, 105);
-                            let cy = viewport_rect.center().y;
+                        let orphan =
+                            matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
+                        let fill = row_fill(&prefs.colors, importance, orphan);
+
+                        ui.painter().rect_filled(viewport_rect, 0.0, fill);
+                        if line.is_none() || row >= self.map.row_count() {
+                            hatch(ui, viewport_rect, row >= self.map.row_count());
+                        }
+                        if row == self.current_row {
                             ui.painter().line_segment(
-                                [
-                                    egui::pos2(viewport_rect.left(), cy),
-                                    egui::pos2(viewport_rect.right(), cy),
-                                ],
-                                egui::Stroke::new(1.0, ink),
-                            );
-                            let galley = ui.painter().layout_no_wrap(
-                                format!("{} FILTERED LINES", hidden.len()),
-                                egui::FontId::proportional(8.666667),
-                                ink,
-                            );
-                            let text_rect = egui::Rect::from_center_size(
-                                viewport_rect.center(),
-                                galley.size() + egui::vec2(12.0, 0.0),
-                            );
-                            ui.painter().rect_filled(
-                                text_rect,
-                                0.0,
-                                crate::chrome::theme::PANEL_BG,
-                            );
-                            ui.painter().galley(
-                                egui::pos2(
-                                    text_rect.center().x - galley.size().x / 2.0,
-                                    cy - galley.size().y / 2.0,
-                                ),
-                                galley,
-                                ink,
+                                [viewport_rect.left_bottom(), viewport_rect.right_bottom()],
+                                egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
                             );
                         }
-                        if response.clicked() {
-                            self.expand(hidden);
-                        }
-                        continue;
-                    }
-                    let DisplayRow::Text(row) = projected else {
-                        unreachable!()
-                    };
-                    let mapped = self.row(row);
-                    let line = index(mapped, s);
-                    let text = line
-                        .and_then(|i| snapshot.lines.line_bytes(i))
-                        .map(|b| std::str::from_utf8(b).unwrap())
-                        .unwrap_or_default();
-                    let ending = line.and_then(|i| snapshot.lines.ending(i));
-                    let mut importance = mapped.importance;
-                    // A mixed difference section is important, while each inline span retains its own importance.
-                    if let Some(section) = mapped.section {
-                        if let Some(section) = self.sections.get(section) {
-                            importance = section.importance;
-                        }
-                    }
-                    importance =
-                        importance.with_ignore_unimportant(self.map.rules.ignore_unimportant);
-
-                    let glyph = self.font_size * 0.62;
-                    self.content_width = self
-                        .content_width
-                        .max((text.len() as f32 * glyph + 100.0).min(20_000_000.0));
-                    let width = ui.available_width().max(self.content_width);
-                    let (rect, response) = ui.allocate_exact_size(
-                        egui::vec2(width, row_height),
-                        egui::Sense::click_and_drag(),
-                    );
-                    let viewport_rect = egui::Rect::from_min_max(
-                        egui::pos2(ui.clip_rect().left(), rect.top()),
-                        egui::pos2(ui.clip_rect().right(), rect.bottom()),
-                    );
-                    let orphan = matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
-                    let fill = row_fill(&prefs.colors, importance, orphan);
-
-                    ui.painter().rect_filled(viewport_rect, 0.0, fill);
-                    if line.is_none() || row >= self.map.row_count() {
-                        hatch(ui, viewport_rect, row >= self.map.row_count());
-                    }
-                    if row == self.current_row {
-                        ui.painter().line_segment(
-                            [viewport_rect.left_bottom(), viewport_rect.right_bottom()],
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
-                        );
-                    }
-                    self.ensure_inline(row);
-                    let inline = self
-                        .inline
-                        .get(&row)
-                        .map(|d| if s == 0 { &d.left[..] } else { &d.right[..] })
-                        .unwrap_or_default();
-                    let tokens = if self.show_syntax && !self.map.is_stale() {
-                        line.filter(|i| *i < snapshot.lines.len())
-                            .map(|i| snapshot.tokens(i))
-                            .unwrap_or_default()
-                    } else {
-                        Default::default()
-                    };
-                    // Long lines use a horizontal window; never allocate a galley for the entire line.
-                    let start_char = if text.len() > 4096 {
-                        ((scroll.x / glyph).max(0.0) as usize).saturating_sub(32)
-                    } else {
-                        0
-                    };
-                    let start = byte_at_char(text, start_char);
-                    let mut finish = (start + 4096).min(text.len());
-                    while !text.is_char_boundary(finish) {
-                        finish -= 1;
-                    }
-                    let window = &text[start..finish];
-                    let (job, bytes) = layout(
-                        window,
-                        start,
-                        &tokens,
-                        inline,
-                        &prefs.colors,
-                        self.font_size,
-                        self.map.rules.ignore_unimportant,
-                        self.show_whitespace,
-                        snapshot
-                            .format
-                            .as_ref()
-                            .and_then(|f| f.tab_size)
-                            .unwrap_or(4)
-                            .clamp(1, 32) as usize,
-                        if orphan && importance != Importance::Same {
-                            diff_ink(&prefs.colors, importance)
+                        self.ensure_inline(row);
+                        let inline = self
+                            .inline
+                            .get(&row)
+                            .map(|d| if s == 0 { &d.left[..] } else { &d.right[..] })
+                            .unwrap_or_default();
+                        let tokens = if self.show_syntax && !self.map.is_stale() {
+                            line.filter(|i| *i < snapshot.lines.len())
+                                .map(|i| snapshot.tokens(i))
+                                .unwrap_or_default()
                         } else {
-                            ui.visuals().text_color()
-                        },
-                    );
-                    let galley = ui.painter().layout_job(job);
-                    let origin = rect.min
-                        + egui::vec2(
-                            if self.show_numbers {
-                                gutter::WIDTH + 1.0
-                            } else {
-                                8.0
-                            },
-                            2.0,
-                        )
-                        + egui::vec2(start_char as f32 * glyph, 0.0);
-                    let char_for_byte = |byte: usize| {
-                        bytes
-                            .partition_point(|b| *b < byte)
-                            .min(galley.text().chars().count())
-                    };
-                    if let (Some(line), Some((a, b))) = (line, self.editors[s].selection()) {
-                        if (a.line..=b.line).contains(&line) {
-                            let a = if line == a.line { a.byte } else { 0 };
-                            let b = if line == b.line { b.byte } else { text.len() };
-                            let x1 = galley
-                                .pos_from_cursor(CCursor::new(char_for_byte(a)))
-                                .left();
-                            let x2 = galley
-                                .pos_from_cursor(CCursor::new(char_for_byte(b)))
-                                .left();
-                            let selection = egui::Rect::from_min_max(
-                                origin + egui::vec2(x1, 0.0),
-                                origin + egui::vec2(x2.max(x1 + 2.0), row_height),
-                            );
-                            ui.painter().rect_filled(
-                                selection,
-                                0.0,
-                                ui.visuals().selection.bg_fill.gamma_multiply(0.55),
-                            );
-                        }
-                    }
-                    ui.painter()
-                        .galley(origin, galley.clone(), ui.visuals().text_color());
-                    if self.show_whitespace || ending == Some(LineEnding::None) {
-                        let marker = match ending {
-                            Some(LineEnding::Lf) => " LF",
-                            Some(LineEnding::CrLf) => " CRLF",
-                            Some(LineEnding::Cr) => " CR",
-                            Some(LineEnding::None) => " ∅",
-                            None => "",
+                            Default::default()
                         };
-                        if finish == text.len() {
-                            ui.painter().text(
-                                origin + egui::vec2(galley.size().x, 0.0),
-                                egui::Align2::LEFT_TOP,
-                                marker,
-                                egui::FontId::monospace(self.font_size),
-                                ui.visuals().weak_text_color(),
-                            );
+                        // Long lines use a horizontal window; never allocate a galley for the entire line.
+                        let start_char = if text.len() > 4096 {
+                            ((scroll.x / glyph).max(0.0) as usize).saturating_sub(32)
+                        } else {
+                            0
+                        };
+                        let start = byte_at_char(text, start_char);
+                        let mut finish = (start + 4096).min(text.len());
+                        while !text.is_char_boundary(finish) {
+                            finish -= 1;
                         }
-                    }
-                    // 与参考一致：窗格即使未聚焦也画 caret。
-                    if line == Some(self.editors[s].caret.line) {
-                        let cursor = galley
-                            .pos_from_cursor(CCursor::new(char_for_byte(
-                                self.editors[s].caret.byte,
-                            )))
-                            .translate(origin.to_vec2());
-                        ui.painter().line_segment(
-                            [cursor.left_top(), cursor.left_bottom()],
-                            egui::Stroke::new(1.5, ui.visuals().text_color()),
+                        let window = &text[start..finish];
+                        let (job, bytes) = layout(
+                            window,
+                            start,
+                            &tokens,
+                            inline,
+                            &prefs.colors,
+                            self.font_size,
+                            self.map.rules.ignore_unimportant,
+                            self.show_whitespace,
+                            snapshot
+                                .format
+                                .as_ref()
+                                .and_then(|f| f.tab_size)
+                                .unwrap_or(4)
+                                .clamp(1, 32) as usize,
+                            if orphan && importance != Importance::Same {
+                                diff_ink(&prefs.colors, importance)
+                            } else {
+                                ui.visuals().text_color()
+                            },
                         );
-                        if !self.editors[s].preedit.is_empty() {
-                            ui.painter().text(
-                                cursor.left_top(),
-                                egui::Align2::LEFT_TOP,
-                                &self.editors[s].preedit,
-                                egui::FontId::monospace(self.font_size),
-                                egui::Color32::YELLOW,
-                            );
+                        let galley = ui.painter().layout_job(job);
+                        let origin = rect.min
+                            + egui::vec2(
+                                if self.show_numbers {
+                                    gutter::WIDTH + 1.0
+                                } else {
+                                    8.0
+                                },
+                                2.0,
+                            )
+                            + egui::vec2(start_char as f32 * glyph, 0.0);
+                        let char_for_byte = |byte: usize| {
+                            bytes
+                                .partition_point(|b| *b < byte)
+                                .min(galley.text().chars().count())
+                        };
+                        if let (Some(line), Some((a, b))) = (line, self.editors[s].selection()) {
+                            if (a.line..=b.line).contains(&line) {
+                                let a = if line == a.line { a.byte } else { 0 };
+                                let b = if line == b.line { b.byte } else { text.len() };
+                                let x1 = galley
+                                    .pos_from_cursor(CCursor::new(char_for_byte(a)))
+                                    .left();
+                                let x2 = galley
+                                    .pos_from_cursor(CCursor::new(char_for_byte(b)))
+                                    .left();
+                                let selection = egui::Rect::from_min_max(
+                                    origin + egui::vec2(x1, 0.0),
+                                    origin + egui::vec2(x2.max(x1 + 2.0), row_height),
+                                );
+                                ui.painter().rect_filled(
+                                    selection,
+                                    0.0,
+                                    ui.visuals().selection.bg_fill.gamma_multiply(0.55),
+                                );
+                            }
                         }
-                        if !self.content(s).read_only && ui.memory(|m| m.owns_ime_events(id)) {
-                            ui.output_mut(|o| {
-                                o.ime = Some(egui::output::IMEOutput {
-                                    purpose: egui::IMEPurpose::Normal,
-                                    rect: self.pane_rects[s],
-                                    cursor_rect: cursor,
-                                    should_interrupt_composition: false,
+                        ui.painter()
+                            .galley(origin, galley.clone(), ui.visuals().text_color());
+                        if self.show_whitespace || ending == Some(LineEnding::None) {
+                            let marker = match ending {
+                                Some(LineEnding::Lf) => " LF",
+                                Some(LineEnding::CrLf) => " CRLF",
+                                Some(LineEnding::Cr) => " CR",
+                                Some(LineEnding::None) => " ∅",
+                                None => "",
+                            };
+                            if finish == text.len() {
+                                ui.painter().text(
+                                    origin + egui::vec2(galley.size().x, 0.0),
+                                    egui::Align2::LEFT_TOP,
+                                    marker,
+                                    egui::FontId::monospace(self.font_size),
+                                    ui.visuals().weak_text_color(),
+                                );
+                            }
+                        }
+                        // 与参考一致：窗格即使未聚焦也画 caret。
+                        if line == Some(self.editors[s].caret.line) {
+                            let cursor = galley
+                                .pos_from_cursor(CCursor::new(char_for_byte(
+                                    self.editors[s].caret.byte,
+                                )))
+                                .translate(origin.to_vec2());
+                            ui.painter().line_segment(
+                                [cursor.left_top(), cursor.left_bottom()],
+                                egui::Stroke::new(1.5, ui.visuals().text_color()),
+                            );
+                            if !self.editors[s].preedit.is_empty() {
+                                ui.painter().text(
+                                    cursor.left_top(),
+                                    egui::Align2::LEFT_TOP,
+                                    &self.editors[s].preedit,
+                                    egui::FontId::monospace(self.font_size),
+                                    egui::Color32::YELLOW,
+                                );
+                            }
+                            if !self.content(s).read_only && ui.memory(|m| m.owns_ime_events(id)) {
+                                ui.output_mut(|o| {
+                                    o.ime = Some(egui::output::IMEOutput {
+                                        purpose: egui::IMEPurpose::Normal,
+                                        rect: self.pane_rects[s],
+                                        cursor_rect: cursor,
+                                        should_interrupt_composition: false,
+                                    });
+                                    o.mutable_text_under_cursor = true;
                                 });
-                                o.mutable_text_under_cursor = true;
-                            });
+                            }
                         }
-                    }
-                    // Gutter is fixed horizontally, after text painting so it cannot be overdrawn.
-                    if self.show_numbers {
-                        gutter::paint(
-                            ui,
-                            viewport_rect,
-                            line.filter(|i| *i < snapshot.lines.len()),
-                            row == self.current_row,
-                            importance != Importance::Same,
-                            s,
-                        );
-                    }
-                    let pressed = ui.input(|i| i.pointer.primary_pressed());
-                    let held = ui.input(|i| i.pointer.primary_down());
-                    let pointer = ui.input(|i| i.pointer.interact_pos());
-                    if let Some(p) = pointer
-                        .filter(|p| viewport_rect.contains(*p) && self.pane_rects[s].contains(*p))
-                    {
-                        if ui.is_enabled() && (pressed || (held && self.dragging == Some(s))) {
-                            if let Some(line) = line {
-                                self.active = s;
-                                self.current_row = row;
-                                ui.memory_mut(|m| m.request_focus(id));
-                                let cursor = galley.cursor_from_pos(p - origin);
-                                let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
-                                let extend = !pressed || ui.input(|i| i.modifiers.shift);
-                                self.editors[s].place(Caret { line, byte }, extend);
-                                if let Some(line) = index(mapped, 1 - s) {
-                                    self.editors[1 - s].place(Caret { line, byte: 0 }, false);
-                                }
-                                self.dragging = Some(s);
-                                if pressed {
-                                    if let Some((other, source_line)) = self.align_with.take() {
-                                        if other != s {
-                                            let (left, right) = if s == 0 {
-                                                (line, source_line)
+                        // Gutter is fixed horizontally, after text painting so it cannot be overdrawn.
+                        if self.show_numbers {
+                            gutter::paint(
+                                ui,
+                                viewport_rect,
+                                line.filter(|i| *i < snapshot.lines.len()),
+                                row == self.current_row,
+                                importance != Importance::Same,
+                                s,
+                            );
+                        }
+                        let pressed = ui.input(|i| i.pointer.primary_pressed());
+                        let held = ui.input(|i| i.pointer.primary_down());
+                        let pointer = ui.input(|i| i.pointer.interact_pos());
+                        if let Some(p) = pointer.filter(|p| {
+                            viewport_rect.contains(*p) && self.pane_rects[s].contains(*p)
+                        }) {
+                            if ui.is_enabled() && (pressed || (held && self.dragging == Some(s))) {
+                                if let Some(line) = line {
+                                    self.active = s;
+                                    self.current_row = row;
+                                    ui.memory_mut(|m| m.request_focus(id));
+                                    let cursor = galley.cursor_from_pos(p - origin);
+                                    let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
+                                    let extend = !pressed || ui.input(|i| i.modifiers.shift);
+                                    self.editors[s].place(Caret { line, byte }, extend);
+                                    if let Some(line) = index(mapped, 1 - s) {
+                                        self.editors[1 - s].place(Caret { line, byte: 0 }, false);
+                                    }
+                                    self.dragging = Some(s);
+                                    if pressed {
+                                        if let Some((other, source_line)) = self.align_with.take() {
+                                            if other != s {
+                                                let (left, right) = if s == 0 {
+                                                    (line, source_line)
+                                                } else {
+                                                    (source_line, line)
+                                                };
+                                                match self.map.overrides.insert(left, right) {
+                                                    Ok(()) => self.recompare(),
+                                                    Err(e) => self.message = e.to_string(),
+                                                }
                                             } else {
-                                                (source_line, line)
-                                            };
-                                            match self.map.overrides.insert(left, right) {
-                                                Ok(()) => self.recompare(),
-                                                Err(e) => self.message = e.to_string(),
+                                                self.align_with = Some((other, source_line));
                                             }
-                                        } else {
-                                            self.align_with = Some((other, source_line));
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    if response.double_clicked() {
-                        if let Some(line) = line {
-                            let mut a = self.editors[s].caret.byte.min(text.len());
-                            let mut b = a;
-                            while a > 0 {
-                                let c = text[..a].chars().next_back().unwrap();
-                                if !c.is_alphanumeric() && c != '_' {
-                                    break;
+                        if response.double_clicked() {
+                            if let Some(line) = line {
+                                let mut a = self.editors[s].caret.byte.min(text.len());
+                                let mut b = a;
+                                while a > 0 {
+                                    let c = text[..a].chars().next_back().unwrap();
+                                    if !c.is_alphanumeric() && c != '_' {
+                                        break;
+                                    }
+                                    a -= c.len_utf8();
                                 }
-                                a -= c.len_utf8();
-                            }
-                            while b < text.len() {
-                                let c = text[b..].chars().next().unwrap();
-                                if !c.is_alphanumeric() && c != '_' {
-                                    break;
+                                while b < text.len() {
+                                    let c = text[b..].chars().next().unwrap();
+                                    if !c.is_alphanumeric() && c != '_' {
+                                        break;
+                                    }
+                                    b += c.len_utf8();
                                 }
-                                b += c.len_utf8();
+                                self.editors[s].anchor = Some(Caret { line, byte: a });
+                                self.editors[s].caret = Caret { line, byte: b };
                             }
-                            self.editors[s].anchor = Some(Caret { line, byte: a });
-                            self.editors[s].caret = Caret { line, byte: b };
                         }
+                        self.last_stats.rows_drawn += 1;
                     }
-                    self.last_stats.rows_drawn += 1;
-                }
+                })
+                .inner
             });
         // Row interactions sit above the pane's focus registration. Restore the
         // editor owner on mouse release after egui's click-elsewhere processing.

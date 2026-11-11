@@ -19,11 +19,32 @@ struct Run {
     source: Range<usize>,
     start: usize,
     folded: bool,
+    /// Folded runs before this one (prefix count for row geometry).
+    folds_before: usize,
 }
 #[derive(Debug, Clone, Default)]
 pub struct Projection {
     runs: Vec<Run>,
     len: usize,
+    folds: usize,
+    /// Gap folds ("N FILTERED LINES") are drawn as thin rows; every other
+    /// projection keeps uniform row heights.
+    thin_folds: bool,
+}
+/// Row heights of a projection: text rows and (thin) fold rows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RowGeometry {
+    pub row: f32,
+    pub fold: f32,
+}
+impl RowGeometry {
+    /// Reference: 15 px text rows, 9 px filtered-lines separators.
+    pub fn for_row_height(row: f32) -> Self {
+        Self {
+            row,
+            fold: (row * 9.0 / 15.0).round(),
+        }
+    }
 }
 impl Projection {
     pub fn build(
@@ -64,6 +85,7 @@ impl Projection {
         // 表格视图复用本类型但不显示分隔行。
         let gap_folds =
             gap_folds && matches!(filter, DisplayFilter::Differences | DisplayFilter::Same);
+        result.thin_folds = gap_folds;
         for range in merge(wanted, total) {
             if (filter == DisplayFilter::Context || gap_folds) && range.start > end {
                 result.push(end..range.start, true);
@@ -92,8 +114,68 @@ impl Projection {
             source,
             start: self.len,
             folded,
+            folds_before: self.folds,
         });
         self.len += size;
+        self.folds += usize::from(folded);
+    }
+    /// Folded display rows strictly before `display`.
+    fn folds_before(&self, display: usize) -> usize {
+        let i = self.runs.partition_point(|r| r.start < display);
+        match i.checked_sub(1).map(|i| &self.runs[i]) {
+            Some(run) => run.folds_before + usize::from(run.folded),
+            None => 0,
+        }
+    }
+    pub fn has_thin_folds(&self) -> bool {
+        self.thin_folds && self.folds > 0
+    }
+    /// Height of one display row.
+    pub fn row_height(&self, display: usize, g: RowGeometry) -> f32 {
+        if self.thin_folds && matches!(self.row(display), Some(DisplayRow::Fold(_))) {
+            g.fold
+        } else {
+            g.row
+        }
+    }
+    /// Content offset of the top of `display` (clamped to the end).
+    pub fn y_of(&self, display: usize, g: RowGeometry) -> f32 {
+        let display = display.min(self.len);
+        if !self.thin_folds {
+            return display as f32 * g.row;
+        }
+        display as f32 * g.row - self.folds_before(display) as f32 * (g.row - g.fold)
+    }
+    /// Total content height.
+    pub fn height(&self, g: RowGeometry) -> f32 {
+        self.y_of(self.len, g)
+    }
+    /// Display row covering content offset `y` (past the end: `len`).
+    pub fn display_at(&self, y: f32, g: RowGeometry) -> usize {
+        if !self.thin_folds {
+            return (y / g.row).floor().max(0.0) as usize;
+        }
+        if y < 0.0 {
+            return 0;
+        }
+        let i = self
+            .runs
+            .partition_point(|r| self.y_of(r.start, g) <= y)
+            .saturating_sub(1);
+        let Some(run) = self.runs.get(i) else {
+            return 0;
+        };
+        let top = self.y_of(run.start, g);
+        if run.folded {
+            if y < top + g.fold {
+                run.start
+            } else {
+                run.start + 1
+            }
+        } else {
+            let size = run.source.len();
+            (run.start + ((y - top) / g.row).floor() as usize).min(run.start + size)
+        }
     }
     pub fn len(&self) -> usize {
         self.len
@@ -215,5 +297,35 @@ mod tests {
             Projection::build(10, &[], DisplayFilter::Context, 3, &[]).row(0),
             Some(DisplayRow::Fold(0..10))
         );
+    }
+    #[test]
+    fn thin_gap_folds_map_offsets_both_ways() {
+        let g = super::RowGeometry::for_row_height(15.0);
+        assert_eq!(g.fold, 9.0);
+        // 10 rows, differences at 2..4 and 7..8: Fold(0..2) 2 3 Fold(4..7) 7 Fold(8..9) 9.
+        let p = Projection::build_with_options(
+            10,
+            &[2..4, 7..8],
+            DisplayFilter::Differences,
+            3,
+            &[],
+            true,
+        );
+        assert_eq!(p.len(), 7);
+        let tops: Vec<f32> = (0..=7).map(|d| p.y_of(d, g)).collect();
+        assert_eq!(tops, [0.0, 9.0, 24.0, 39.0, 48.0, 63.0, 72.0, 87.0]);
+        assert_eq!(p.height(g), 87.0);
+        for d in 0..7 {
+            let top = tops[d];
+            let h = p.row_height(d, g);
+            assert_eq!(h, tops[d + 1] - top);
+            assert_eq!(p.display_at(top, g), d);
+            assert_eq!(p.display_at(top + h - 0.5, g), d);
+        }
+        assert_eq!(p.display_at(87.0, g), 7);
+        // Uniform projections (All, Context, table) keep row * index.
+        let all = Projection::build(10, &[2..4, 8..9], DisplayFilter::Context, 1, &[]);
+        assert_eq!(all.y_of(3, g), 45.0);
+        assert_eq!(all.display_at(44.9, g), 2);
     }
 }

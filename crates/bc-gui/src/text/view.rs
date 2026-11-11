@@ -246,7 +246,10 @@ impl TextCompareView {
         }
     }
     pub fn top_row(&self, row_height: f32) -> usize {
-        (self.scroll.y / row_height).floor().max(0.0) as usize
+        self.projection.display_at(
+            self.scroll.y,
+            super::projection::RowGeometry::for_row_height(row_height),
+        )
     }
     pub fn scroll_to_row(&mut self, row: usize) {
         self.pending_scroll = Some(row);
@@ -876,7 +879,10 @@ impl TextCompareView {
         self.last_stats.rows_drawn = 0;
         let row_height = self.row_height();
         if let Some(row) = self.pending_scroll.take() {
-            self.scroll.y = row.min(self.projection.len().saturating_sub(1)) as f32 * row_height;
+            self.scroll.y = self.projection.y_of(
+                row.min(self.projection.len().saturating_sub(1)),
+                super::projection::RowGeometry::for_row_height(row_height),
+            );
         }
         if !blocked {
             // Raw wheel over either pane, 1:1 this frame; upper bounds are
