@@ -18,7 +18,7 @@
 
 ## 3. 黄金语料
 
-- [ ] 3.1 语料生成器入 `bc-core/tests/golden/hex/`（固定种子伪随机 + 程序化改动/插入/删除）；验证：`cargo test` 生成确定性语料
+- [x] 3.1 语料生成器入 `bc-core/tests/golden/hex/`（固定种子伪随机 + 程序化改动/插入/删除）；验证：`cargo test` 生成确定性语料
 - [ ] 3.2 用参考工具 `hex-report`（side-by-side + line-numbers、display-all/display-mismatches）生成期望并对拍对齐与统计；验证：黄金测试通过，差异记入 `KNOWN_DIFFS.md`
 
 ## 4. 视图渲染
