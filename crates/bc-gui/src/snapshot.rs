@@ -16,6 +16,9 @@ use std::{
 };
 
 pub const SCENES: &[&str] = &[
+    "hex-basic",
+    "hex-insertion",
+    "hex-diffs-filter",
     "icon-catalog",
     "chrome-demo",
     "text-basic",
@@ -826,8 +829,24 @@ mod tests {
     #[test]
     fn registry_maps_compare_scenes_to_real_views() {
         assert_eq!(REGISTRY.len(), SCENES.len());
-        assert_eq!(REGISTRY[2].view, SceneView::Text);
-        assert_eq!(REGISTRY[3].view, SceneView::Folder);
+        // Every listed scene resolves, and lookups are by name (order-free).
+        assert!(SCENES.iter().all(|s| is_scene(Some(s))));
+        assert_eq!(
+            REGISTRY
+                .iter()
+                .find(|r| r.name == "text-basic")
+                .unwrap()
+                .view,
+            SceneView::Text
+        );
+        assert_eq!(
+            REGISTRY
+                .iter()
+                .find(|r| r.name == "folder-basic")
+                .unwrap()
+                .view,
+            SceneView::Folder
+        );
         assert!(!is_scene(Some("unknown")));
     }
     #[test]
