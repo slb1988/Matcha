@@ -4695,8 +4695,11 @@ impl DirCompareView {
                 egui::UiBuilder::new().max_rect(edit_rect).id_salt(edit_id),
                 |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                    let text_id = edit_id.with("text");
+                    crate::chrome::pathbar::clean_paste_events(ui.ctx(), text_id);
                     let edit = ui.add(
                         egui::TextEdit::singleline(text)
+                            .id(text_id)
                             .frame(egui::Frame::NONE)
                             .font(egui::FontId::proportional(crate::chrome::theme::UI_SIZE))
                             .margin(egui::vec2(2.0, 5.0)),

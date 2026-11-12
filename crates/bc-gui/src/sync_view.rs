@@ -1003,9 +1003,12 @@ fn combo_edit(
         ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
         ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
         ui.visuals_mut().selection.stroke = egui::Stroke::NONE;
+        let text_id = ui.make_persistent_id("path-text");
+        crate::chrome::pathbar::clean_paste_events(ui.ctx(), text_id);
         let response = ui.add_sized(
             inner.size(),
             egui::TextEdit::singleline(text)
+                .id(text_id)
                 .frame(egui::Frame::NONE)
                 .margin(egui::vec2(2.0, 4.0)),
         );

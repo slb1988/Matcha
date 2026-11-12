@@ -28,6 +28,11 @@
 - **线程模型**：live 编辑目标（含 Rc/RefCell）只在 UI 线程；worker 用快照，
   结果带修订号、过期丢弃（文本 350ms 防抖重对齐）。
 - GUI 没有自己的 mmap/unsafe；只读锁与编码下沉到 `bc-core`/引擎。
+- **剪贴板**：eframe 必须启用 `clipboard` feature，否则 egui-winit 退化为进程内假剪贴板，
+  Ctrl+C/V、`copy_text`、`RequestPaste` 都不经过系统剪贴板。
+- **路径框粘贴**：所有路径编辑框（`chrome::pathbar` 与文件夹/同步视图路径框）粘贴时去掉
+  首尾空白及成对包住整段的双引号（Explorer「复制为路径」的格式）；Ctrl+V 与右键 Paste 同一规则，
+  见 `pathbar::clean_pasted_path`。
 - CJK 用系统微软雅黑后备，不捆绑字体。
 - 截图只来自自身 framebuffer，不读其他窗口。
 

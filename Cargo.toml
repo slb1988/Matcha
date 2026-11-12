@@ -36,7 +36,8 @@ crossbeam-channel = "0.5"
 memmap2 = "0.9"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Time", "Win32_UI_Shell", "Win32_System_IO", "Win32_Globalization", "Win32_Security", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 calamine = { version = "0.38", default-features = false }
-eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+# clipboard 必须开启：否则 egui-winit 退化为进程内假剪贴板，复制/粘贴不经过系统剪贴板。
+eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "glow", "wayland", "x11"] }
 
 [profile.release]
 debug = 1

@@ -21,6 +21,8 @@ pub fn show_with_history(
     select_all: bool,
 ) -> PathbarResponse {
     let mut result = PathbarResponse::default();
+    let edit_id = ui.make_persistent_id("pathbar-edit");
+    clean_paste_events(ui.ctx(), edit_id);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(194, 220, 245);
@@ -35,6 +37,7 @@ pub fn show_with_history(
                 egui::Layout::centered_and_justified(ui.layout().main_dir()),
                 |ui| {
                     egui::TextEdit::singleline(path)
+                        .id(edit_id)
                         .margin(egui::vec2(2.0, 1.0))
                         .show(ui)
                 },
@@ -162,6 +165,28 @@ pub fn show_with_history(
     });
     result
 }
+/// 粘贴进路径框的文本：去掉首尾空白，以及成对包住整段的双引号
+/// （资源管理器「复制为路径」、命令行引用的路径都带引号）。
+pub fn clean_pasted_path(text: &str) -> String {
+    let text = text.trim();
+    text.strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(text)
+        .trim()
+        .to_owned()
+}
+/// 路径编辑框持焦时，把本帧的 Paste 事件规范化为路径；须在 TextEdit 读取输入之前调用。
+pub fn clean_paste_events(ctx: &egui::Context, id: egui::Id) {
+    if ctx.memory(|m| m.has_focus(id)) {
+        ctx.input_mut(|i| {
+            for event in &mut i.events {
+                if let egui::Event::Paste(text) = event {
+                    *text = clean_pasted_path(text);
+                }
+            }
+        });
+    }
+}
 /// 系统剪贴板文本；空内容与读取失败都视为不可粘贴（对齐参考菜单的禁用态）。
 #[cfg(not(test))]
 fn clipboard_text() -> Option<String> {
@@ -179,13 +204,16 @@ fn clipboard_text() -> Option<String> {
 /// 测试中替代系统剪贴板，避免并行测试争抢真实剪贴板。
 #[cfg(test)]
 mod test_clipboard {
-    use std::sync::Mutex;
-    static MOCK: Mutex<Option<Option<String>>> = Mutex::new(None);
+    use std::cell::RefCell;
+    // 每个测试线程一份，避免并行测试互相覆盖。
+    thread_local! {
+        static MOCK: RefCell<Option<Option<String>>> = const { RefCell::new(None) };
+    }
     pub fn set(text: Option<String>) {
-        *MOCK.lock().unwrap() = Some(text);
+        MOCK.with(|m| *m.borrow_mut() = Some(text));
     }
     pub fn get() -> Option<Option<String>> {
-        MOCK.lock().unwrap().clone()
+        MOCK.with(|m| m.borrow().clone())
     }
 }
 /// 字符下标转字节下标（egui 光标按字符计数，越界取末尾）。
@@ -317,7 +345,7 @@ fn edit_menu(
                 }
             }
             "Paste" => {
-                if let Some(text) = clipboard_text() {
+                if let Some(text) = clipboard_text().map(|t| clean_pasted_path(&t)) {
                     path.replace_range(byte_of(path, start)..byte_of(path, end), &text);
                     state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(
                         start + text.chars().count(),
@@ -470,6 +498,39 @@ mod tests {
         open_menu(&ctx, &mut path);
         menu_frame(&ctx, &mut path, click(DELETE, egui::PointerButton::Primary), false);
         assert_eq!(path, "");
+    }
+    #[test]
+    fn pasted_path_drops_surrounding_quotes_and_whitespace() {
+        assert_eq!(clean_pasted_path(r#""C:\a b\x.txt""#), r"C:\a b\x.txt");
+        assert_eq!(clean_pasted_path("  \" C:/x.txt \" \r\n"), "C:/x.txt");
+        assert_eq!(clean_pasted_path("\tC:/x.txt  "), "C:/x.txt");
+        // 不成对或在中间的引号原样保留。
+        assert_eq!(clean_pasted_path("\"C:/x.txt"), "\"C:/x.txt");
+        assert_eq!(clean_pasted_path("a\"b\"c"), "a\"b\"c");
+        assert_eq!(clean_pasted_path("\""), "\"");
+    }
+    #[test]
+    fn keyboard_paste_into_focused_box_is_cleaned() {
+        let ctx = egui::Context::default();
+        let mut path = "old.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], true); // 聚焦并全选
+        menu_frame(
+            &ctx,
+            &mut path,
+            vec![egui::Event::Paste(r#"  "C:\work\new file.txt"  "#.into())],
+            false,
+        );
+        assert_eq!(path, r"C:\work\new file.txt");
+    }
+    #[test]
+    fn menu_paste_is_cleaned() {
+        let ctx = egui::Context::default();
+        let mut path = "old.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], true);
+        open_menu(&ctx, &mut path);
+        test_clipboard::set(Some(" \"D:/x y/b.txt\"\n".into()));
+        menu_frame(&ctx, &mut path, click(PASTE, egui::PointerButton::Primary), false);
+        assert_eq!(path, "D:/x y/b.txt");
     }
     #[test]
     fn right_click_undo_restores_previous_text() {
