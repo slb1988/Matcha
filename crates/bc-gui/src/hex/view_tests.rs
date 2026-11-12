@@ -798,3 +798,47 @@ fn scrollbar_click_and_drag_scroll() {
     assert!((v.scroll - expect2).abs() < 2.0, "拖动跟随 scroll={} expect={expect2}", v.scroll);
     pointer_frame(&ctx, &mut v, vec![primary(egui::pos2(grab.x, drop_y), false)]);
 }
+
+/// 系统拖放：按落点替换该侧（不是活动侧）；该侧有未保存编辑时拒绝。
+#[test]
+fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
+    #[derive(Debug)]
+    struct DropPath(std::path::PathBuf);
+    impl egui::DroppedFile for DropPath {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            std::fs::read(&self.0).map_err(|e| e.to_string())
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("matcha-hex-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("dropped.bin");
+    std::fs::write(&file, [9u8, 8, 7]).unwrap();
+    let drop_at = |ctx: &egui::Context, v: &mut HexCompareView, pos: egui::Pos2| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+            events: vec![egui::Event::PointerMoved(pos)],
+            dropped_files: vec![std::sync::Arc::new(DropPath(file.clone()))],
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+        out.textures_delta.clear();
+    };
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(vec![1, 2, 3], vec![4, 5, 6]);
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    v.active_side = 0;
+    v.dirty[1] = true;
+    drop_at(&ctx, &mut v, egui::pos2(1100.0, 500.0));
+    assert!(v.content(1).source().is_none(), "dirty right side must not be replaced");
+    v.dirty[1] = false;
+    drop_at(&ctx, &mut v, egui::pos2(1100.0, 500.0));
+    ready(&mut v);
+    assert_eq!(v.content(1).source(), Some(file.as_path()));
+    assert!(v.content(0).source().is_none());
+    assert_eq!(v.active_side, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

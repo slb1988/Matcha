@@ -62,6 +62,8 @@
 //! * `MATCHA_SHELL_ROOT` – registry root relative to HKCU instead of
 //!   `Software\Classes` (tests use a private `Software\Matcha-test-*` key).
 //! * `MATCHA_SHELL_STATE_DIR` – state directory instead of `%APPDATA%\Matcha`.
+#[cfg(windows)]
+mod cursor;
 pub mod layout;
 pub mod registry;
 pub mod state;
@@ -69,6 +71,20 @@ pub mod state;
 mod windows;
 
 pub use layout::{Class, Left, Targets, Verb};
+
+/// Desktop cursor position in physical pixels; `None` off Windows (where the
+/// GUI's own pointer position is used instead). The GUI needs it to locate an
+/// OS file drop, whose coordinates winit does not report.
+pub fn cursor_screen_pos() -> Option<(i32, i32)> {
+    #[cfg(windows)]
+    {
+        cursor::screen_pos()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
 pub use registry::{MemRegistry, Registry};
 pub use state::{Pairing, StateDir};
 

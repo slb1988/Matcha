@@ -530,6 +530,36 @@ fn raw_drop_into_right_clipboard_and_home_two_file_drop() {
     );
 }
 #[test]
+fn raw_drop_on_right_header_replaces_right_even_when_left_is_active() {
+    let temp = Temp::new();
+    let r = temp.file("b.txt", b"b");
+    let ctx = egui::Context::default();
+    let mut v = view("left", "right");
+    frame(&ctx, &mut v, vec![]);
+    v.active = 0;
+    // Right path bar: above the right text body, outside both pane rects.
+    let pos = v.pane_rects[1].center_top() - egui::vec2(0.0, 10.0);
+    assert!(!v.pane_rects.iter().any(|p| p.contains(pos)));
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            events: vec![egui::Event::PointerMoved(pos)],
+            dropped_files: vec![Arc::new(Dropped(r))],
+            ..Default::default()
+        },
+        |ui| {
+            v.ui(ui, &mut Prefs::default());
+        },
+    );
+    output.textures_delta.clear();
+    ready(&mut v);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"left");
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"b");
+}
+#[test]
 fn raw_clipboard_multiline_cut_paste_and_only_save_right() {
     let temp = Temp::new();
     let left = temp.file("left.txt", b"left\r\n");

@@ -42,6 +42,8 @@
   见 worker-report.md）。
 - 验收与性能数字：`openspec/changes/hex-compare/worker-report.md`（256 MB Fast 对齐 16.6 s、
   取消响应 ≈262 ms、快照对照、已知差异）。
+- 系统文件拖放：拖到哪一侧（窗格、滚动条、地址栏）就替换哪一侧；该侧有未保存编辑时拒绝并提示。
+  规则见 [gui-shell.md](gui-shell.md)「系统文件拖放落点」。
 
 ## 使用与验证
 

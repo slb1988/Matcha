@@ -624,3 +624,58 @@ fn arrow_keys_keep_focus_and_track_cursor_into_view() {
     assert!(row >= 10, "PageDown moved a page, got row {row}");
     assert!(v.grid.visible.contains(&row));
 }
+
+#[derive(Debug)]
+struct DropPath(std::path::PathBuf);
+impl egui::DroppedFile for DropPath {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+fn drop_frame(ctx: &egui::Context, v: &mut TableCompareView, pos: egui::Pos2, path: &Path) {
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            events: vec![egui::Event::PointerMoved(pos)],
+            dropped_files: vec![std::sync::Arc::new(DropPath(path.to_path_buf()))],
+            ..Default::default()
+        },
+        |ui| {
+            v.ui(ui, &mut Prefs::default());
+        },
+    );
+    output.textures_delta.clear();
+}
+#[test]
+fn os_drop_replaces_the_side_under_the_pointer_not_the_active_one() {
+    let dir = std::env::temp_dir().join(format!("matcha-table-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("dropped.csv");
+    std::fs::write(&file, "id,name,price\n7,kiwi,9.0\n").unwrap();
+    let ctx = egui::Context::default();
+    let mut v = view();
+    frame(&ctx, &mut v, vec![]);
+    v.grid.active = 0;
+    // Right path bar / column header: above the right grid body, outside
+    // every pane rect (used to fall back to the active, left side).
+    let pos = v.grid.pane_rects[1].center_top() - egui::vec2(0.0, 12.0);
+    assert!(!v.grid.pane_rects.iter().any(|r| r.contains(pos)));
+    // The settings draft open: the drop is ignored instead of racing it.
+    v.settings.open = true;
+    drop_frame(&ctx, &mut v, pos, &file);
+    ready(&mut v);
+    assert_eq!(v.paths()[1], None);
+    v.settings.open = false;
+    drop_frame(&ctx, &mut v, pos, &file);
+    ready(&mut v);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.paths()[1].as_deref(), Some(file.as_path()));
+    assert_eq!(v.paths()[0], None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1935,6 +1935,9 @@ pub struct DirCompareView {
     context_row: Option<usize>,
     /// Status-bar selection totals keyed by snapshot and selection fingerprint.
     selection_totals: Option<(usize, (usize, u64), SelectionTotals)>,
+    /// Last-frame rects of the floating text / child-folder windows: an OS
+    /// file drop inside one belongs to that window's own view.
+    floating: [Option<egui::Rect>; 2],
 }
 impl DirCompareView {
     pub fn open(
@@ -2037,6 +2040,7 @@ impl DirCompareView {
             grid_lines: None,
             context_row: None,
             selection_totals: None,
+            floating: [None; 2],
         };
         // 参考：过滤框默认 *.*，日志区默认打开（比较与同步视图相同）。
         view.filters.names = "*.*".into();
@@ -2162,6 +2166,56 @@ impl DirCompareView {
             self.history_at = self.history.len() - 1;
         }
         self.send(Command::Load(paths));
+    }
+    /// OS file drop: a folder dropped on the left/right half (split at the
+    /// centre gap, same geometry as the trees and path boxes) replaces that
+    /// side's base folder. A drop over a floating text/child window is left to
+    /// that window's view; any other drop is consumed here so an embedded view
+    /// never acts on a drop that landed on the folder trees.
+    fn handle_drop(&mut self, ctx: &egui::Context, full: egui::Rect) {
+        use crate::chrome::drop;
+        let dropped = drop::dropped_paths(ctx);
+        let Some(path) = dropped.first() else {
+            return;
+        };
+        let pos = drop::drop_pos(ctx);
+        let windows = [
+            self.floating[0].filter(|_| self.text.is_some()),
+            self.floating[1].filter(|_| self.child.is_some()),
+        ];
+        if pos.is_some_and(|p| windows.iter().flatten().any(|r| r.contains(p))) {
+            return;
+        }
+        ctx.input_mut(|i| i.raw.dropped_files.clear());
+        let dialog = self.paths.open
+            || self.find.open
+            || self.rules_open
+            || self.log_save_open
+            || self.operation.is_some()
+            || self.scope.is_some()
+            || self.question.is_some();
+        if dialog {
+            return;
+        }
+        let gap = self.center_gap();
+        let (left_w, _) = Self::chrome_split(full.width(), gap);
+        let mid = full.left() + left_w + gap / 2.0;
+        let halves = [
+            egui::Rect::from_min_max(full.min, egui::pos2(mid, full.bottom())),
+            egui::Rect::from_min_max(egui::pos2(mid, full.top()), full.max),
+        ];
+        let side = drop::side_at(pos, drop::panes(&halves), self.focus_side.unwrap_or(0));
+        self.drop_path(side, path);
+    }
+    /// Replace one side's base folder with a dropped folder.
+    pub(crate) fn drop_path(&mut self, side: usize, path: &Path) {
+        if !path.is_dir() {
+            self.message = format!("Drop a folder to replace a side: {}", path.display());
+            return;
+        }
+        let mut paths = self.path_texts();
+        paths[side] = path.display().to_string();
+        self.reload(paths, true);
     }
     fn up(&mut self, target: Target) {
         let mut paths = [self.paths.left.clone(), self.paths.right.clone()];
@@ -2606,6 +2660,7 @@ impl DirCompareView {
         if !self.sync_mode {
             switch = self.chrome_ui(ui, busy);
         }
+        self.handle_drop(&ctx, ui.max_rect());
         if let Some(paths) = self.paths.show(&ctx) {
             self.reload(paths, true);
         }
@@ -2650,11 +2705,12 @@ impl DirCompareView {
         if let Some(view) = &mut self.text {
             let mut open = true;
             let mut action = None;
-            egui::Window::new("Text Compare — selected files")
+            self.floating[0] = egui::Window::new("Text Compare — selected files")
                 .id(egui::Id::unique(("folder_text", self.window_id)))
                 .open(&mut open)
                 .default_size([1150.0, 650.0])
-                .show(&ctx, |ui| action = view.ui(ui, &mut self.text_prefs));
+                .show(&ctx, |ui| action = view.ui(ui, &mut self.text_prefs))
+                .map(|shown| shown.response.rect);
             if !open {
                 // The close box goes through the text view's own save prompt.
                 view.request_close();
@@ -2832,7 +2888,7 @@ impl DirCompareView {
         }
         if let Some(child) = &mut self.child {
             let mut open = true;
-            egui::Window::new("Folder Compare — new view")
+            self.floating[1] = egui::Window::new("Folder Compare — new view")
                 .id(egui::Id::unique(("folder_child", self.window_id)))
                 .open(&mut open)
                 .default_size([1200.0, 720.0])
@@ -2840,7 +2896,8 @@ impl DirCompareView {
                     if let Some(action) = child.ui(ui) {
                         switch = Some(action);
                     }
-                });
+                })
+                .map(|shown| shown.response.rect);
             if !open {
                 self.child = None;
                 self.message = "Child view closed; Refresh if its files changed".into();
@@ -5701,6 +5758,101 @@ mod tests {
             });
         })
         .drop_without_applying_deltas();
+    }
+    #[derive(Debug)]
+    struct Dropped(PathBuf);
+    impl egui::DroppedFile for Dropped {
+        fn path(&self) -> &Path {
+            &self.0
+        }
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            Err("dropped folders are never read".into())
+        }
+    }
+    fn drop_frame(view: &mut DirCompareView, ctx: &egui::Context, pos: egui::Pos2, path: &Path) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            events: vec![egui::Event::PointerMoved(pos)],
+            dropped_files: vec![Arc::new(Dropped(path.to_path_buf()))],
+            ..Default::default()
+        };
+        ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                view.ui(ui);
+            });
+        })
+        .drop_without_applying_deltas();
+    }
+    #[test]
+    fn os_drop_replaces_the_half_under_the_pointer_in_compare_and_sync() {
+        for sync in [false, true] {
+            let temp = Temp::new();
+            let other = temp.0.join("other");
+            std::fs::create_dir_all(&other).unwrap();
+            let ctx = egui::Context::default();
+            let mut view = temp.view(&ctx, sync);
+            wait(&mut view, &ctx);
+            frame(&mut view, &ctx);
+            let left = temp.0.join("left").display().to_string();
+            let right = temp.0.join("right").display().to_string();
+            let other_s = other.display().to_string();
+            // Right half (path box / tree area) replaces the right folder.
+            drop_frame(&mut view, &ctx, egui::pos2(1100.0, 400.0), &other);
+            wait(&mut view, &ctx);
+            assert_eq!(view.path_texts(), [left.clone(), other_s.clone()]);
+            // Left half replaces the left folder.
+            drop_frame(
+                &mut view,
+                &ctx,
+                egui::pos2(200.0, 400.0),
+                &temp.0.join("right"),
+            );
+            wait(&mut view, &ctx);
+            assert_eq!(view.path_texts(), [right.clone(), other_s.clone()]);
+            // A file is not a base folder: paths stay, a message explains.
+            drop_frame(
+                &mut view,
+                &ctx,
+                egui::pos2(1100.0, 400.0),
+                &temp.0.join("left/a.txt"),
+            );
+            assert_eq!(view.path_texts(), [right.clone(), other_s.clone()]);
+            assert!(
+                view.message.starts_with("Drop a folder"),
+                "{}",
+                view.message
+            );
+            // A drop over the floating text window belongs to that window.
+            view.text = Some(Box::new(TextCompareView::from_texts("a", "b").unwrap()));
+            view.floating[0] = Some(egui::Rect::from_min_size(
+                egui::pos2(900.0, 300.0),
+                egui::vec2(300.0, 300.0),
+            ));
+            let left_dir = temp.0.join("left");
+            let consumed = std::cell::Cell::new(false);
+            ctx.run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::PointerMoved(egui::pos2(1000.0, 400.0))],
+                    dropped_files: vec![Arc::new(Dropped(left_dir))],
+                    ..Default::default()
+                },
+                |ui| {
+                    let full =
+                        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
+                    view.handle_drop(ui.ctx(), full);
+                    consumed.set(ui.input(|i| i.raw.dropped_files.is_empty()));
+                },
+            )
+            .drop_without_applying_deltas();
+            assert!(
+                !consumed.get(),
+                "drop over the text window was taken by the folder view"
+            );
+            assert_eq!(view.path_texts(), [right, other_s]);
+        }
     }
     fn row(view: &DirCompareView, name: &str) -> usize {
         view.snapshot

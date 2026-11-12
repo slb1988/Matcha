@@ -1169,13 +1169,15 @@ impl TableCompareView {
         }
         self.dialogs(&ctx, prefs);
         self.restore_grid_focus(&ctx);
-        if let Some(path) =
-            ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()))
+        // A drop while a confirmation, dialog, cell editor or the settings
+        // draft is open would overwrite that pending state; ignore it.
+        if let Some((side, path)) = crate::chrome::drop::dropped_on(
+            &ctx,
+            crate::chrome::drop::panes(&self.grid.pane_rects),
+            self.grid.active,
+        )
+        .filter(|_| !blocked && !self.settings.open)
         {
-            let side = ctx
-                .input(|i| i.pointer.hover_pos())
-                .and_then(|p| self.grid.pane_rects.iter().position(|r| r.contains(p)))
-                .unwrap_or(self.grid.active);
             self.request(Pending::Open(side, path));
         }
         self.action.take()

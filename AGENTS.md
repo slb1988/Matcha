@@ -17,24 +17,22 @@ Rust workspace：Matcha（Beyond Compare 风格比较工具）。主程序为 `a
 
 ## 编译发布纪律
 
-- **修改代码要阶段性进行编译发布**：每完成一个可编译的逻辑阶段（而非攒一大堆改动），就执行一次 release 构建验证。
-- 最低要求：自动生成 `target\release\deps\matcha.exe`：
+- **每次修改完成后自动编译 debug 版**（无需用户再要求）：每完成一个可编译的逻辑阶段（而非攒一大堆改动）就执行
 
   ```powershell
-  cargo build --release -p bcompare
+  powershell -ExecutionPolicy Bypass -File tools/dev-build.ps1
   ```
 
+  - 等价于 `cargo build -p bcompare`，产物 `target\debug\matcha.exe`；不打包、不改版本号。
+  - 脚本会先自动结束从本仓库 `target\debug\` 运行的 `matcha` 进程（否则 exe 被占用导致链接失败）；release/dist/安装版不受影响。
 - 构建失败必须当场修复，不要把编译错误留给下一阶段。
-- 需要完整发布包（含 `matcha-comp`/`matcha-compc`、按平台布局组装到 `target/dist/`）时使用：
-
-  ```powershell
-  cargo xtask dist
-  ```
+- release 构建与打包只在需要时执行（用户要求发布/打包时）：`cargo build --release -p bcompare`；完整发布包（含 `matcha-comp`/`matcha-compc`、按平台布局组装到 `target/dist/`）用 `cargo xtask dist`。
 
 ## 常用命令
 
 - 构建（release）：`cargo build --release`
 - 测试：`cargo test`
+- 日常编译（debug）：`powershell -ExecutionPolicy Bypass -File tools/dev-build.ps1`
 - 发布打包：`cargo xtask dist`（`--debug` 打 debug 包）
 - 发布到 GitHub Releases：`powershell -ExecutionPolicy Bypass -File .agents/skills/matcha-publish/publish.ps1`（版本号见 `.agents/skills/matcha-publish/config.json`，发布成功后最后一位自动 +1 并同步 workspace 版本；`-DryRun` 只检查不发布）
 

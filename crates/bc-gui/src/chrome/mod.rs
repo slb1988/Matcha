@@ -1,5 +1,6 @@
 //! Reusable visual chrome components.
 pub mod dialog;
+pub mod drop;
 pub mod fonts;
 pub mod icons;
 pub mod menubar;

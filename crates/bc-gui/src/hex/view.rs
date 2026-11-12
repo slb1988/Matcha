@@ -264,9 +264,26 @@ impl HexCompareView {
         } else {
             self.map.right = content;
         }
+        // 旧内容（含其编辑）已被替换，该侧不再有未保存修改。
+        self.dirty[side] = false;
         self.recompare();
         self.remember(path);
         Ok(())
+    }
+
+    /// 系统拖放到某侧：误拖不能静默丢掉未保存的编辑，该侧有修改时拒绝并提示。
+    pub fn drop_path(&mut self, side: usize, path: &Path) {
+        self.active_side = side;
+        if self.dirty[side] {
+            self.message = format!(
+                "{}侧有未保存的编辑，先保存或撤销后再拖入",
+                if side == 0 { "左" } else { "右" }
+            );
+            return;
+        }
+        if let Err(e) = self.open_path(side, path) {
+            self.message = e.to_string();
+        }
     }
 
     /// 统计（四分类）。
@@ -1413,14 +1430,22 @@ impl HexCompareView {
         // 地址栏（每侧路径；对齐 text 视图 header）。
         self.sync_path_edits();
         let history: Vec<String> = self.recent.iter().map(|p| p.display().to_string()).collect();
+        // 地址栏矩形：拖放落点判定的目标之一（over-under 时两条地址栏都叠在上窗格之上）。
+        let mut header_rects = [egui::Rect::NOTHING; 2];
+        let mut header = |this: &mut Self, ui: &mut egui::Ui, side: usize| {
+            let top = ui.cursor().min;
+            this.path_header(ui, side, &history);
+            header_rects[side] =
+                egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().right(), ui.cursor().top()));
+        };
         if self.side_by_side {
             ui.columns(2, |cols| {
-                self.path_header(&mut cols[0], 0, &history);
-                self.path_header(&mut cols[1], 1, &history);
+                header(self, &mut cols[0], 0);
+                header(self, &mut cols[1], 1);
             });
         } else {
             for side in 0..2 {
-                self.path_header(ui, side, &history);
+                header(self, ui, side);
             }
         }
         self.find_bar(ui);
@@ -1547,6 +1572,13 @@ impl HexCompareView {
             self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h: body.height() };
         }
         self.cache = Some(cache);
+        // 系统文件拖放：按落点（窗格/滚动条/地址栏）替换对应一侧；对话框打开时忽略。
+        let targets = (0..2).flat_map(|s| [(s, panes[s]), (s, bars[s]), (s, header_rects[s])]);
+        if let Some((side, path)) = crate::chrome::drop::dropped_on(ui.ctx(), targets, self.active_side)
+            .filter(|_| !modal)
+        {
+            self.drop_path(side, &path);
+        }
 
         statusbar::show(ui, &self.status_fields());
         self.layout_dialog(ui.ctx());

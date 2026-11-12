@@ -1274,16 +1274,13 @@ impl TextCompareView {
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.dragging = None;
         }
-        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        if let Some(path) = dropped
-            .first()
-            .filter(|_| !blocked)
-            .map(|f| f.path().to_path_buf())
+        if let Some((s, path)) = crate::chrome::drop::dropped_on(
+            &ctx,
+            crate::chrome::drop::panes(&self.pane_rects),
+            self.active,
+        )
+        .filter(|_| !blocked)
         {
-            let pos = ctx.input(|i| i.pointer.hover_pos());
-            let s = pos
-                .and_then(|p| self.pane_rects.iter().position(|r| r.contains(p)))
-                .unwrap_or(self.active);
             self.request(Pending::Open(s, path));
         }
         self.action.take()
