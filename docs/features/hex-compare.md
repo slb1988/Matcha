@@ -11,6 +11,8 @@
 - 双栏 hex 视图：**单元格行打包**（默认 16 格/行，Fit to window 随宽度自适应）——孤儿字节占格、
   对侧斜纹占位格可在行中；行标签 = 该侧本行首个真实字节偏移；Diffs 过滤的差异区域带上下文
   （默认 16）且**区域连续流入同一打包序列**（行标签相位随之非 16 对齐）。
+- 地址栏：每侧可编辑路径（Enter 打开、历史下拉、浏览进内建文件对话框、保存按钮同 Save File），
+  与 text 视图同款 `chrome::pathbar`；File Info 头显示每侧大小与时间戳。
 - 交互：Next/Previous Difference Bytes（Ctrl+N/P）、Go To（hex/dec、选侧、跨侧同步）、
   内联查找栏（hex/文本、大小写）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
   Select All、Undo/Redo、Copy to Other Side Ctrl+R）、Swap/Reload（脏确认）/Recompare、

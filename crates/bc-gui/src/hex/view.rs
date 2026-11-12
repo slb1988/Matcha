@@ -128,6 +128,12 @@ pub struct HexCompareView {
     reload_confirm: bool,
     /// 打开/另存对话框。
     pub file_dialog: Option<HexFileDialog>,
+    /// 地址栏编辑态（每侧可编辑路径；对齐 text 视图 header）。
+    pub path_edits: [String; 2],
+    /// 地址栏已同步的来源路径（换文件/Swap/另存后刷新编辑态）。
+    path_sources: [Option<PathBuf>; 2],
+    /// 最近打开/保存的路径（地址栏历史下拉，最新在前）。
+    recent: Vec<PathBuf>,
     /// Open Clipboard 目标侧（等待 Paste 回送）。
     clipboard_side: Option<usize>,
     /// Ctrl+V/菜单 Paste：等待系统剪贴板回送。
@@ -157,7 +163,7 @@ impl HexCompareView {
         } else {
             Some(Worker::spawn(HexAlignJob::from_map(&map)))
         };
-        Self {
+        let mut view = Self {
             map,
             worker,
             message: "Comparing…".into(),
@@ -197,12 +203,20 @@ impl HexCompareView {
             exit_confirm: None,
             reload_confirm: false,
             file_dialog: None,
+            path_edits: [String::new(), String::new()],
+            path_sources: [None, None],
+            recent: Vec::new(),
             clipboard_side: None,
             paste_pending: false,
             cache: None,
             scroll: 0.0,
             visible_first_row: 0,
+        };
+        view.sync_path_edits();
+        for path in view.paths().into_iter().rev().flatten() {
+            view.remember(&path);
         }
+        view
     }
 
     pub fn from_bytes(left: Vec<u8>, right: Vec<u8>) -> Self {
@@ -227,6 +241,7 @@ impl HexCompareView {
             self.map.right = content;
         }
         self.recompare();
+        self.remember(path);
         Ok(())
     }
 
@@ -381,8 +396,70 @@ impl HexCompareView {
             Ok(()) => {
                 self.dirty[side] = false;
                 self.message = "已保存".into();
+                self.remember(path);
             }
             Err(e) => self.message = e.to_string(),
+        }
+    }
+
+    /// 记住路径（地址栏历史下拉，最新在前，上限 12；对齐 text 视图）。
+    fn remember(&mut self, path: &Path) {
+        self.recent.retain(|p| p != path);
+        self.recent.insert(0, path.to_path_buf());
+        self.recent.truncate(12);
+    }
+
+    /// 地址栏编辑态与当前来源同步（换文件/Swap/另存后重置文本）。
+    pub fn sync_path_edits(&mut self) {
+        let paths = self.paths();
+        for (s, path) in paths.iter().enumerate() {
+            if self.path_sources[s] != *path {
+                self.path_sources[s] = path.clone();
+                self.path_edits[s] = path
+                    .as_ref()
+                    .map(|p| {
+                        std::path::absolute(p)
+                            .unwrap_or_else(|_| p.clone())
+                            .display()
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+            }
+        }
+    }
+
+    /// 单侧地址栏：Enter/历史选择打开路径，浏览按钮进内建文件对话框，保存按钮同 Save File。
+    fn path_header(&mut self, ui: &mut egui::Ui, side: usize, history: &[String]) {
+        let response = crate::chrome::pathbar::show_with_history(
+            ui,
+            &mut self.path_edits[side],
+            history,
+            false,
+        );
+        if response.submitted {
+            let path = PathBuf::from(self.path_edits[side].trim());
+            self.active_side = side;
+            if !path.as_os_str().is_empty() {
+                if let Err(e) = self.open_path(side, &path) {
+                    self.message = e.to_string();
+                }
+            }
+            return;
+        }
+        match response.action.as_deref() {
+            Some("save") => {
+                self.active_side = side;
+                if self.content(side).source().is_some() {
+                    self.save_side(side);
+                } else {
+                    self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                }
+            }
+            Some("browse" | "history") => {
+                self.active_side = side;
+                self.file_dialog = Some(HexFileDialog { side, save_as: false, path: String::new() });
+            }
+            _ => {}
         }
     }
 
@@ -1305,6 +1382,19 @@ impl HexCompareView {
                 self.toolbar_action(&action);
             }
         }
+        // 地址栏（每侧路径；对齐 text 视图 header）。
+        self.sync_path_edits();
+        let history: Vec<String> = self.recent.iter().map(|p| p.display().to_string()).collect();
+        if self.side_by_side {
+            ui.columns(2, |cols| {
+                self.path_header(&mut cols[0], 0, &history);
+                self.path_header(&mut cols[1], 1, &history);
+            });
+        } else {
+            for side in 0..2 {
+                self.path_header(ui, side, &history);
+            }
+        }
         self.find_bar(ui);
         if self.show_file_info {
             ui.horizontal(|ui| {
@@ -1339,6 +1429,8 @@ impl HexCompareView {
         ui.advance_cursor_after_rect(body);
 
         let mut grid_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
+        // 裁剪到内容区，防止行绘制溢出盖住菜单栏/工具栏（对齐 text 视图约定）。
+        grid_ui.set_clip_rect(body.intersect(ui.clip_rect()));
         let top = body.min - egui::vec2(0.0, self.scroll);
         let origins = if self.side_by_side {
             [top, egui::pos2(top.x + body.width() / 2.0, top.y)]

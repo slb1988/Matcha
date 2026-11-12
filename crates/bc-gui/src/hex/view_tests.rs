@@ -593,3 +593,29 @@ fn scroll_offset_shifts_the_visible_window() {
     frame(&ctx, &mut v); // 下一帧不得回弹（快照在该状态截图）
     assert_eq!(v.visible_first_row, at, "滚动状态未保持");
 }
+
+/// 地址栏：路径编辑态跟随来源（构造/open_path 后刷新）。
+#[test]
+fn path_edits_track_sources() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-pathbar-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.bin");
+    let b = dir.join("b.bin");
+    std::fs::write(&a, b"aaaa").unwrap();
+    std::fs::write(&b, b"bbbb").unwrap();
+    let mut v = HexCompareView::open(&a, &b).unwrap();
+    ready(&mut v);
+    assert!(v.path_edits[0].ends_with("a.bin"), "{}", v.path_edits[0]);
+    assert!(v.path_edits[1].ends_with("b.bin"), "{}", v.path_edits[1]);
+    // 单侧换文件后同步刷新。
+    v.open_path(1, &a).unwrap();
+    ready(&mut v);
+    v.sync_path_edits();
+    assert!(v.path_edits[1].ends_with("a.bin"), "{}", v.path_edits[1]);
+    // 无来源（剪贴板内容）地址栏留空。
+    v.open_clipboard(0, vec![1, 2, 3]);
+    ready(&mut v);
+    v.sync_path_edits();
+    assert!(v.path_edits[0].is_empty(), "{}", v.path_edits[0]);
+    std::fs::remove_dir_all(&dir).ok();
+}
