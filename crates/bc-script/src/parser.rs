@@ -288,10 +288,11 @@ pub fn parse_command(tokens: &[String]) -> Result<Command, CommandError> {
 
 /// Commands this build executes; every other reference command is recognised and
 /// rejected as unsupported.
-pub const SUPPORTED: [CommandKind; 4] = [
+pub const SUPPORTED: [CommandKind; 5] = [
     CommandKind::Beep,
     CommandKind::Log,
     CommandKind::Option,
+    CommandKind::TableReport,
     CommandKind::TextReport,
 ];
 
@@ -306,6 +307,9 @@ pub fn parse_arguments(kind: CommandKind, args: &[String]) -> Result<Command, Co
         CommandKind::Option => parse_option(args),
         CommandKind::TextReport => {
             parse_report_arguments(SessionKind::TextCompare, args).map(Command::TextReport)
+        }
+        CommandKind::TableReport => {
+            parse_report_arguments(SessionKind::TableCompare, args).map(Command::TableReport)
         }
         other => Err(CommandError::unsupported(format!(
             "the {} command is not supported yet",
@@ -406,10 +410,16 @@ pub fn parse_report_arguments(
             "layout" => {
                 let parsed = Layout::parse(value)
                     .ok_or_else(|| CommandError::syntax(format!("unknown layout {value:?}")))?;
-                if parsed != Layout::Patch {
+                // The one layout each report command renders so far.
+                let supported = match kind {
+                    SessionKind::TableCompare => Layout::Summary,
+                    _ => Layout::Patch,
+                };
+                if parsed != supported {
                     defer(format!(
-                        "the {} layout is not supported yet",
-                        parsed.script_name()
+                        "the {} layout is not supported yet; use layout:{}",
+                        parsed.script_name(),
+                        supported.script_name()
                     ));
                 }
                 layout = Some(parsed);
@@ -545,6 +555,39 @@ pub fn shortcut_report(
     args.push(left.into());
     args.push(right.into());
     parse_report_arguments(SessionKind::TextCompare, &args)
+}
+
+/// The `/report` command line as the script command it stands for:
+///
+/// * `summary` → `table-report layout:summary` (always a table comparison);
+/// * a `patch…` layout on an xlsx/xlsm file → the same table report, since a binary
+///   workbook has no text to patch;
+/// * anything else → `text-report`, as [`shortcut_report`].
+pub fn shortcut_command(
+    layout: &str,
+    options: Option<&str>,
+    file: Option<&std::path::Path>,
+    left: &str,
+    right: &str,
+) -> Result<Command, CommandError> {
+    let lower = layout.to_ascii_lowercase();
+    let workbook = crate::table_report::is_workbook(std::path::Path::new(left))
+        || crate::table_report::is_workbook(std::path::Path::new(right));
+    let table = lower == "summary" || (workbook && lower.starts_with("patch"));
+    if !table {
+        return shortcut_report(layout, options, file, left, right).map(Command::TextReport);
+    }
+    let mut args = vec!["layout:summary".to_string()];
+    if let Some(options) = options {
+        args.push(format!("options:{options}"));
+    }
+    args.push(match file {
+        Some(file) => format!("output-to:{}", file.display()),
+        None => "output-to:-".into(),
+    });
+    args.push(left.into());
+    args.push(right.into());
+    parse_report_arguments(SessionKind::TableCompare, &args).map(Command::TableReport)
 }
 
 #[cfg(test)]
@@ -690,7 +733,7 @@ mod tests {
             .into_iter()
             .filter(|kind| !SUPPORTED.contains(kind))
             .collect();
-        assert_eq!(rejected.len(), 25);
+        assert_eq!(rejected.len(), 24);
         for kind in rejected {
             let e = parse_arguments(kind, &[]).unwrap_err();
             assert_eq!(e.kind, ErrorKind::Unsupported, "{kind:?}");

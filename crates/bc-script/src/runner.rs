@@ -223,6 +223,7 @@ impl ScriptRunner {
                 Ok(())
             }
             Command::TextReport(request) => self.text_report(request, io),
+            Command::TableReport(request) => self.table_report(request, io),
             // The parser rejects every other command before the script runs.
             other => Err((
                 FailureKind::Other,
@@ -304,11 +305,80 @@ impl ScriptRunner {
         let report = renderer
             .render(request)
             .map_err(|e| (FailureKind::Other, e.to_string()))?;
+        self.deliver(&report, request, io)
+    }
+
+    /// `table-report layout:summary`: compare every sheet pair of two table files and
+    /// write the readable cell-level report (`bc_report::table`).
+    fn table_report(
+        &mut self,
+        request: &ReportRequest,
+        io: &mut Streams,
+    ) -> Result<(), (FailureKind, String)> {
+        let Some(Comparison::Files(left, right)) = &request.comparison else {
+            return Err((
+                FailureKind::Other,
+                "table-report needs two file names".into(),
+            ));
+        };
+        let paths = [self.resolve(left), self.resolve(right)];
+        for path in &paths {
+            if path.is_dir() {
+                return Err((
+                    FailureKind::Other,
+                    format!(
+                        "{} is a folder; table-report compares two files",
+                        path.display()
+                    ),
+                ));
+            }
+            if !path.is_file() {
+                return Err((
+                    FailureKind::Load,
+                    format!("cannot read {}: file not found", path.display()),
+                ));
+            }
+        }
+        let sheets = crate::table_report::compare(
+            &paths[0],
+            &paths[1],
+            &self.formats,
+            request.options.ignore_unimportant,
+        )
+        .map_err(|e| {
+            let kind = if e.load {
+                FailureKind::Load
+            } else {
+                FailureKind::Other
+            };
+            (kind, e.message)
+        })?;
+        let files = [
+            paths[0].display().to_string(),
+            paths[1].display().to_string(),
+        ];
+        let renderer = bc_report::table::TableReportRenderer {
+            files: [&files[0], &files[1]],
+            sheets: &sheets,
+        };
+        let report = renderer
+            .render(request)
+            .map_err(|e| (FailureKind::Other, e.to_string()))?;
+        self.deliver(&report, request, io)
+    }
+
+    /// Write a rendered report to its `output-to:` target.
+    fn deliver(
+        &self,
+        report: &bc_report::Report,
+        request: &ReportRequest,
+        io: &mut Streams,
+    ) -> Result<(), (FailureKind, String)> {
         let output = match &request.output {
             Output::File(path) => Output::File(self.resolve(path)),
             other => other.clone(),
         };
-        bc_report::deliver(&report, &output, io.stdout).map_err(|e| {
+        bc_report::deliver(report, &output, io.stdout).map_err(|e| {
             let target = match &output {
                 Output::File(path) => path.display().to_string(),
                 _ => "standard output".into(),
@@ -381,7 +451,11 @@ impl Script {
     /// must have a usable standard output before running it.
     pub fn writes_to_stdout(&self) -> bool {
         self.lines.iter().any(|line| {
-            matches!(&line.command, Command::TextReport(request) if request.output == Output::Stdout)
+            matches!(
+                &line.command,
+                Command::TextReport(request) | Command::TableReport(request)
+                    if request.output == Output::Stdout
+            )
         })
     }
 }

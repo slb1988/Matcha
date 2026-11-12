@@ -274,8 +274,9 @@ impl CliArgs {
 /// The `/report` family of switches (Matcha extension).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportSwitches {
-    /// `/report=` value: `patch`, `patch-normal`, `patch-context`, `patch-unified`, or
-    /// another layout name (rejected as not supported when the report is built).
+    /// `/report=` value: `patch`, `patch-normal`, `patch-context`, `patch-unified`,
+    /// `summary` (table report), or another layout name (rejected as not supported when
+    /// the report is built). See `parser::shortcut_command`.
     pub layout: String,
     /// `/reportoptions=` – same values as a script's `options:`.
     pub options: Option<String>,
@@ -339,7 +340,8 @@ pub fn usage() -> String {
         "",
         "Reports without a window (Matcha):",
         "  /report=<layout>        Text report of <left> <right>: patch, patch-normal,",
-        "                          patch-context or patch-unified",
+        "                          patch-context or patch-unified; summary = table",
+        "                          diff (xlsx/xlsm/csv; patch* on xlsx does the same)",
         "  /reportoptions=<list>   Report options, e.g. ignore-unimportant",
         "  /reportfile=<path>      Write the report to a file (default: standard output)",
         "",

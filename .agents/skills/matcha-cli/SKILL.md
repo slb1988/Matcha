@@ -1,7 +1,7 @@
 ---
 name: matcha-cli
 version: 1.0.0
-description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / matcha-comp.exe 三件套分工、/report 无窗口 diff 输出（patch 四种布局）、/qc 快速比较与退出码、@script 脚本模式、GUI 启动方式。当用户问 matcha 命令行怎么用、matcha.com 是什么、如何用命令行比较文件/输出 diff、或在 CI/脚本里集成文件比较时使用。
+description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / matcha-comp.exe 三件套分工、/report 无窗口 diff 输出（文本 patch 四种布局、xlsx/CSV 表格差异报告）、/qc 快速比较与退出码、@script 脚本模式、GUI 启动方式。当用户问 matcha 命令行怎么用、matcha.com 是什么、如何用命令行比较文件/输出 diff、或在 CI/脚本里集成文件比较时使用。
 ---
 
 # Matcha 命令行速查
@@ -60,6 +60,27 @@ matcha /report=patch-unified /reportfile=out.patch a.txt b.txt
 
 输出头形如 `--- <绝对路径>\t<时间戳>` / `+++ ...`，可直接给 `patch`/`git apply` 用（注意改成相对路径）。
 
+### 3. 表格（xlsx/xlsm/CSV）差异报告
+
+```bat
+matcha /report=summary left.xlsx right.xlsx          :: 表格差异报告到 stdout
+matcha /report=patch-unified left.xlsx right.xlsx    :: 工作簿上 patch* 自动改为同一报告
+matcha /report=summary a.csv b.csv                   :: CSV/TSV 也可（CSV 用 patch* 仍是文本 patch）
+```
+
+输出首行 `MATCHA-TABLE-REPORT 1`，逐 sheet → 行 → 单元格列出差异，自带图例：
+
+```text
+=== sheet "Data": different
+key: id
+rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 1 same
+~ id=1  (left row 2, right row 2)
+    price (C2): 1 -> 1.5
+```
+
+`~` 改动行、`-` 仅左、`+` 仅右；键列自动推断（推断不出时 `key: (none; …)`，改动行会显示成
+`-`/`+` 一对）。格式细节见 `docs/features/reports.md`。
+
 ### 3. 只要退出码不要输出（CI 判断两个文件是否相同）
 
 ```bat
@@ -114,7 +135,8 @@ matcha @script.txt        :: 无界面顺序执行脚本命令
 `log [none|normal|verbose]`、`option confirm:…`、`snapshot`、`beep`。
 
 脚本里写报告：`text-report layout:patch options:patch-unified output-to:- <left> <right>`
-（`output-to:-` = stdout；`output-to:<file>` 写文件）。
+（`output-to:-` = stdout；`output-to:<file>` 写文件）。表格：
+`table-report layout:summary output-to:- <left.xlsx> <right.xlsx>`（`data-report` 同义）。
 
 ## 已知坑（实测踩过）
 

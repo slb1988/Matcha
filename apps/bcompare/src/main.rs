@@ -39,7 +39,7 @@ use bc_gui::remote::{Outcome, RemoteOpen, RemoteSender};
 use bc_instance::{Reply, Request, Responder, Role, WAIT_ENV};
 use bc_script::cli::{self, CliArgs};
 use bc_script::runner::{RunnerOptions, Script, ScriptRunner, Streams};
-use bc_script::{Command, ExitCode as Code};
+use bc_script::ExitCode as Code;
 use console::Kind;
 use routing::Route;
 use std::path::{Path, PathBuf};
@@ -156,17 +156,17 @@ fn run_script(path: &Path, args: &[String], silent: bool) -> ExitCode {
 
 /// `/report=…`：合成一条与脚本 `text-report` 完全相同的请求，走同一执行路径。
 fn run_report(left: &Path, right: &Path, switches: &cli::ReportSwitches, silent: bool) -> ExitCode {
-    let request = bc_script::parser::shortcut_report(
+    let command = bc_script::parser::shortcut_command(
         &switches.layout,
         switches.options.as_deref(),
         switches.file.as_deref(),
         &left.to_string_lossy(),
         &right.to_string_lossy(),
     );
-    match request {
-        Ok(request) => {
+    match command {
+        Ok(command) => {
             let raw = format!("/report={}", switches.layout);
-            run_headless(&Script::single(Command::TextReport(request), raw), silent)
+            run_headless(&Script::single(command, raw), silent)
         }
         Err(e) => {
             console::tell(Kind::Error, &e.message);

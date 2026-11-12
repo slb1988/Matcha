@@ -13,12 +13,15 @@
   内存可编辑，原格式保存返回只读错误，`export_csv` 为显式替代。
 - 保存保真：逐记录 lexical spans，未改字段、分隔符、行尾原样保留；同目录暂存后 rename。
 - 键对齐比较（`KeyAlign`）、表格规则（`TableRules`）、混合类型列提示。
+- 命令行：`matcha /report=summary a.xlsx b.xlsx`（xlsx 用 `/report=patch…` 也会自动改走）输出
+  按 sheet / 行 / 单元格列出的文本差异报告，格式见 [reports.md](reports.md#表格差异报告table-report-layoutsummary)。
 
 ## 代码地图
 
 | 层 | 位置 | 内容 |
 |---|---|---|
 | 引擎 | `crates/bc-engine-table` | `Sheet`/`Cell`、`source`（读入）、`workbook`（xlsx）、`KeyAlign`、`TableRules`、写回/导出 |
+| CLI 报告 | `crates/bc-script/src/table_report.rs`、`crates/bc-report/src/table.rs` | 无窗口读取/按 sheet 比较 + 文本渲染 |
 | GUI | `crates/bc-gui/src/table/` | `view.rs`、`grid.rs`、`worker.rs`、`sorting.rs`、`find.rs`、`sheet_tabs.rs`、`settings_panel.rs` 等（含大量 `*_tests.rs`） |
 
 ## 关键语义
@@ -33,6 +36,7 @@
 ```powershell
 cargo test -p bc-engine-table
 cargo test -p bc-gui --lib          # 表格视图测试在 bc-gui
+matcha /report=summary left.xlsx right.xlsx   # 命令行差异报告
 ```
 
 ## 深入阅读

@@ -19,7 +19,8 @@
   → 1 / 11；`/silent` 抑制单行结果输出。
 - `/report=`：见 [reports.md](reports.md)。
 - `@script.txt a b`：脚本模式，`%1`…`%9` 参数替换、`%date%`、`#` 注释、`&` 续行、
-  大小写不敏感；支持 `text-report`、`log`、`option`、`beep`，其余命令在执行前整体拒绝。
+  大小写不敏感；支持 `text-report`、`table-report`（`summary` 布局）、`log`、`option`、`beep`，
+  其余命令在执行前整体拒绝。
 
 ## 代码地图
 
@@ -43,6 +44,7 @@
 ```bat
 matcha /qc a.txt b.txt
 matcha /report=patch-unified a.txt b.txt
+matcha /report=summary a.xlsx b.xlsx
 matcha @diff.txt a.txt b.txt
 cargo test -p bc-script
 ```

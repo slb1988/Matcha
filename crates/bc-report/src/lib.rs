@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 pub mod patch;
+pub mod table;
 
 use bc_session::SessionKind;
 use std::path::PathBuf;
