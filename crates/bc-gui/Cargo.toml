@@ -19,6 +19,8 @@ bc-session = { workspace = true }
 bc-shell = { workspace = true }
 eframe = { workspace = true }
 
+# 路径框右键菜单读取系统剪贴板（egui 只提供写入）。
+arboard = { version = "3", default-features = false }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 [dev-dependencies]

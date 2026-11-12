@@ -190,6 +190,7 @@ dependencies = [
 name = "bc-gui"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "bc-core",
  "bc-engine-bin",
  "bc-engine-dir",
