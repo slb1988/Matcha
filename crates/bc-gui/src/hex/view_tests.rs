@@ -619,3 +619,182 @@ fn path_edits_track_sources() {
     assert!(v.path_edits[0].is_empty(), "{}", v.path_edits[0]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 缩略图 bins：红色像素横线的行位置与水平区间对齐参考工具实测
+///（01-main.png：行 16/32/48 满宽，行 64 右半=RightOnly，行 96/97 左半=LeftOnly）。
+#[test]
+fn thumbnail_bins_match_reference_marks() {
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    let rows = v.grid_rows_for_test(16);
+    let bins = render::thumb_bins(&rows, 16, render::THUMB_BIN_MAX);
+    // 语料行数未超分辨率上限：bin 与行一一对应。
+    assert_eq!(bins.len(), rows.len());
+    let red: std::collections::BTreeMap<usize, (u16, u16)> = bins
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &b)| render::thumb_bin_range(b).map(|r| (i, r)))
+        .collect();
+    let rows_set: Vec<usize> = red.keys().copied().collect();
+    assert_eq!(rows_set, vec![16, 32, 48, 64, 96, 97]);
+    assert_eq!(red[&16], (0, 15), "Changed 行满宽");
+    assert_eq!(red[&32], (0, 15));
+    assert_eq!(red[&48], (0, 15));
+    assert_eq!(red[&64], (8, 15), "RightOnly 行右半");
+    assert_eq!(red[&96], (0, 7), "LeftOnly 行左半");
+    assert_eq!(red[&97], (0, 7));
+}
+
+/// 缩略图 bins 压缩：行数超分辨率上限时聚合并保持并集。
+#[test]
+fn thumbnail_bins_compress_when_rows_exceed_resolution() {
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    let rows = v.grid_rows_for_test(16);
+    let bins = render::thumb_bins(&rows, 16, 8);
+    assert_eq!(bins.len(), 8);
+    // bin 0 聚合行 0–32（含满宽行 16/32），bin 1 聚合行 33–65（满宽行 48 ∪ 右半行 64 = 满宽），
+    // bin 2 聚合行 66–98（左半行 96/97），其余 bin 无差异。
+    assert_eq!(render::thumb_bin_range(bins[0]), Some((0, 15)));
+    assert_eq!(render::thumb_bin_range(bins[1]), Some((0, 15)));
+    assert_eq!(render::thumb_bin_range(bins[2]), Some((0, 7)));
+    assert!(bins[3..].iter().all(|&b| b == 0));
+}
+
+/// 缩略图几何：内框每行 1 px（超出列高压压缩），视口框反映可见占比。
+#[test]
+fn thumbnail_geometry_maps_rows_and_viewport() {
+    let column = egui::Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(render::THUMB_COL_W, 600.0));
+    // 行数少于列高：1 px/行。
+    let g = render::thumbnail_geometry(column, 261, 0.0, 261.0 * 15.0, 600.0);
+    assert_eq!(g.inner.height(), 261.0);
+    assert_eq!(g.inner.left(), render::THUMB_INNER_X);
+    // 行数超出列高：压缩到列高 - 2。
+    let g = render::thumbnail_geometry(column, 5000, 0.0, 5000.0 * 15.0, 600.0);
+    assert_eq!(g.inner.height(), 598.0);
+    // 视口框：顶端起点 + 占比高度；滚到底时贴内框底。
+    let content_h = 5000.0 * 15.0;
+    let g = render::thumbnail_geometry(column, 5000, 0.0, content_h, 600.0);
+    assert_eq!(g.viewport.top(), g.inner.top());
+    assert!((g.viewport.height() - 600.0 / content_h * g.inner.height()).abs() < 1.0);
+    let max_scroll = content_h - 600.0;
+    let g = render::thumbnail_geometry(column, 5000, max_scroll, content_h, 600.0);
+    assert!((g.viewport.bottom() - g.inner.bottom()).abs() < 1.0, "滚到底视口框贴底");
+}
+
+/// 缩略图与滚动条的点击/拖动 → 滚动偏移映射。
+#[test]
+fn thumbnail_and_scrollbar_scroll_mapping() {
+    let (content_h, view_h) = (4000.0, 600.0);
+    // 缩略图：点顶部 = 0；点中部 = 视口中心对齐；点底部 = 到底。
+    assert_eq!(render::thumbnail_scroll_at(0.0, content_h, view_h), 0.0);
+    assert_eq!(render::thumbnail_scroll_at(0.5, content_h, view_h), 1700.0);
+    assert_eq!(render::thumbnail_scroll_at(1.0, content_h, view_h), content_h - view_h);
+    // 内容放得下时恒 0。
+    assert_eq!(render::thumbnail_scroll_at(0.7, 500.0, 600.0), 0.0);
+    // 滚动条：滑块比例高、定位往返一致。
+    let track = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(16.0, 600.0));
+    assert!(render::scrollbar_thumb(track, 500.0, 600.0, 0.0).is_none(), "放得下不画滑块");
+    let thumb = render::scrollbar_thumb(track, content_h, view_h, 0.0).unwrap();
+    assert_eq!(thumb.top(), track.top());
+    assert!((thumb.height() - 90.0).abs() < 1.0, "滑块高 = 可见占比 × 轨道高");
+    let max_scroll = content_h - view_h;
+    let thumb = render::scrollbar_thumb(track, content_h, view_h, max_scroll).unwrap();
+    assert!((thumb.bottom() - track.bottom()).abs() < 1.0);
+    // 拖动映射：指针在滑块中心 ⇄ 原偏移（往返）。
+    let thumb_h = thumb.height();
+    let back = render::scrollbar_scroll_at(thumb.center().y, track, thumb_h, content_h, view_h);
+    assert!((back - max_scroll).abs() < 1.0);
+    assert_eq!(render::scrollbar_scroll_at(track.top(), track, thumb_h, content_h, view_h), 0.0);
+}
+
+/// 状态栏加载时间格式对齐参考（`Load time: 0.05 seconds`）。
+#[test]
+fn status_bar_load_time_in_seconds() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-loadtime-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (lp, rp) = (dir.join("l.bin"), dir.join("r.bin"));
+    std::fs::write(&lp, corpus("left.bin")).unwrap();
+    std::fs::write(&rp, corpus("right.bin")).unwrap();
+    let mut v = HexCompareView::open(&lp, &rp).unwrap();
+    ready(&mut v);
+    let fields = v.status_fields();
+    let load = fields.iter().find(|f| f.text.starts_with("Load time: ")).expect("加载时间字段");
+    assert!(load.text.ends_with(" seconds"), "{}", load.text);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 注入指针事件的帧（RawInput 回归：缩略图/滚动条拖动）。
+fn pointer_frame(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Event>) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+    out.textures_delta.clear();
+}
+
+fn primary(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() }
+}
+
+/// 缩略图列：按下并拖动迷你图 → 视口中心跟随指针（“图形框拖动页面”）。
+#[test]
+fn thumbnail_drag_scrolls_the_page() {
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    let layout = v.last_layout;
+    let geom = layout.thumb.expect("缩略图几何");
+    assert!(geom.inner.height() > 100.0, "语料在测试窗口中应可滚动");
+    assert!(geom.hit.contains(geom.inner.center()));
+    let start = geom.inner.center();
+    pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(start)]);
+    pointer_frame(&ctx, &mut v, vec![primary(start, true)]);
+    assert_eq!(v.scroll, 0.0, "按下未拖动不滚动");
+    let target = egui::pos2(start.x, geom.inner.top() + geom.inner.height() * 0.75);
+    pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(target)]);
+    let expect = render::thumbnail_scroll_at(0.75, layout.pane_h, layout.view_h);
+    assert!((v.scroll - expect).abs() < 2.0, "拖动后 scroll={} expect={expect}", v.scroll);
+    assert!(v.visible_first_row > 0, "首可见行随滚动离开 0");
+    pointer_frame(&ctx, &mut v, vec![primary(target, false)]);
+    // 点击内框顶部 → 回到起点。
+    let top = egui::pos2(start.x, geom.inner.top() + 1.0);
+    pointer_frame(&ctx, &mut v, vec![primary(top, true)]);
+    pointer_frame(&ctx, &mut v, vec![primary(top, false)]);
+    assert!(v.scroll.abs() < 2.0, "点击顶部回滚到 0，scroll={}", v.scroll);
+}
+
+/// 每窗格右缘滚动条：点击轨道定位、拖动滑块跟随。
+#[test]
+fn scrollbar_click_and_drag_scroll() {
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    let layout = v.last_layout;
+    for (side, bar) in layout.bars.iter().enumerate() {
+        assert_eq!(bar.width(), render::SCROLLBAR_W, "滚动条宽 16（side={side}）");
+    }
+    let bar = layout.bars[1];
+    assert!(render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, 0.0).is_some(), "可滚动时有滑块");
+    // 点击轨道 60% 处 → 滑块中心对齐指针。
+    let click = egui::pos2(bar.center().x, bar.top() + bar.height() * 0.6);
+    pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(click)]);
+    pointer_frame(&ctx, &mut v, vec![primary(click, true)]);
+    pointer_frame(&ctx, &mut v, vec![primary(click, false)]);
+    let thumb0 = render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, 0.0).unwrap();
+    let expect = render::scrollbar_scroll_at(click.y, bar, thumb0.height(), layout.pane_h, layout.view_h);
+    assert!((v.scroll - expect).abs() < 2.0, "点击定位 scroll={} expect={expect}", v.scroll);
+    // 拖动滑块再下移 20% 轨道高。
+    let thumb = render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, v.scroll).unwrap();
+    let grab = thumb.center();
+    pointer_frame(&ctx, &mut v, vec![primary(grab, true)]);
+    let drop_y = grab.y + bar.height() * 0.2;
+    pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(egui::pos2(grab.x, drop_y))]);
+    let expect2 = render::scrollbar_scroll_at(drop_y, bar, thumb.height(), layout.pane_h, layout.view_h);
+    assert!((v.scroll - expect2).abs() < 2.0, "拖动跟随 scroll={} expect={expect2}", v.scroll);
+    pointer_frame(&ctx, &mut v, vec![primary(egui::pos2(grab.x, drop_y), false)]);
+}

@@ -134,4 +134,4 @@
 
 ## 实现对照补记（2026-11-12，hex-compare 任务 7.3）
 
-Matcha 快照场景 `hex-basic` / `hex-insertion` / `hex-diffs-filter`（无头采集，与本目录语料同字节）与参考截图 `01-main.png` / `06-insertion-closeup.png` / `22-diffs-only.png` 逐区域对照：命令结构、行打包、着色、占位格、行标签相位、过滤行为全部吻合；每行格数随 Fit-to-window 窗口宽度（参考截图 16 格源于其窗口宽度，行为一致）、缩略图条位置（左 vs 右缘）与光标格着色框为已知几何差异。细节见 `openspec/changes/hex-compare/worker-report.md`。
+Matcha 快照场景 `hex-basic` / `hex-insertion` / `hex-diffs-filter`（无头采集，与本目录语料同字节）与参考截图 `01-main.png` / `06-insertion-closeup.png` / `22-diffs-only.png` 逐区域对照：命令结构、行打包、着色、占位格、行标签相位、过滤行为全部吻合；每行格数随 Fit-to-window 窗口宽度（参考截图 16 格源于其窗口宽度，行为一致）与光标格着色框为已知几何差异。缩略图列（最左 52 px、红色像素横线、视口框拖动定位）与每窗格右缘 16 px 竖滚动条已按参考实测补齐（2026-11-12 后续，见 worker-report 补记）；过滤模式下缩略图映射当前显示行（参考映射全文件坐标）为已知偏离。细节见 `openspec/changes/hex-compare/worker-report.md`。

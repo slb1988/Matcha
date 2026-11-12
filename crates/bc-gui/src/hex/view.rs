@@ -54,6 +54,8 @@ struct GridCache {
     filter: DisplayFilter,
     context: usize,
     rows: Vec<GridRowModel>,
+    /// 缩略图列 bins（与 rows 同批重算；差异行红色像素横线的水平区间）。
+    thumb_bins: Vec<u32>,
 }
 
 /// 一次字节编辑的逆操作记录（Undo 栈，按侧分栈存放）。
@@ -62,6 +64,23 @@ struct EditRecord {
     at: usize,
     removed: Vec<u8>,   // 编辑时被替换掉的原字节
     inserted_len: usize, // 编辑后新字节长度
+}
+
+/// 最近一帧的布局几何（RawInput 回归的命中与期望值计算用）。
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LastLayout {
+    pub thumb: Option<render::ThumbnailGeometry>,
+    pub bars: [egui::Rect; 2],
+    pub pane_h: f32,
+    pub view_h: f32,
+}
+
+#[cfg(test)]
+impl Default for LastLayout {
+    fn default() -> Self {
+        Self { thumb: None, bars: [egui::Rect::NOTHING; 2], pane_h: 0.0, view_h: 0.0 }
+    }
 }
 
 /// Hex Compare 双栏视图。
@@ -143,6 +162,9 @@ pub struct HexCompareView {
     scroll: f32,
     /// 当前首可见网格行（RawInput 回归断言滚动到位）。
     pub visible_first_row: usize,
+    /// 最近一帧布局几何（见 LastLayout）。
+    #[cfg(test)]
+    pub(crate) last_layout: LastLayout,
 }
 
 impl HexCompareView {
@@ -211,6 +233,8 @@ impl HexCompareView {
             cache: None,
             scroll: 0.0,
             visible_first_row: 0,
+            #[cfg(test)]
+            last_layout: LastLayout::default(),
         };
         view.sync_path_edits();
         for path in view.paths().into_iter().rev().flatten() {
@@ -311,7 +335,8 @@ impl HexCompareView {
         });
         if stale {
             let rows = self.build_grid_rows(per_line);
-            self.cache = Some(GridCache { revisions, per_line, filter, context, rows });
+            let thumb_bins = render::thumb_bins(&rows, per_line, render::THUMB_BIN_MAX);
+            self.cache = Some(GridCache { revisions, per_line, filter, context, rows, thumb_bins });
         }
         &self.cache.as_ref().unwrap().rows
     }
@@ -1004,7 +1029,10 @@ impl HexCompareView {
             StatusField::fixed(if self.insert_mode { "Insert" } else { "Overwrite" }, 70.0),
         ];
         if let Some(ms) = self.map.left.load_millis().or(self.map.right.load_millis()) {
-            fields.push(StatusField::fixed(format!("Load time: {ms} ms"), 120.0));
+            fields.push(StatusField::fixed(
+                format!("Load time: {:.2} seconds", ms as f64 / 1000.0),
+                170.0,
+            ));
         }
         fields.push(StatusField::fixed(format!("{:08X}", self.cursor[0]), 90.0));
         fields.push(StatusField::fixed(format!("{:08X}", self.cursor[1]), 90.0));
@@ -1396,18 +1424,46 @@ impl HexCompareView {
             }
         }
         self.find_bar(ui);
+        // 布局：最左缩略图列（52 px，自地址栏下缘起，对齐参考工具）+ 每窗格右缘滚动条（16 px）。
+        let thumb_w = if self.show_thumbnail { render::THUMB_COL_W } else { 0.0 };
+        let region_top = ui.available_rect_before_wrap().top();
         if self.show_file_info {
             ui.horizontal(|ui| {
+                ui.add_space(thumb_w);
                 ui.label(self.file_info_label(0));
                 ui.separator();
                 ui.label(self.file_info_label(1));
             });
         }
 
-        let width = ui.available_width() / if self.side_by_side { 2.0 } else { 1.0 };
         let dark = ui.visuals().dark_mode;
+        // 手工虚拟化滚动（沿用 text 视图约定：自身持有像素偏移 + chrome::wheel）。
+        let available = ui.available_rect_before_wrap();
+        let body = egui::Rect::from_min_max(
+            available.min,
+            egui::pos2(available.right(), (available.bottom() - 26.0).max(available.top() + 60.0)),
+        );
+        let content = egui::Rect::from_min_max(body.min + egui::vec2(thumb_w, 0.0), body.max);
+        let sb = render::SCROLLBAR_W;
+        // 每窗格内容矩形与右缘滚动条矩形（side-by-side：中缝一条 + 最右一条；over-under：上下各一条）。
+        let (panes, bars) = if self.side_by_side {
+            let w = ((content.width() - 2.0 * sb) / 2.0).max(40.0);
+            let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w, content.height()));
+            let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, content.height()));
+            let pane1 = egui::Rect::from_min_size(bar0.right_top(), egui::vec2(w, content.height()));
+            let bar1 = egui::Rect::from_min_size(pane1.right_top(), egui::vec2(sb, content.height()));
+            ([pane0, pane1], [bar0, bar1])
+        } else {
+            let h = (content.height() / 2.0).max(30.0);
+            let w = (content.width() - sb).max(40.0);
+            let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w, h));
+            let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, h));
+            let pane1 = egui::Rect::from_min_max(pane0.left_bottom(), content.max - egui::vec2(sb, 0.0));
+            let bar1 = egui::Rect::from_min_max(pane1.right_top(), content.max);
+            ([pane0, pane1], [bar0, bar1])
+        };
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
-        let row_count = self.grid_rows(width, ui).len();
+        let row_count = self.grid_rows(panes[0].width(), ui).len();
         // 待滚动目标换算为像素（需在取出 cache 前完成借用）。
         let pending_row = self.pending_scroll.take();
         if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
@@ -1416,44 +1472,78 @@ impl HexCompareView {
         let cache = self.cache.take().unwrap();
         let rows_ref = &cache.rows;
         let pane_h = row_count as f32 * style.row_height;
-
-        // 手工虚拟化滚动（沿用 text 视图约定：自身持有像素偏移 + chrome::wheel）。
-        let available = ui.available_rect_before_wrap();
-        let body = egui::Rect::from_min_max(
-            available.min,
-            egui::pos2(available.right(), (available.bottom() - 26.0).max(available.top() + 60.0)),
-        );
-        let delta = crate::chrome::wheel::delta(ui.ctx(), &[body]);
         let max_scroll = (pane_h - body.height()).max(0.0);
+        let delta = crate::chrome::wheel::delta(ui.ctx(), &[body]);
         self.scroll = (self.scroll - delta.y).clamp(0.0, max_scroll);
         ui.advance_cursor_after_rect(body);
 
-        let mut grid_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        // 裁剪到内容区，防止行绘制溢出盖住菜单栏/工具栏（对齐 text 视图约定）。
-        grid_ui.set_clip_rect(body.intersect(ui.clip_rect()));
-        let top = body.min - egui::vec2(0.0, self.scroll);
-        let origins = if self.side_by_side {
-            [top, egui::pos2(top.x + body.width() / 2.0, top.y)]
-        } else {
-            [top, egui::pos2(top.x, top.y + pane_h / 2.0 + style.row_height)]
-        };
-        self.visible_first_row =
-            render::paint_pane(&mut grid_ui, rows_ref, 0, &style, origins[0], dark, self.show_byte_addresses);
-        render::paint_pane(&mut grid_ui, rows_ref, 1, &style, origins[1], dark, self.show_byte_addresses);
-        // 缩略图条（右侧窄条贴视口，不随内容滚动）。
-        if self.show_thumbnail {
-            let strip = egui::Rect::from_min_size(
-                egui::pos2(body.right() - 10.0, body.top()),
-                egui::vec2(10.0, body.height()),
-            );
-            grid_ui.painter().rect_filled(strip, 0.0, egui::Color32::from_rgb(245, 245, 245));
-            for mark in self.thumbnail_marks() {
-                let y = strip.top() + mark * strip.height();
-                grid_ui.painter().line_segment(
-                    [egui::pos2(strip.left(), y), egui::pos2(strip.right(), y)],
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 50, 50)),
-                );
+        // 覆盖层 child：缩略图列与滚动条的命中与绘制（不随内容滚动）。
+        let region = egui::Rect::from_min_max(egui::pos2(body.left(), region_top), body.max);
+        let mut overlay = ui.new_child(egui::UiBuilder::new().max_rect(region));
+        overlay.set_clip_rect(region.intersect(ui.clip_rect()));
+
+        // 缩略图列：点击/拖动迷你图定位页面（“图形框拖动页面”）。
+        let thumb_geom = if self.show_thumbnail {
+            let column = egui::Rect::from_min_max(region.min, egui::pos2(region.left() + thumb_w, region.bottom()));
+            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, body.height());
+            let r = overlay.interact(geom.hit, overlay.scope_id().with("thumbnail"), egui::Sense::click_and_drag());
+            if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
+                if let Some(pos) = r.interact_pointer_pos() {
+                    let f = ((pos.y - geom.inner.top()) / geom.inner.height()).clamp(0.0, 1.0);
+                    self.scroll = render::thumbnail_scroll_at(f, pane_h, body.height());
+                }
             }
+            Some(geom)
+        } else {
+            None
+        };
+        // 两条竖滚动条：点击轨道定位、拖动滑块跟随（两侧共用同一滚动偏移）。
+        let mut bar_resp = Vec::with_capacity(2);
+        for side in 0..2 {
+            let thumb = render::scrollbar_thumb(bars[side], pane_h, body.height(), self.scroll);
+            let r = overlay.interact(
+                bars[side],
+                overlay.scope_id().with(("scrollbar", side)),
+                egui::Sense::click_and_drag(),
+            );
+            if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
+                if let Some(pos) = r.interact_pointer_pos() {
+                    let thumb_h = thumb.map(|t| t.height()).unwrap_or(20.0);
+                    self.scroll = render::scrollbar_scroll_at(pos.y, bars[side], thumb_h, pane_h, body.height());
+                }
+            }
+            bar_resp.push(r);
+        }
+
+        // 双窗格绘制（各自裁剪到窗格，互不越界）。
+        let top = content.min - egui::vec2(0.0, self.scroll);
+        let origins = if self.side_by_side {
+            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y)]
+        } else {
+            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y + pane_h / 2.0 + style.row_height)]
+        };
+        for side in 0..2 {
+            let mut pane_ui = ui.new_child(
+                egui::UiBuilder::new().max_rect(body).id_salt(("hex-pane", side)),
+            );
+            pane_ui.set_clip_rect(panes[side].intersect(ui.clip_rect()));
+            let first = render::paint_pane(&mut pane_ui, rows_ref, side, &style, origins[side], dark, self.show_byte_addresses);
+            if side == 0 {
+                self.visible_first_row = first;
+            }
+        }
+        // 缩略图列与滚动条落笔（hover/drag 时滑块加深）。
+        if let Some(geom) = thumb_geom {
+            render::paint_thumbnail(overlay.painter(), &geom, &cache.thumb_bins, cache.per_line, dark);
+        }
+        for side in 0..2 {
+            let thumb = render::scrollbar_thumb(bars[side], pane_h, body.height(), self.scroll);
+            let hot = bar_resp[side].hovered() || bar_resp[side].dragged();
+            render::paint_scrollbar(overlay.painter(), bars[side], thumb, dark, hot);
+        }
+        #[cfg(test)]
+        {
+            self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h: body.height() };
         }
         self.cache = Some(cache);
 

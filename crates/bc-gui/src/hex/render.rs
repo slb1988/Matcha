@@ -165,6 +165,246 @@ fn paint_placeholder(painter: &egui::Painter, rect: egui::Rect) {
     }
 }
 
+// ---- 缩略图列与竖滚动条（几何对齐参考工具：最左 52 px 缩略图列 + 每窗格右缘 16 px 滚动条）----
+
+/// 缩略图列宽（与表格视图的参考列宽一致）。
+pub const THUMB_COL_W: f32 = 52.0;
+/// 迷你图内框在列内的水平偏移与宽度（参考 01-main.png 实测：列内 x≈16..40 的内容区）。
+pub const THUMB_INNER_X: f32 = 16.0;
+pub const THUMB_INNER_W: f32 = 24.0;
+/// 视口框水平偏移与宽度（参考实测：越过内框两侧，列内 x≈7..45）。
+pub const THUMB_VIEW_X: f32 = 7.0;
+pub const THUMB_VIEW_W: f32 = 38.0;
+/// 缩略图 bins 分辨率上限（行数超出时压缩：每 bin 聚合多行）。
+pub const THUMB_BIN_MAX: usize = 4096;
+/// 竖滚动条宽（参考实测 16 px）。
+pub const SCROLLBAR_W: f32 = 16.0;
+
+/// 缩略图列几何：列矩形、迷你图内框、视口框与命中区。
+#[derive(Debug, Clone, Copy)]
+pub struct ThumbnailGeometry {
+    pub column: egui::Rect,
+    pub inner: egui::Rect,
+    pub viewport: egui::Rect,
+    /// 命中区：内框与视口框的并集（列内空白不响应，对齐参考工具）。
+    pub hit: egui::Rect,
+}
+
+/// 由列矩形、总行数与滚动状态推导缩略图几何。
+/// 内框高度 = min(总行数, 列高-2)（参考：内容每行 1 px，超出列高则压缩到列高）；
+/// 视口框 = 可见区间 [scroll, scroll+view_h] 在全内容高度 content_h 上的占比。
+pub fn thumbnail_geometry(
+    column: egui::Rect,
+    total_rows: usize,
+    scroll: f32,
+    content_h: f32,
+    view_h: f32,
+) -> ThumbnailGeometry {
+    let lines = (total_rows as f32)
+        .min((column.height() - 2.0).max(1.0))
+        .floor()
+        .max(1.0);
+    let inner = egui::Rect::from_min_size(
+        column.min + egui::vec2(THUMB_INNER_X, 1.0),
+        egui::vec2(THUMB_INNER_W, lines),
+    );
+    let top_frac = if content_h > 0.0 { scroll / content_h } else { 0.0 };
+    let view_frac = if content_h > 0.0 { (view_h / content_h).min(1.0) } else { 1.0 };
+    let h = (view_frac * inner.height()).max(3.0).min(inner.height());
+    let y = (inner.top() + top_frac.clamp(0.0, 1.0) * inner.height())
+        .clamp(inner.top(), (inner.bottom() - h).max(inner.top()));
+    let viewport = egui::Rect::from_min_size(
+        egui::pos2(column.left() + THUMB_VIEW_X, y),
+        egui::vec2(THUMB_VIEW_W, h),
+    );
+    let hit = inner.union(viewport).expand(1.0);
+    ThumbnailGeometry { column, inner, viewport, hit }
+}
+
+/// 缩略图 bins：把网格行的差异标记压缩到固定分辨率。
+/// 每 bin 打包为 u32：0 = 无差异；否则 (lo+1)<<16 | (hi+1)（红色横线的水平格号区间）。
+/// 水平区间规则对齐参考工具：Changed 行满宽、LeftOnly 行左半、RightOnly 行右半（混合取并集）。
+pub fn thumb_bins(rows: &[GridRowModel], per_line: usize, resolution: usize) -> Vec<u32> {
+    let total = rows.len();
+    if total == 0 {
+        return Vec::new();
+    }
+    let per_line = per_line.max(1) as u16;
+    let n = total.min(resolution.max(1));
+    let mut bins = vec![0u32; n];
+    for (i, row) in rows.iter().enumerate() {
+        let mut changed = false;
+        let mut left = false;
+        let mut right = false;
+        for cell in &row.cells {
+            match cell.kind {
+                DiffKind::Same => {}
+                DiffKind::Changed => changed = true,
+                DiffKind::LeftOnly => left = true,
+                DiffKind::RightOnly => right = true,
+            }
+        }
+        let range = if changed {
+            Some((0, per_line - 1))
+        } else if left || right {
+            let lo = if left { 0 } else { per_line / 2 };
+            let hi = if right { per_line - 1 } else { per_line / 2 - 1 };
+            Some((lo, hi))
+        } else {
+            None
+        };
+        if let Some((lo, hi)) = range {
+            let bin = &mut bins[i * n / total];
+            let (plo, phi) = match thumb_bin_range(*bin) {
+                Some((l, h)) => (l.min(lo), h.max(hi)),
+                None => (lo, hi),
+            };
+            *bin = ((plo as u32 + 1) << 16) | (phi as u32 + 1);
+        }
+    }
+    bins
+}
+
+/// bin 解包为差异格列号区间（None = 该 bin 无差异）。
+pub fn thumb_bin_range(bin: u32) -> Option<(u16, u16)> {
+    if bin == 0 {
+        None
+    } else {
+        Some((
+            ((bin >> 16) as u16).saturating_sub(1),
+            ((bin & 0xFFFF) as u16).saturating_sub(1),
+        ))
+    }
+}
+
+/// 缩略图列绘制：列底、带边框迷你图（差异行 = 红色像素横线，水平区间对齐参考工具：
+/// Changed 满宽 / LeftOnly 左半 / RightOnly 右半）、视口框。
+pub fn paint_thumbnail(
+    painter: &egui::Painter,
+    geom: &ThumbnailGeometry,
+    bins: &[u32],
+    per_line: usize,
+    dark: bool,
+) {
+    let (column_bg, inner_bg, border, red, view_border) = if dark {
+        (
+            egui::Color32::from_rgb(51, 49, 48),
+            egui::Color32::from_rgb(38, 38, 38),
+            egui::Color32::from_rgb(90, 90, 90),
+            egui::Color32::from_rgb(255, 65, 65),
+            egui::Color32::from_rgb(128, 128, 128),
+        )
+    } else {
+        (
+            egui::Color32::from_rgb(240, 240, 240),
+            egui::Color32::WHITE,
+            egui::Color32::from_rgb(160, 160, 160),
+            egui::Color32::from_rgb(255, 65, 65),
+            egui::Color32::from_rgb(128, 128, 128),
+        )
+    };
+    painter.rect_filled(geom.column, 0.0, column_bg);
+    painter.rect_filled(geom.inner.expand(1.0), 0.0, border);
+    painter.rect_filled(geom.inner, 0.0, inner_bg);
+    if !bins.is_empty() {
+        let lines = geom.inner.height() as usize;
+        let per_line = per_line.max(1) as f32;
+        for line in 0..lines {
+            let b0 = line * bins.len() / lines;
+            let b1 = (((line + 1) * bins.len() / lines).max(b0 + 1)).min(bins.len());
+            let (mut lo, mut hi) = (u16::MAX, 0u16);
+            for &bin in &bins[b0..b1] {
+                if let Some((l, h)) = thumb_bin_range(bin) {
+                    lo = lo.min(l);
+                    hi = hi.max(h);
+                }
+            }
+            if lo != u16::MAX {
+                let y = geom.inner.top() + line as f32;
+                let x0 = geom.inner.left() + lo as f32 / per_line * geom.inner.width();
+                let x1 = geom.inner.left() + (hi as f32 + 1.0) / per_line * geom.inner.width();
+                painter.rect_filled(
+                    egui::Rect::from_min_max(egui::pos2(x0, y), egui::pos2(x1.max(x0 + 1.0), y + 1.0)),
+                    0.0,
+                    red,
+                );
+            }
+        }
+    }
+    painter.rect_stroke(
+        geom.viewport,
+        0.0,
+        egui::Stroke::new(1.0, view_border),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// 缩略图点击/拖动 → 目标滚动偏移（视口中心对齐指针所指的内容比例）。
+pub fn thumbnail_scroll_at(fraction: f32, content_h: f32, view_h: f32) -> f32 {
+    (fraction * content_h - view_h / 2.0).clamp(0.0, (content_h - view_h).max(0.0))
+}
+
+/// 滚动条滑块矩形（内容放得下时 None，参考不画滑块）。
+pub fn scrollbar_thumb(
+    track: egui::Rect,
+    content_h: f32,
+    view_h: f32,
+    scroll: f32,
+) -> Option<egui::Rect> {
+    if content_h <= view_h || track.height() <= 4.0 {
+        return None;
+    }
+    let thumb_h = (view_h / content_h * track.height()).clamp(20.0, track.height());
+    let travel = (track.height() - thumb_h).max(1.0);
+    let max_scroll = content_h - view_h;
+    let frac = if max_scroll > 0.0 { (scroll / max_scroll).clamp(0.0, 1.0) } else { 0.0 };
+    Some(egui::Rect::from_min_size(
+        egui::pos2(track.left() + 2.0, track.top() + travel * frac),
+        egui::vec2((track.width() - 4.0).max(2.0), thumb_h),
+    ))
+}
+
+/// 滚动条点击/拖动 → 目标滚动偏移（滑块中心对齐指针；沿用文件夹视图的轨道定位约定）。
+pub fn scrollbar_scroll_at(pointer_y: f32, track: egui::Rect, thumb_h: f32, content_h: f32, view_h: f32) -> f32 {
+    let max_scroll = (content_h - view_h).max(0.0);
+    let travel = (track.height() - thumb_h).max(1.0);
+    let frac = ((pointer_y - track.top() - thumb_h / 2.0) / travel).clamp(0.0, 1.0);
+    frac * max_scroll
+}
+
+/// 平面竖滚动条绘制（参考实测：浅灰轨道 + 左缘分隔线 + 深灰比例滑块）。
+pub fn paint_scrollbar(
+    painter: &egui::Painter,
+    track: egui::Rect,
+    thumb: Option<egui::Rect>,
+    dark: bool,
+    hot: bool,
+) {
+    let (track_bg, edge, thumb_fg, thumb_hot) = if dark {
+        (
+            egui::Color32::from_rgb(45, 45, 45),
+            egui::Color32::from_rgb(70, 70, 70),
+            egui::Color32::from_rgb(130, 130, 130),
+            egui::Color32::from_rgb(160, 160, 160),
+        )
+    } else {
+        (
+            egui::Color32::from_rgb(240, 240, 240),
+            egui::Color32::from_rgb(160, 160, 160),
+            egui::Color32::from_rgb(133, 133, 133),
+            egui::Color32::from_rgb(105, 105, 105),
+        )
+    };
+    painter.rect_filled(track, 0.0, track_bg);
+    painter.line_segment(
+        [track.left_top(), track.left_bottom()],
+        egui::Stroke::new(1.0, edge),
+    );
+    if let Some(thumb) = thumb {
+        painter.rect_filled(thumb, 2.0, if hot { thumb_hot } else { thumb_fg });
+    }
+}
+
 /// 单侧窗格的可见行绘制。只画 `ui.clip_rect()` 内的行。
 /// 返回首个可见行索引（RawInput 回归断言滚动用）。
 #[allow(clippy::too_many_arguments)]

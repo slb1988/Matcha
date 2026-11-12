@@ -17,6 +17,11 @@
   内联查找栏（hex/文本、大小写）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
   Select All、Undo/Redo、Copy to Other Side Ctrl+R）、Swap/Reload（脏确认）/Recompare、
   Hex Compare Info（四分类）、Session Settings 三页（Specs/Format/Comparison）。
+- 浏览导航件（对齐参考实测几何）：**最左 52 px 缩略图列**（迷你图自地址栏下缘起、内容每行 1 px、
+  超列高压缩；差异行红色像素横线，Changed 满宽 / LeftOnly 左半 / RightOnly 右半；灰色视口框
+  指示可见区间；点击/拖动迷你图定位页面）+ **每窗格右缘 16 px 竖滚动条**（比例滑块、轨道定位、
+  内容放得下时不画滑块）。过滤模式下缩略图映射当前显示行（参考映射全文件坐标，已知偏离）。
+- 状态栏：结论（Binary same/differences）｜Insert/Overwrite｜Load time: x.xx seconds｜每侧光标地址。
 - 加载分层：< 2 MB（可配）整载不加锁可编辑；≥ 阈值 mmap 只读（初版禁编辑/保存）。
 - 入口：Home 会话卡、`*.bin` 掩码路由、`/fv="Hex Compare"`、Text/Table 的 Compare Files Using 互切、
   空会话逐侧打开。
@@ -27,7 +32,7 @@
 |---|---|---|
 | 对齐原语 | `crates/bc-core/src/align.rs` | `ByteAlign` 三档 + 锚窗/细化上限常量（REA 校准） |
 | 引擎 | `crates/bc-engine-bin/src/hex/` | `mod.rs`（HexRules/HexStats/HexMap/pack_rows/filtered_rows）、`content.rs`（加载/保存/写入门禁）、`jobs.rs`（后台对齐 + revision） |
-| 视图 | `crates/bc-gui/src/hex/` | `view.rs`（控制器/命令/编辑/导航）、`render.rs`（网格模型+绘制）、`menu.rs`（五菜单）、`settings.rs`（三页设置）、`worker.rs`（后台 worker） |
+| 视图 | `crates/bc-gui/src/hex/` | `view.rs`（控制器/命令/编辑/导航）、`render.rs`（网格模型+绘制、缩略图列与滚动条几何/绘制）、`menu.rs`（五菜单）、`settings.rs`（三页设置）、`worker.rs`（后台 worker） |
 | 黄金语料 | `crates/bc-core/tests/golden/hex/` | `corpus.rs` 确定性生成器（与 docs 语料逐字节一致） |
 
 ## 关键语义
