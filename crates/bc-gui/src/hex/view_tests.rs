@@ -799,19 +799,21 @@ fn scrollbar_click_and_drag_scroll() {
     pointer_frame(&ctx, &mut v, vec![primary(egui::pos2(grab.x, drop_y), false)]);
 }
 
+/// RawInput 注入用的拖放文件桩。
+#[derive(Debug)]
+struct DropPath(std::path::PathBuf);
+impl egui::DroppedFile for DropPath {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
 /// 系统拖放：按落点替换该侧（不是活动侧）；该侧有未保存编辑时拒绝。
 #[test]
 fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
-    #[derive(Debug)]
-    struct DropPath(std::path::PathBuf);
-    impl egui::DroppedFile for DropPath {
-        fn path(&self) -> &std::path::Path {
-            &self.0
-        }
-        fn bytes(&self) -> Result<Vec<u8>, String> {
-            std::fs::read(&self.0).map_err(|e| e.to_string())
-        }
-    }
     let dir = std::env::temp_dir().join(format!("matcha-hex-drop-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("dropped.bin");
@@ -840,6 +842,55 @@ fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
     assert_eq!(v.content(1).source(), Some(file.as_path()));
     assert!(v.content(0).source().is_none());
     assert_eq!(v.active_side, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 系统拖放两个文件：成对载入左右（不看落点）；任一侧脏则整体拒绝。
+#[test]
+fn os_drop_two_files_sets_left_and_right() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-drop-pair-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let left = dir.join("pair-left.bin");
+    let right = dir.join("pair-right.bin");
+    let right2 = dir.join("pair-right2.bin");
+    std::fs::write(&left, [1u8, 2, 3]).unwrap();
+    std::fs::write(&right, [4u8, 5, 6]).unwrap();
+    std::fs::write(&right2, [7u8, 8]).unwrap();
+    let drop_at = |ctx: &egui::Context, v: &mut HexCompareView, pos: egui::Pos2, paths: [&std::path::Path; 2]| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+            events: vec![egui::Event::PointerMoved(pos)],
+            dropped_files: vec![
+                std::sync::Arc::new(DropPath(paths[0].to_path_buf())),
+                std::sync::Arc::new(DropPath(paths[1].to_path_buf())),
+            ],
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+        out.textures_delta.clear();
+    };
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(vec![0], vec![9]);
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    // 即使落点在右窗格，两个文件也成对进左右。
+    drop_at(&ctx, &mut v, egui::pos2(1100.0, 500.0), [&left, &right]);
+    ready(&mut v);
+    assert_eq!(v.content(0).source(), Some(left.as_path()));
+    assert_eq!(v.content(1).source(), Some(right.as_path()));
+    // 左侧有未保存编辑：成对拖入整体拒绝，两侧保留原内容。
+    v.dirty[0] = true;
+    drop_at(&ctx, &mut v, egui::pos2(300.0, 500.0), [&left, &right2]);
+    ready(&mut v);
+    assert_eq!(v.content(0).source(), Some(left.as_path()));
+    assert_eq!(v.content(1).source(), Some(right.as_path()));
+    assert!(v.message.contains("左"), "dirty side refusal message, got {}", v.message);
+    // 清除脏标记后再拖入：两侧一起更新。
+    v.dirty[0] = false;
+    drop_at(&ctx, &mut v, egui::pos2(300.0, 500.0), [&left, &right2]);
+    ready(&mut v);
+    assert_eq!(v.content(0).source(), Some(left.as_path()));
+    assert_eq!(v.content(1).source(), Some(right2.as_path()));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

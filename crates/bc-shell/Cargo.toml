@@ -11,3 +11,6 @@ bc-formats = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"

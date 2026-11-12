@@ -286,6 +286,35 @@ impl HexCompareView {
         }
     }
 
+    /// 系统拖放两个文件：左右成对替换（单次重对齐）。成对替换是原子的——任一侧
+    /// 有未保存编辑或加载失败都整体拒绝并提示，不留半新半旧的比较。
+    pub fn drop_pair(&mut self, left: &Path, right: &Path) {
+        if self.dirty[0] || self.dirty[1] {
+            let side = if self.dirty[0] { "左" } else { "右" };
+            self.message = format!("{side}侧有未保存的编辑，先保存或撤销后再拖入");
+            return;
+        }
+        let threshold = self.map.rules.lock_threshold;
+        let mut load = |path: &Path| -> Option<HexContent> {
+            match HexContent::load(path, threshold) {
+                Ok(content) => Some(content),
+                Err(e) => {
+                    self.message = e.to_string();
+                    None
+                }
+            }
+        };
+        let (Some(left_content), Some(right_content)) = (load(left), load(right)) else {
+            return;
+        };
+        self.map.left = left_content;
+        self.map.right = right_content;
+        self.dirty = [false, false];
+        self.remember(left);
+        self.remember(right);
+        self.recompare();
+    }
+
     /// 统计（四分类）。
     pub fn stats(&self) -> HexStats {
         self.map.stats()
@@ -1577,12 +1606,21 @@ impl HexCompareView {
             self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h: body.height() };
         }
         self.cache = Some(cache);
-        // 系统文件拖放：按落点（窗格/滚动条/地址栏）替换对应一侧；对话框打开时忽略。
-        let targets = (0..2).flat_map(|s| [(s, panes[s]), (s, bars[s]), (s, header_rects[s])]);
-        if let Some((side, path)) = crate::chrome::drop::dropped_on(ui.ctx(), targets, self.active_side)
-            .filter(|_| !modal)
-        {
-            self.drop_path(side, &path);
+        // 系统文件拖放：单文件按落点（窗格/滚动条/地址栏）替换对应一侧；同时拖入
+        // 两个文件成对载入左右（与主页拖入两个文件一致，不看落点）；对话框打开时忽略。
+        let dropped = crate::chrome::drop::dropped_paths(ui.ctx());
+        if !dropped.is_empty() && !modal {
+            if dropped.len() >= 2 {
+                self.drop_pair(&dropped[0], &dropped[1]);
+            } else {
+                let targets = (0..2).flat_map(|s| [(s, panes[s]), (s, bars[s]), (s, header_rects[s])]);
+                let side = crate::chrome::drop::side_at(
+                    crate::chrome::drop::drop_pos(ui.ctx()),
+                    targets,
+                    self.active_side,
+                );
+                self.drop_path(side, &dropped[0]);
+            }
         }
 
         statusbar::show(ui, &self.status_fields());

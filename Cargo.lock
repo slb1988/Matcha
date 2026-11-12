@@ -274,6 +274,7 @@ name = "bc-shell"
 version = "0.1.0"
 dependencies = [
  "bc-formats",
+ "core-graphics",
  "windows-sys 0.61.2",
 ]
 

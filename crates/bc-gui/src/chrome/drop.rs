@@ -1,11 +1,13 @@
 //! OS file drops onto two-sided views: which side did the drop land on?
 //!
-//! winit reports a drop without coordinates, and on Windows the window receives
-//! no mouse moves during an Explorer drag, so `pointer.hover_pos()` is stale or
-//! `None` when the drop arrives (it used to fall back to the active side, so a
-//! file dropped on the right pane replaced the left). The drop point is taken
-//! from the OS cursor instead, mapped into egui points through the viewport's
-//! inner rect; egui's pointer is only the fallback (other platforms, tests).
+//! winit reports a drop without coordinates, and the window receives no mouse
+//! moves while an OS file drag is in progress (Windows OLE drag; macOS dragging
+//! session), so `pointer.hover_pos()` is stale or `None` when the drop arrives
+//! (it used to fall back to the active side, so a file dropped on the right
+//! pane replaced the left). The drop point is taken from the OS cursor instead
+//! (`bc_shell::cursor_screen_pos`, Windows `GetCursorPos` / macOS
+//! `CGEventCreate`), mapped into egui points through the viewport's inner rect;
+//! egui's pointer is only the fallback (other platforms, tests).
 //!
 //! The side is the pane whose rect is nearest to the drop point, so a drop on a
 //! pane's path bar, column header or status strip still picks that pane.
@@ -18,11 +20,11 @@ pub fn drop_pos(ctx: &egui::Context) -> Option<egui::Pos2> {
 }
 
 fn os_cursor(ctx: &egui::Context) -> Option<egui::Pos2> {
-    let (x, y) = bc_shell::cursor_screen_pos()?;
+    let ppp = ctx.pixels_per_point();
+    let (x, y) = bc_shell::cursor_screen_pos(f64::from(ppp))?;
     // Desktop coordinates of the client area, in points (egui-winit divides the
     // physical inner position by the same pixels-per-point as `ctx`).
     let inner = ctx.input(|i| i.viewport().inner_rect)?;
-    let ppp = ctx.pixels_per_point();
     let pos = egui::pos2(x as f32 / ppp, y as f32 / ppp) - inner.min.to_vec2();
     pos.is_finite().then_some(pos)
 }

@@ -62,7 +62,7 @@
 //! * `MATCHA_SHELL_ROOT` – registry root relative to HKCU instead of
 //!   `Software\Classes` (tests use a private `Software\Matcha-test-*` key).
 //! * `MATCHA_SHELL_STATE_DIR` – state directory instead of `%APPDATA%\Matcha`.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod cursor;
 pub mod layout;
 pub mod registry;
@@ -72,16 +72,20 @@ mod windows;
 
 pub use layout::{Class, Left, Targets, Verb};
 
-/// Desktop cursor position in physical pixels; `None` off Windows (where the
-/// GUI's own pointer position is used instead). The GUI needs it to locate an
-/// OS file drop, whose coordinates winit does not report.
-pub fn cursor_screen_pos() -> Option<(i32, i32)> {
-    #[cfg(windows)]
+/// Desktop cursor position in physical pixels; `None` on platforms without an
+/// OS query (where the GUI's own pointer position is used instead). The GUI
+/// needs it to locate an OS file drop, whose coordinates winit does not
+/// report. `pixels_per_point` is the window's scale factor: macOS reads the
+/// cursor in CoreGraphics points and converts with it; Windows returns
+/// physical pixels already and ignores it.
+pub fn cursor_screen_pos(pixels_per_point: f64) -> Option<(i32, i32)> {
+    #[cfg(any(windows, target_os = "macos"))]
     {
-        cursor::screen_pos()
+        cursor::screen_pos(pixels_per_point)
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
+        let _ = pixels_per_point;
         None
     }
 }
