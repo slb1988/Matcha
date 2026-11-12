@@ -16,7 +16,7 @@
 
 - `ColumnMapping::by_number` 保留默认 1:1；`align_columns` 按归一化表头优先、1000 行内容/类型采样兜底，返回插入/删除/可能重命名/移动标记。`move_to` 可移动单侧或整条比较列，`tidy` 去掉双侧空映射。
 - `ColumnHandling::resolved` 应用 Use Default，Key 始终是逐列属性。General/Text、数值/日期容差、大小写/空白、不重要均可 serde 往返。
-- `infer_keys` 全行唯一性验证，权重为左右唯一性各 0.20、Jaccard 0.35、位置稳定性 0.20、靠左先验 0.05；阈值 0.8 且两侧必须唯一。单列失败才试相邻双列；失败为全部列。自动建议有显式“自动”标注，用户修改后 Manual 锁定。
+- `infer_keys` 全行唯一性验证，权重为左右唯一性各 0.20、Jaccard 0.35、位置稳定性 0.20、靠左先验 0.05；阈值 0.8 且两侧必须唯一。单列失败才试相邻双列；失败保持空「自动」（内容对齐：相似行配对为变更行，而非孤行）。自动建议有显式“自动”标注，用户修改后 Manual 锁定。
 - `KeySelection::ByColumnNumber` 是兼容预设（列按序、全部列作键），不等于行 Unaligned；行策略独立指定。
 - `SheetPairs::by_name/move_to` 支持左/右来源顺序、单侧 sheet、同文件不同 sheet，无文件所有权混用。
 

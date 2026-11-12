@@ -451,11 +451,20 @@ pub fn infer_keys_data<S: TableData + Sync>(
             .collect();
         candidates.extend(score_wave(left, right, rules, &pairs, cancel)?);
     }
-    let selection =
-        best(&candidates).map_or(KeySelection::AllColumns, |c| KeySelection::Automatic {
+    // No column qualified: stay in empty-Automatic (content alignment) rather
+    // than AllColumns — an explicit AllColumns selection means "every column
+    // is key" (any change orphans the row), while a missing suggestion means
+    // "no keys; align rows by content" and similar rows pair as changed.
+    let selection = best(&candidates).map_or(
+        KeySelection::Automatic {
+            columns: Vec::new(),
+            score: 0.0,
+        },
+        |c| KeySelection::Automatic {
             columns: c.columns.clone(),
             score: c.score,
-        });
+        },
+    );
     Ok(KeySuggestion {
         selection,
         candidates,

@@ -409,9 +409,13 @@ fn row_text<S: TableData + Sync>(sheet: &S, order: &[usize], cancel: &dyn Cancel
     }
     Ok(LineList::from_bytes(text))
 }
-/// Verify-filter one contiguous range of aligned rows: unforced pairs whose
-/// hashes or keys disagree split into a left/right-only pair, everything else
-/// passes through. Concatenating chunk outputs in row order reproduces the
+/// Verify-filter one contiguous range of aligned rows: in keyed mode (key
+/// columns are a proper subset), unforced pairs whose hashes or keys disagree
+/// split into a left/right-only pair; everything else passes through. In
+/// content mode (no explicit keys — every column feeds the row hash) the split
+/// would fire on ANY cell change, so closeness-paired rows are kept and their
+/// cell differences surface as changed rows instead.
+/// Concatenating chunk outputs in row order reproduces the
 /// historical sequential filter exactly; `keys_equal`/`anchors` are read-only
 /// shares, so the result never depends on scheduling.
 #[allow(clippy::too_many_arguments)]
@@ -422,6 +426,7 @@ fn verify_filter_chunk<S: TableData>(
     orders: (&[usize], &[usize]),
     rules: &TableRules,
     keys: &[(usize, ColumnHandling)],
+    keyed: bool,
     hashes: (&[ContentHash], &[ContentHash]),
     anchors: &AlignmentOverrides,
     cancel: &dyn CancelCheck,
@@ -436,7 +441,9 @@ fn verify_filter_chunk<S: TableData>(
         if let (Some(l), Some(r)) = (row.left, row.right) {
             let forced = rules.strategy == AlignStrategy::None
                 || anchors.pairs().binary_search(&(l, r)).is_ok();
-            if !forced && (lh[l] != rh[r] || !keys_equal(left, right, lo[l], ro[r], rules, keys))
+            if keyed
+                && !forced
+                && (lh[l] != rh[r] || !keys_equal(left, right, lo[l], ro[r], rules, keys))
             {
                 out.push(AlignRow {
                     left: Some(l),
@@ -634,6 +641,9 @@ impl KeyAlign {
         let t = std::time::Instant::now();
         let map_rows = map.into_rows();
         let threads = crate::perf::phase_threads(map_rows.len());
+        // Same definition as the report's `key:` line: content alignment (no
+        // real key columns) must not verify-split closeness pairs.
+        let keyed = !rules.content_aligned();
         let mut filtered = Vec::with_capacity(map_rows.len());
         if threads < 2 {
             filtered.extend(verify_filter_chunk(
@@ -643,6 +653,7 @@ impl KeyAlign {
                 (&lo, &ro),
                 rules,
                 &keys,
+                keyed,
                 (&lh, &rh),
                 &anchors,
                 cancel,
@@ -660,6 +671,7 @@ impl KeyAlign {
                             (&lo, &ro),
                             rules,
                             &keys,
+                            keyed,
                             (&lh, &rh),
                             &anchors,
                             cancel,

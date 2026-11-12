@@ -184,6 +184,18 @@ impl TableRules {
             _ => (0..self.columns.0.len()).collect(),
         }
     }
+    /// True when rows align by content (no effective key columns): automatic
+    /// inference found no keys, or the user cleared the manual selection.
+    /// `AllColumns`/`ByColumnNumber` are real key selections — any cell change
+    /// means a different row — so they are NOT content alignment even though
+    /// `key_columns()` covers every column for them.
+    pub fn content_aligned(&self) -> bool {
+        match &self.keys {
+            KeySelection::Automatic { columns, .. } => columns.is_empty(),
+            KeySelection::Manual(columns) => columns.is_empty(),
+            KeySelection::AllColumns | KeySelection::ByColumnNumber => false,
+        }
+    }
     pub fn set_manual_keys(&mut self, columns: Vec<usize>) -> Result<()> {
         if columns.iter().any(|&i| i >= self.columns.0.len()) {
             return Err(invalid("key column out of range"));

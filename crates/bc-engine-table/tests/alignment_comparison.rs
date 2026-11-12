@@ -125,6 +125,45 @@ fn manual_anchors_override_keys_and_clear_restores_automatic() {
     }
 }
 #[test]
+fn content_alignment_pairs_changed_rows_explicit_all_columns_orphans() {
+    // No unique column anywhere: key inference finds nothing and rows align
+    // by content. A one-cell change must pair as a changed row, not split
+    // into a left-only/right-only orphan pair (the verify filter only splits
+    // real key selections).
+    let l = table(&[&["a", "1"], &["b", "2"], &["b", "2"]]);
+    let r = table(&[&["a", "1"], &["b", "2"], &["b", "9"]]);
+    let map = TableMap::new(
+        l.clone(),
+        r.clone(),
+        TableRules::default(),
+        &NeverCancel,
+    )
+    .unwrap();
+    assert!(matches!(
+        map.rules().keys,
+        KeySelection::Automatic { ref columns, .. } if columns.is_empty()
+    ));
+    let stats = map.statistics();
+    assert_eq!(stats.same, 2);
+    assert_eq!(stats.important, 1);
+    assert_eq!(stats.left_only, 0);
+    assert_eq!(stats.right_only, 0);
+    assert_eq!(map.row_count(), 3);
+    // Explicit "all columns are keys" keeps orphan semantics: any cell change
+    // means a different row.
+    let explicit = TableRules {
+        columns: ColumnMapping::by_number(2, 2),
+        keys: KeySelection::AllColumns,
+        ..Default::default()
+    };
+    let stats = TableMap::new(l, r, explicit, &NeverCancel)
+        .unwrap()
+        .statistics();
+    assert_eq!(stats.same, 2);
+    assert_eq!(stats.left_only, 1);
+    assert_eq!(stats.right_only, 1);
+}
+#[test]
 fn key_handling_normalization_and_tolerance_cross_bucket_boundary() {
     let l = table(&[&["  APPLE  pie ", "old"]]);
     let r = table(&[&["apple pie", "new"]]);

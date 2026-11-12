@@ -10,6 +10,7 @@ Rust workspace：Matcha（Beyond Compare 风格比较工具）。主程序为 `a
 
 ## 文档纪律
 
+- **每次变动更新 `CHANGELOGS.md`**（仓库根目录，最新在最上）。
 - **功能文档在 `docs/features/`**：每个用户可感知的功能一篇（索引与维护约定见 `docs/features/README.md`）。这是 AI/新人了解功能的入口：先读这里，再按链接进 crate README 与 ADR。
 - **新功能落地前**：先建/更新对应 feature 文档（功能简介、验收方式），再写代码；文件名 kebab-case，尽量与 openspec change 同名。
 - **功能行为变化时**（语义、开关、退出码、UI 交互、文件格式任一）：同一次提交同步更新对应 feature 文档；文档与代码冲突视为缺陷。

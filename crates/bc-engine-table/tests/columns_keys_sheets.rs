@@ -94,9 +94,14 @@ fn adjacent_composite_key_and_no_suitable_key() {
         Cell::text("a"),
         Cell::text("constant"),
     ]);
+    // No suitable key: stay in empty-Automatic (content alignment) instead of
+    // AllColumns, so similar rows pair as changed rather than orphaning.
     assert_eq!(
         infer_keys(&l, &l, &rules, &NeverCancel).unwrap().selection,
-        KeySelection::AllColumns
+        KeySelection::Automatic {
+            columns: Vec::new(),
+            score: 0.0,
+        }
     );
     assert!(infer_keys(&l, &l, &rules, &|| true).is_err());
 }
