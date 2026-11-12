@@ -8,9 +8,9 @@
 - 唯一依赖 GUI 工具包的 crate：`bc-gui`（eframe 0.37，glow 后端）；引擎 crate 全部平台中性。
 - Home：路径框、双文件/文件夹拖放、最近文件对。会话树默认展开 New 与 Auto-saved；Auto-saved 下
   按本地日期分组（Today / Yesterday / N days ago / More than 6 days ago，仅 Today 默认展开），
-  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matcha
-ecent-text.txt`（v2：首行
+  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matcha\recent-text.txt`（v2：首行
   `# matcha recent v2`，每行 `纪元秒	左	右`；旧的两行一对格式以文件修改时间读入）。
+  记录与读入时统一还原 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，地址栏只见常规路径。
 - 比较视图（文本/表格/Hex/文件夹/同步）：把文件从资源管理器拖到哪一侧就替换哪一侧（按落点判定，
   与当前活动侧无关）。
 - 视图：`text/`（文本比较）、`dir_view.rs`（文件夹）、`sync_view.rs`（同步）、
@@ -48,6 +48,8 @@ ecent-text.txt`（v2：首行
 - **路径框粘贴**：所有路径编辑框（`chrome::pathbar` 与文件夹/同步视图路径框）粘贴时去掉
   首尾空白及成对包住整段的双引号（Explorer「复制为路径」的格式）；Ctrl+V 与右键 Paste 同一规则，
   见 `pathbar::clean_pasted_path`。
+- **路径框右键菜单**：选区内右击保留选区（Cut/Copy/Delete 可用）——egui 在右键按下帧就折叠
+  选区，故恢复发生在按下帧而非 `secondary_clicked` 的释放帧；点在选区外则按系统惯例收拢选区。
 - **系统文件拖放落点**（`chrome::drop`）：winit 投递拖放事件时不带坐标，且 Windows OLE 拖动期间
   窗口收不到鼠标移动，egui 指针位置在落下时是旧值或空（曾因此回落到活动侧：拖到右栏却换了左栏）。
   落点改取系统光标（`bc_shell::cursor_screen_pos` → `GetCursorPos`，按视口 inner rect 与
