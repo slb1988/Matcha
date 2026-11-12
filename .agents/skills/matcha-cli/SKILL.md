@@ -81,6 +81,10 @@ rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 1 same
 `~` 改动行、`-` 仅左、`+` 仅右；键列自动推断（推断不出时 `key: (none; …)`，改动行会显示成
 `-`/`+` 一对）。格式细节见 `docs/features/reports.md`。
 
+表头没被识别时列名是字母（`A=4069`、`F (F70): …`）。加 `/reportoptions=title-row:1` 把第 1 行
+（Excel 行号）的内容附在列名后：`~ A[ID]=4069  (…)`、`    F[Name] (F70): old -> new`。
+可与其他选项逗号连用：`/reportoptions=ignore-unimportant,title-row:1`。
+
 ### 3. 只要退出码不要输出（CI 判断两个文件是否相同）
 
 ```bat

@@ -343,6 +343,8 @@ pub fn usage() -> String {
         "                          patch-context or patch-unified; summary = table",
         "                          diff (xlsx/xlsm/csv; patch* on xlsx does the same)",
         "  /reportoptions=<list>   Report options, e.g. ignore-unimportant",
+        "                          (comma-separated); table reports also take",
+        "                          title-row:<n> to label columns with row <n>",
         "  /reportfile=<path>      Write the report to a file (default: standard output)",
         "",
         "Explorer context menu (Matcha):",

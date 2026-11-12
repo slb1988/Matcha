@@ -65,7 +65,11 @@ impl Renderer for TableReportRenderer<'_> {
                 layout: request.layout,
             });
         }
-        Ok(Report::Text(render(self.files, self.sheets)))
+        Ok(Report::Text(render(
+            self.files,
+            self.sheets,
+            request.options.title_row,
+        )))
     }
 }
 
@@ -107,8 +111,8 @@ fn state_of(sheet: &SheetComparison) -> State {
     }
 }
 
-/// 渲染整份报告。
-pub fn render(files: [&str; 2], sheets: &[SheetComparison]) -> String {
+/// 渲染整份报告。`title_row`：见 [`crate::ReportOptions::title_row`]。
+pub fn render(files: [&str; 2], sheets: &[SheetComparison], title_row: Option<usize>) -> String {
     let states: Vec<State> = sheets.iter().map(state_of).collect();
     let count = |s: State| states.iter().filter(|&&x| x == s).count();
     let overall = if states
@@ -173,7 +177,7 @@ pub fn render(files: [&str; 2], sheets: &[SheetComparison]) -> String {
                     )
                 };
                 let _ = writeln!(out, "=== {title}: {}", state.label());
-                render_sheet(&mut out, left, right, map);
+                render_sheet(&mut out, left, right, map, title_row);
             }
         }
     }
@@ -185,18 +189,49 @@ fn quote_name(name: &str) -> String {
     format!("\"{}\"", escape(name, false).replace('"', "\\\""))
 }
 
-fn render_sheet(out: &mut String, ls: &SheetSide, rs: &SheetSide, map: &TableMap) {
+fn render_sheet(
+    out: &mut String,
+    ls: &SheetSide,
+    rs: &SheetSide,
+    map: &TableMap,
+    title_row: Option<usize>,
+) {
     let rules = map.rules();
     let left = map.left.borrow();
     let right = map.right.borrow();
     let columns = &rules.columns.0;
+    // `title-row:<n>`：每个对齐列在标题行上的文字（左侧优先，左侧为空/无此列时取右侧）。
+    let titles: Vec<String> = columns
+        .iter()
+        .map(|column| {
+            let Some(n) = title_row else {
+                return String::new();
+            };
+            let lt = column
+                .left
+                .and_then(|i| title_text(&left, ls, n, i))
+                .unwrap_or_default();
+            if !lt.is_empty() {
+                return lt;
+            }
+            column
+                .right
+                .and_then(|i| title_text(&right, rs, n, i))
+                .unwrap_or_default()
+        })
+        .collect();
     let name_of = |c: usize| -> String {
         let column = &columns[c];
-        column
+        let name = column
             .left
             .map(|i| column_name(&left, ls, i))
             .or_else(|| column.right.map(|i| column_name(&right, rs, i)))
-            .unwrap_or_else(|| (c + 1).to_string())
+            .unwrap_or_else(|| (c + 1).to_string());
+        match titles[c].as_str() {
+            "" => name,
+            title if title == name => name,
+            title => format!("{name}[{title}]"),
+        }
     };
 
     let keys = rules.key_columns();
@@ -418,6 +453,18 @@ fn column_name(sheet: &SheetStore, side: &SheetSide, column: usize) -> String {
     } else {
         sheet.column_name(column)
     }
+}
+
+/// 标题行 `n`（1 起源行号）在第 `column` 列的文字；连续空白（含换行、制表）压成一个空格，
+/// 保证标题单行（单元格行里列名还会整体转义一次，这里不预先转义）。
+/// 该行已被当作表头吃掉（`n <= header_rows`）或超出数据范围时为 `None`：前者列名本身就是标题。
+fn title_text(sheet: &SheetStore, side: &SheetSide, n: usize, column: usize) -> Option<String> {
+    let row = n.checked_sub(1 + side.header_rows)?;
+    if row >= sheet.row_count() {
+        return None;
+    }
+    let text = sheet.display_at(row, column)?;
+    Some(text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
 /// 0 起列下标 → Excel 列字母（0 → A，26 → AA）。

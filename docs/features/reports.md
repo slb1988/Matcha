@@ -24,7 +24,7 @@
   文件格式库读取）。
 - `matcha /report=patch… left.xlsx right.xlsx`：任一侧是 xlsx/xlsm 时自动改为表格
   `summary`（二进制工作簿不能做文本 patch）；CSV 仍走文本 patch。
-- 脚本：`table-report layout:summary [options:ignore-unimportant] output-to:-|<file> a b`
+- 脚本：`table-report layout:summary [options:ignore-unimportant,title-row:<n>] output-to:-|<file> a b`
   （`data-report` 同义）。
 
 格式（UTF-8，LF 换行，无 BOM；只列差异，相同行不出现）：
@@ -51,6 +51,13 @@ rows: 1 changed, 0 unimportant, 0 left-only, 1 right-only, 1 same
   不论名字都配对（与 GUI 一致），否则按名字配对。
 - 行标题 = 键值（自动推断，与 GUI 默认相同；推断失败时用全部列）+ 两侧源行号（1 起，含表头
   行，即 Excel 行号）。只含不重要差异的行写 `~ … (unimportant)`。
+- 列标题行 `title-row:<n>`（Matcha 扩展，命令行写 `/reportoptions=title-row:1`；`n` 为 1 起的
+  Excel 行号）：报告中出现列名的地方（`key:`、行标题键值、单侧行、单元格行）写成
+  `列名[标题]`，标题取该列第 `n` 行的显示文字（左侧优先，左侧为空或无此列取右侧；连续空白压成
+  一个空格）。主要用于表头未被自动识别、列名只是字母的工作簿：
+  `~ A[ID]=4069  (left row 70, right row 70)` / `    F[Name] (F70): old -> new`。
+  该行已被识别为表头（列名就是标题）、超出数据范围、标题为空或与列名相同时不附加。
+  不加该选项时输出与之前逐字节相同，版本号不变。
 - 单元格引用：工作簿给 A1 引用，两侧不同时写 `(left C2, right D3)`；CSV 无引用。
 - `columns:` 小节列出列插入（`+`）/ 删除（`-`）/ 重命名、移动（`~`）。
 - 值转义：`\\`、`\n`、`\r`、`\t` 与控制字符转义；空值写 `(empty)`；首尾带空白或与保留字冲突时

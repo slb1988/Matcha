@@ -438,6 +438,17 @@ pub fn parse_report_arguments(
                         "line-numbers" => options.line_numbers = true,
                         "strikeout-left-diffs" => options.strikeout_left_diffs = true,
                         "strikeout-right-diffs" => options.strikeout_right_diffs = true,
+                        // Matcha extension (table-report): `title-row:<n>`, 1-based row.
+                        lower if lower.starts_with("title-row:") => {
+                            let n = lower["title-row:".len()..].trim();
+                            options.title_row = Some(
+                                n.parse::<usize>().ok().filter(|&n| n > 0).ok_or_else(|| {
+                                    CommandError::syntax(format!(
+                                        "title-row needs a row number of 1 or more, got {n:?}"
+                                    ))
+                                })?,
+                            );
+                        }
                         // Deprecated; no effect on the patch layout.
                         "stats-descriptive" | "stats-tabular" => {}
                         _ => {

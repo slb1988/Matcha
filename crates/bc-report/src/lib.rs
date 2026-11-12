@@ -93,6 +93,10 @@ pub struct ReportOptions {
     /// `column-*` flags; empty = defaults (size, timestamp); `column-none` = explicit empty.
     pub columns: Option<Vec<String>>,
     pub include_file_links: bool,
+    // table-report
+    /// `title-row:<n>`（Matcha 扩展）：把源数据第 n 行（1 起，Excel 行号）的单元格当作列标题，
+    /// 附在报告的列名后（`A[ID]`）。表头已被识别时该行就是列名本身，不再重复。
+    pub title_row: Option<usize>,
 }
 
 /// `output-to:` target.

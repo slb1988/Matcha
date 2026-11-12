@@ -311,3 +311,63 @@ fn shortcut_routing_and_errors() {
     assert!(run.stdout.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn title_row_labels_lettered_columns() {
+    let dir = folder("title-row");
+    // All-text columns: the header is not detected, so columns are named by letter.
+    let left: &[&[&str]] = &[
+        &["ID", "Name"],
+        &["x1", "WaterCrab"],
+        &["x2", "Slime"],
+        &["x3", "Bat"],
+    ];
+    let right: &[&[&str]] = &[
+        &["ID", "Name"],
+        &["x1", "Chameleon"],
+        &["x2", "Slime"],
+        &["x3", "Bat"],
+    ];
+    std::fs::write(dir.join("a.xlsx"), workbook(&[("S", left)])).unwrap();
+    std::fs::write(dir.join("b.xlsx"), workbook(&[("S", right)])).unwrap();
+    let plain = report(&dir, "summary", None, "a.xlsx", "b.xlsx");
+    assert!(
+        plain
+            .stdout
+            .contains("\n    B (B2): WaterCrab -> Chameleon\n"),
+        "{}",
+        plain.stdout
+    );
+    let titled = report(&dir, "summary", Some("title-row:1"), "a.xlsx", "b.xlsx");
+    assert_eq!(titled.code, ExitCode::Success, "{}", titled.stderr);
+    let body = titled.stdout.split_once("\n\n").unwrap().1;
+    assert_eq!(
+        body,
+        "=== sheet \"S\": different\n\
+         key: A[ID]\n\
+         rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 3 same\n\
+         ~ A[ID]=x1  (left row 2, right row 2)\n    B[Name] (B2): WaterCrab -> Chameleon\n"
+    );
+
+    // A detected header already names the columns: title-row:1 changes nothing.
+    let header: &[&[&str]] = &[&["id", "v"], &["1", "a"], &["2", "b"], &["3", "c"]];
+    let header2: &[&[&str]] = &[&["id", "v"], &["1", "a"], &["2", "B"], &["3", "c"]];
+    std::fs::write(dir.join("h1.xlsx"), workbook(&[("S", header)])).unwrap();
+    std::fs::write(dir.join("h2.xlsx"), workbook(&[("S", header2)])).unwrap();
+    let plain = report(&dir, "summary", None, "h1.xlsx", "h2.xlsx");
+    let titled = report(&dir, "summary", Some("title-row:1"), "h1.xlsx", "h2.xlsx");
+    assert_eq!(plain.stdout, titled.stdout);
+    // …while a later row is appended to the header name.
+    let titled = report(&dir, "summary", Some("title-row:2"), "h1.xlsx", "h2.xlsx");
+    assert!(
+        titled
+            .stdout
+            .contains("\n~ id[1]=2  (left row 3, right row 3)\n    v[a] (B3): b -> B\n"),
+        "{}",
+        titled.stdout
+    );
+
+    let e = shortcut_command("summary", Some("title-row:0"), None, "a.xlsx", "b.xlsx").unwrap_err();
+    assert!(e.message.contains("title-row"), "{}", e.message);
+    let _ = std::fs::remove_dir_all(&dir);
+}
