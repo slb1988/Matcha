@@ -4,9 +4,10 @@
   发布 Matcha dist 产物到 GitHub Releases，成功后把 config.json 里的补丁版本号 +1。
 
 .DESCRIPTION
-  流程：读 config.json -> 校验产物 / 工具 / 仓库状态 -> 打 tag 并推送 -> gh release create
-  上传 zip + 原始文件 -> 升级 config.json 版本号，并同步根 Cargo.toml 的
-  [workspace.package] version（保证下次 cargo xtask dist 目录名一致）。
+  流程：读 config.json -> 校验产物 / 工具 / 仓库状态 -> 从产物目录重新压缩 zip
+  -> 打 tag 并推送 -> gh release create 上传 zip + 原始文件 -> 升级 config.json
+  版本号，并同步根 Cargo.toml 的 [workspace.package] version（保证下次
+  cargo xtask dist 目录名一致）。
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File publish.ps1
@@ -96,7 +97,14 @@ $null = Invoke-Native { gh auth status }
 if ($LASTEXITCODE -ne 0) { Fail "gh 未登录" "先执行 gh auth login" }
 
 if (-not (Test-Path $distDir)) { Fail "找不到产物目录：$distDir" "先执行 cargo xtask dist" }
-if (-not (Test-Path $zipPath)) { Fail "找不到压缩包：$zipPath" "先执行 cargo xtask dist" }
+
+# zip 不由 cargo xtask dist 生成，旧 zip 可能与新构建的目录内容不一致（曾经发生过）。
+# 因此发布时始终从产物目录现场重新压缩，不复用任何已有 zip；DryRun 下跳过。
+if (-not $DryRun) {
+  if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+  Compress-Archive -Path $distDir -DestinationPath $zipPath -CompressionLevel Optimal
+  Write-Host "已从产物目录重新压缩：$zipPath"
+}
 
 $assets = @($zipPath)
 if ($includeRaw) {
@@ -134,11 +142,12 @@ $newVersion = '{0}.{1}.{2}' -f $parts[0], $parts[1], ([int]$parts[2] + 1)
 if ($DryRun) {
   Write-Host ""
   Write-Host "== DryRun：以下操作不会真正执行 ==" -ForegroundColor Cyan
-  Write-Host "  1. 创建并推送 tag : $tag -> $remote"
-  Write-Host "  2. 创建 release   : Matcha $tag @ $repo$(if ($Draft) { ' (draft)' })$(if ($Prerelease) { ' (prerelease)' })"
-  Write-Host "  3. 上传资产:"
+  Write-Host "  1. 重新压缩 zip   : $zipPath"
+  Write-Host "  2. 创建并推送 tag : $tag -> $remote"
+  Write-Host "  3. 创建 release   : Matcha $tag @ $repo$(if ($Draft) { ' (draft)' })$(if ($Prerelease) { ' (prerelease)' })"
+  Write-Host "  4. 上传资产:"
   $assets | ForEach-Object { Write-Host "       $_" }
-  Write-Host "  4. 版本号升级     : $version -> $newVersion (config.json$(if ($syncCargo) { ' + Cargo.toml' }))"
+  Write-Host "  5. 版本号升级     : $version -> $newVersion (config.json$(if ($syncCargo) { ' + Cargo.toml' }))"
   Write-Host ""
   Write-Host "所有前置检查已通过。" -ForegroundColor Green
   exit 0

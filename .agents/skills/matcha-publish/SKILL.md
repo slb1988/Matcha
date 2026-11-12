@@ -20,9 +20,14 @@ description: 发布 Matcha 发行包到 GitHub Releases。版本号记录在 con
 ## 前置条件（脚本逐项检查，失败会给出提示）
 
 1. `gh` CLI 已登录（`gh auth status`）。
-2. 产物已构建：`cargo xtask dist`。产物目录或 zip 缺失时先构建再重试。
+2. 产物已构建：`cargo xtask dist`（**只生成产物目录，不生成 zip**）。zip 由脚本在发布时从产物目录现场重新压缩，保证与目录内容一致，不会复用旧 zip。
 3. 当前分支无未推送提交（tag 打在远端分支头上，必须先 `git push`）。
 4. 同名 tag / release 尚不存在（防止重复发布）。
+
+## 陷阱
+
+- **zip 不是构建产物**：`cargo xtask dist` 只组装目录；脚本每次发布现场重压缩 zip，因此 zip 时间戳旧不是问题，但产物目录必须是当次构建的。
+- **手工维护 zip 是反模式**：曾发生旧 zip 与新目录内容不一致却通过检查的情况，此后改为脚本强制重打包，不要再手工压缩或复用旧 zip。
 
 ## 执行
 
@@ -35,7 +40,7 @@ powershell -ExecutionPolicy Bypass -File "D:\Github\Matcha\.agents\skills\matcha
 - `-Notes "<markdown>"`：自定义 release 说明；默认 `Matcha v<version>`。
 - `-GenerateNotes`：用 GitHub 自动生成的提交说明。
 - `-Draft` / `-Prerelease`：创建草稿 / 预发布。
-- `-DryRun`：只做全部检查并打印发布计划，不打 tag、不创建 release、不升级版本号。适合先验证。
+- `-DryRun`：只做全部检查并打印发布计划，不打 tag、不创建 release、不升级版本号、不重压缩 zip（零副作用）。适合先验证。
 
 ## 成功后
 
