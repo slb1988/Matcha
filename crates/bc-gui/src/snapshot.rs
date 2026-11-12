@@ -36,6 +36,7 @@ pub const SCENES: &[&str] = &[
     "table-basic",
     "table-cursor-on-diff",
     "folder-sync",
+    "text-unsaved-modal",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -72,7 +73,7 @@ pub struct Scene {
 /// hex-compare 快照语料：与参考截图同一字节（docs 语料库，SHA-256 校验过）。
 pub const HEX_LEFT: &str = "docs/reference-parity/hex-compare/corpus/left.bin";
 pub const HEX_RIGHT: &str = "docs/reference-parity/hex-compare/corpus/right.bin";
-pub const REGISTRY: [Scene; 20] = [
+pub const REGISTRY: [Scene; 21] = [
     // hex-compare：主视图 / 插入区 / Diffs 过滤三场景（对照参考 01/06/22）。
     Scene {
         name: "hex-basic",
@@ -180,6 +181,11 @@ pub const REGISTRY: [Scene; 20] = [
     Scene {
         name: "folder-sync",
         view: SceneView::Folder,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "text-unsaved-modal",
+        view: SceneView::Text,
         preset: Preset::FirstRow,
     },
 ];

@@ -1,6 +1,6 @@
 //! 经典竖向滚动条近似：上下按钮、比例滑块、轨道定位与拖动。
 //! egui 不提供 Win32 的原生自动重复时序；长按箭头重复是已知限制。
-use eframe::egui::{self, Color32, Rect, Sense, Stroke, StrokeKind};
+use eframe::egui::{self, Color32, Rect, Sense, Stroke};
 /// `range` 是可滚动首行范围。返回合并的响应，数值变化时标记 changed。
 pub fn show(
     ui: &mut egui::Ui,
@@ -31,12 +31,13 @@ pub fn show(
                 value.saturating_add(1).min(max)
             };
         }
-        ui.painter().rect_stroke(
-            button,
-            0.0,
-            Stroke::new(1.0, super::theme::BORDER),
-            StrokeKind::Inside,
-        );
+        if r.hovered() {
+            ui.painter().rect_filled(
+                button.shrink(1.0),
+                super::theme::RADIUS_SM,
+                super::theme::HOVER,
+            );
+        }
         let c = button.center();
         let y = if up { -1.0 } else { 1.0 };
         ui.painter().add(egui::Shape::convex_polygon(
@@ -45,7 +46,7 @@ pub fn show(
                 c + egui::vec2(3.0, 2.0 * y),
                 c + egui::vec2(-3.0, 2.0 * y),
             ],
-            Color32::DARK_GRAY,
+            super::theme::TEXT_FAINT,
             Stroke::NONE,
         ));
         response = response.union(r);
@@ -62,16 +63,15 @@ pub fn show(
             *value = min + (ratio * (max - min) as f32).round() as usize;
         }
     }
+    // Rounded pill thumb inset from the track.
     ui.painter().rect_filled(
-        thumb,
-        0.0,
-        Color32::from_gray(if r.hovered() { 190 } else { 205 }),
-    );
-    ui.painter().rect_stroke(
-        thumb,
-        0.0,
-        Stroke::new(1.0, super::theme::BORDER),
-        StrokeKind::Inside,
+        thumb.shrink2(egui::vec2(4.0, 1.0)),
+        4.0,
+        if r.hovered() || r.dragged() {
+            Color32::from_rgb(0xA9, 0xB0, 0xB8)
+        } else {
+            Color32::from_rgb(0xC6, 0xCB, 0xD1)
+        },
     );
     response = response.union(r);
     if *value != before {

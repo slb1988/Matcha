@@ -3000,13 +3000,13 @@ const SYNC_ARROW_LINES: [f32; 4] = [0.0, 38.0, 77.0, 116.0];
 const CHROME_SCROLLBAR: f32 = 18.0;
 
 const TREE_STRIPE: egui::Color32 = egui::Color32::from_rgb(248, 250, 249);
-const TREE_SELECTED: egui::Color32 = egui::Color32::from_rgb(168, 205, 241);
-const TREE_LINE: egui::Color32 = egui::Color32::from_rgb(128, 128, 128);
-const HEADER_SEP: egui::Color32 = egui::Color32::from_rgb(229, 229, 229);
-const HEADER_EDGE: egui::Color32 = egui::Color32::from_rgb(160, 160, 160);
-const TREE_EDGE: egui::Color32 = egui::Color32::from_rgb(192, 192, 192);
-const LOG_FILL: egui::Color32 = egui::Color32::from_rgb(227, 231, 237);
-const COMBO_EDGE: egui::Color32 = egui::Color32::from_rgb(141, 141, 141);
+const TREE_SELECTED: egui::Color32 = crate::chrome::theme::SELECTION;
+const TREE_LINE: egui::Color32 = crate::chrome::theme::TEXT_FAINT;
+const HEADER_SEP: egui::Color32 = crate::chrome::theme::LINE;
+const HEADER_EDGE: egui::Color32 = crate::chrome::theme::LINE;
+const TREE_EDGE: egui::Color32 = crate::chrome::theme::LINE;
+const LOG_FILL: egui::Color32 = crate::chrome::theme::SURFACE_SUBTLE;
+const COMBO_EDGE: egui::Color32 = crate::chrome::theme::LINE_STRONG;
 
 /// 每行树线标记：参考只画“父节点 → 直接子行”的肘形连接，无跨层贯通竖线。
 /// `parent_up` = 本行到父行的行距（行数）；0 表示顶层行无连接线。
@@ -6761,7 +6761,7 @@ mod tests {
             shows_legend(bc_engine_dir::filter::DisplayFilter::Mismatches),
             "Shows left orphan, right orphan, left newer, right newer and difference items."
         );
-        // 参考几何：1384x961 下首行选中填充 y165、行高 20。
+        // 几何：1384x961 下首行选中填充行高 20，位于外框之下。
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -6777,15 +6777,18 @@ mod tests {
                     view.ui(ui);
                 });
         });
-        let selected_fill = egui::Color32::from_rgb(168, 205, 241);
+        let selected_fill = crate::chrome::theme::SELECTION;
+        // The modern chrome is taller than the classic reference, so only
+        // the row height and "below the chrome" are pinned, not y=165.
         let row0 = output.shapes.iter().any(|s| {
             matches!(&s.shape, egui::Shape::Rect(r)
                 if r.fill == selected_fill
-                    && (r.rect.top() - 165.0).abs() < 1.0
+                    && r.rect.top() > 120.0
+                    && r.rect.top() < 240.0
                     && (r.rect.height() - 20.0).abs() < 1.0)
         });
-        assert!(row0, "selected first row at reference y=165 h=20");
         output.textures_delta.clear();
+        assert!(row0, "selected first row below the chrome, h=20");
     }
 
     #[test]

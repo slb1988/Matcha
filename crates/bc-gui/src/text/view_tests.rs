@@ -691,7 +691,7 @@ fn status_title_and_core_geometry_follow_reference_slots() {
     v.files[1].path = Some("right.txt".into());
     assert_eq!(v.title(), "left.txt <--> right.txt - Text Compare - Matcha");
     let out = frame(&ctx, &mut v, vec![]);
-    assert_eq!(v.pane_rects[0].top(), 123.0);
+    assert_eq!(v.pane_rects[0].top(), 129.0);
     assert_eq!(v.pane_rects[0].left(), 52.0);
     assert_eq!(v.pane_rects[0].bottom(), 807.0);
     assert!(text_shapes(&out).iter().any(|(t, _)| t == "Default text"));
@@ -1076,7 +1076,9 @@ fn menu_item(origin: egui::Pos2, index: usize, separators: usize) -> egui::Pos2 
     origin
         + egui::vec2(
             60.0,
-            2.0 + skipped as f32 * 21.0 + separators as f32 * 10.0 + 10.5,
+            5.0 + skipped as f32 * crate::chrome::popup::ITEM_HEIGHT
+                + separators as f32 * crate::chrome::popup::SEPARATOR_HEIGHT
+                + crate::chrome::popup::ITEM_HEIGHT / 2.0,
         )
 }
 

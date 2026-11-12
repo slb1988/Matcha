@@ -93,7 +93,7 @@ fn uncommitted_draft_cancel_and_discard_protect_home_and_exit() {
     assert!(v.is_dirty());
     v.request_exit();
     assert!(matches!(
-        choose(&ctx, &mut v, "Discard"),
+        choose(&ctx, &mut v, "Don't Save"),
         Some(TableAction::Exit)
     ));
     assert!(v.editor.is_none());
@@ -115,7 +115,7 @@ fn save_before_exit_commits_the_draft_and_does_not_save_the_other_side() {
     v.begin_edit(1, Cursor { row: 0, column: 2 }, Some("12.50".into()));
     v.request_exit();
     assert!(matches!(
-        choose(&ctx, &mut v, "Save changed files"),
+        choose(&ctx, &mut v, "Save"),
         Some(TableAction::Exit)
     ));
     assert!(std::fs::read_to_string(right)

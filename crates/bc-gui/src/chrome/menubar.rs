@@ -185,7 +185,7 @@ fn keyboard(ctx: &egui::Context, menus: &[MenuSpec], state: &mut MenuState) -> O
     }
     None
 }
-const OPEN_TITLE: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
+const OPEN_TITLE: Color32 = super::theme::PRESSED;
 /// 仅在指定助记字符下画线，保留 UTF-8 字符边界。
 pub(crate) fn label_job(
     text: &str,
@@ -232,17 +232,23 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
     let moved = ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO);
     let mut anchors = Vec::new();
     let bar = egui::Frame::new()
-        .fill(Color32::WHITE)
+        .fill(super::theme::SURFACE_CHROME)
+        .inner_margin(egui::Margin::symmetric(4, 0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 for (index, menu) in menus.iter().enumerate() {
                     let galley = ui.fonts_mut(|f| {
-                        f.layout_job(label_job(&menu.title, menu.mnemonic, alt, Color32::BLACK))
+                        f.layout_job(label_job(
+                            &menu.title,
+                            menu.mnemonic,
+                            alt,
+                            super::theme::TEXT,
+                        ))
                     });
                     let (rect, response) = ui.allocate_exact_size(
-                        egui::vec2(galley.size().x + 14.0, super::theme::MENU_HEIGHT),
+                        egui::vec2(galley.size().x + 18.0, super::theme::MENU_HEIGHT),
                         Sense::click(),
                     );
                     anchors.push(rect);
@@ -259,30 +265,21 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
                     {
                         open_by_mouse(&mut state, index);
                     }
+                    let pill = rect.shrink2(egui::vec2(1.0, 4.0));
                     if state.open == Some(index) {
-                        // Reference open title: #F9F9F9, rows 2..24, no border.
-                        ui.painter().rect_filled(
-                            Rect::from_min_max(
-                                rect.min + egui::vec2(0.0, 2.0),
-                                egui::pos2(rect.right(), rect.top() + 25.0),
-                            ),
-                            0.0,
-                            OPEN_TITLE,
-                        );
-                    } else if response.hovered() {
                         ui.painter()
-                            .rect_filled(rect, 0.0, super::theme::HOVER_BLUE);
-                        ui.painter().rect_stroke(
-                            rect,
-                            0.0,
-                            Stroke::new(1.0, super::theme::CLASSIC_BLUE),
-                            egui::StrokeKind::Inside,
+                            .rect_filled(pill, super::theme::RADIUS_MD, OPEN_TITLE);
+                    } else if response.hovered() {
+                        ui.painter().rect_filled(
+                            pill,
+                            super::theme::RADIUS_MD,
+                            super::theme::HOVER,
                         );
                     }
                     ui.painter().galley(
-                        rect.left_center() + egui::vec2(7.0, -galley.size().y / 2.0),
+                        rect.left_center() + egui::vec2(9.0, -galley.size().y / 2.0),
                         galley,
-                        Color32::BLACK,
+                        super::theme::TEXT,
                     );
                 }
             });
@@ -291,9 +288,8 @@ pub fn show(ui: &mut egui::Ui, menus: &[MenuSpec]) -> Option<ActionId> {
         .rect;
     let mut popup_rects = Vec::new();
     if let Some(index) = state.open.filter(|i| *i < anchors.len()) {
-        // Reference: the dropdown's border starts 25 px below the bar top,
-        // left-aligned with its title.
-        let position = egui::pos2(anchors[index].left(), bar.top() + 25.0);
+        // The dropdown opens just under its title pill, left-aligned.
+        let position = egui::pos2(anchors[index].left(), bar.bottom() - 2.0);
         let (clicked, rects) = super::popup::cascade(
             &ctx,
             id,

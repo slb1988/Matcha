@@ -1,7 +1,7 @@
 //! Segmented status bar with fixed and flexible fields.
 
 use crate::chrome::icons::{self, Icon};
-use eframe::egui::{self, Color32, Stroke};
+use eframe::egui::{self, Stroke};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusField {
@@ -41,16 +41,9 @@ pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
                 egui::vec2(width, super::theme::STATUS_HEIGHT),
                 egui::Sense::hover(),
             );
-            ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
-            ui.painter().line_segment(
-                [rect.left_top(), rect.right_top()],
-                Stroke::new(1.0, Color32::from_gray(215)),
-            );
-            ui.painter().line_segment(
-                [rect.right_top(), rect.right_bottom()],
-                Stroke::new(1.0, Color32::from_gray(214)),
-            );
-            let mut x = rect.left() + 5.0;
+            ui.painter()
+                .rect_filled(rect, 0.0, super::theme::SURFACE_CHROME);
+            let mut x = rect.left() + 8.0;
             if let Some(icon) = field.icon {
                 let icon_rect = egui::Rect::from_min_size(
                     egui::pos2(x, rect.center().y - 8.0),
@@ -63,13 +56,14 @@ pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
                 egui::pos2(x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
                 &field.text,
-                egui::FontId::proportional(super::theme::UI_SIZE),
-                Color32::BLACK,
+                egui::FontId::proportional(super::theme::UI_SIZE - 1.0),
+                super::theme::TEXT_MUTED,
             );
             if index + 1 < fields.len() && field.fixed {
-                ui.painter().line_segment(
-                    [rect.right_top(), rect.right_bottom()],
-                    Stroke::new(1.0, Color32::from_rgb(125, 125, 125)),
+                ui.painter().vline(
+                    rect.right() - 0.5,
+                    rect.top() + 6.0..=rect.bottom() - 6.0,
+                    Stroke::new(1.0, super::theme::LINE),
                 );
             }
         }

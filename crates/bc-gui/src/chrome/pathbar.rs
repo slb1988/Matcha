@@ -25,20 +25,21 @@ pub fn show_with_history(
     clean_paste_events(ui.ctx(), edit_id);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(194, 220, 245);
         ui.visuals_mut().widgets.inactive.bg_stroke =
-            Stroke::new(1.0, egui::Color32::from_rgb(141, 141, 141));
+            Stroke::new(1.0, super::theme::LINE_STRONG);
+        ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::new(1.0, super::theme::TEXT_FAINT);
+        ui.visuals_mut().extreme_bg_color = super::theme::SURFACE;
         let edit_width = (ui.available_width() - 82.0).max(40.0);
         // 与 add_sized 相同的「居中并填满」布局，但保留 TextEditOutput：
         // galley 供右键点击定位光标。
         let output = ui
             .allocate_ui_with_layout(
-                egui::vec2(edit_width, 25.0),
+                egui::vec2(edit_width, 28.0),
                 egui::Layout::centered_and_justified(ui.layout().main_dir()),
                 |ui| {
                     egui::TextEdit::singleline(path)
                         .id(edit_id)
-                        .margin(egui::vec2(2.0, 1.0))
+                        .margin(egui::vec2(8.0, 2.0))
                         .show(ui)
                 },
             )
@@ -78,8 +79,8 @@ pub fn show_with_history(
         }
         // 编辑框右端内嵌历史下拉箭头。
         let chevron = egui::Rect::from_min_size(
-            egui::pos2(edit.rect.right() - 16.0, edit.rect.top()),
-            egui::vec2(15.0, edit.rect.height()),
+            egui::pos2(edit.rect.right() - 22.0, edit.rect.top()),
+            egui::vec2(20.0, edit.rect.height()),
         );
         let chev = ui.interact(
             chevron,
@@ -87,14 +88,13 @@ pub fn show_with_history(
             egui::Sense::click(),
         );
         let c = chevron.center();
-        ui.painter().add(egui::Shape::convex_polygon(
+        ui.painter().add(egui::Shape::line(
             vec![
-                c + egui::vec2(-4.0, -1.5),
-                c + egui::vec2(4.0, -1.5),
-                c + egui::vec2(0.0, 2.5),
+                c + egui::vec2(-3.5, -1.5),
+                c + egui::vec2(0.0, 2.0),
+                c + egui::vec2(3.5, -1.5),
             ],
-            egui::Color32::from_rgb(110, 110, 110),
-            Stroke::NONE,
+            Stroke::new(1.4, super::theme::TEXT_MUTED),
         ));
         egui::Popup::from_toggle_button_response(&chev)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -126,19 +126,13 @@ pub fn show_with_history(
                 ui.add_space(8.0);
             }
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(extra, 25.0), egui::Sense::click());
+                ui.allocate_exact_size(egui::vec2(extra, 28.0), egui::Sense::click());
             if response.clicked() {
                 result.action = Some(id.into());
             }
             if response.hovered() {
                 ui.painter()
-                    .rect_filled(rect, 0.0, super::theme::HOVER_BLUE);
-                ui.painter().rect_stroke(
-                    rect,
-                    0.0,
-                    Stroke::new(1.0, super::theme::CLASSIC_BLUE),
-                    egui::StrokeKind::Inside,
-                );
+                    .rect_filled(rect.shrink(1.0), super::theme::RADIUS_MD, super::theme::HOVER);
             }
             icons::paint(
                 ui.painter(),
@@ -156,7 +150,7 @@ pub fn show_with_history(
                         c + egui::vec2(2.5, -1.0),
                         c + egui::vec2(0.0, 2.0),
                     ],
-                    egui::Color32::BLACK,
+                    super::theme::TEXT_MUTED,
                     Stroke::NONE,
                 ));
             }
@@ -445,16 +439,16 @@ mod tests {
             },
         ]
     }
-    // 右键点 (30,12) 打开的菜单行中心（21 px 行高 + 10 px 分隔）。
+    // 右键点 (30,12) 打开的菜单行中心（顶 5 px，26 px 行高 + 9 px 分隔）。
     // 注意：菜单首帧是 egui Area 的 sizing pass（不可见、不可交互），
     // 需要隔一帧再点击，与 popup::context_menu 自身测试的模式一致。
     const RIGHT: egui::Pos2 = egui::pos2(30.0, 12.0);
-    const CUT: egui::Pos2 = egui::pos2(70.0, 55.0);
-    const COPY: egui::Pos2 = egui::pos2(70.0, 76.0);
-    const PASTE: egui::Pos2 = egui::pos2(70.0, 97.0);
-    const DELETE: egui::Pos2 = egui::pos2(70.0, 118.0);
-    const SELECT_ALL: egui::Pos2 = egui::pos2(70.0, 149.0);
-    const BROWSE: egui::Pos2 = egui::pos2(70.0, 180.0);
+    const CUT: egui::Pos2 = egui::pos2(70.0, 65.0);
+    const COPY: egui::Pos2 = egui::pos2(70.0, 91.0);
+    const PASTE: egui::Pos2 = egui::pos2(70.0, 117.0);
+    const DELETE: egui::Pos2 = egui::pos2(70.0, 143.0);
+    const SELECT_ALL: egui::Pos2 = egui::pos2(70.0, 178.0);
+    const BROWSE: egui::Pos2 = egui::pos2(70.0, 213.0);
     fn open_menu(ctx: &egui::Context, path: &mut String) {
         // 先空一帧：菜单关闭的那帧菜单仍参与命中测试，直接右键会被它吃掉。
         menu_frame(ctx, path, vec![], false);

@@ -86,7 +86,7 @@ fn replacing_a_side_with_dirty_cached_target_edits_requires_confirmation() {
         } else {
             v.request(Pending::Clipboard(0, "id,name\n9,kiwi\n".into()));
         }
-        dialog_click(&ctx, &mut v, "Discard");
+        dialog_click(&ctx, &mut v, "Don't Save");
         ready(&mut v);
         assert_eq!(
             v.pair
@@ -579,14 +579,14 @@ fn push_dirty_cached(v: &mut TableCompareView, target_side: usize) {
 
 #[test]
 fn save_decision_blocks_when_a_cached_target_side_is_dirty() {
-    // 单侧替换确认框的 "Save changed files"：缓存目标侧脏编辑不能伪装保存成功
+    // 单侧替换确认框的 "Save"：缓存目标侧脏编辑不能伪装保存成功
     // （workbook sheet 无法写回），必须保持 pending 且不丢内容/历史。
     let mut v = view();
     push_dirty_cached(&mut v, 0); // 缓存对左侧（目标侧）脏
     v.request(Pending::Clipboard(0, "id,name\n9,kiwi\n".into()));
     assert!(v.pending.is_some());
     let ctx = egui::Context::default();
-    dialog_click(&ctx, &mut v, "Save changed files");
+    dialog_click(&ctx, &mut v, "Save");
     assert!(
         v.pending.is_some(),
         "cached target-side dirty sheet cannot be saved in place: stay pending"
@@ -719,7 +719,7 @@ fn rules_only_settings_apply_does_not_silently_drop_an_open_draft() {
     v.request(Pending::Settings(Box::new(
         v.settings.draft.clone().unwrap(),
     )));
-    dialog_click(&ctx, &mut v, "Discard");
+    dialog_click(&ctx, &mut v, "Don't Save");
 
     ready(&mut v);
     assert!(v.editor.is_none());

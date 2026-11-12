@@ -802,7 +802,7 @@ fn replacing_a_dirty_side_asks_confirmation_and_discard_keeps_the_other_side() {
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "Discard"));
+    click(&ctx, &mut v, button(&out, "Don't Save"));
     ready(&mut v);
     {
         let p = v.pair.as_ref().unwrap();

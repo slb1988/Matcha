@@ -669,7 +669,12 @@ impl MatchaApp {
         let started = Instant::now();
         let ctx = ui.ctx().clone();
         self.frame_cpu_ms = frame_cpu.map(|s| s as f64 * 1e3);
-        if !self.exit_confirmed && ctx.input(|i| i.viewport().close_requested()) {
+        // Snapshot mode closes itself after the capture; never block that on
+        // the unsaved-changes guard (scenes may stage dirty state).
+        if !self.exit_confirmed
+            && self.snapshot.is_none()
+            && ctx.input(|i| i.viewport().close_requested())
+        {
             // 有未保存编辑的标签页时拦下关闭，逐页走保存确认。
             if self.exiting || self.tabs.iter().any(|t| t.view.is_dirty()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

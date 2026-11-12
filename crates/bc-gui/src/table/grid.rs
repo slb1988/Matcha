@@ -12,15 +12,15 @@ pub const GUTTER: f32 = 34.0;
 pub const HEADER_HEIGHT: f32 = 28.0;
 /// Consolas 10 pt advance at 96 dpi (horizontal preview offset only).
 const CHAR_WIDTH: f32 = 7.33;
-pub const GRID_LINE: egui::Color32 = egui::Color32::from_rgb(0xA0, 0xA0, 0xA0);
+pub const GRID_LINE: egui::Color32 = egui::Color32::from_rgb(0xDA, 0xDE, 0xE3);
 /// Drag-resize floor for a column (header marker + letter stay visible).
 pub const MIN_COLUMN_WIDTH: f32 = 20.0;
 /// Header boundary grab half-width (px) for column resize.
 const RESIZE_GRAB: f32 = 3.0;
-pub const GRID_LINE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xB0, 0xB0, 0xB0);
+pub const GRID_LINE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xE3, 0xE6, 0xEA);
 pub const PANE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xFC, 0xFC);
-pub const SELECTION: egui::Color32 = egui::Color32::from_rgb(0xA8, 0xCD, 0xF1);
-pub const INDICATOR: egui::Color32 = egui::Color32::from_rgb(0x00, 0x78, 0xD7);
+pub const SELECTION: egui::Color32 = crate::chrome::theme::SELECTION;
+pub const INDICATOR: egui::Color32 = crate::chrome::theme::ACCENT;
 const DIFF_FILL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xE3, 0xE3);
 const DIFF_FILL_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xE6, 0xE6);
 const MINOR_FILL: egui::Color32 = egui::Color32::from_rgb(0xEE, 0xEE, 0xFF);

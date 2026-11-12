@@ -125,12 +125,14 @@ fn button(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
     output
         .shapes
         .iter()
-        .find_map(|s| match &s.shape {
+        .filter_map(|s| match &s.shape {
             egui::Shape::Text(t) if t.galley.text() == label => {
                 Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
             }
             _ => None,
         })
+        // Topmost (modal) layer paints last.
+        .last()
         .unwrap_or_else(|| panic!("missing button {label}"))
 }
 fn no_backup_prefs() -> Prefs {

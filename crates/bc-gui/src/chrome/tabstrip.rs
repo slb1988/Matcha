@@ -1,25 +1,20 @@
-//! 会话标签条：经典浅色 Windows 选项卡外观——活动页白底与内容区相连，
-//! 非活动页浅灰渐变；每页带会话图标、标题与关闭钮，末尾为 "+" 新建标签页。
+//! 会话标签条：现代浏览器式标签——活动页为白色圆角卡片并与下方内容相连，
+//! 非活动页透明、悬停时浅灰胶囊；每页带会话图标、标题与关闭钮，末尾为 "+"。
 //! 只负责绘制与命中，标签页集合与生命周期由应用持有。
 
 use crate::chrome::{
     icons::{self, Icon},
     theme,
 };
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 /// 标签条总高（含底边线）。
-pub const HEIGHT: f32 = 26.0;
-const TAB_TOP: f32 = 3.0;
-const MIN_TAB: f32 = 90.0;
-const MAX_TAB: f32 = 220.0;
-const CLOSE: f32 = 14.0;
-const NEW_BUTTON: f32 = 22.0;
-const ACTIVE_FILL: Color32 = Color32::WHITE;
-const INACTIVE_TOP: Color32 = Color32::from_rgb(0xF4, 0xF4, 0xF4);
-const INACTIVE_BOTTOM: Color32 = Color32::from_rgb(0xE2, 0xE2, 0xE2);
-const HOVER_FILL: Color32 = Color32::from_rgb(0xE5, 0xF1, 0xFB);
-const CLOSE_HOVER: Color32 = Color32::from_rgb(0xE8, 0x11, 0x23);
+pub const HEIGHT: f32 = 36.0;
+const TAB_TOP: f32 = 6.0;
+const MIN_TAB: f32 = 110.0;
+const MAX_TAB: f32 = 240.0;
+const CLOSE: f32 = 18.0;
+const NEW_BUTTON: f32 = 26.0;
 
 /// 一个标签页的显示内容。
 #[derive(Clone, Debug, PartialEq)]
@@ -43,7 +38,7 @@ fn layout(rect: Rect, count: usize) -> Vec<Rect> {
         .floor();
     (0..count)
         .map(|i| {
-            let x = rect.left() + 2.0 + i as f32 * width;
+            let x = rect.left() + 6.0 + i as f32 * width;
             Rect::from_min_max(
                 Pos2::new(x, rect.top() + TAB_TOP),
                 Pos2::new(x + width - 1.0, rect.bottom()),
@@ -54,28 +49,32 @@ fn layout(rect: Rect, count: usize) -> Vec<Rect> {
 
 fn close_rect(tab: Rect) -> Rect {
     Rect::from_center_size(
-        Pos2::new(tab.right() - 4.0 - CLOSE / 2.0, tab.center().y),
+        Pos2::new(tab.right() - 7.0 - CLOSE / 2.0, tab.center().y),
         Vec2::splat(CLOSE),
     )
 }
 
 fn new_rect(rect: Rect, tabs: &[Rect]) -> Rect {
-    let x = tabs.last().map_or(rect.left() + 2.0, |t| t.right() + 4.0);
-    Rect::from_min_size(
-        Pos2::new(x, rect.top() + TAB_TOP + 1.0),
-        Vec2::new(NEW_BUTTON, rect.height() - TAB_TOP - 3.0),
+    let x = tabs.last().map_or(rect.left() + 6.0, |t| t.right() + 4.0);
+    Rect::from_center_size(
+        Pos2::new(
+            x + NEW_BUTTON / 2.0,
+            rect.top() + TAB_TOP + (rect.height() - TAB_TOP) / 2.0,
+        ),
+        Vec2::splat(NEW_BUTTON),
     )
 }
 
 /// 绘制标签条并返回本帧的点击事件（关闭钮优先于激活）。
 pub fn show(ui: &mut egui::Ui, rect: Rect, tabs: &[TabSpec], active: usize) -> Option<TabEvent> {
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, theme::PANEL_BG);
+    painter.rect_filled(rect, 0.0, theme::SURFACE_CHROME);
     let base = rect.bottom() - 0.5;
     let font = FontId::proportional(theme::UI_SIZE);
     let rects = layout(rect, tabs.len());
     let mut event = None;
     let mut active_rect = None;
+    let line = Stroke::new(1.0, theme::LINE);
     for (i, (tab, spec)) in rects.iter().zip(tabs).enumerate() {
         if tab.left() >= rect.right() {
             break;
@@ -85,74 +84,65 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, tabs: &[TabSpec], active: usize) -> O
         let close = close_rect(*tab);
         let close_response = ui.interact(close, id.with("close"), Sense::click());
         let is_active = i == active;
-        // 活动页抬高 2 px 并压住底线；非活动页自上而下浅灰渐变。
-        let body = if is_active {
-            Rect::from_min_max(tab.min - Vec2::new(0.0, 2.0), tab.max)
-        } else {
-            *tab
-        };
+        let body = *tab;
         if is_active {
-            painter.rect_filled(body, 0.0, ACTIVE_FILL);
+            let radius = CornerRadius {
+                nw: theme::RADIUS_LG,
+                ne: theme::RADIUS_LG,
+                sw: 0,
+                se: 0,
+            };
+            painter.rect_filled(body, radius, theme::SURFACE);
+            painter.rect_stroke(body, radius, line, StrokeKind::Inside);
             active_rect = Some(body);
         } else if response.hovered() {
-            painter.rect_filled(body, 0.0, HOVER_FILL);
-        } else {
-            let mut mesh = egui::Mesh::default();
-            let top = body.top() as i32;
-            let bottom = body.bottom() as i32;
-            for y in top..bottom {
-                let t = (y - top) as f32 / (bottom - top).max(1) as f32;
-                mesh.add_colored_rect(
-                    Rect::from_min_max(
-                        Pos2::new(body.left(), y as f32),
-                        Pos2::new(body.right(), y as f32 + 1.0),
-                    ),
-                    INACTIVE_TOP.lerp_to_gamma(INACTIVE_BOTTOM, t),
-                );
-            }
-            painter.add(egui::Shape::mesh(mesh));
+            painter.rect_filled(
+                body.shrink2(Vec2::new(2.0, 3.0)),
+                theme::RADIUS_MD,
+                theme::HOVER,
+            );
+        } else if i + 1 != active && i + 1 < tabs.len() {
+            // 相邻非活动页之间的细分隔线。
+            painter.vline(
+                body.right() + 0.5,
+                body.top() + 8.0..=body.bottom() - 8.0,
+                line,
+            );
         }
-        let edge = Stroke::new(1.0, theme::BORDER);
-        let (l, r, t) = (body.left() + 0.5, body.right() - 0.5, body.top() + 0.5);
-        painter.add(egui::Shape::line(
-            vec![
-                Pos2::new(l, body.bottom()),
-                Pos2::new(l, t),
-                Pos2::new(r, t),
-                Pos2::new(r, body.bottom()),
-            ],
-            edge,
-        ));
-        let mut x = body.left() + 6.0;
+        let mut x = body.left() + 10.0;
         if let Some(icon) = spec.icon {
             icons::paint(
                 &painter,
                 Rect::from_center_size(Pos2::new(x + 8.0, body.center().y), Vec2::splat(16.0)),
                 icon,
             );
-            x += 21.0;
+            x += 24.0;
         }
         let text_clip = Rect::from_min_max(
             Pos2::new(x, body.top()),
-            Pos2::new(close.left() - 2.0, body.bottom()),
+            Pos2::new(close.left() - 4.0, body.bottom()),
         );
-        let galley = painter.layout_no_wrap(spec.title.clone(), font.clone(), Color32::BLACK);
+        let ink = if is_active {
+            theme::TEXT
+        } else {
+            theme::TEXT_MUTED
+        };
+        let galley = painter.layout_no_wrap(spec.title.clone(), font.clone(), ink);
         painter.with_clip_rect(text_clip.intersect(rect)).galley(
             Pos2::new(x, body.center().y - galley.size().y / 2.0),
             galley,
-            Color32::BLACK,
+            ink,
         );
-        // 关闭钮：悬停时红底白叉，否则灰叉。
-        let ink = if close_response.hovered() {
-            painter.rect_filled(close, 2.0, CLOSE_HOVER);
-            Color32::WHITE
-        } else {
-            Color32::from_gray(0x60)
-        };
-        let c = close.center();
-        let cross = Stroke::new(1.3, ink);
-        painter.line_segment([c + Vec2::new(-3.5, -3.5), c + Vec2::new(3.5, 3.5)], cross);
-        painter.line_segment([c + Vec2::new(-3.5, 3.5), c + Vec2::new(3.5, -3.5)], cross);
+        // 关闭钮：活动页或悬停时显示，悬停加圆形灰底。
+        if is_active || response.hovered() || close_response.hovered() {
+            if close_response.hovered() {
+                painter.rect_filled(close, theme::RADIUS_SM, theme::PRESSED);
+            }
+            let c = close.center();
+            let cross = Stroke::new(1.3, theme::TEXT_MUTED);
+            painter.line_segment([c + Vec2::new(-3.5, -3.5), c + Vec2::new(3.5, 3.5)], cross);
+            painter.line_segment([c + Vec2::new(-3.5, 3.5), c + Vec2::new(3.5, -3.5)], cross);
+        }
         if close_response.clicked() || response.middle_clicked() {
             event = Some(TabEvent::Close(i));
         } else if response.clicked() && !is_active {
@@ -161,22 +151,21 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, tabs: &[TabSpec], active: usize) -> O
         response.on_hover_text(&spec.title);
     }
     // 底边线在活动页下断开，使其与下方内容连成一体。
-    let border = Stroke::new(1.0, theme::BORDER);
     match active_rect {
         Some(a) => {
             painter.line_segment(
                 [Pos2::new(rect.left(), base), Pos2::new(a.left(), base)],
-                border,
+                line,
             );
             painter.line_segment(
                 [Pos2::new(a.right(), base), Pos2::new(rect.right(), base)],
-                border,
+                line,
             );
         }
         None => {
             painter.line_segment(
                 [Pos2::new(rect.left(), base), Pos2::new(rect.right(), base)],
-                border,
+                line,
             );
         }
     }
@@ -185,18 +174,12 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, tabs: &[TabSpec], active: usize) -> O
         .interact(plus, egui::Id::unique("matcha-tab-new"), Sense::click())
         .on_hover_text("New Tab (Ctrl+T)");
     if response.hovered() {
-        painter.rect_filled(plus, 2.0, theme::HOVER_BLUE);
-        painter.rect_stroke(
-            plus,
-            2.0,
-            Stroke::new(1.0, theme::CLASSIC_BLUE),
-            StrokeKind::Inside,
-        );
+        painter.rect_filled(plus, theme::RADIUS_MD, theme::HOVER);
     }
     let c = plus.center();
-    let ink = Color32::from_gray(0x4F);
-    painter.rect_filled(Rect::from_center_size(c, Vec2::new(9.0, 1.6)), 0.0, ink);
-    painter.rect_filled(Rect::from_center_size(c, Vec2::new(1.6, 9.0)), 0.0, ink);
+    let ink = theme::TEXT_MUTED;
+    painter.rect_filled(Rect::from_center_size(c, Vec2::new(10.0, 1.5)), 0.0, ink);
+    painter.rect_filled(Rect::from_center_size(c, Vec2::new(1.5, 10.0)), 0.0, ink);
     if response.clicked() {
         event = Some(TabEvent::New);
     }

@@ -45,43 +45,24 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
     let byte = editor.caret.byte.min(text.len());
     let column = text.char_indices().take_while(|(b, _)| *b < byte).count() + 1;
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
-    painter.line_segment(
+    painter.rect_filled(rect, 0.0, crate::chrome::theme::SURFACE_SUBTLE);
+    for line in [
         [rect.left_top(), rect.left_bottom()],
-        egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
-    );
-    // 参考：右缘 1 px 白线（分隔右侧窗格或窗口边）。
-    painter.rect_filled(
-        egui::Rect::from_min_max(rect.right_top() - egui::vec2(1.0, 0.0), rect.right_bottom()),
-        0.0,
-        egui::Color32::WHITE,
-    );
-    // 参考：顶部 215 细分隔线，底部白色高光和 160 凹槽线。
-    painter.line_segment(
         [rect.left_top(), rect.right_top()],
-        egui::Stroke::new(1.0, egui::Color32::from_gray(215)),
-    );
-    painter.line_segment(
         [
-            rect.left_bottom() - egui::vec2(0.0, 2.0),
-            rect.right_bottom() - egui::vec2(0.0, 2.0),
+            rect.left_bottom() - egui::vec2(0.0, 0.5),
+            rect.right_bottom() - egui::vec2(0.0, 0.5),
         ],
-        egui::Stroke::new(1.0, egui::Color32::WHITE),
-    );
-    painter.line_segment(
-        [
-            rect.left_bottom() - egui::vec2(0.0, 1.0),
-            rect.right_bottom() - egui::vec2(0.0, 1.0),
-        ],
-        egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
-    );
+    ] {
+        painter.line_segment(line, egui::Stroke::new(1.0, crate::chrome::theme::LINE));
+    }
     for x in [98.0, 229.0, 360.0] {
         painter.line_segment(
             [
-                rect.min + egui::vec2(x, 1.0),
-                rect.min + egui::vec2(x, 18.0),
+                rect.min + egui::vec2(x, 4.0),
+                rect.min + egui::vec2(x, 15.0),
             ],
-            egui::Stroke::new(1.0, egui::Color32::from_gray(214)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE),
         );
     }
     for (offset, label) in [
@@ -93,8 +74,8 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
             rect.left_center() + egui::vec2(offset, 0.0),
             egui::Align2::LEFT_CENTER,
             label,
-            egui::FontId::proportional(12.0),
-            egui::Color32::BLACK,
+            egui::FontId::proportional(11.5),
+            crate::chrome::theme::TEXT_MUTED,
         );
     }
 }

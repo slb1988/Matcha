@@ -27,8 +27,8 @@ impl TextCompareView {
             egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), remaining));
         self.pane_rects[s] = rect;
         ui.painter()
-            .rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
-        // 参考窗格只有左边框与顶边框；右侧/底部不画深色边。
+            .rect_filled(rect, 0.0, crate::chrome::theme::SURFACE);
+        // 窗格只有左边框与顶边框（发丝线）。
         ui.painter().line_segment(
             [rect.left_top(), rect.left_bottom()],
             egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
@@ -522,35 +522,16 @@ impl TextCompareView {
             [rect.left_top(), rect.right_top()],
             egui::Stroke::new(1.0, crate::chrome::theme::BORDER),
         );
-        // 内容放得下时，egui 的竖向滚动条把手铺满轨道；参考此时为平坦灰轨加两侧白线。
+        // 内容放得下时，egui 的竖向滚动条把手铺满轨道；此时直接盖成空白内容区。
         if !need_vscroll_pre {
             let bar_left = rect.right() - 18.0;
-            let top = rect.top() + 1.0;
-            let bottom = rect.bottom();
-            let p = ui.painter();
-            p.rect_filled(
+            ui.painter().rect_filled(
                 egui::Rect::from_min_max(
-                    egui::pos2(bar_left + 1.0, top),
-                    egui::pos2(rect.right() - 1.0, bottom),
+                    egui::pos2(bar_left, rect.top() + 1.0),
+                    rect.right_bottom(),
                 ),
                 0.0,
-                crate::chrome::theme::PANEL_BG,
-            );
-            p.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(bar_left, top),
-                    egui::pos2(bar_left + 1.0, bottom),
-                ),
-                0.0,
-                egui::Color32::WHITE,
-            );
-            p.rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(rect.right() - 1.0, top),
-                    egui::pos2(rect.right(), bottom),
-                ),
-                0.0,
-                egui::Color32::WHITE,
+                crate::chrome::theme::SURFACE,
             );
         }
         let status = egui::Rect::from_min_size(

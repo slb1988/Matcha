@@ -15,26 +15,30 @@ pub fn confirmation(ctx: &egui::Context, question: &Question) -> Option<Confirma
     if question.cancel.is_cancelled() {
         return Some(Confirmation::No);
     }
-    let mut answer = None;
-    egui::Window::new("Confirm file operation")
-        .collapsible(false)
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label(&question.text);
-            ui.separator();
-            ui.horizontal(|ui| {
-                for (label, value) in [
-                    ("Yes", Confirmation::Yes),
-                    ("No", Confirmation::No),
-                    ("Yes to all", Confirmation::YesToAll),
-                    ("No to all", Confirmation::NoToAll),
-                ] {
-                    if ui.button(label).clicked() {
-                        answer = Some(value);
-                    }
-                }
-            });
-            ui.small("Permanent-delete fallback always requires its own confirmation.");
-        });
+    use crate::chrome::{
+        controls::Role,
+        modal::{Modal, Tone},
+    };
+    let answers = [
+        Confirmation::NoToAll,
+        Confirmation::YesToAll,
+        Confirmation::No,
+        Confirmation::Yes,
+    ];
+    let answer = Modal::new("file-op-confirm", Tone::Question, "Confirm file operation")
+        .message(format!(
+            "{}
+
+Permanent deletes always ask for their own confirmation.",
+            question.text
+        ))
+        .action("No to All", Role::Secondary)
+        .action("Yes to All", Role::Secondary)
+        .action("No", Role::Secondary)
+        .action("Yes", Role::Primary)
+        .cancel(2)
+        .width(520.0)
+        .show(ctx)
+        .map(|i| answers[i]);
     answer
 }

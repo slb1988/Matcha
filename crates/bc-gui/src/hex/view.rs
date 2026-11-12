@@ -1276,26 +1276,28 @@ impl HexCompareView {
     /// 退出/重载确认与打开/另存对话框。
     fn modal_dialogs(&mut self, ctx: &egui::Context) {
         if let Some(kind) = self.exit_confirm {
-            let mut open = true;
-            let mut choice = None;
-            egui::Window::new("未保存的编辑")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("两侧有未保存的字节编辑。");
-                    ui.horizontal(|ui| {
-                        if ui.button("保存").clicked() {
-                            choice = Some("save");
-                        }
-                        if ui.button("放弃").clicked() {
-                            choice = Some("discard");
-                        }
-                        if ui.button("取消").clicked() {
-                            choice = Some("cancel");
-                        }
-                    });
-                });
+            use crate::chrome::{
+                controls::Role,
+                modal::{Modal, Tone},
+            };
+            let open = true;
+            let title = match kind {
+                ExitConfirm::Close => "Save byte edits before closing?",
+                ExitConfirm::Exit => "Save byte edits before quitting?",
+            };
+            let choice = match Modal::new("hex-unsaved", Tone::Warning, title)
+                .message("There are unsaved byte edits. They will be lost if you don't save them.")
+                .action("Don't Save", Role::Destructive)
+                .action("Cancel", Role::Secondary)
+                .action("Save", Role::Primary)
+                .cancel(1)
+                .show(ctx)
+            {
+                Some(0) => Some("discard"),
+                Some(1) => Some("cancel"),
+                Some(2) => Some("save"),
+                _ => None,
+            };
             match choice {
                 Some("save") => {
                     for side in 0..2 {
@@ -1334,24 +1336,19 @@ impl HexCompareView {
             }
         }
         if self.reload_confirm {
-            let mut open = true;
-            let mut confirm = false;
-            let mut cancel = false;
-            egui::Window::new("确认重载")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("有未保存的编辑，重载将从磁盘重读并丢弃编辑。");
-                    ui.horizontal(|ui| {
-                        if ui.button("重载").clicked() {
-                            confirm = true;
-                        }
-                        if ui.button("取消").clicked() {
-                            cancel = true;
-                        }
-                    });
-                });
+            use crate::chrome::{
+                controls::Role,
+                modal::{Modal, Tone},
+            };
+            let open = true;
+            let choice = Modal::new("hex-reload", Tone::Warning, "Reload and discard edits?")
+                .message("Reloading reads both files from disk again; your unsaved byte edits will be discarded.")
+                .action("Cancel", Role::Secondary)
+                .action("Reload", Role::Primary)
+                .cancel(0)
+                .show(ctx);
+            let confirm = choice == Some(1);
+            let cancel = choice == Some(0);
             self.reload_confirm = open && !cancel && !confirm;
             if confirm {
                 self.reload_guarded(true);

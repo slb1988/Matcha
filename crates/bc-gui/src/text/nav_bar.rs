@@ -319,7 +319,7 @@ mod tests {
         );
         assert_eq!(
             veil(ink(&DiffColors::default(), Importance::Important)),
-            egui::Color32::from_rgb(252, 100, 100)
+            egui::Color32::from_rgb(253, 101, 101)
         );
     }
 }

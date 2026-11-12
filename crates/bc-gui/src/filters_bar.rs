@@ -44,7 +44,7 @@ impl FiltersBar {
         painter.hline(
             bar.left()..=bar.right(),
             bar.top(),
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(132, 132, 132)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE),
         );
         painter.hline(
             bar.left()..=bar.right(),
@@ -68,7 +68,7 @@ impl FiltersBar {
         painter.rect_stroke(
             combo,
             0.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(141, 141, 141)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE_STRONG),
             egui::StrokeKind::Inside,
         );
         let mut popup_choice = None;

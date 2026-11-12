@@ -11,14 +11,14 @@ pub fn paint(
 ) {
     let gutter = egui::Rect::from_min_size(rect.min, egui::vec2(WIDTH, rect.height()));
     ui.painter()
-        .rect_filled(gutter, 0.0, crate::chrome::theme::PANEL_BG);
+        .rect_filled(gutter, 0.0, crate::chrome::theme::SURFACE);
     if let Some(line) = line {
         ui.painter().text(
             gutter.right_center() - egui::vec2(9.0, -1.0),
             egui::Align2::RIGHT_CENTER,
             (line + 1).to_string(),
-            egui::FontId::proportional(8.666667),
-            egui::Color32::from_rgb(105, 105, 105),
+            egui::FontId::proportional(9.5),
+            crate::chrome::theme::TEXT_FAINT,
         );
         if difference {
             let c = gutter.left_center() + egui::vec2(13.0, 0.0);

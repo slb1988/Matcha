@@ -6,7 +6,7 @@ use egui::{Pos2, Rect, Vec2};
 thread_local! { static TICK: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) }; }
 /// 参考窗口客户区 1384x961；标签条出现后 Home 内容整体下移 26 px。
 const STRIP: f32 = tabstrip::HEIGHT;
-const HOME_TAB: Pos2 = Pos2::new(60.0, 14.0);
+const HOME_TAB: Pos2 = Pos2::new(60.0, 21.0);
 
 fn run(ctx: &egui::Context, app: &mut MatchaApp, events: Vec<egui::Event>) -> egui::FullOutput {
     run_input(
@@ -95,25 +95,22 @@ fn home_icons_open_empty_session_tabs_without_a_dialog() {
     let ctx = egui::Context::default();
     let mut app = home_app();
     run(&ctx, &mut app, vec![]);
-    // 单个 Home 页：无标签条，图标网格在参考坐标（y403）。
-    click(&ctx, &mut app, Pos2::new(992.0, 403.0));
+    // 单个 Home 页：无标签条，五种会话卡片一行排开（y403，Text 居中）。
+    click(&ctx, &mut app, Pos2::new(834.0, 403.0));
     assert_eq!((app.tab_count(), app.active_tab()), (2, 1));
     assert!(matches!(app.active_view(), View::TextCompare(_)));
     assert!(empty_paths(app.active_view()));
     assert_eq!(app.active_view().caption(), "Text Compare");
     // 其余类型：回到 Home 页（标签条已出现，内容下移）再点图标。
     let y = 403.0 + STRIP;
-    for (x, page, kind) in [
-        (834.0, false, "Folder Sync"),
-        (676.0, false, "Folder Compare"),
-        (676.0, true, "Table Compare"),
+    for (x, kind) in [
+        (676.0, "Folder Sync"),
+        (518.0, "Folder Compare"),
+        (992.0, "Table Compare"),
     ] {
         click(&ctx, &mut app, HOME_TAB);
         assert_eq!(app.active_tab(), 0);
         assert!(matches!(app.active_view(), View::Home(_)));
-        if page {
-            click(&ctx, &mut app, Pos2::new(1295.0, y));
-        }
         let before = app.tab_count();
         click(&ctx, &mut app, Pos2::new(x, y));
         assert_eq!(app.tab_count(), before + 1);
@@ -163,7 +160,7 @@ fn tabs_activate_close_and_follow_ctrl_t_and_ctrl_w() {
     run(&ctx, &mut app, vec![]);
     click(&ctx, &mut app, HOME_TAB);
     assert_eq!(app.active_tab(), 0);
-    let close = Pos2::new(2.0 + 2.0 * tabstrip_width(3) - 1.0 - 11.0, 14.5);
+    let close = Pos2::new(6.0 + 2.0 * tabstrip_width(3) - 1.0 - 16.0, 21.0);
     click(&ctx, &mut app, close);
     assert_eq!((app.tab_count(), app.active_tab()), (2, 0));
     assert!(matches!(app.tabs[1].view, View::Home(_)));
@@ -178,8 +175,8 @@ fn tabs_activate_close_and_follow_ctrl_t_and_ctrl_w() {
 }
 /// 1384 宽窗口下每个标签页的宽度（与 tabstrip::layout 相同的取整与夹取）。
 fn tabstrip_width(count: usize) -> f32 {
-    ((1384.0 - 22.0 - 8.0) / count as f32)
-        .clamp(90.0, 220.0)
+    ((1384.0 - 26.0 - 8.0) / count as f32)
+        .clamp(110.0, 240.0)
         .floor()
 }
 
@@ -202,7 +199,7 @@ fn closing_a_dirty_text_tab_prompts_to_save_first() {
     ctrl(&ctx, &mut app, egui::Key::W);
     run(&ctx, &mut app, vec![]);
     let out = run(&ctx, &mut app, vec![]);
-    click(&ctx, &mut app, text_at(&out, "Discard"));
+    click(&ctx, &mut app, text_at(&out, "Don't Save"));
     assert_eq!(app.tab_count(), 1);
     assert!(matches!(app.active_view(), View::Home(_)));
     assert!(!app.exit_confirmed);
@@ -232,7 +229,7 @@ fn window_close_walks_every_dirty_tab_through_its_save_prompt() {
     assert!(app.active_view().prompt_open());
     run(&ctx, &mut app, vec![]);
     let out = run(&ctx, &mut app, vec![]);
-    click(&ctx, &mut app, text_at(&out, "Discard"));
+    click(&ctx, &mut app, text_at(&out, "Don't Save"));
     // 第二个脏页接着确认；取消即中止退出。
     assert_eq!(app.active_tab(), 2);
     assert!(app.active_view().prompt_open());
@@ -246,7 +243,7 @@ fn window_close_walks_every_dirty_tab_through_its_save_prompt() {
         assert_eq!(app.active_tab(), expected);
         run(&ctx, &mut app, vec![]);
         let out = run(&ctx, &mut app, vec![]);
-        click(&ctx, &mut app, text_at(&out, "Discard"));
+        click(&ctx, &mut app, text_at(&out, "Don't Save"));
     }
     assert!(app.exit_confirmed);
 }

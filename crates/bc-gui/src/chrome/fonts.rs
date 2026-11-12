@@ -10,6 +10,8 @@ const UI_FONT: &str = "matcha-system-message";
 const UI_BOLD_FONT: &str = "matcha-system-message-bold";
 const EDITOR_FONT: &str = "matcha-consolas";
 const CJK_FONT: &str = "matcha-microsoft-yahei";
+/// Named family for emphasized UI text (dialog titles, section headings).
+pub const STRONG_FAMILY: &str = "matcha-strong";
 
 /// The paths used by the loader, kept separate to make fallback behavior testable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -244,6 +246,15 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
             .cloned()
             .unwrap_or_default(),
     );
+    // Named "strong" family for titles: bold face first, then the regular chain.
+    let mut strong = Vec::new();
+    if definitions.font_data.contains_key(UI_BOLD_FONT) {
+        strong.push(UI_BOLD_FONT.to_owned());
+    }
+    strong.extend(proportional.iter().cloned());
+    definitions
+        .families
+        .insert(FontFamily::Name(STRONG_FAMILY.into()), strong);
     definitions
         .families
         .insert(FontFamily::Proportional, proportional);
@@ -270,11 +281,14 @@ pub fn install_from_plan(ctx: &egui::Context, plan: &FontPlan) {
 
 fn set_sizes(ctx: &egui::Context, ui_size: f32) {
     ctx.all_styles_mut(|style| {
-        for text_style in [TextStyle::Body, TextStyle::Button, TextStyle::Small] {
+        for text_style in [TextStyle::Body, TextStyle::Button] {
             style
                 .text_styles
                 .insert(text_style, FontId::proportional(ui_size));
         }
+        style
+            .text_styles
+            .insert(TextStyle::Small, FontId::proportional(ui_size - 1.5));
         style.text_styles.insert(
             TextStyle::Monospace,
             FontId::monospace(super::theme::EDITOR_SIZE),

@@ -1069,6 +1069,11 @@ impl TextCompareView {
                 crate::chrome::dialog::Placement::ClientOnly,
             );
         }
+        if scene == "text-unsaved-modal" {
+            self.files[0].metadata_dirty = true;
+            self.files[1].metadata_dirty = true;
+            self.request(Pending::Close);
+        }
         if scene == "text-find-bar" {
             self.find.options.pattern = "alpha".into();
             self.find.show();
@@ -2323,32 +2328,53 @@ impl TextCompareView {
             }
         }
         if let Some(pending) = self.pending.clone() {
-            let mut decision = 0;
-            egui::Window::new("Unsaved changes")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.label("Save changes before continuing?");
-                    for s in self.affected(&pending) {
-                        if self.side_dirty(s) {
-                            ui.label(if s == 0 {
-                                "Left is modified"
-                            } else {
-                                "Right is modified"
-                            });
-                        }
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
-                            decision = 1;
-                        }
-                        if ui.button("Discard").clicked() {
-                            decision = 2;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            decision = 3;
-                        }
-                    });
-                });
+            use crate::chrome::{
+                controls::Role,
+                modal::{Modal, Tone},
+            };
+            let dirty: Vec<usize> = self
+                .affected(&pending)
+                .into_iter()
+                .filter(|&s| self.side_dirty(s))
+                .collect();
+            let items = dirty.iter().map(|&s| {
+                let badge = if s == 0 { "LEFT" } else { "RIGHT" };
+                match &self.files[s].path {
+                    Some(path) => crate::chrome::modal::file_item(badge, path),
+                    None => crate::chrome::modal::Item {
+                        badge: badge.into(),
+                        title: "Untitled".into(),
+                        detail: String::new(),
+                    },
+                }
+            });
+            let title = match pending {
+                Pending::Close => "Save changes before closing?",
+                Pending::Exit => "Save changes before quitting?",
+                Pending::Reload(_) | Pending::ReloadBoth => "Save changes before reloading?",
+                Pending::Open(..) => "Save changes before opening another file?",
+                Pending::Clipboard(..) => "Save changes before loading the clipboard?",
+                Pending::Encoding(..) => "Save changes before changing the encoding?",
+            };
+            let message = if dirty.len() > 1 {
+                "Both sides have unsaved edits. They will be lost if you don't save them."
+            } else {
+                "This file has unsaved edits. They will be lost if you don't save them."
+            };
+            let decision = match Modal::new("text-unsaved", Tone::Warning, title)
+                .message(message)
+                .items(items)
+                .action("Don't Save", Role::Destructive)
+                .action("Cancel", Role::Secondary)
+                .action("Save", Role::Primary)
+                .cancel(1)
+                .show(ctx)
+            {
+                Some(0) => 2,
+                Some(1) => 3,
+                Some(2) => 1,
+                _ => 0,
+            };
             if decision == 1 {
                 let mut saved = true;
                 for s in self.affected(&pending) {

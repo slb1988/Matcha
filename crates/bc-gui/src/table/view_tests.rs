@@ -407,15 +407,15 @@ fn reference_layout_geometry_title_and_menu_inventory() {
         );
         out.textures_delta.clear();
     }
-    // tokens `table-basic` regions: grid rows below the 28 px header at
-    // y151, pane status at y836, details 81 px, status bar 25 px.
+    // Regions: grid rows below the 28 px header at y157 (modern chrome is
+    // 6 px taller than the reference), pane status at y836.
     assert_eq!(
         v.grid.pane_rects[0],
-        egui::Rect::from_min_max(egui::pos2(52.0, 151.0), egui::pos2(718.0, 836.0))
+        egui::Rect::from_min_max(egui::pos2(52.0, 157.0), egui::pos2(718.0, 836.0))
     );
     assert_eq!(
         v.grid.pane_rects[1],
-        egui::Rect::from_min_max(egui::pos2(722.0, 151.0), egui::pos2(1384.0, 836.0))
+        egui::Rect::from_min_max(egui::pos2(722.0, 157.0), egui::pos2(1384.0, 836.0))
     );
     assert_eq!(
         v.title(),

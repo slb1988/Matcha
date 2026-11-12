@@ -1,12 +1,9 @@
-//! Classic modal-dialog chrome shared by Session Settings and Options.
+//! Fixed-layout dialog chrome shared by Session Settings and Options.
 //!
-//! Geometry and colors are measured on the reference dialogs
-//! (`dlg-text-session-settings.png`, `dlg-options.png`): #F0F0F0 dialog
-//! face, #F9F9F9 tab page inside a 1 px #E5E5E5 frame, unselected tabs
-//! #F3F3F3, 94x29 push buttons (default: #0078D4 border), 13 px checkboxes
-//! (off: #626262 border on #F3F3F3, on: #005FB8 with a white check), 25 px
-//! text fields with a #8D8D8D border, combo boxes whose list uses the classic
-//! popup. Everything is painted at fixed positions with no animation.
+//! Controls are painted at fixed positions with the Matcha design tokens:
+//! rounded push buttons (default = filled accent), accent checkboxes and
+//! radios, rounded text fields and combo boxes whose list uses the shared
+//! popup. Everything is painted without animation.
 use super::{
     menubar::{ActionId, MenuItem},
     popup, theme,
@@ -15,26 +12,21 @@ use eframe::egui::{
     self, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
-pub const FACE: Color32 = Color32::from_rgb(0xF0, 0xF0, 0xF0);
-pub const PAGE: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
-const PAGE_EDGE: Color32 = Color32::from_rgb(0xE5, 0xE5, 0xE5);
-const PAGE_SHADOW: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF3);
-const TAB_OFF: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF3);
-const BUTTON_EDGE: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD0);
-const BUTTON_FILL: Color32 = Color32::from_rgb(0xFD, 0xFD, 0xFD);
-const BUTTON_BOTTOM: Color32 = Color32::from_rgb(0xBA, 0xBA, 0xBA);
-const DEFAULT_EDGE: Color32 = Color32::from_rgb(0x00, 0x78, 0xD4);
-const DEFAULT_BOTTOM: Color32 = Color32::from_rgb(0x00, 0x6B, 0xBE);
-const DISABLED_EDGE: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xE9);
-const DISABLED_FILL: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
-pub const DISABLED_TEXT: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
-const CHECK_EDGE: Color32 = Color32::from_rgb(0x62, 0x62, 0x62);
-const ACCENT: Color32 = Color32::from_rgb(0x00, 0x5F, 0xB8);
-const FIELD_EDGE: Color32 = Color32::from_rgb(0x8D, 0x8D, 0x8D);
-const COMBO_EDGE: Color32 = Color32::from_rgb(0xD2, 0xD2, 0xD2);
-const COMBO_BOTTOM: Color32 = Color32::from_rgb(0xBC, 0xBC, 0xBC);
-const HEADING: Color32 = Color32::from_rgb(0x6D, 0x6D, 0x6D);
-pub const RULE: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
+pub const FACE: Color32 = theme::SURFACE_CHROME;
+pub const PAGE: Color32 = theme::SURFACE;
+const PAGE_EDGE: Color32 = theme::LINE;
+const PAGE_SHADOW: Color32 = theme::SURFACE_CHROME;
+const TAB_OFF: Color32 = theme::SURFACE_CHROME;
+const BUTTON_FILL: Color32 = theme::SURFACE;
+const DISABLED_EDGE: Color32 = theme::LINE;
+const DISABLED_FILL: Color32 = theme::SURFACE_SUBTLE;
+pub const DISABLED_TEXT: Color32 = theme::TEXT_FAINT;
+const CHECK_EDGE: Color32 = theme::TEXT_FAINT;
+const ACCENT: Color32 = theme::ACCENT;
+const FIELD_EDGE: Color32 = theme::LINE_STRONG;
+const COMBO_EDGE: Color32 = theme::LINE_STRONG;
+const HEADING: Color32 = theme::TEXT;
+pub const RULE: Color32 = theme::LINE;
 /// Classic push-button size (OK / Cancel / Apply).
 pub const BUTTON: Vec2 = Vec2::new(94.0, 29.0);
 pub const TITLE_HEIGHT: f32 = 31.0;
@@ -44,7 +36,7 @@ pub fn font() -> FontId {
 }
 fn text_color(enabled: bool) -> Color32 {
     if enabled {
-        Color32::BLACK
+        theme::TEXT
     } else {
         DISABLED_TEXT
     }
@@ -222,34 +214,11 @@ fn button_face(
             .with(("dialog-button", label, rect.min.x as i32, rect.min.y as i32)),
         sense,
     );
-    let painter = ui.painter();
-    let (edge, fill, bottom) = match (enabled, kind) {
-        (false, _) => (DISABLED_EDGE, DISABLED_FILL, DISABLED_EDGE),
-        (true, ButtonKind::Default) => (DEFAULT_EDGE, BUTTON_FILL, DEFAULT_BOTTOM),
-        (true, ButtonKind::Normal) => (BUTTON_EDGE, BUTTON_FILL, BUTTON_BOTTOM),
+    let role = match kind {
+        ButtonKind::Default => super::controls::Role::Primary,
+        ButtonKind::Normal => super::controls::Role::Secondary,
     };
-    let fill = if enabled && response.hovered() {
-        theme::HOVER_BLUE
-    } else {
-        fill
-    };
-    painter.rect_filled(rect, 3.0, fill);
-    painter.rect_stroke(rect, 3.0, Stroke::new(1.0, edge), StrokeKind::Inside);
-    painter.rect_filled(
-        Rect::from_min_max(
-            Pos2::new(rect.left() + 3.0, rect.bottom() - 1.0),
-            Pos2::new(rect.right() - 3.0, rect.bottom()),
-        ),
-        0.0,
-        bottom,
-    );
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        font(),
-        text_color(enabled),
-    );
+    super::controls::paint_button(ui, rect, &response, label, role, enabled);
     enabled && response.clicked()
 }
 
@@ -274,7 +243,7 @@ pub fn checkbox(ui: &mut Ui, pos: Pos2, label: &str, value: &mut bool, enabled: 
     }
     if *value {
         let fill = if enabled { ACCENT } else { DISABLED_TEXT };
-        painter.rect_filled(boxed, 2.0, fill);
+        painter.rect_filled(boxed, 3.0, fill);
         painter.add(egui::Shape::line(
             vec![
                 pos + Vec2::new(3.0, 6.5),
@@ -284,10 +253,10 @@ pub fn checkbox(ui: &mut Ui, pos: Pos2, label: &str, value: &mut bool, enabled: 
             Stroke::new(1.5, Color32::WHITE),
         ));
     } else {
-        painter.rect_filled(boxed, 2.0, TAB_OFF);
+        painter.rect_filled(boxed, 3.0, theme::SURFACE);
         painter.rect_stroke(
             boxed,
-            2.0,
+            3.0,
             Stroke::new(1.0, if enabled { CHECK_EDGE } else { DISABLED_TEXT }),
             StrokeKind::Inside,
         );
@@ -310,7 +279,7 @@ pub fn radio(ui: &mut Ui, pos: Pos2, label: &str, selected: bool, enabled: bool)
         painter.circle_filled(c, 6.5, if enabled { ACCENT } else { DISABLED_TEXT });
         painter.circle_filled(c, 3.0, Color32::WHITE);
     } else {
-        painter.circle_filled(c, 6.5, TAB_OFF);
+        painter.circle_filled(c, 6.5, theme::SURFACE);
         painter.circle_stroke(
             c,
             6.0,
@@ -345,24 +314,25 @@ pub fn text_field(
     enabled: bool,
 ) -> Response {
     let painter = ui.painter().clone();
+    let radius = theme::RADIUS_MD;
     painter.rect_filled(
         rect,
-        0.0,
+        radius,
         if enabled {
-            Color32::WHITE
+            theme::SURFACE
         } else {
             DISABLED_FILL
         },
     );
     painter.rect_stroke(
         rect,
-        0.0,
+        radius,
         Stroke::new(1.0, if enabled { FIELD_EDGE } else { DISABLED_EDGE }),
         StrokeKind::Inside,
     );
     let inner = Rect::from_min_max(
-        rect.min + Vec2::new(3.0, 1.0),
-        rect.max - Vec2::new(3.0, 1.0),
+        rect.min + Vec2::new(7.0, 1.0),
+        rect.max - Vec2::new(7.0, 1.0),
     );
     ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
         ui.add_enabled(
@@ -516,23 +486,18 @@ fn list(
             },
         );
     } else {
-        painter.rect_filled(rect, 3.0, if enabled { BUTTON_FILL } else { DISABLED_FILL });
+        let radius = theme::RADIUS_MD;
+        painter.rect_filled(
+            rect,
+            radius,
+            if enabled { BUTTON_FILL } else { DISABLED_FILL },
+        );
         painter.rect_stroke(
             rect,
-            3.0,
+            radius,
             Stroke::new(1.0, if enabled { COMBO_EDGE } else { DISABLED_EDGE }),
             StrokeKind::Inside,
         );
-        if enabled {
-            painter.rect_filled(
-                Rect::from_min_max(
-                    Pos2::new(rect.left() + 3.0, rect.bottom() - 1.0),
-                    Pos2::new(rect.right() - 3.0, rect.bottom()),
-                ),
-                0.0,
-                COMBO_BOTTOM,
-            );
-        }
         painter.text(
             Pos2::new(rect.left() + 4.0, rect.center().y),
             egui::Align2::LEFT_CENTER,

@@ -1735,12 +1735,45 @@ impl TableCompareView {
                 });
         }
         let mut decision = 0;
-        if self.pending.is_some() {
-            egui::Window::new("Unsaved table changes").collapsible(false).show(ctx,|ui|{
-            ui.label("This operation may replace the comparison and its edited sheets. Save, discard, or cancel.");ui.horizontal(|ui|{if ui.button("Save changed files").clicked(){decision=1;}
-                if ui.button("Discard").clicked(){decision=2;}
-                if ui.button("Cancel").clicked(){decision=3;}});
-        });
+        if let Some(pending) = &self.pending {
+            use crate::chrome::{
+                controls::Role,
+                modal::{self, Modal, Tone},
+            };
+            let title = match pending {
+                Pending::Close => "Save table changes before closing?",
+                Pending::Exit => "Save table changes before quitting?",
+                Pending::Reload => "Save table changes before reloading?",
+                Pending::Open(..) => "Save table changes before opening another file?",
+                Pending::Clipboard(..) => "Save table changes before loading the clipboard?",
+                _ => "Save table changes first?",
+            };
+            let items: Vec<modal::Item> = (0..2)
+                .filter(|&s| {
+                    self.files[s].clipboard_dirty
+                        || self.pair.as_ref().is_some_and(|p| p.history[s].is_dirty())
+                })
+                .filter_map(|s| {
+                    let badge = if s == 0 { "LEFT" } else { "RIGHT" };
+                    self.files[s].path.as_deref().map(|p| modal::file_item(badge, p))
+                })
+                .collect();
+            decision = match Modal::new("table-unsaved", Tone::Warning, title)
+                .message(
+                    "This will replace the comparison and its edited sheets.                      Unsaved edits will be lost if you don't save them.",
+                )
+                .items(items)
+                .action("Don't Save", Role::Destructive)
+                .action("Cancel", Role::Secondary)
+                .action("Save", Role::Primary)
+                .cancel(1)
+                .show(ctx)
+            {
+                Some(0) => 2,
+                Some(1) => 3,
+                Some(2) => 1,
+                _ => 0,
+            };
         }
         match decision {
             1 => {

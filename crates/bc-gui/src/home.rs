@@ -164,8 +164,11 @@ struct Recent {
     right: PathBuf,
     when: SystemTime,
 }
-/// Icons per page of the grid (the reference shows three, then a chevron).
-const PAGE: usize = 3;
+/// Session-type cards per page: as many as fit the canvas (all five on a
+/// normal window); narrower windows page with round chevron buttons.
+fn per_page(canvas_width: f32) -> usize {
+    (((canvas_width - 140.0) / CELL.x).floor() as usize).clamp(1, KINDS.len())
+}
 // Reference geometry (client pixels, 1384x961 window).
 const TREE_WIDTH: f32 = 275.0;
 const HEADER_BOTTOM: f32 = 60.0;
@@ -176,12 +179,11 @@ const TOOLBAR_HEIGHT: f32 = 39.0;
 const BODY_GAP: f32 = 4.0;
 const PANEL_HEIGHT: f32 = 132.0;
 const CELL: Vec2 = Vec2::new(158.0, 100.0);
-const TREE_BG: Color32 = Color32::from_rgb(0xE3, 0xE7, 0xED);
-const CANVAS_BG: Color32 = Color32::from_rgb(0xF9, 0xF9, 0xF9);
-const SELECT_FILL: Color32 = Color32::from_rgb(0xB6, 0xD5, 0xF1);
-const SELECT_EDGE: Color32 = Color32::from_rgb(0x00, 0x78, 0xD4);
-const EXPANDER: Color32 = Color32::from_rgb(0x8B, 0x8B, 0x8B);
-const CHEVRON: Color32 = Color32::from_rgb(0x80, 0x80, 0x80);
+const TREE_BG: Color32 = theme::SURFACE_CHROME;
+const CANVAS_BG: Color32 = theme::SURFACE_SUBTLE;
+const SELECT_FILL: Color32 = theme::ACCENT_SOFT;
+const EXPANDER: Color32 = theme::TEXT_FAINT;
+const CHEVRON: Color32 = theme::TEXT_MUTED;
 const NEW_DRAWER: (Color32, Color32) = (
     Color32::from_rgb(0x9B, 0xD9, 0x7F),
     Color32::from_rgb(0x65, 0x8B, 0x50),
@@ -458,15 +460,13 @@ impl HomeView {
             action = self.command(&id).or(action);
         }
         let (w, h) = (full.width(), full.height());
-        painter.rect_filled(span(0.0, 27.0, w, 28.0), 0.0, theme::BORDER);
-        painter.rect_filled(span(0.0, 28.0, w, 29.0), 0.0, Color32::WHITE);
+        painter.rect_filled(
+            span(0.0, theme::MENU_HEIGHT - 1.0, w, theme::MENU_HEIGHT),
+            0.0,
+            theme::LINE,
+        );
         let body_bottom = if self.hide_panel { h } else { h - PANEL_HEIGHT };
         let content_bottom = body_bottom - BODY_GAP;
-        painter.rect_filled(
-            span(0.0, content_bottom, w, content_bottom + 1.0),
-            0.0,
-            Color32::WHITE,
-        );
         let canvas_left = if self.hide_tree {
             0.0
         } else {
@@ -483,14 +483,24 @@ impl HomeView {
             self.help_panel(ui, &painter, span(0.0, body_bottom, w, h));
         }
         if self.about {
-            egui::Window::new("About Matcha")
-                .open(&mut self.about)
-                .collapsible(false)
-                .resizable(false)
-                .show(ui.ctx(), |ui| {
-                    ui.label(format!("Matcha {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("Folder, text and table comparison.");
-                });
+            use crate::chrome::{
+                controls::Role,
+                modal::{Modal, Tone},
+            };
+            if Modal::new(
+                "about",
+                Tone::Info,
+                format!("Matcha {}", env!("CARGO_PKG_VERSION")),
+            )
+            .message("Compare folders, text, tables and binary files side by side.")
+            .action("Close", Role::Primary)
+            .cancel(0)
+            .width(380.0)
+            .show(ui.ctx())
+            .is_some()
+            {
+                self.about = false;
+            }
         }
         action
     }
@@ -505,53 +515,34 @@ impl HomeView {
         let at = |x: f32, y: f32| Pos2::new(x, y) + o;
         let span = |x0: f32, y0: f32, x1: f32, y1: f32| Rect::from_min_max(at(x0, y0), at(x1, y1));
         let font = FontId::proportional(theme::UI_SIZE);
-        // "Sessions" header: #F9 / #F0 then one step per two rows to #E1.
-        let mut mesh = egui::Mesh::default();
-        for y in 29..60u8 {
-            let v = match y {
-                29 => 0xF9,
-                30 => 0xF0,
-                31 => 0xEF,
-                _ => 0xEE - (y - 32) / 2,
-            };
-            mesh.add_colored_rect(
-                span(0.0, y as f32, TREE_WIDTH, y as f32 + 1.0),
-                Color32::from_gray(v),
-            );
-        }
-        painter.add(egui::Shape::mesh(mesh));
-        painter.rect_filled(
-            span(0.0, HEADER_BOTTOM, TREE_WIDTH, HEADER_BOTTOM + 1.0),
-            0.0,
-            theme::BORDER,
-        );
-        painter.text(
-            at(10.0, 43.5),
-            egui::Align2::LEFT_CENTER,
-            "Sessions",
-            font.clone(),
-            Color32::BLACK,
-        );
+        // Flat sidebar: small-caps section label, no gradient or rules.
         let toolbar_top = content_bottom - TOOLBAR_HEIGHT - 1.0;
         painter.rect_filled(
-            span(0.0, HEADER_BOTTOM + 1.0, TREE_WIDTH, toolbar_top),
+            span(0.0, theme::MENU_HEIGHT, TREE_WIDTH, content_bottom),
             0.0,
             TREE_BG,
         );
-        painter.rect_filled(
-            span(0.0, toolbar_top, TREE_WIDTH, toolbar_top + 1.0),
-            0.0,
-            theme::BORDER,
+        painter.text(
+            at(16.0, 46.0),
+            egui::Align2::LEFT_CENTER,
+            "SESSIONS",
+            theme::strong(ui.ctx(), 11.0),
+            theme::TEXT_FAINT,
         );
         painter.rect_filled(
-            span(0.0, toolbar_top + 1.0, TREE_WIDTH, content_bottom),
+            span(12.0, toolbar_top, TREE_WIDTH - 12.0, toolbar_top + 1.0),
             0.0,
-            theme::PANEL_BG,
+            theme::LINE,
         );
         painter.rect_filled(
-            span(TREE_WIDTH, 28.0, TREE_WIDTH + 1.0, content_bottom),
+            span(
+                TREE_WIDTH,
+                theme::MENU_HEIGHT,
+                TREE_WIDTH + 1.0,
+                content_bottom,
+            ),
             0.0,
-            theme::BORDER,
+            theme::LINE,
         );
         let filter = self.filter.trim().to_lowercase();
         let auto_open = self.auto_open || !filter.is_empty();
@@ -648,33 +639,25 @@ impl HomeView {
                         c + Vec2::new(-1.5, 3.5),
                     ]
                 };
-                clip.add(egui::Shape::line(points, Stroke::new(1.0, EXPANDER)));
-                let mut dots = egui::Mesh::default();
-                for x in [15.0 + indent, 17.0 + indent, 19.0 + indent] {
-                    dots.add_colored_rect(span(x, cy, x + 1.0, cy + 1.0), EXPANDER);
-                }
-                clip.add(egui::Shape::mesh(dots));
+                clip.add(egui::Shape::line(points, Stroke::new(1.3, EXPANDER)));
             }
-            let galley = ui
-                .painter()
-                .layout_no_wrap(label, font.clone(), Color32::BLACK);
+            let ink = if self.selected == node {
+                theme::ACCENT_PRESSED
+            } else if group {
+                theme::TEXT
+            } else {
+                theme::TEXT_MUTED
+            };
+            let galley = ui.painter().layout_no_wrap(label, font.clone(), ink);
             let text_left = 43.0 + indent;
+            let row = span(6.0, top + 1.0, TREE_WIDTH - 6.0, top + TREE_ROW - 1.0);
             if self.selected == node {
-                let sel = span(
-                    20.0 + indent,
-                    top,
-                    text_left + galley.size().x + 4.0,
-                    top + TREE_ROW,
-                );
-                clip.rect_filled(sel, 0.0, SELECT_FILL);
-                clip.rect_stroke(sel, 0.0, Stroke::new(1.0, SELECT_EDGE), StrokeKind::Inside);
+                clip.rect_filled(row, theme::RADIUS_MD, SELECT_FILL);
+            } else if response.hovered() {
+                clip.rect_filled(row, theme::RADIUS_MD, theme::HOVER);
             }
             glyph(node, indent, cy);
-            clip.galley(
-                at(text_left, cy - galley.size().y / 2.0),
-                galley,
-                Color32::BLACK,
-            );
+            clip.galley(at(text_left, cy - galley.size().y / 2.0), galley, ink);
             if response.clicked() {
                 self.selected = node;
                 let on_expander = response
@@ -722,20 +705,16 @@ impl HomeView {
         let plus = span(6.0, bt, 36.0, bt + 28.0);
         let minus = span(38.0, bt, 67.0, bt + 28.0);
         let removable = matches!(self.selected, Node::Recent(_));
+        let hover = ui.ctx().pointer_hover_pos();
         for (rect, enabled, cross) in [(plus, true, true), (minus, removable, false)] {
-            let (edge, fill, ink) = if enabled {
-                (0xD0, 0xFD, 0x4F)
+            let ink = if enabled {
+                theme::TEXT_MUTED
             } else {
-                (0xE9, 0xF9, 0xB3)
+                theme::TEXT_FAINT
             };
-            let ink = Color32::from_gray(ink);
-            painter.rect_filled(rect, 3.0, Color32::from_gray(fill));
-            painter.rect_stroke(
-                rect,
-                3.0,
-                Stroke::new(1.0, Color32::from_gray(edge)),
-                StrokeKind::Inside,
-            );
+            if enabled && hover.is_some_and(|p| rect.contains(p)) {
+                painter.rect_filled(rect, theme::RADIUS_MD, theme::HOVER);
+            }
             let c = rect.center();
             painter.rect_filled(Rect::from_center_size(c, Vec2::new(8.0, 2.0)), 0.0, ink);
             if cross {
@@ -762,36 +741,29 @@ impl HomeView {
                 self.forget(i);
             }
         }
-        let search = span(73.0, bt + 1.0, 271.0, bt + 26.0);
-        painter.rect_filled(search, 0.0, Color32::WHITE);
+        let search = span(73.0, bt + 1.0, 266.0, bt + 27.0);
+        painter.rect_filled(search, theme::RADIUS_MD, theme::SURFACE);
         painter.rect_stroke(
             search,
-            0.0,
-            Stroke::new(1.0, Color32::from_gray(0xEC)),
+            theme::RADIUS_MD,
+            Stroke::new(1.0, theme::LINE_STRONG),
             StrokeKind::Inside,
         );
-        painter.rect_filled(
-            Rect::from_min_max(
-                search.left_bottom() - Vec2::new(0.0, 1.0),
-                search.right_bottom(),
-            ),
-            0.0,
-            Color32::from_gray(0x83),
-        );
-        // Magnifier: ring with a handle toward the lower left.
-        let ring = search.left_top() + Vec2::new(12.0, 10.0);
-        let ink = Color32::from_gray(0x66);
-        painter.circle_stroke(ring, 3.5, Stroke::new(1.6, ink));
+        // Magnifier: ring with a handle toward the lower right.
+        let ring = search.left_top() + Vec2::new(12.0, 12.0);
+        let ink = theme::TEXT_FAINT;
+        painter.circle_stroke(ring, 4.0, Stroke::new(1.4, ink));
         painter.line_segment(
-            [ring + Vec2::new(-2.5, 2.5), ring + Vec2::new(-5.5, 5.5)],
-            Stroke::new(2.0, ink),
+            [ring + Vec2::new(3.0, 3.0), ring + Vec2::new(6.0, 6.0)],
+            Stroke::new(1.6, ink),
         );
         ui.scope_builder(
-            egui::UiBuilder::new().max_rect(span(93.0, bt + 5.0, 268.0, bt + 23.0)),
+            egui::UiBuilder::new().max_rect(span(97.0, bt + 5.0, 262.0, bt + 23.0)),
             |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.filter)
                         .frame(egui::Frame::NONE)
+                        .hint_text("Filter sessions")
                         .desired_width(ui.available_width()),
                 );
             },
@@ -810,28 +782,52 @@ impl HomeView {
         let cx = rect.center().x + 2.5;
         let grid_cx = rect.center().x + 4.0;
         let icon_top = (rect.center().y - 56.0).round();
-        for (text, y) in [
-            ("Drag folders or files here", icon_top - 64.0),
-            ("or click a session icon to begin:", icon_top - 42.0),
-        ] {
-            painter.text(
-                Pos2::new(cx, y),
-                egui::Align2::CENTER_CENTER,
-                text,
-                font.clone(),
-                Color32::BLACK,
-            );
-        }
-        let pages = KINDS.len().div_ceil(PAGE);
+        painter.text(
+            Pos2::new(cx, icon_top - 74.0),
+            egui::Align2::CENTER_CENTER,
+            "Start a comparison",
+            theme::strong(ui.ctx(), 22.0),
+            theme::TEXT,
+        );
+        painter.text(
+            Pos2::new(cx, icon_top - 44.0),
+            egui::Align2::CENTER_CENTER,
+            "Drop two files or folders anywhere in this window, or pick a session type.",
+            font.clone(),
+            theme::TEXT_MUTED,
+        );
+        let page_size = per_page(rect.width());
+        let pages = KINDS.len().div_ceil(page_size);
         self.page = self.page.min(pages - 1);
-        let shown = &KINDS[self.page * PAGE..((self.page + 1) * PAGE).min(KINDS.len())];
+        let shown = &KINDS[self.page * page_size..((self.page + 1) * page_size).min(KINDS.len())];
         for (i, kind) in shown.iter().enumerate() {
-            let center_x = (grid_cx + (i as f32 - (PAGE as f32 - 1.0) / 2.0) * CELL.x).round();
-            let cell =
-                Rect::from_min_size(Pos2::new(center_x - CELL.x / 2.0, icon_top - 4.0), CELL);
+            let center_x =
+                (grid_cx + (i as f32 - (shown.len() as f32 - 1.0) / 2.0) * CELL.x).round();
+            let cell = Rect::from_min_max(
+                Pos2::new(center_x - 68.0, icon_top - 18.0),
+                Pos2::new(center_x + 68.0, icon_top + 100.0),
+            );
             let response = ui
                 .interact(cell, egui::Id::unique(("home-kind", i)), Sense::click())
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let hovered = response.hovered();
+            if hovered {
+                painter.add(theme::shadow_popup().as_shape(cell, theme::RADIUS_XL));
+            }
+            painter.rect_filled(cell, theme::RADIUS_XL, theme::SURFACE);
+            painter.rect_stroke(
+                cell,
+                theme::RADIUS_XL,
+                Stroke::new(
+                    1.0,
+                    if hovered {
+                        theme::ACCENT_SOFT_LINE
+                    } else {
+                        theme::LINE
+                    },
+                ),
+                StrokeKind::Inside,
+            );
             icons::paint_session(
                 painter,
                 Rect::from_min_size(Pos2::new(center_x - 32.0, icon_top), Vec2::splat(64.0)),
@@ -842,7 +838,11 @@ impl HomeView {
                 egui::Align2::CENTER_CENTER,
                 kind.label(),
                 font.clone(),
-                Color32::BLACK,
+                if hovered {
+                    theme::ACCENT_PRESSED
+                } else {
+                    theme::TEXT
+                },
             );
             if response.clicked() {
                 *action = Some(kind.new_session(None));
@@ -854,22 +854,35 @@ impl HomeView {
                 continue;
             }
             let dir = if right { 1.0 } else { -1.0 };
-            let c = Pos2::new(grid_cx + 461.5 * dir, icon_top + 31.5);
+            let c = Pos2::new(
+                grid_cx + (page_size as f32 / 2.0 * CELL.x + 40.0) * dir,
+                icon_top + 31.5,
+            );
             let points = vec![
                 c + Vec2::new(-8.0 * dir, -15.5),
                 c + Vec2::new(8.0 * dir, 0.0),
                 c + Vec2::new(-8.0 * dir, 15.5),
             ];
-            let hit = Rect::from_points(&points).expand(8.0);
-            for p in &points {
-                painter.circle_filled(*p, 3.0, CHEVRON);
-            }
-            painter.add(egui::Shape::line(points, Stroke::new(6.0, CHEVRON)));
-            if ui
+            let hit = Rect::from_center_size(c, Vec2::splat(40.0));
+            let response = ui
                 .interact(hit, egui::Id::unique(("home-page", right)), Sense::click())
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            painter.circle_filled(
+                c,
+                18.0,
+                if response.hovered() {
+                    theme::HOVER
+                } else {
+                    theme::SURFACE
+                },
+            );
+            painter.circle_stroke(c, 18.0, Stroke::new(1.0, theme::LINE));
+            let chevron: Vec<Pos2> = points
+                .iter()
+                .map(|p| c + (*p - c) * 0.33 + Vec2::new(dir, 0.0))
+                .collect();
+            painter.add(egui::Shape::line(chevron, Stroke::new(1.8, CHEVRON)));
+            if response.clicked() {
                 if right {
                     self.page += 1;
                 } else {
@@ -883,18 +896,18 @@ impl HomeView {
                 egui::Align2::CENTER_CENTER,
                 error,
                 font,
-                Color32::from_rgb(200, 0, 0),
+                theme::DANGER,
             );
         }
     }
     /// Help panel: the reference's three-column strip with a close button,
     /// carrying Matcha's own neutral content (no brand color, no logo).
     fn help_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect) {
-        painter.rect_filled(rect, 0.0, theme::PANEL_BG);
+        painter.rect_filled(rect, 0.0, theme::SURFACE);
         painter.rect_filled(
             Rect::from_min_size(rect.min, Vec2::new(rect.width(), 1.0)),
             0.0,
-            theme::BORDER,
+            theme::LINE,
         );
         let font = FontId::proportional(theme::UI_SIZE);
         let columns: [(f32, &str, [&str; 2]); 3] = [
@@ -925,8 +938,8 @@ impl HomeView {
                 rect.min + Vec2::new(x, 31.5),
                 egui::Align2::LEFT_CENTER,
                 title,
-                font.clone(),
-                Color32::from_gray(0x40),
+                theme::strong(ui.ctx(), 11.0),
+                theme::ACCENT,
             );
             for (i, line) in lines.iter().enumerate() {
                 painter.text(
@@ -934,23 +947,23 @@ impl HomeView {
                     egui::Align2::LEFT_CENTER,
                     *line,
                     font.clone(),
-                    Color32::from_gray(0x20),
+                    theme::TEXT_MUTED,
                 );
             }
         }
-        for x in [264.0, 516.0, 769.0] {
+        for x in [264.0, 516.0] {
             painter.rect_filled(
                 Rect::from_min_size(
-                    rect.min + Vec2::new(x, 1.0),
-                    Vec2::new(1.0, rect.height() - 1.0),
+                    rect.min + Vec2::new(x, 24.0),
+                    Vec2::new(1.0, rect.height() - 48.0),
                 ),
                 0.0,
-                Color32::from_gray(0xD0),
+                theme::LINE,
             );
         }
         // Close (×) hides the panel, like View > Show Help Panel.
         let c = Pos2::new(rect.right() - 16.5, rect.top() + 13.5);
-        let ink = Stroke::new(2.0, Color32::from_gray(0x40));
+        let ink = Stroke::new(1.4, theme::TEXT_FAINT);
         painter.line_segment([c + Vec2::new(-4.0, -4.0), c + Vec2::new(4.0, 4.0)], ink);
         painter.line_segment([c + Vec2::new(-4.0, 4.0), c + Vec2::new(4.0, -4.0)], ink);
         if ui
@@ -1087,24 +1100,20 @@ mod tests {
         let mut home = HomeView::default();
         frame(&ctx, &mut home, vec![]);
         let empty = |kind| Some(HomeAction::NewSession { kind, left: None });
-        // Page one: Folder Compare, Folder Sync, Text Compare (reference y403).
+        // A normal window shows every session type on one row (y403).
+        assert_eq!(per_page(1108.0), KINDS.len());
         for (x, kind) in [
-            (676.0, SessionKind::FolderCompare),
-            (834.0, SessionKind::FolderSync),
-            (992.0, SessionKind::TextCompare),
+            (518.0, SessionKind::FolderCompare),
+            (676.0, SessionKind::FolderSync),
+            (834.0, SessionKind::TextCompare),
+            (992.0, SessionKind::TableCompare),
+            (1150.0, SessionKind::HexCompare),
         ] {
             assert_eq!(click(&ctx, &mut home, Pos2::new(x, 403.0)), empty(kind));
         }
-
-        // Four types: the chevron pages to Table Compare and back.
-        click(&ctx, &mut home, Pos2::new(1295.0, 403.0));
-        assert_eq!(home.page, 1);
-        assert_eq!(
-            click(&ctx, &mut home, Pos2::new(676.0, 403.0)),
-            empty(SessionKind::TableCompare)
-        );
-        click(&ctx, &mut home, Pos2::new(1668.0 - 1295.0, 403.0));
         assert_eq!(home.page, 0);
+        // Narrow canvases page instead.
+        assert_eq!(per_page(500.0), 2);
         // Session toolbar "+": the selected New-tree type, else Folder Compare.
         assert_eq!(
             click(&ctx, &mut home, Pos2::new(21.0, 804.0)),

@@ -1,20 +1,25 @@
 # GUI 外壳与视图架构（GUI Shell）
 
 > eframe/egui 桌面外壳：Home、文本/文件夹/同步/表格视图、单实例与资源管理器集成。
-> 状态：**已实现**（视图群落地；视觉对齐 visual-parity 进行中 15/23）。对应 FR-G1。
+> 状态：**已实现**（视图群落地；外框已切换为 Matcha 现代设计系统，见 ADR 401）（2026-11-12 更新）。对应 FR-G1。
 
 ## 功能简介
 
 - 唯一依赖 GUI 工具包的 crate：`bc-gui`（eframe 0.37，glow 后端）；引擎 crate 全部平台中性。
 - Home：路径框、双文件/文件夹拖放、最近文件对。会话树默认展开 New 与 Auto-saved；Auto-saved 下
   按本地日期分组（Today / Yesterday / N days ago / More than 6 days ago，仅 Today 默认展开），
-  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matchaecent-text.txt`（v2：首行
+  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matcha
+ecent-text.txt`（v2：首行
   `# matcha recent v2`，每行 `纪元秒	左	右`；旧的两行一对格式以文件修改时间读入）。
 - 比较视图（文本/表格/Hex/文件夹/同步）：把文件从资源管理器拖到哪一侧就替换哪一侧（按落点判定，
   与当前活动侧无关）。
 - 视图：`text/`（文本比较）、`dir_view.rs`（文件夹）、`sync_view.rs`（同步）、
   `table/`（表格）；两个目录参数自动进入文件夹视图。
 - 单实例（`bc-instance`）与 Windows 资源管理器菜单（`bc-shell`）见各自 crate。
+- **视觉设计系统**（ADR 401）：冷中性灰表面 + 发丝线 + 圆角 + 柔和阴影，品牌强调色"抹茶绿"；
+  token 集中在 `chrome/theme.rs`。确认类弹框（文本/表格/Hex 未保存、Hex 重载、文件操作确认、
+  About）统一用 `chrome/modal.rs`：遮罩卡片、语气徽标、条目列表、Enter=主按钮 / Esc=取消。
+- Home：会话类型以卡片一行排开（窗口过窄时才分页，圆形箭头翻页）；侧栏扁平，选中为圆角胶囊。
 - 基准与截图：`--bench=SECONDS`、`--bench-dir`、`--screenshot=target/x.bmp`
   （应用自身 framebuffer，BMP 直写）。
 
@@ -27,6 +32,8 @@
 | `crates/bc-gui/src/chrome/drop.rs` | 比较视图的系统拖放落点 → 左/右侧判定（各视图共用） |
 | `crates/bc-gui/src/text/`、`table/`、`dir_view.rs`、`sync_view.rs` | 各功能视图（见对应 feature 文档） |
 | `crates/bc-gui/src/chrome/`、`dialogs/`、`legend.rs`、`log_panel.rs` | 外框、对话框、颜色图例、虚拟化操作日志 |
+| `crates/bc-gui/src/chrome/theme.rs` | 设计 token（颜色/圆角/阴影/字号）与全局 egui 样式 |
+| `crates/bc-gui/src/chrome/modal.rs`、`chrome/controls.rs` | 现代确认弹框；主/次/危险按钮与标签 chip |
 | `crates/bc-instance`、`crates/bc-shell` | 单实例交接、Explorer 菜单 |
 
 ## 关键语义
@@ -51,6 +58,10 @@
   - 文件夹/同步：窗口按中缝分左右两半，只接受文件夹（文件给出提示）；落在浮动的内嵌文本窗口或
     子文件夹窗口上的拖放交给那个窗口自己的视图，其余由文件夹视图消费，避免内嵌视图误换侧。
 - CJK 用系统微软雅黑后备，不捆绑字体。
+- **未保存确认**：按钮为「Don't Save（左，危险）/ Cancel / Save（右，主）」；标题随触发动作变化
+  （closing / quitting / reloading / opening another file …），列出受影响的一侧及文件名与完整路径。
+  Enter = Save，Esc = Cancel；点遮罩不关闭（避免误触丢弃）。
+- 新代码只引用 `theme` 语义 token，不写颜色字面量；差异内容色（红/蓝）不属于外框，保持不变。
 - 截图只来自自身 framebuffer，不读其他窗口。
 
 ## 使用与验证
@@ -59,11 +70,14 @@
 cargo run --release -p bcompare -- <left> <right>
 cargo run --release -p bcompare -- <left> <right> --bench=60 --screenshot=target/text.bmp
 cargo test -p bc-gui --lib
+# 视觉检查（快照模式会屏蔽鼠标键盘输入，仅用于截图）
+target/debug/matcha.exe --snapshot=text-unsaved-modal --snapshot-out=target/visual/modal.png
 ```
 
 ## 深入阅读
 
 - `crates/bc-gui/README.md`（结构清单最权威）
 - `docs/ui-framework-decision.md`（egui 选型测量与结论）
-- `docs/visual-parity/`（视觉对齐 tokens 与 HANDOFF）、`docs/reference-parity/visual.md`
+- `docs/decisions/401-modern-design-system.md`（为何离开像素对齐、token 与弹框规范）
+- `docs/visual-parity/`（历史：经典外观对齐 tokens 与 HANDOFF）、`docs/reference-parity/visual.md`
 - 单实例交接协议见 README"Open questions"与 `crates/bc-instance`
