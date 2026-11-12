@@ -18,7 +18,7 @@ pub const MIN_COLUMN_WIDTH: f32 = 20.0;
 /// Header boundary grab half-width (px) for column resize.
 const RESIZE_GRAB: f32 = 3.0;
 pub const GRID_LINE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xE3, 0xE6, 0xEA);
-pub const PANE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xFC, 0xFC);
+pub const PANE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xFC, 0xFD);
 pub const SELECTION: egui::Color32 = crate::chrome::theme::SELECTION;
 pub const INDICATOR: egui::Color32 = crate::chrome::theme::ACCENT;
 const DIFF_FILL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xE3, 0xE3);
@@ -344,17 +344,13 @@ pub fn pane(
     colors: &DiffColors,
 ) -> Option<GridAction> {
     let active = state.active == side;
-    let background = if active {
-        egui::Color32::WHITE
-    } else {
-        PANE_INACTIVE
-    };
     let line = if active {
         GRID_LINE
     } else {
         GRID_LINE_INACTIVE
     };
-    ui.painter().rect_filled(rect, 0.0, background);
+    // Empty area is canvas; each drawn row lays a white sheet over it.
+    crate::chrome::theme::paint_canvas(&ui.painter_at(rect), rect);
     let rows_rect = egui::Rect::from_min_max(rect.min + egui::vec2(0.0, HEADER_HEIGHT), rect.max);
     let view_height = rows_rect.height().max(ROW_HEIGHT);
     let width = GUTTER + state.offsets.last().copied().unwrap_or(0.0);
@@ -439,6 +435,7 @@ pub fn pane(
                 .max_rect(rows_rect),
             |ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                ui.visuals_mut().extreme_bg_color = crate::chrome::theme::CANVAS;
                 ui.spacing_mut().scroll.bar_width = 16.0;
                 ui.spacing_mut().scroll.bar_inner_margin = 1.0;
                 ui.spacing_mut().scroll.bar_outer_margin = 1.0;
@@ -591,6 +588,22 @@ fn rows(
             if cell_rect.right() < gutter.right() {
                 continue;
             }
+            // Sheet under the cell (canvas shows outside the data).
+            let sheet_rect = cell_rect.intersect(clip).intersect(egui::Rect::from_min_max(
+                egui::pos2(gutter.right(), clip.top()),
+                clip.max,
+            ));
+            if sheet_rect.is_positive() {
+                painter.rect_filled(
+                    sheet_rect,
+                    0.0,
+                    if active {
+                        egui::Color32::WHITE
+                    } else {
+                        PANE_INACTIVE
+                    },
+                );
+            }
             let paint_rect = cell_rect
                 .intersect(clip)
                 .intersect(egui::Rect::from_min_max(
@@ -690,7 +703,7 @@ fn rows(
             None => (rect.left(), rect.top(), rect.bottom()),
             Some((x, top, _)) => (x, top, rect.bottom()),
         });
-        painter.rect_filled(gutter, 0.0, crate::chrome::theme::PANEL_BG);
+        painter.rect_filled(gutter, 0.0, crate::chrome::theme::HEADER_FILL);
         painter.rect_filled(
             egui::Rect::from_min_max(egui::pos2(gutter.right() - 1.0, gutter.top()), gutter.max),
             0.0,

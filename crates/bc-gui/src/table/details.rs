@@ -18,7 +18,7 @@ pub fn paint(
 ) {
     let cursor: Cursor = state.cursor;
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-    painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
+    crate::chrome::theme::paint_canvas(&painter, rect);
     // Bottom band: white edge, 16 px panel band (scroll placeholder), white edge.
     let band = egui::Rect::from_min_max(
         egui::pos2(rect.left(), rect.bottom() - 17.0),
@@ -39,7 +39,7 @@ pub fn paint(
         egui::pos2(rect.left(), rect.top()),
         egui::pos2(right_edge, rect.top() + HEADER),
     );
-    painter.rect_filled(header, 0.0, crate::chrome::theme::PANEL_BG);
+    painter.rect_filled(header, 0.0, crate::chrome::theme::HEADER_FILL);
     painter.rect_filled(
         egui::Rect::from_min_max(
             egui::pos2(rect.left(), header.bottom() - 1.0),

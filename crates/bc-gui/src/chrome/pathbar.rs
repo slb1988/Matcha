@@ -280,18 +280,36 @@ fn edit_menu(
     let ctx = ui.ctx().clone();
     let snapshot_id = edit.id.with("pathbar-selection");
     let snapshot: Option<CCursorRange> = ctx.data(|d| d.get_temp(snapshot_id)).unwrap_or(None);
-    // 「选区内右键保留选区」：TextEdit 已把光标挪到右键落点，点在快照选区内时恢复。
-    if edit.secondary_clicked() {
-        if let Some(pos) = edit.interact_pointer_pos() {
-            let ccursor =
-                galley.cursor_from_pos(pos - galley_pos + egui::vec2(galley.rect.left(), 0.0));
-            if let Some(sel) = snapshot.filter(|r| !r.is_empty()) {
-                if sel.as_sorted_char_range().contains(&ccursor.index) {
-                    let mut state = egui::widgets::text_edit::TextEditState::load(&ctx, edit.id)
-                        .unwrap_or_default();
-                    state.cursor.set_char_range(Some(sel));
-                    state.store(&ctx, edit.id);
-                }
+    // 「选区内右键保留选区」：egui 的 secondary_clicked 在右键「释放」帧才触发，
+    // 而按下帧 TextEdit 已把选区折叠成落点光标（pointer_interaction 对任意指针键
+    // 按下都收拢选区）；若等释放帧才恢复，帧末快照早被折叠后的光标覆盖，选区就找
+    // 不回了。因此按下帧（本函数在 TextEdit::show 之后运行）就从事件落点恢复选区，
+    // 释放帧的恢复只是幂等的重复。
+    let right_pressed_at = ui.input(|i| {
+        i.events.iter().find_map(|event| match event {
+            egui::Event::PointerButton {
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                pos,
+                ..
+            } if edit.rect.contains(*pos) => Some(*pos),
+            _ => None,
+        })
+    });
+    let right_click_at = right_pressed_at.or_else(|| {
+        edit.secondary_clicked()
+            .then(|| edit.interact_pointer_pos())
+            .flatten()
+    });
+    if let Some(pos) = right_click_at {
+        let ccursor =
+            galley.cursor_from_pos(pos - galley_pos + egui::vec2(galley.rect.left(), 0.0));
+        if let Some(sel) = snapshot.filter(|r| !r.is_empty()) {
+            if sel.as_sorted_char_range().contains(&ccursor.index) {
+                let mut state = egui::widgets::text_edit::TextEditState::load(&ctx, edit.id)
+                    .unwrap_or_default();
+                state.cursor.set_char_range(Some(sel));
+                state.store(&ctx, edit.id);
             }
         }
     }
@@ -454,6 +472,33 @@ mod tests {
         menu_frame(ctx, path, vec![], false);
         menu_frame(ctx, path, click(RIGHT, egui::PointerButton::Secondary), false);
         menu_frame(ctx, path, vec![], false);
+    }
+    #[test]
+    fn right_press_and_release_in_separate_frames_keeps_selection() {
+        // 真实输入中右键按下与释放落在不同帧：按下帧 TextEdit 会把选区折叠成落点
+        // 光标，若选区快照在帧末被折叠后的光标覆盖，释放帧打开的菜单里 Cut/Copy
+        // 会全灰（选区看似被右键清掉）。修复后按下帧即恢复快照选区。
+        let ctx = egui::Context::default();
+        let mut path = "C:/work/left.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], true); // 聚焦并全选
+        menu_frame(&ctx, &mut path, vec![], false); // 帧末快照写入选区
+        let press = |pressed| egui::Event::PointerButton {
+            pos: RIGHT,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        menu_frame(&ctx, &mut path, vec![egui::Event::PointerMoved(RIGHT)], false);
+        menu_frame(&ctx, &mut path, vec![press(true)], false); // 按下帧：折叠后应立即恢复
+        menu_frame(&ctx, &mut path, vec![press(false)], false); // 释放帧：菜单打开
+        menu_frame(&ctx, &mut path, vec![], false); // Area sizing pass
+        let out = menu_frame(&ctx, &mut path, click(COPY, egui::PointerButton::Primary), false);
+        assert!(out
+            .platform_output
+            .commands
+            .iter()
+            .any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t == "C:/work/left.txt")));
+        assert_eq!(path, "C:/work/left.txt");
     }
     #[test]
     fn right_click_copy_writes_selection_to_clipboard() {

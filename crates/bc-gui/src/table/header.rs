@@ -25,10 +25,19 @@ pub fn paint(
         .max(rect.left() + GUTTER)
         .min(rect.right());
     let filled = egui::Rect::from_min_max(rect.min, egui::pos2(content_right, rect.bottom()));
-    painter.rect_filled(filled, 0.0, crate::chrome::theme::PANEL_BG);
-    // Top line spans the whole pane; the bottom line only the filled header.
+    painter.rect_filled(filled, 0.0, crate::chrome::theme::HEADER_FILL);
+    // Top line spans the filled header only (canvas beyond it).
     painter.rect_filled(
-        egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.top() + 1.0)),
+        egui::Rect::from_min_max(rect.min, egui::pos2(filled.right(), rect.top() + 1.0)),
+        0.0,
+        grid::GRID_LINE,
+    );
+    // Right edge of the header row.
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(filled.right() - 1.0, rect.top()),
+            filled.right_bottom(),
+        ),
         0.0,
         grid::GRID_LINE,
     );

@@ -27,7 +27,11 @@ visual-parity 阶段把 GUI 外框做成了参考工具（BC 5 经典 Win32 外�
    （closing / quitting / reloading / opening …）。
 4. 外框组件（菜单栏、弹出菜单、工具栏、标签条、状态栏、路径框、滚动条、固定布局对话框控件、
    Home 页）改用上述 token：圆角胶囊悬停、选中态强调色浅底、去掉凹凸 3D 边与渐变。
-5. 视觉回归用 `--snapshot=<scene>` 截图人工检查；新增 `text-unsaved-modal` 场景。
+5. **内容画布**：文档之外的空白（表格列/行之外、行详情区、文本末行以下）用 `CANVAS`
+   （比 chrome 深一级）加 `CANVAS_DOT` 点阵底纹（`theme::paint_canvas`），数据区铺白底，
+   表头/行号用 `HEADER_FILL`——保证"有内容"与"没内容"一眼可分（纯白方案在第一轮反馈中被指出分辨不清）。
+   滚动条滑块使用 `SCROLL_THUMB*` 灰阶（egui 用 `widgets.*.bg_fill` 画滑块，按钮用 `weak_bg_fill`）。
+6. 视觉回归用 `--snapshot=<scene>` 截图人工检查；新增 `text-unsaved-modal` 场景。
    原先断言参考像素坐标的测试改为断言相对几何（菜单行高/外框高度变化后的新值）。
 
 ## 后果

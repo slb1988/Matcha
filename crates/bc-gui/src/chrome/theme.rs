@@ -51,6 +51,22 @@ pub const WARNING_SOFT: Color32 = Color32::from_rgb(0xFD, 0xF3, 0xE1);
 pub const INFO: Color32 = Color32::from_rgb(0x2D, 0x6C, 0xD6);
 pub const INFO_SOFT: Color32 = Color32::from_rgb(0xE8, 0xF0, 0xFD);
 
+/// Content well behind documents (empty area beyond a table's columns and
+/// rows, below a file's last line): one step darker than the chrome so white
+/// content reads as a sheet lying on it.
+pub const CANVAS: Color32 = Color32::from_rgb(0xE9, 0xEC, 0xEF);
+/// Faint dot texture on [`CANVAS`].
+pub const CANVAS_DOT: Color32 = Color32::from_rgb(0xC9, 0xCF, 0xD6);
+/// Row/column header fill of grids (row numbers, column letters).
+pub const HEADER_FILL: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xF7);
+/// Dot spacing of the canvas texture.
+pub const CANVAS_DOT_STEP: f32 = 14.0;
+
+/// Scrollbar handle ramp (rest / hover / drag).
+pub const SCROLL_THUMB: Color32 = Color32::from_rgb(0xCB, 0xD0, 0xD6);
+pub const SCROLL_THUMB_HOVER: Color32 = Color32::from_rgb(0xAE, 0xB5, 0xBD);
+pub const SCROLL_THUMB_ACTIVE: Color32 = Color32::from_rgb(0x96, 0x9E, 0xA8);
+
 /// Modal backdrop scrim.
 pub const SCRIM: Color32 = Color32::from_black_alpha(64);
 
@@ -98,6 +114,32 @@ pub fn shadow_popup() -> egui::epaint::Shadow {
         spread: 0,
         color: Color32::from_black_alpha(30),
     }
+}
+
+/// Paint the empty-content canvas: [`CANVAS`] with a faint dot grid anchored
+/// to `rect`'s top-left (so it does not shimmer while content scrolls).
+pub fn paint_canvas(painter: &egui::Painter, rect: egui::Rect) {
+    painter.rect_filled(rect, 0.0, CANVAS);
+    let clip = painter.clip_rect().intersect(rect);
+    if !clip.is_positive() {
+        return;
+    }
+    let step = CANVAS_DOT_STEP;
+    let mut mesh = egui::Mesh::default();
+    let first = |lo: f32, origin: f32| origin + ((lo - origin) / step).ceil().max(0.0) * step;
+    let mut y = first(clip.top(), rect.top() + step / 2.0);
+    while y < clip.bottom() {
+        let mut x = first(clip.left(), rect.left() + step / 2.0);
+        while x < clip.right() {
+            mesh.add_colored_rect(
+                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(1.5, 1.5)),
+                CANVAS_DOT,
+            );
+            x += step;
+        }
+        y += step;
+    }
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// Emphasized (bold) UI font; falls back to the regular face until the
@@ -179,8 +221,13 @@ impl Theme {
             visuals.widgets.hovered = widget(HOVER, LINE_STRONG, theme.text, md);
             visuals.widgets.active = widget(PRESSED, LINE_STRONG, theme.text, md);
             visuals.widgets.open = widget(HOVER, LINE_STRONG, theme.text, md);
-            // Flat (frameless) buttons only get a fill on hover.
+            // Buttons paint `weak_bg_fill`; `bg_fill` is what scrollbar
+            // handles, checkbox boxes and slider rails use — keep it a visible
+            // gray ramp so thumbs read on white content.
             visuals.widgets.inactive.weak_bg_fill = SURFACE;
+            visuals.widgets.inactive.bg_fill = SCROLL_THUMB;
+            visuals.widgets.hovered.bg_fill = SCROLL_THUMB_HOVER;
+            visuals.widgets.active.bg_fill = SCROLL_THUMB_ACTIVE;
             visuals.selection.bg_fill = SELECTION;
             visuals.selection.stroke = Stroke::new(1.0, ACCENT_PRESSED);
             visuals.text_cursor.stroke = Stroke::new(1.5, ACCENT);

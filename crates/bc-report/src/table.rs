@@ -220,13 +220,22 @@ fn render_sheet(
                 .unwrap_or_default()
         })
         .collect();
-    let name_of = |c: usize| -> String {
+    // 列名（不含标题）；第二项表示列名只是 Excel 列字母（工作簿且未识别表头）。
+    let plain_name = |c: usize| -> (String, bool) {
         let column = &columns[c];
-        let name = column
+        let letters = |side: &SheetSide| side.workbook && side.header_rows == 0;
+        column
             .left
-            .map(|i| column_name(&left, ls, i))
-            .or_else(|| column.right.map(|i| column_name(&right, rs, i)))
-            .unwrap_or_else(|| (c + 1).to_string());
+            .map(|i| (column_name(&left, ls, i), letters(ls)))
+            .or_else(|| {
+                column
+                    .right
+                    .map(|i| (column_name(&right, rs, i), letters(rs)))
+            })
+            .unwrap_or_else(|| ((c + 1).to_string(), false))
+    };
+    let name_of = |c: usize| -> String {
+        let (name, _) = plain_name(c);
         match titles[c].as_str() {
             "" => name,
             title if title == name => name,
@@ -412,15 +421,21 @@ fn render_sheet(
                             side_text(column.left.is_some(), &old),
                             side_text(column.right.is_some(), &new),
                         );
-                        let label = if layer == "value" {
-                            name_of(c)
-                        } else {
-                            format!("{} {layer}", name_of(c))
+                        let cell = cell_ref(row.left, row.right, column.left, column.right, ls, rs);
+                        // 列名只是字母且有标题时，单元格引用里已带列字母：只写标题，
+                        // `AttachConfigs (K1172)` 而不是 `K[AttachConfigs] (K1172)`。
+                        let name = match (plain_name(c), titles[c].as_str()) {
+                            ((_, true), title) if !title.is_empty() && cell.is_some() => {
+                                title.to_string()
+                            }
+                            _ => name_of(c),
                         };
-                        let reference =
-                            cell_ref(row.left, row.right, column.left, column.right, ls, rs)
-                                .map(|r| format!(" ({r})"))
-                                .unwrap_or_default();
+                        let label = if layer == "value" {
+                            name
+                        } else {
+                            format!("{name} {layer}")
+                        };
+                        let reference = cell.map(|r| format!(" ({r})")).unwrap_or_default();
                         let note = if importance == Importance::Unimportant
                             && row.importance != Importance::Unimportant
                         {

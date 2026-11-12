@@ -86,6 +86,14 @@ impl TextCompareView {
             .show_viewport(ui, |ui, viewport| {
                 let total = self.projection.len();
                 ui.set_height(self.projection.height(geometry).max(0.0));
+                // Canvas below the last line (white "sheet" stops at EOF).
+                let end = ui.max_rect().top() + self.projection.height(geometry);
+                let clip = ui.clip_rect();
+                if end < clip.bottom() {
+                    let below =
+                        egui::Rect::from_min_max(egui::pos2(clip.left(), end.max(clip.top())), clip.max);
+                    crate::chrome::theme::paint_canvas(&ui.painter().with_clip_rect(below), below);
+                }
                 let mut min_row = self.projection.display_at(viewport.min.y, geometry);
                 let mut max_row = if self.projection.has_thin_folds() {
                     self.projection.display_at(viewport.max.y, geometry) + 2
@@ -525,14 +533,17 @@ impl TextCompareView {
         // 内容放得下时，egui 的竖向滚动条把手铺满轨道；此时直接盖成空白内容区。
         if !need_vscroll_pre {
             let bar_left = rect.right() - 18.0;
+            let end = (rect.top() + 2.0 + self.projection.height(geometry) - scroll.y)
+                .clamp(rect.top() + 1.0, rect.bottom());
             ui.painter().rect_filled(
-                egui::Rect::from_min_max(
-                    egui::pos2(bar_left, rect.top() + 1.0),
-                    rect.right_bottom(),
-                ),
+                egui::Rect::from_min_max(egui::pos2(bar_left, rect.top() + 1.0), egui::pos2(rect.right(), end)),
                 0.0,
                 crate::chrome::theme::SURFACE,
             );
+            let below = egui::Rect::from_min_max(egui::pos2(bar_left, end), rect.right_bottom());
+            if below.is_positive() {
+                ui.painter().rect_filled(below, 0.0, crate::chrome::theme::CANVAS);
+            }
         }
         let status = egui::Rect::from_min_size(
             egui::pos2(rect.left(), rect.bottom()),

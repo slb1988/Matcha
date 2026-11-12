@@ -295,8 +295,10 @@ impl HomeView {
         self.error = Some(message.into());
     }
     pub fn record(left: &std::path::Path, right: &std::path::Path) {
-        let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
-        let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+        // canonicalize 在 Windows 返回 `\\?\` verbatim 路径，先还原成常规写法，
+        // 否则地址栏与 recent-text.txt 都会带上 `\\?\` 前缀。
+        let left = simplified(std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf()));
+        let right = simplified(std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf()));
         let mut recent = load_recent();
         recent.retain(|p| p.left != left || p.right != right);
         recent.insert(
@@ -1003,6 +1005,29 @@ fn format_recent(recent: &[Recent]) -> String {
     }
     text
 }
+/// Windows 下 `std::fs::canonicalize` 返回 `\\?\` verbatim 路径；还原为常规写法
+/// （`\\?\C:\…` → `C:\…`，`\\?\UNC\host\share\…` → `\\host\share\…`）。
+/// 其他前缀形式（如 `\\?\Volume{…}`）与非 Windows 路径原样返回。
+fn simplified(path: PathBuf) -> PathBuf {
+    use std::path::{Component, Prefix};
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path;
+    };
+    let head = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => format!(r"{}:\", drive as char),
+        Prefix::VerbatimUNC(server, share) => {
+            format!(r"\\{}\{}\", server.to_string_lossy(), share.to_string_lossy())
+        }
+        _ => return path,
+    };
+    let mut out = PathBuf::from(head);
+    // 余下组件以根目录开头，剥掉后接到盘符/UNC 头后面。
+    if let Ok(rest) = components.as_path().strip_prefix("\\") {
+        out.push(rest);
+    }
+    out
+}
 fn recent_path() -> Option<PathBuf> {
     // 单元测试会经 app 流程记录比较，不能写进用户的真实最近列表。
     if cfg!(test) {
@@ -1037,8 +1062,9 @@ fn parse_recent(text: &str, legacy_time: SystemTime) -> Vec<Recent> {
                 let seconds = parts.next()?.parse::<u64>().ok()?;
                 let (left, right) = (parts.next()?, parts.next()?);
                 Some(Recent {
-                    left: left.into(),
-                    right: right.into(),
+                    // 旧版本可能存过带 `\\?\` 前缀的路径，读入时一并清理。
+                    left: simplified(left.into()),
+                    right: simplified(right.into()),
                     when: std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds),
                 })
             })
@@ -1052,8 +1078,8 @@ fn parse_recent(text: &str, legacy_time: SystemTime) -> Vec<Recent> {
         .iter()
         .take(12)
         .map(|p| Recent {
-            left: p[0].into(),
-            right: p[1].into(),
+            left: simplified(p[0].into()),
+            right: simplified(p[1].into()),
             when: legacy_time,
         })
         .collect()
@@ -1242,6 +1268,41 @@ mod tests {
         assert_eq!(
             action,
             Some(HomeAction::OpenTextCompare { left: l, right: r })
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_paths_are_simplified_for_display_and_old_files() {
+        assert_eq!(
+            simplified(PathBuf::from(r"\\?\C:\Users\admin\a.txt")),
+            PathBuf::from(r"C:\Users\admin\a.txt")
+        );
+        assert_eq!(
+            simplified(PathBuf::from(r"\\?\D:\")),
+            PathBuf::from(r"D:\")
+        );
+        assert_eq!(
+            simplified(PathBuf::from(r"\\?\UNC\host\share\b.txt")),
+            PathBuf::from(r"\\host\share\b.txt")
+        );
+        // 常规路径原样保留。
+        assert_eq!(
+            simplified(PathBuf::from(r"C:\plain\c.txt")),
+            PathBuf::from(r"C:\plain\c.txt")
+        );
+        // 存量 recent 文件里带 `\\?\` 前缀的记录，读入时一并清理。
+        let now = SystemTime::now();
+        let items = parse_recent(
+            "# matcha recent v2\n1700000000\t\\\\?\\C:\\Temp\\a.txt\t\\\\?\\C:\\Temp\\b.txt\n",
+            now,
+        );
+        assert_eq!(
+            items,
+            vec![Recent {
+                left: PathBuf::from(r"C:\Temp\a.txt"),
+                right: PathBuf::from(r"C:\Temp\b.txt"),
+                when: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+            }]
         );
     }
     #[test]

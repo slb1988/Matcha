@@ -2007,12 +2007,12 @@ impl TextCompareView {
                     ui.visuals_mut().widgets.inactive.bg_fill = crate::chrome::theme::PANEL_BG;
                     ui.visuals_mut().widgets.inactive.weak_bg_fill = crate::chrome::theme::PANEL_BG;
                     ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
-                    ui.allocate_ui(egui::vec2(132.0, 20.0), |ui| {
-                        ui.label(self.files[s].modified_label.text());
-                    });
-                    ui.allocate_ui(egui::vec2(56.0, 20.0), |ui| {
-                        ui.label(format!("{} bytes", self.files[s].byte_len));
-                    });
+                    ui.visuals_mut().override_text_color = Some(crate::chrome::theme::TEXT_MUTED);
+                    // Flowing items (no fixed slots): long dates or sizes never overlap.
+                    ui.add(egui::Label::new(self.files[s].modified_label.text()).extend());
+                    ui.add(
+                        egui::Label::new(format!("{} bytes", self.files[s].byte_len)).extend(),
+                    );
                     let selected = self
                         .content(s)
                         .format()

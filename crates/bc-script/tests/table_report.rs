@@ -346,7 +346,7 @@ fn title_row_labels_lettered_columns() {
         "=== sheet \"S\": different\n\
          key: A[ID]\n\
          rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 3 same\n\
-         ~ A[ID]=x1  (left row 2, right row 2)\n    B[Name] (B2): WaterCrab -> Chameleon\n"
+         ~ A[ID]=x1  (left row 2, right row 2)\n    Name (B2): WaterCrab -> Chameleon\n"
     );
 
     // A detected header already names the columns: title-row:1 changes nothing.

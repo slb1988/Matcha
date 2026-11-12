@@ -688,37 +688,46 @@ impl TableCompareView {
         };
         let labels = &self.labels[s];
         let bytes = format!("{} bytes", self.files[s].byte_len);
-        for (x, text) in [
-            (11.0, labels.modified.text()),
-            (152.0, bytes.as_str()),
-            (222.0, format),
-            (410.0, labels.encoding.as_str()),
-            (515.0, labels.ending),
-            (551.0, delimiter),
-            (611.0, state),
+        // Items flow left to right by their measured width (no fixed slots,
+        // so long dates/sizes never overlap); format and encoding carry a
+        // dropdown triangle and open Session Settings.
+        let ink = crate::chrome::theme::TEXT_MUTED;
+        let mut x = info.left() + 11.0;
+        let mut switches = Vec::new();
+        for (text, dropdown) in [
+            (labels.modified.text(), false),
+            (bytes.as_str(), false),
+            (format, true),
+            (labels.encoding.as_str(), true),
+            (labels.ending, false),
+            (delimiter, false),
+            (state, false),
         ] {
-            painter.text(
-                egui::pos2(info.left() + x, y),
-                egui::Align2::LEFT_CENTER,
-                text,
-                font.clone(),
-                egui::Color32::BLACK,
-            );
-        }
-        for x in [390.0, 495.0] {
-            crate::chrome::icons::dropdown_triangle(
-                &painter,
-                egui::pos2(info.left() + x, y),
-                egui::Color32::BLACK,
-            );
+            if text.is_empty() {
+                continue;
+            }
+            let galley = painter.layout_no_wrap(text.to_owned(), font.clone(), ink);
+            let width = galley.size().x;
+            painter.galley(egui::pos2(x, y - galley.size().y / 2.0), galley, ink);
+            let mut end = x + width;
+            if dropdown {
+                crate::chrome::icons::dropdown_triangle(
+                    &painter,
+                    egui::pos2(end + 9.0, y),
+                    ink,
+                );
+                end += 16.0;
+                switches.push((x - 4.0, end - x + 8.0));
+            }
+            x = end + 16.0;
         }
         // Format/encoding switches live on the Session Settings Format page.
-        for (x, width, tip) in [
-            (218.0, 182.0, "Change format (Session Settings)"),
-            (406.0, 99.0, "Change encoding (Session Settings)"),
-        ] {
+        for ((x, width), tip) in switches.into_iter().zip([
+            "Change format (Session Settings)",
+            "Change encoding (Session Settings)",
+        ]) {
             let r = egui::Rect::from_min_size(
-                egui::pos2(info.left() + x, info.top() + 3.0),
+                egui::pos2(x, info.top() + 3.0),
                 egui::vec2(width, 21.0),
             );
             let response = ui
@@ -736,45 +745,22 @@ impl TableCompareView {
     /// Per-pane status strip (19 px): current row, field separators.
     pub(super) fn pane_status(&self, ui: &egui::Ui, rect: egui::Rect, s: usize) {
         let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-        painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
-        // Reference: white top and right edge lines (grid bottom / scrollbar
-        // margin continue into the strip).
-        painter.rect_filled(
+        painter.rect_filled(rect, 0.0, crate::chrome::theme::SURFACE_SUBTLE);
+        for edge in [
             egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.top() + 1.0)),
-            0.0,
-            egui::Color32::WHITE,
-        );
-        painter.rect_filled(
-            egui::Rect::from_min_max(egui::pos2(rect.right() - 1.0, rect.top()), rect.max),
-            0.0,
-            egui::Color32::WHITE,
-        );
-        painter.rect_filled(
             egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 1.0, rect.bottom())),
-            0.0,
-            grid::GRID_LINE,
-        );
-        painter.rect_filled(
-            egui::Rect::from_min_max(
-                egui::pos2(rect.left(), rect.bottom() - 2.0),
-                egui::pos2(rect.right(), rect.bottom() - 1.0),
-            ),
-            0.0,
-            egui::Color32::WHITE,
-        );
-        painter.rect_filled(
             egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 1.0), rect.max),
-            0.0,
-            grid::GRID_LINE,
-        );
+        ] {
+            painter.rect_filled(edge, 0.0, crate::chrome::theme::LINE);
+        }
         for x in [98.0, 229.0] {
             painter.rect_filled(
                 egui::Rect::from_min_size(
-                    rect.min + egui::vec2(x, 1.0),
-                    egui::vec2(1.0, rect.height() - 3.0),
+                    rect.min + egui::vec2(x, 4.0),
+                    egui::vec2(1.0, rect.height() - 8.0),
                 ),
                 0.0,
-                egui::Color32::from_gray(0xD7),
+                crate::chrome::theme::LINE,
             );
         }
         let row = self.pair.as_ref().map(|p| {
