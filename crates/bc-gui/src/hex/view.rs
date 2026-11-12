@@ -1528,6 +1528,11 @@ impl HexCompareView {
         if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
             self.scroll = y;
         }
+        // 缩略图当前位置指针：活动侧光标所在网格行的内容比例（需在取出 cache 前换算）。
+        let cursor_frac = self
+            .align_row_of(self.active_side, self.cursor[self.active_side])
+            .and_then(|row| self.grid_y_of_align_row(row, style.row_height))
+            .map(|y| y / (row_count as f32 * style.row_height).max(1.0));
         let cache = self.cache.take().unwrap();
         let rows_ref = &cache.rows;
         let pane_h = row_count as f32 * style.row_height;
@@ -1544,7 +1549,7 @@ impl HexCompareView {
         // 缩略图列：点击/拖动迷你图定位页面（“图形框拖动页面”）。
         let thumb_geom = if self.show_thumbnail {
             let column = egui::Rect::from_min_max(region.min, egui::pos2(region.left() + thumb_w, region.bottom()));
-            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, body.height());
+            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, body.height(), cursor_frac);
             let r = overlay.interact(geom.hit, overlay.scope_id().with("thumbnail"), egui::Sense::click_and_drag());
             if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
                 if let Some(pos) = r.interact_pointer_pos() {

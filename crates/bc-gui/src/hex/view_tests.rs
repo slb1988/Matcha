@@ -666,20 +666,29 @@ fn thumbnail_bins_compress_when_rows_exceed_resolution() {
 fn thumbnail_geometry_maps_rows_and_viewport() {
     let column = egui::Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(render::THUMB_COL_W, 600.0));
     // 行数少于列高：1 px/行。
-    let g = render::thumbnail_geometry(column, 261, 0.0, 261.0 * 15.0, 600.0);
+    let g = render::thumbnail_geometry(column, 261, 0.0, 261.0 * 15.0, 600.0, None);
     assert_eq!(g.inner.height(), 261.0);
     assert_eq!(g.inner.left(), render::THUMB_INNER_X);
+    assert_eq!(g.pointer_y, None);
     // 行数超出列高：压缩到列高 - 2。
-    let g = render::thumbnail_geometry(column, 5000, 0.0, 5000.0 * 15.0, 600.0);
+    let g = render::thumbnail_geometry(column, 5000, 0.0, 5000.0 * 15.0, 600.0, Some(0.5));
     assert_eq!(g.inner.height(), 598.0);
+    // 当前位置指针：内容比例映射到内框纵坐标。
+    assert_eq!(g.pointer_y, Some(g.inner.top() + 0.5 * g.inner.height()));
     // 视口框：顶端起点 + 占比高度；滚到底时贴内框底。
-    let content_h = 5000.0 * 15.0;
-    let g = render::thumbnail_geometry(column, 5000, 0.0, content_h, 600.0);
+    let content_h = 500.0 * 15.0;
+    let g = render::thumbnail_geometry(column, 500, 0.0, content_h, 600.0, None);
     assert_eq!(g.viewport.top(), g.inner.top());
     assert!((g.viewport.height() - 600.0 / content_h * g.inner.height()).abs() < 1.0);
     let max_scroll = content_h - 600.0;
-    let g = render::thumbnail_geometry(column, 5000, max_scroll, content_h, 600.0);
+    let g = render::thumbnail_geometry(column, 500, max_scroll, content_h, 600.0, None);
     assert!((g.viewport.bottom() - g.inner.bottom()).abs() < 1.0, "滚到底视口框贴底");
+    // 可见占比极小时保持最小框高（大文件下不退化成横线），位置仍随滚动移动。
+    let content_h = 5000.0 * 15.0;
+    let g = render::thumbnail_geometry(column, 5000, 0.0, content_h, 600.0, None);
+    assert_eq!(g.viewport.height(), render::THUMB_VIEW_MIN_H);
+    let g = render::thumbnail_geometry(column, 5000, content_h - 600.0, content_h, 600.0, None);
+    assert!((g.viewport.bottom() - g.inner.bottom()).abs() < 1.0, "最小框高时滚到底仍贴底");
 }
 
 /// 缩略图与滚动条的点击/拖动 → 滚动偏移映射。

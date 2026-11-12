@@ -19,10 +19,12 @@
   内联查找栏（hex/文本、大小写）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
   Select All、Undo/Redo、Copy to Other Side Ctrl+R）、Swap/Reload（脏确认）/Recompare、
   Hex Compare Info（四分类）、Session Settings 三页（Specs/Format/Comparison）。
-- 浏览导航件（对齐参考实测几何）：**最左 52 px 缩略图列**（迷你图自地址栏下缘起、内容每行 1 px、
+- 浏览导航件：**最左 52 px 缩略图列**（迷你图自地址栏下缘起、内容每行 1 px、
   超列高压缩；差异行红色像素横线，Changed 满宽 / LeftOnly 左半 / RightOnly 右半；灰色视口框
-  指示可见区间；点击/拖动迷你图定位页面）+ **每窗格右缘 16 px 竖滚动条**（比例滑块、轨道定位、
-  内容放得下时不画滑块）。过滤模式下缩略图映射当前显示行（参考映射全文件坐标，已知偏离）。
+  指示可见区间——框体对称越过内框两侧、2 px 描边、最小高度 9 px（大文件下不退化成横线）；
+  列左缘蓝色三角指针指示活动侧光标位置；点击/拖动迷你图定位页面）+ **每窗格右缘 16 px 竖滚动条**
+  （比例滑块、轨道定位、内容放得下时不画滑块）。迷你图内框有意宽于参考实测（列内 10..44，
+  参考 16..40）；过滤模式下缩略图映射当前显示行（参考映射全文件坐标）——均为已知偏离。
 - 状态栏：结论（Binary same/differences）｜Insert/Overwrite｜Load time: x.xx seconds｜每侧光标地址。
 - 加载分层：< 2 MB（可配）整载不加锁可编辑；≥ 阈值 mmap 只读（初版禁编辑/保存）。
 - 入口：Home 会话卡、`*.bin` 掩码路由、`/fv="Hex Compare"`、Text/Table 的 Compare Files Using 互切、

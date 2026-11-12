@@ -169,12 +169,14 @@ fn paint_placeholder(painter: &egui::Painter, rect: egui::Rect) {
 
 /// 缩略图列宽（与表格视图的参考列宽一致）。
 pub const THUMB_COL_W: f32 = 52.0;
-/// 迷你图内框在列内的水平偏移与宽度（参考 01-main.png 实测：列内 x≈16..40 的内容区）。
-pub const THUMB_INNER_X: f32 = 16.0;
-pub const THUMB_INNER_W: f32 = 24.0;
-/// 视口框水平偏移与宽度（参考实测：越过内框两侧，列内 x≈7..45）。
-pub const THUMB_VIEW_X: f32 = 7.0;
-pub const THUMB_VIEW_W: f32 = 38.0;
+/// 迷你图内框在列内的水平偏移与宽度（2026-11 起有意宽于参考实测 x≈16..40：更宽更易看）。
+pub const THUMB_INNER_X: f32 = 10.0;
+pub const THUMB_INNER_W: f32 = 34.0;
+/// 视口框水平偏移与宽度（对称越过内框两侧各 5 px，对齐参考的外扩框形）。
+pub const THUMB_VIEW_X: f32 = 5.0;
+pub const THUMB_VIEW_W: f32 = 44.0;
+/// 视口框最小高度（px）：可见占比再小也保持框形，不退化成横线。
+pub const THUMB_VIEW_MIN_H: f32 = 9.0;
 /// 缩略图 bins 分辨率上限（行数超出时压缩：每 bin 聚合多行）。
 pub const THUMB_BIN_MAX: usize = 4096;
 /// 竖滚动条宽（参考实测 16 px）。
@@ -188,17 +190,22 @@ pub struct ThumbnailGeometry {
     pub viewport: egui::Rect,
     /// 命中区：内框与视口框的并集（列内空白不响应，对齐参考工具）。
     pub hit: egui::Rect,
+    /// 当前位置指针的纵向坐标（列坐标系；无光标内容时 None）。
+    pub pointer_y: Option<f32>,
 }
 
 /// 由列矩形、总行数与滚动状态推导缩略图几何。
 /// 内框高度 = min(总行数, 列高-2)（参考：内容每行 1 px，超出列高则压缩到列高）；
-/// 视口框 = 可见区间 [scroll, scroll+view_h] 在全内容高度 content_h 上的占比。
+/// 视口框 = 可见区间 [scroll, scroll+view_h] 在全内容高度 content_h 上的占比，
+/// 高度不小于 `THUMB_VIEW_MIN_H`（占比过小时保持框形可读）；
+/// `current` = 当前光标在内容中的纵向比例（0..1），映射为指针 y。
 pub fn thumbnail_geometry(
     column: egui::Rect,
     total_rows: usize,
     scroll: f32,
     content_h: f32,
     view_h: f32,
+    current: Option<f32>,
 ) -> ThumbnailGeometry {
     let lines = (total_rows as f32)
         .min((column.height() - 2.0).max(1.0))
@@ -210,7 +217,7 @@ pub fn thumbnail_geometry(
     );
     let top_frac = if content_h > 0.0 { scroll / content_h } else { 0.0 };
     let view_frac = if content_h > 0.0 { (view_h / content_h).min(1.0) } else { 1.0 };
-    let h = (view_frac * inner.height()).max(3.0).min(inner.height());
+    let h = (view_frac * inner.height()).clamp(THUMB_VIEW_MIN_H.min(inner.height()), inner.height());
     let y = (inner.top() + top_frac.clamp(0.0, 1.0) * inner.height())
         .clamp(inner.top(), (inner.bottom() - h).max(inner.top()));
     let viewport = egui::Rect::from_min_size(
@@ -218,7 +225,8 @@ pub fn thumbnail_geometry(
         egui::vec2(THUMB_VIEW_W, h),
     );
     let hit = inner.union(viewport).expand(1.0);
-    ThumbnailGeometry { column, inner, viewport, hit }
+    let pointer_y = current.map(|f| inner.top() + f.clamp(0.0, 1.0) * inner.height());
+    ThumbnailGeometry { column, inner, viewport, hit, pointer_y }
 }
 
 /// 缩略图 bins：把网格行的差异标记压缩到固定分辨率。
@@ -278,7 +286,7 @@ pub fn thumb_bin_range(bin: u32) -> Option<(u16, u16)> {
 }
 
 /// 缩略图列绘制：列底、带边框迷你图（差异行 = 红色像素横线，水平区间对齐参考工具：
-/// Changed 满宽 / LeftOnly 左半 / RightOnly 右半）、视口框。
+/// Changed 满宽 / LeftOnly 左半 / RightOnly 右半）、灰色视口框、蓝色当前位置指针。
 pub fn paint_thumbnail(
     painter: &egui::Painter,
     geom: &ThumbnailGeometry,
@@ -331,12 +339,35 @@ pub fn paint_thumbnail(
             }
         }
     }
+    // 视口框：2 px 灰色描边（颜色对齐参考实测 (128,128,128)，比参考略粗保证可读）。
     painter.rect_stroke(
         geom.viewport,
         0.0,
-        egui::Stroke::new(1.0, view_border),
+        egui::Stroke::new(2.0, view_border),
         egui::StrokeKind::Inside,
     );
+    // 当前位置指针：列左缘右指三角（对齐参考；亮色 #0078D7 / 暗色 #3199FF）。
+    // 用无羽化 mesh：egui 会把 1x1 rect 的尖端羽化掉。
+    if let Some(py) = geom.pointer_y {
+        let pointer = if dark {
+            egui::Color32::from_rgb(49, 153, 255)
+        } else {
+            egui::Color32::from_rgb(0, 120, 215)
+        };
+        let x0 = geom.column.left() + 1.0;
+        let mut mesh = egui::Mesh::default();
+        for d in -6i32..=6 {
+            let w = 8 - d.abs();
+            mesh.add_colored_rect(
+                egui::Rect::from_min_max(
+                    egui::pos2(x0, py + d as f32),
+                    egui::pos2(x0 + w as f32, py + d as f32 + 1.0),
+                ),
+                pointer,
+            );
+        }
+        painter.add(egui::Shape::mesh(mesh));
+    }
 }
 
 /// 缩略图点击/拖动 → 目标滚动偏移（视口中心对齐指针所指的内容比例）。
