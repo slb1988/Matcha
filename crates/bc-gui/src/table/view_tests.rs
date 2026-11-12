@@ -451,3 +451,155 @@ fn reference_layout_geometry_title_and_menu_inventory() {
         .iter()
         .any(|i| i.label == "About Matcha" || i.label == "Project Website"));
 }
+
+#[test]
+fn column_resize_hit_test_and_offset_updates() {
+    let mut state = super::super::grid::GridState::default();
+    state.widths = vec![33.0, 47.0, 33.0];
+    state.rebuild_columns(3, &[], false);
+    assert_eq!(state.offsets, vec![0.0, 33.0, 80.0, 113.0]);
+    let pane_left = 52.0;
+    let boundary0 = pane_left + GUTTER + 33.0;
+    // ±3 px grab around a boundary; mid-column is not grabbable; the gutter
+    // line itself never is.
+    assert_eq!(state.resize_target(pane_left, boundary0 + 2.0), Some(0));
+    assert_eq!(state.resize_target(pane_left, boundary0 + 6.0), None);
+    assert_eq!(state.resize_target(pane_left, pane_left + GUTTER), None);
+    // Drag column A 30 px wider: later columns shift by the same delta.
+    state.resize_column(0, 63.0);
+    assert_eq!(state.widths[0], 63.0);
+    assert_eq!(state.offsets, vec![0.0, 63.0, 110.0, 143.0]);
+    // Floor: a collapsed drag clamps to the minimum width.
+    state.resize_column(0, 1.0);
+    assert_eq!(state.widths[0], super::super::grid::MIN_COLUMN_WIDTH);
+    assert_eq!(state.offsets[1], super::super::grid::MIN_COLUMN_WIDTH);
+    // Horizontal scroll hides a boundary under the gutter: not grabbable.
+    let mut scrolled = super::super::grid::GridState::default();
+    scrolled.widths = vec![33.0, 47.0];
+    scrolled.rebuild_columns(2, &[], false);
+    scrolled.scroll.x = 30.0;
+    assert_eq!(scrolled.resize_target(pane_left, pane_left + GUTTER + 3.0), None);
+    assert_eq!(
+        scrolled.resize_target(pane_left, pane_left + GUTTER + 50.0),
+        Some(1)
+    );
+}
+
+#[test]
+fn dragging_a_header_boundary_resizes_the_shared_column() {
+    let mut v = view();
+    let ctx = egui::Context::default();
+    crate::chrome::theme::apply(&ctx);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let pane = v.grid.pane_rects[0];
+    let header_y = pane.top() - super::super::grid::HEADER_HEIGHT / 2.0;
+    let before = v.grid.offsets[1];
+    let start = egui::pos2(pane.left() + GUTTER + before, header_y);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(start)]);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerButton {
+            pos: start,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }],
+    );
+    let mid = start + egui::vec2(15.0, 0.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(mid)]);
+    let end = start + egui::vec2(30.0, 0.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(end)]);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerButton {
+            pos: end,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+    );
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(
+        v.grid.offsets[1],
+        before + 30.0,
+        "header boundary drag widens column A"
+    );
+    assert!(v.grid.resizing.is_none(), "resize ends with the drag");
+    // A click without drag keeps the width.
+    let stable = v.grid.offsets[1];
+    click(&ctx, &mut v, egui::pos2(pane.left() + GUTTER + stable, header_y));
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.grid.offsets[1], stable);
+}
+
+#[test]
+fn header_paints_excel_style_letters_even_with_a_header_row() {
+    // 真实文件走 worker 路径：可检测的表头行保留为第 1 行数据，
+    // 表头显示 Excel 风格字母（参考工具默认外观）。
+    let left = temp_file("hdr-left.csv", "id,name,price\n7,apple,1.0\n8,pear,2.0\n");
+    let right = temp_file("hdr-right.csv", "id,name,price\n7,apple,1.2\n8,PEAR,2.1\n");
+    let mut v = open_files(&left, &right);
+    let ctx = egui::Context::default();
+    crate::chrome::theme::apply(&ctx);
+    frame(&ctx, &mut v, vec![]);
+    let out = frame(&ctx, &mut v, vec![]);
+    let pane = v.grid.pane_rects[0];
+    let header = egui::Rect::from_min_max(
+        egui::pos2(pane.left(), pane.top() - super::super::grid::HEADER_HEIGHT),
+        egui::pos2(pane.left() + 200.0, pane.top()),
+    );
+    let texts: Vec<&str> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t)
+                if header.contains(egui::Rect::from_min_size(t.pos, t.galley.size()).center()) =>
+            {
+                Some(t.galley.text())
+            }
+            _ => None,
+        })
+        .collect();
+    for letter in ["A", "B", "C"] {
+        // 键列带 ◆ 前缀（如 "◆ A"）。
+        assert!(
+            texts.iter().any(|t| t.ends_with(letter)),
+            "header shows {letter}: {texts:?}"
+        );
+    }
+    for name in ["id", "name", "price"] {
+        assert!(
+            !texts.iter().any(|t| t.contains(name)),
+            "header never shows the source column name {name}: {texts:?}"
+        );
+    }
+    // 表头行保留为第 1 行数据。
+    let first_row = egui::Rect::from_min_max(
+        egui::pos2(pane.left(), pane.top()),
+        egui::pos2(pane.left() + 200.0, pane.top() + super::super::grid::ROW_HEIGHT),
+    );
+    let row_texts: Vec<&str> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t)
+                if first_row
+                    .contains(egui::Rect::from_min_size(t.pos, t.galley.size()).center()) =>
+            {
+                Some(t.galley.text())
+            }
+            _ => None,
+        })
+        .collect();
+    for name in ["id", "name", "price"] {
+        assert!(
+            row_texts.contains(&name),
+            "header row stays as data row 1 ({name}): {row_texts:?}"
+        );
+    }
+    let _ = std::fs::remove_file(left);
+    let _ = std::fs::remove_file(right);
+}

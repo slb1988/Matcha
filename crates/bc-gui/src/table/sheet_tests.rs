@@ -180,13 +180,13 @@ fn sheet_tabs_show_state_dots_and_switching_preserves_cached_edits() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "10"
     );
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.important, 1);
     // 在 Summary 编辑，切回 Data 再切回：编辑与历史随缓存 sheet 保留。
-    v.begin_edit(1, Cursor { row: 0, column: 1 }, Some("10".into()));
+    v.begin_edit(1, Cursor { row: 1, column: 1 }, Some("10".into()));
     v.commit_edit().unwrap();
     ready(&mut v);
     let out = frame(&ctx, &mut v, vec![]);
@@ -197,12 +197,12 @@ fn sheet_tabs_show_state_dots_and_switching_preserves_cached_edits() {
     click(&ctx, &mut v, button(&out, "● Summary"));
     ready(&mut v);
     let p = v.pair.as_ref().unwrap();
-    assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "10");
+    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "10");
     assert!(
         p.history[1].can_undo(),
         "cached sheet pair keeps its history"
     );
-    assert_eq!(p.cache.statistics.same, 1);
+    assert_eq!(p.cache.statistics.same, 2);
     let _ = std::fs::remove_file(left);
     let _ = std::fs::remove_file(right);
 }
@@ -215,7 +215,8 @@ fn same_file_two_sheets_via_manual_pairing_and_left_source_reordering() {
     );
     let mut v = open_files(&book, &book.clone());
     assert_eq!(v.pairs.0.len(), 2);
-    assert_eq!(v.pair.as_ref().unwrap().cache.statistics.same, 1);
+    // 表头行保留为数据：同名对全同 = 表头 + 数据两行。
+    assert_eq!(v.pair.as_ref().unwrap().cache.statistics.same, 2);
     // Sheets 手动配对：把右侧 Summary 移到第一对 → 同文件两 sheet 交叉比较。
     v.settings_open();
     let mut draft = v.settings.draft.clone().unwrap();
@@ -261,8 +262,8 @@ fn same_file_two_sheets_via_manual_pairing_and_left_source_reordering() {
     ready(&mut v);
     assert_eq!(v.active_pair, 1);
     let p = v.pair.as_ref().unwrap();
-    assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "10");
-    assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "apple");
+    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "10");
+    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "apple");
     let _ = std::fs::remove_file(book);
 }
 
@@ -410,7 +411,7 @@ fn open_file_preserves_the_other_sides_cached_sheet_edits_across_repairing() {
             .map
             .left
             .borrow()
-            .display_at(1, 1)
+            .display_at(2, 1)
             .unwrap(),
         "pear",
         "active pair compares the new left Data sheet"
@@ -437,7 +438,7 @@ fn open_file_preserves_the_other_sides_cached_sheet_edits_across_repairing() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "z"
     );
@@ -451,7 +452,7 @@ fn open_file_preserves_the_other_sides_cached_sheet_edits_across_repairing() {
             .map
             .left
             .borrow()
-            .display_at(1, 1)
+            .display_at(2, 1)
             .unwrap(),
         "pear"
     );

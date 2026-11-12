@@ -95,7 +95,7 @@ fn replacing_a_side_with_dirty_cached_target_edits_requires_confirmation() {
                 .map
                 .left
                 .borrow()
-                .display_at(0, 1)
+                .display_at(1, 1)
                 .unwrap(),
             "kiwi"
         );
@@ -315,7 +315,7 @@ fn pending_side_clears_after_load_and_edits_survive_a_round_trip() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "x2"
     );
@@ -360,7 +360,7 @@ fn swap_flips_pending_side_and_the_visit_loads_the_correct_side() {
         "preserved edit now on the left"
     );
     assert_eq!(
-        p.map.right.borrow().display_at(0, 1).unwrap(),
+        p.map.right.borrow().display_at(1, 1).unwrap(),
         "x2",
         "replacement sheet loaded for the new right side"
     );
@@ -390,7 +390,7 @@ fn save_and_writes_are_refused_while_the_target_side_is_pending() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "x2",
         "the in-flight load was not cancelled by the save attempt"
@@ -445,7 +445,7 @@ fn failed_pending_load_keeps_write_protection_and_recompare_restarts_the_load() 
     ready(&mut v);
     let p = v.pair.as_ref().unwrap();
     assert_eq!(p.pending_side, None);
-    assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "BACK");
+    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "BACK");
     assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "zed");
     let _ = std::fs::remove_file(l0);
     let _ = std::fs::remove_file(r);
@@ -640,8 +640,8 @@ fn settings_with_changed_paths_repair_sheets_and_do_not_reuse_stale_indices() {
     assert_eq!(v.names[1], vec!["Other".to_string()]);
     assert_eq!(v.pairs.0.len(), 1);
     let p = v.pair.as_ref().unwrap();
-    assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "z");
-    assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "z2");
+    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "z");
+    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "z2");
     assert_eq!(p.cache.statistics.important, 1);
     let _ = std::fs::remove_file(l0);
     let _ = std::fs::remove_file(r0);
@@ -774,8 +774,8 @@ fn settings_with_changed_paths_publish_the_loaded_active_pair() {
     assert_eq!(v.names[0], vec!["Alpha", "Beta", "Gamma"]);
     let p = v.pair.as_ref().unwrap();
     // 实际显示的是 Alpha 的内容（键 3），而不是旧 active=1 对应的 Beta（键 4）。
-    assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "aL");
-    assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "aR");
+    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "aL");
+    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "aR");
     assert_eq!(p.cache.statistics.important, 1);
     // 标签栏第一项与内容一致。
     let ctx = egui::Context::default();

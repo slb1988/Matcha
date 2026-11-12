@@ -200,7 +200,7 @@ fn open_file_replaces_only_that_side_and_a_failed_open_keeps_the_whole_session()
     let newer = temp_file("open-new-left.csv", "id,name,price\n9,kiwi,3.0\n");
     let mut v = open_files(&left, &right);
     // 右侧有未保存编辑：替换左侧不得触碰它。
-    v.begin_edit(1, Cursor { row: 0, column: 2 }, Some("4.5".into()));
+    v.begin_edit(1, Cursor { row: 1, column: 2 }, Some("4.5".into()));
     v.commit_edit().unwrap();
     ready(&mut v);
     assert!(v.pair.as_ref().unwrap().history[1].is_dirty());
@@ -212,8 +212,8 @@ fn open_file_replaces_only_that_side_and_a_failed_open_keeps_the_whole_session()
     ready(&mut v);
     {
         let p = v.pair.as_ref().unwrap();
-        assert_eq!(p.map.left.borrow().display_at(0, 0).unwrap(), "9");
-        assert_eq!(p.map.right.borrow().display_at(0, 2).unwrap(), "4.5");
+        assert_eq!(p.map.left.borrow().display_at(1, 0).unwrap(), "9");
+        assert_eq!(p.map.right.borrow().display_at(1, 2).unwrap(), "4.5");
         assert!(p.history[1].can_undo(), "other side history preserved");
     }
     assert_eq!(v.files[0].path.as_ref().unwrap(), &newer);
@@ -228,7 +228,7 @@ fn open_file_replaces_only_that_side_and_a_failed_open_keeps_the_whole_session()
             .map
             .right
             .borrow()
-            .display_at(0, 2)
+            .display_at(1, 2)
             .unwrap(),
         "1.2"
     );
@@ -244,7 +244,7 @@ fn open_file_replaces_only_that_side_and_a_failed_open_keeps_the_whole_session()
             .map
             .left
             .borrow()
-            .display_at(0, 0)
+            .display_at(1, 0)
             .unwrap(),
         "9"
     );
@@ -275,7 +275,7 @@ fn reload_failure_keeps_the_previous_comparison_and_reload_success_rereads() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "apple"
     );
@@ -291,7 +291,7 @@ fn reload_failure_keeps_the_previous_comparison_and_reload_success_rereads() {
             .map
             .right
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "APPLE"
     );
@@ -311,7 +311,7 @@ fn open_clipboard_replaces_only_that_side_and_preserves_the_other_history() {
     ready(&mut v);
     {
         let p = v.pair.as_ref().unwrap();
-        assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "kiwi");
+        assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "kiwi");
         assert_eq!(p.map.right.borrow().display_at(0, 2).unwrap(), "4.5");
         assert!(
             p.history[1].can_undo(),
@@ -321,7 +321,8 @@ fn open_clipboard_replaces_only_that_side_and_preserves_the_other_history() {
     }
     assert!(v.files[0].path.is_none());
     assert!(v.files[0].clipboard_dirty);
-    assert_eq!(v.pair.as_ref().unwrap().cache.statistics.left_only, 1);
+    // 剪贴板侧保留表头行：id 行与 9 行都无键配对 → 两个仅左。
+    assert_eq!(v.pair.as_ref().unwrap().cache.statistics.left_only, 2);
     v.grid.active = 1;
     v.undo(false);
     ready(&mut v);
@@ -545,7 +546,7 @@ fn table_compare_info_lists_per_sheet_counts_through_the_menu() {
     frame(&ctx, &mut v, vec![]); // 窗口首帧布局
     let out = frame(&ctx, &mut v, vec![]);
     assert!(
-        out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("Sheet 1: 4 same / 0 unimportant / 1 important / 1 left-only / 0 right-only / 3 columns"))),
+        out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("Sheet 1: 5 same / 0 unimportant / 1 important / 1 left-only / 0 right-only / 3 columns"))),
         "Info lists same/unimportant/important/left-only/right-only/columns"
     );
     let _ = std::fs::remove_file(left);
@@ -747,7 +748,7 @@ fn swap_during_the_initial_load_restarts_safely() {
             .map
             .left
             .borrow()
-            .display_at(0, 1)
+            .display_at(1, 1)
             .unwrap(),
         "APPLE"
     );
@@ -788,9 +789,9 @@ fn replacing_a_dirty_side_asks_confirmation_and_discard_keeps_the_other_side() {
     let newer = temp_file("dirty-new-left.csv", "id,name\n8,pear\n");
     let mut v = open_files(&left, &right);
     // 两侧都编辑：替换左侧需要确认；Discard 后右侧编辑/历史仍在。
-    v.begin_edit(0, Cursor { row: 0, column: 1 }, Some("APPLE".into()));
+    v.begin_edit(0, Cursor { row: 1, column: 1 }, Some("APPLE".into()));
     v.commit_edit().unwrap();
-    v.begin_edit(1, Cursor { row: 0, column: 1 }, Some("apricot".into()));
+    v.begin_edit(1, Cursor { row: 1, column: 1 }, Some("apricot".into()));
     v.commit_edit().unwrap();
     ready(&mut v);
     v.request(Pending::Open(0, newer.clone()));
@@ -805,8 +806,8 @@ fn replacing_a_dirty_side_asks_confirmation_and_discard_keeps_the_other_side() {
     ready(&mut v);
     {
         let p = v.pair.as_ref().unwrap();
-        assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "pear");
-        assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "apricot");
+        assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "pear");
+        assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "apricot");
         assert!(
             p.history[1].can_undo(),
             "other side edits survive the discard"
@@ -936,7 +937,7 @@ fn clipboard_replace_preserves_cached_sheets_of_the_other_side_without_confirmat
     );
     let mut v = open_files(&left, &right);
     // 活动对右侧编辑 + 伪造一个带编辑的缓存 sheet 对（等价于访问过第二个 sheet）。
-    v.begin_edit(1, Cursor { row: 0, column: 1 }, Some("apricot".into()));
+    v.begin_edit(1, Cursor { row: 1, column: 1 }, Some("apricot".into()));
     v.commit_edit().unwrap();
     ready(&mut v);
     let mut cached = Pair {
@@ -985,8 +986,8 @@ fn clipboard_replace_preserves_cached_sheets_of_the_other_side_without_confirmat
     ready(&mut v);
     {
         let p = v.pair.as_ref().unwrap();
-        assert_eq!(p.map.left.borrow().display_at(0, 1).unwrap(), "kiwi");
-        assert_eq!(p.map.right.borrow().display_at(0, 1).unwrap(), "apricot");
+        assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "kiwi");
+        assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "apricot");
         assert!(p.history[1].can_undo());
     }
     // 另一侧的第二个 sheet 保留标签、编辑与历史；其被替换侧显示为诚实空位。
@@ -1088,17 +1089,18 @@ fn open_two_real_xlsx_files_compares_via_parallel_load() {
     .unwrap();
     let mut v = open_files(&left, &right);
     ready(&mut v);
-    assert_eq!(v.row_count(), 4);
+    // 表头行保留为数据（字母列头）：5 行 = 表头 + 3 数据 + 1 仅左。
+    assert_eq!(v.row_count(), 5);
     let p = v.pair.as_ref().unwrap();
     let s = &p.cache.statistics;
-    assert_eq!(s.same, 1);
+    assert_eq!(s.same, 2);
     assert_eq!(s.important, 1);
     assert_eq!(s.left_only, 1);
     assert_eq!(s.right_only, 1);
-    assert_eq!(p.map.left.borrow().row_count(), 3);
-    assert_eq!(p.map.right.borrow().row_count(), 3);
-    assert_eq!(p.map.left.borrow().display_at(1, 1).unwrap(), "banana");
-    assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "BLUEberry");
+    assert_eq!(p.map.left.borrow().row_count(), 4);
+    assert_eq!(p.map.right.borrow().row_count(), 4);
+    assert_eq!(p.map.left.borrow().display_at(2, 1).unwrap(), "banana");
+    assert_eq!(p.map.right.borrow().display_at(2, 1).unwrap(), "BLUEberry");
     let _ = std::fs::remove_file(left);
     let _ = std::fs::remove_file(right);
 }

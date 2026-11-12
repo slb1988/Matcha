@@ -1,7 +1,8 @@
-//! 28 px column header: ▼ on the cursor column, difference marker, column
-//! letter (or the source column name when the sheet has a header row).
+//! 28 px column header: ▼ on the cursor column, difference marker, and the
+//! Excel-style column letter (A, B, C…; the grid keeps every source row as
+//! data, so letters are the stable column identity).
 use super::grid::{self, GridState, GUTTER};
-use bc_engine_table::{columns::Side, TableData, TableMap};
+use bc_engine_table::TableMap;
 use bc_session::prefs::DiffColors;
 use eframe::egui;
 pub fn paint(
@@ -58,12 +59,6 @@ pub fn paint(
             egui::Color32::from_gray(0x6D),
         );
     }
-    let sheet = if side == 0 {
-        map.left.borrow()
-    } else {
-        map.right.borrow()
-    };
-    let named = TableData::headers(&*sheet).is_some();
     // The key marker only carries information when the keys are a proper
     // subset of the compared columns.
     let keys = rules.key_columns();
@@ -101,11 +96,19 @@ pub fn paint(
             );
         }
         let col = &rules.columns.0[c];
-        let source = col.index(if side == 0 { Side::Left } else { Side::Right });
-        let name = match source {
-            None => "—".to_string(),
-            Some(i) if named => sheet.column_name(i),
-            Some(_) => grid::column_letter(c),
+        // Excel-style letter regardless of a promoted header row; "—" marks a
+        // comparison column missing on this side.
+        let mapped = col
+            .index(if side == 0 {
+                bc_engine_table::columns::Side::Left
+            } else {
+                bc_engine_table::columns::Side::Right
+            })
+            .is_some();
+        let name = if mapped {
+            grid::column_letter(c)
+        } else {
+            "—".to_string()
         };
         let label = format!(
             "{}{}{}",

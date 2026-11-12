@@ -5,7 +5,7 @@ use bc_engine_table::{
     jobs::TableAlignJob,
     map::TableAlignOutput,
     sheets::{SheetPair, SheetPairs},
-    source::{detect_header, read_path, ReadOptions},
+    source::{read_path, ReadOptions},
     workbook::Workbook,
     Sheet, SheetStore, TableRules,
 };
@@ -23,6 +23,17 @@ use std::{
 fn demand_csv_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var_os("MATCHA_TABLE_CSV_LAZY").is_some())
+}
+/// Reference parity: the grid shows every source row as data under lettered
+/// column headers (A, B, C…, Excel style). Header auto-detection stays on the
+/// report/script paths; the GUI promotes row 0 only on an explicit "Column
+/// names" setting (per options or the format default).
+pub(super) fn pin_header_mode(options: &mut ReadOptions) {
+    let header = options.header.unwrap_or(options.format.header);
+    options.header = Some(match header {
+        HeaderMode::Names => HeaderMode::Names,
+        _ => HeaderMode::Data,
+    });
 }
 pub struct Prepared {
     pub left: SheetStore,
@@ -217,6 +228,7 @@ fn load(
     if resolved.format.regional.use_system {
         resolved.system_regional = super::regional::host();
     }
+    pin_header_mode(&mut resolved);
     let options = &resolved;
     let workbook = path
         .extension()
@@ -249,8 +261,8 @@ fn load(
         } else {
             options.format.regional.clone()
         };
-        let header = options.header.unwrap_or(options.format.header);
-        if header == HeaderMode::Names || (header == HeaderMode::Auto && detect_header(&sheet)) {
+        // Pinned above: only an explicit "Column names" setting promotes row 0.
+        if options.header == Some(HeaderMode::Names) {
             sheet.take_header();
         }
         crate::perf::span("worker:header-detect", t);

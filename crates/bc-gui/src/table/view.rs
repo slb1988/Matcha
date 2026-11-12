@@ -728,13 +728,28 @@ impl TableCompareView {
         })));
         self.message = "Loading the replaced side's sheet…".into();
     }
-    /// 键列标注：自动/手动推断结果带比较列名，如 `id（自动）`。
+    /// 键列标注：自动/手动推断结果带比较列名，如 `id（自动）`；无表头行的
+    /// 侧退化为 Excel 列字母（与网格表头一致）。
     pub(super) fn keys_description(&self) -> String {
         let Some(p) = &self.pair else {
             return String::new();
         };
         let rules = p.map.rules();
         let label = rules.keys.label();
+        let name_of = |side: usize, i: Option<usize>, c: usize| -> Option<String> {
+            let sheet = if side == 0 {
+                p.map.left.borrow()
+            } else {
+                p.map.right.borrow()
+            };
+            i.map(|i| {
+                if bc_engine_table::TableData::headers(&*sheet).is_some() {
+                    sheet.column_name(i)
+                } else {
+                    super::grid::column_letter(c)
+                }
+            })
+        };
         match &rules.keys {
             bc_engine_table::rules::KeySelection::Automatic { .. }
             | bc_engine_table::rules::KeySelection::Manual(_) => {
@@ -743,10 +758,8 @@ impl TableCompareView {
                     .iter()
                     .map(|&c| {
                         let column = &rules.columns.0[c];
-                        column
-                            .left
-                            .map(|i| p.map.left.borrow().column_name(i))
-                            .or_else(|| column.right.map(|i| p.map.right.borrow().column_name(i)))
+                        name_of(0, column.left, c)
+                            .or_else(|| name_of(1, column.right, c))
                             .unwrap_or_else(|| format!("Column {}", c + 1))
                     })
                     .collect::<Vec<_>>()
@@ -1167,10 +1180,11 @@ impl TableCompareView {
         }
         self.action.take()
     }
-    /// Snapshot scenes: the reference shows the CSV header row as data with
-    /// lettered columns and aligns rows without a key column; Matcha's own
-    /// defaults (Auto header detection, inferred keys) are unchanged outside
-    /// snapshots (follow-up: verify the reference defaults offline).
+    /// Snapshot scenes: the reference shows the header row as data with
+    /// lettered columns and aligns rows without a key column. The GUI worker
+    /// already defaults to that lettered/data look (only an explicit "Column
+    /// names" setting promotes row 0); snapshots pin it explicitly, while
+    /// inferred keys remain Matcha's own default outside snapshots.
     pub fn snapshot_options(&mut self) {
         for options in &mut self.options {
             options.header = Some(bc_formats::model::HeaderMode::Data);

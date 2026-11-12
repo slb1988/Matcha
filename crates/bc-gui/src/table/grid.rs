@@ -13,6 +13,10 @@ pub const HEADER_HEIGHT: f32 = 28.0;
 /// Consolas 10 pt advance at 96 dpi (horizontal preview offset only).
 const CHAR_WIDTH: f32 = 7.33;
 pub const GRID_LINE: egui::Color32 = egui::Color32::from_rgb(0xA0, 0xA0, 0xA0);
+/// Drag-resize floor for a column (header marker + letter stay visible).
+pub const MIN_COLUMN_WIDTH: f32 = 20.0;
+/// Header boundary grab half-width (px) for column resize.
+const RESIZE_GRAB: f32 = 3.0;
 pub const GRID_LINE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xB0, 0xB0, 0xB0);
 pub const PANE_INACTIVE: egui::Color32 = egui::Color32::from_rgb(0xFC, 0xFC, 0xFC);
 pub const SELECTION: egui::Color32 = egui::Color32::from_rgb(0xA8, 0xCD, 0xF1);
@@ -42,6 +46,8 @@ pub struct GridState {
     pub cells_drawn: usize,
     pub edit_target: Option<(usize, Cursor)>,
     pub edit_rect: Option<egui::Rect>,
+    /// Display column whose right header boundary is being drag-resized.
+    pub resizing: Option<usize>,
     /// The cursor cell is painted as a selection (blue) only after the user
     /// placed it (click/keyboard/select-all); a freshly loaded comparison shows
     /// just the focus frame, like the reference.
@@ -66,6 +72,7 @@ impl Default for GridState {
             cells_drawn: 0,
             edit_target: None,
             edit_rect: None,
+            resizing: None,
             selection_visible: false,
         }
     }
@@ -247,10 +254,43 @@ impl GridState {
         self.columns = (0..count)
             .filter(|&c| !hide || different.get(c) == Some(&true))
             .collect();
+        self.rebuild_offsets();
+    }
+    /// Prefix offsets from `widths` in display order (shared by both panes).
+    pub fn rebuild_offsets(&mut self) {
         self.offsets = vec![0.0];
         for &c in &self.columns {
             self.offsets
                 .push(self.offsets.last().unwrap() + self.widths.get(c).copied().unwrap_or(68.0));
+        }
+    }
+    /// Header boundary hit test: the display column whose right edge sits
+    /// within `RESIZE_GRAB` px of pane-space `x` (boundaries scrolled under
+    /// the row-number gutter are not grabbable).
+    pub fn resize_target(&self, pane_left: f32, x: f32) -> Option<usize> {
+        let origin = pane_left + GUTTER - self.scroll.x;
+        (0..self.columns.len()).find(|&d| {
+            let boundary = origin + self.offsets[d + 1];
+            (boundary - x).abs() <= RESIZE_GRAB && boundary > pane_left + GUTTER + RESIZE_GRAB
+        })
+    }
+    /// Drag-resize display column `d` so its right edge sits at content-space
+    /// `right`; later columns shift by the same delta.
+    pub fn resize_column(&mut self, d: usize, right: f32) {
+        let Some(&c) = self.columns.get(d) else {
+            return;
+        };
+        if c >= self.widths.len() {
+            self.widths.resize(c + 1, 68.0);
+        }
+        let width = (right - self.offsets[d]).clamp(MIN_COLUMN_WIDTH, 1000.0);
+        let delta = width - (self.offsets[d + 1] - self.offsets[d]);
+        if delta == 0.0 {
+            return;
+        }
+        self.widths[c] = width;
+        for o in &mut self.offsets[d + 1..] {
+            *o += delta;
         }
     }
     pub fn selected(&self, row: usize, col: usize) -> bool {
@@ -338,6 +378,39 @@ pub fn pane(
         different,
         colors,
     );
+    // Column resize: drag a lettered header boundary (Excel style). Widths
+    // are shared by both panes; the other pane picks up the new offsets when
+    // it paints later this same frame.
+    let header_rect = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rows_rect.top()));
+    let header_response = ui.interact(
+        header_rect,
+        egui::Id::unique(("table_header_resize", side)),
+        egui::Sense::click_and_drag(),
+    );
+    if header_response.drag_started() {
+        // Hit-test the press origin (interact_pointer_pos is already past it).
+        state.resizing = ui
+            .ctx()
+            .input(|i| i.pointer.press_origin())
+            .and_then(|p| state.resize_target(header_rect.left(), p.x));
+    }
+    if header_response.dragged() {
+        if let Some(d) = state.resizing {
+            if let Some(pos) = header_response.interact_pointer_pos() {
+                let right = pos.x - (header_rect.left() + GUTTER) + state.scroll.x;
+                state.resize_column(d, right);
+            }
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+    } else if header_response.drag_stopped() {
+        state.resizing = None;
+    } else if header_response.hovered() {
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
+            if state.resize_target(header_rect.left(), pos.x).is_some() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+        }
+    }
     let scroll = state.scroll;
     let mut action = None;
     state.pane_rects[side] = rows_rect;

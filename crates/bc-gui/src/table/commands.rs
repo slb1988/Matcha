@@ -1359,6 +1359,7 @@ impl TableCompareView {
                 if workbook_side {
                     options.format.detect_delimiter = true;
                 }
+                super::worker::pin_header_mode(&mut options);
                 let parsed = read_text(IoCursor::new(text), &options, &NeverCancel);
                 match parsed {
                     Err(e) => self.message = e.to_string(),
