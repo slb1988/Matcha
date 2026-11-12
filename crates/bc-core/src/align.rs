@@ -1264,6 +1264,10 @@ pub enum ByteAlignStrategy {
 const BYTE_ANCHOR_WINDOW: usize = 50;
 /// Complete 档字节级细化的区间长度上限（两侧均 < 该值才细化）：参考工具实测值 5000。
 const BYTE_REFINE_LIMIT: usize = 5000;
+/// Complete 档大区间重同步的偏移容差（字节）：参考工具 `RUNRANGE` 立即数 10。
+const BYTE_RESYNC_SKEW: usize = 10;
+/// 大区间重同步判定所需的最短连续相等字节数（防止随机数据里的单字节巧合把配对拉偏）。
+const BYTE_RESYNC_MATCH: usize = 4;
 
 impl ByteAlign {
     pub fn align(&self, left: &[u8], right: &[u8], strategy: ByteAlignStrategy) -> AlignMap {
@@ -1440,7 +1444,8 @@ fn anchored_rows(
     Ok(rows)
 }
 
-/// 输出一个锚点间区间：Fast 降级为双侧孤儿段；Complete 小区间字节级细化、超限降级。
+/// 输出一个锚点间区间：Fast 降级为双侧孤儿段；Complete 小区间字节级细化、
+/// 超限走 [`resync_gap`] 对角线重同步（参考 `RUNRANGE`，不再整段降级孤儿）。
 #[allow(clippy::too_many_arguments)]
 fn emit_gap(
     rows: &mut Vec<AlignRow>,
@@ -1458,10 +1463,76 @@ fn emit_gap(
     if left_len == 0 && right_len == 0 {
         return Ok(());
     }
-    if refine && left_len < BYTE_REFINE_LIMIT && right_len < BYTE_REFINE_LIMIT {
+    if !refine {
+        push_orphans(rows, left_start, left_end, right_start, right_end);
+        return Ok(());
+    }
+    if left_len < BYTE_REFINE_LIMIT && right_len < BYTE_REFINE_LIMIT {
         return refine_gap(rows, left, right, left_start, left_end, right_start, right_end, cancel);
     }
-    push_orphans(rows, left_start, left_end, right_start, right_end);
+    resync_gap(rows, left, right, left_start, left_end, right_start, right_end, cancel)
+}
+
+/// Complete 档大区间（任一侧 ≥ 5000）– 参考工具 `RUNRANGE` 的对应物：沿对角线逐字节配对，
+/// 相等为 same、不等为 difference；失配处在 ±`BYTE_RESYNC_SKEW` 字节内寻找连续
+/// `BYTE_RESYNC_MATCH` 字节相等的重同步点，找到则把跳过的字节记为该侧孤儿。
+/// 区间尾部余量为孤儿。线性时间，适合整段内容都不同的大文件（如两张不同的 PNG）。
+#[allow(clippy::too_many_arguments)]
+fn resync_gap(
+    rows: &mut Vec<AlignRow>,
+    left: &[u8],
+    right: &[u8],
+    left_start: usize,
+    left_end: usize,
+    right_start: usize,
+    right_end: usize,
+    cancel: &dyn CancelCheck,
+) -> Result<(), crate::CoreError> {
+    let k = BYTE_RESYNC_MATCH;
+    let matches = |i: usize, j: usize| {
+        i + k <= left_end && j + k <= right_end && left[i..i + k] == right[j..j + k]
+    };
+    let (mut i, mut j) = (left_start, right_start);
+    let mut steps = 0usize;
+    while i < left_end && j < right_end {
+        steps += 1;
+        if steps.is_multiple_of(4096) {
+            cancel.check()?;
+        }
+        if left[i] == right[j] {
+            rows.push(AlignRow { left: Some(i), right: Some(j), kind: DiffKind::Same, ..Default::default() });
+            i += 1;
+            j += 1;
+            continue;
+        }
+        // 当前对角线本身接下来能对上就不跳（单字节不同 = difference）。
+        let skip = if matches(i + 1, j + 1) {
+            None
+        } else {
+            (1..=BYTE_RESYNC_SKEW).find_map(|d| {
+                if matches(i + d, j) {
+                    Some((d, 0))
+                } else if matches(i, j + d) {
+                    Some((0, d))
+                } else {
+                    None
+                }
+            })
+        };
+        match skip {
+            Some((dl, dr)) => {
+                push_orphans(rows, i, i + dl, j, j + dr);
+                i += dl;
+                j += dr;
+            }
+            None => {
+                rows.push(AlignRow { left: Some(i), right: Some(j), kind: DiffKind::Changed, ..Default::default() });
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    push_orphans(rows, i, left_end, j, right_end);
     Ok(())
 }
 
@@ -1772,6 +1843,48 @@ mod tests {
                     (s >> 32) as u8
                 })
                 .collect()
+        }
+
+        #[test]
+        fn complete_pairs_large_unrelated_files_along_the_diagonal() {
+            // 两段毫无公共锚点的大内容（如两张不同 PNG）：不得整段左孤儿再整段右孤儿，
+            // 而是逐位配对 difference，较长一侧的尾部为孤儿。
+            let left = prng_bytes(0x1111, 150_000);
+            let right = prng_bytes(0x2222, 400_000);
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::Complete);
+            assert_partition(&map, left.len(), right.len());
+            let (same, diff, left_only, right_only) = stats(&map);
+            assert!(diff > 140_000, "diff {diff}");
+            assert!(left_only < 1_000, "left orphan {left_only}");
+            assert_eq!(same + diff + left_only, left.len());
+            assert_eq!(same + diff + right_only, right.len());
+            assert_eq!(map.rows()[0].left, Some(0));
+            assert_eq!(map.rows()[0].right, Some(0));
+            for row in map.rows() {
+                if row.kind == DiffKind::Same {
+                    assert_eq!(left[row.left.unwrap()], right[row.right.unwrap()]);
+                }
+            }
+        }
+
+        #[test]
+        fn complete_resyncs_small_shifts_inside_a_large_gap() {
+            // 每 40 字节翻转一个字节 → 无 50 字节锚窗，整体是一个 ≥ 5000 的大区间；
+            // 区间中部 3 字节插入应在偏移容差内重同步为 3 个右孤儿。
+            let left = prng_bytes(0x3333, 20_000);
+            let mut right = left.clone();
+            for b in right.iter_mut().step_by(40) {
+                *b ^= 0x5A;
+            }
+            right.splice(10_001..10_001, [0xA1, 0xB2, 0xC3]);
+            let map = ByteAlign.align(&left, &right, ByteAlignStrategy::Complete);
+            assert_partition(&map, left.len(), right.len());
+            let (same, diff, left_only, right_only) = stats(&map);
+            assert_eq!((left_only, right_only), (0, 3));
+            assert_eq!(diff, 500);
+            assert_eq!(same, 19_500);
+            let row = map.row_of_left(19_999).unwrap();
+            assert_eq!(map.rows()[row].right, Some(20_002));
         }
 
         #[test]

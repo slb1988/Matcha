@@ -1117,8 +1117,14 @@ impl HexCompareView {
 
     /// 键盘命令（模态打开时让位）。修饰键沿用 text 视图的 `command`（macOS Cmd / 其它 Ctrl）。
     fn keyboard(&mut self, ctx: &egui::Context) {
+        // 文本框（地址栏/查找栏）持焦时键盘归它：Ctrl+A/C/X/V/Delete 等不得落到字节上。
+        // 例外：Open Clipboard 等待的 Paste 仍由视图接收。
+        let text_focus = ctx.egui_wants_keyboard_input();
         let events = ctx.input(|i| i.events.clone());
         for event in events {
+            if text_focus && !(matches!(event, egui::Event::Paste(_)) && self.clipboard_side.is_some()) {
+                continue;
+            }
             if let egui::Event::Paste(text) = &event {
                 // Open Clipboard：作为该侧内容载入；否则在当前光标处粘贴字节。
                 if let Some(side) = self.clipboard_side.take() {
@@ -1431,7 +1437,9 @@ impl HexCompareView {
         let mut header_rects = [egui::Rect::NOTHING; 2];
         let mut header = |this: &mut Self, ui: &mut egui::Ui, side: usize| {
             let top = ui.cursor().min;
-            this.path_header(ui, side, &history);
+            // 每侧独立 id 作用域：columns 子 ui 的 id 相同，不隔开会让两条编辑框 id 冲突，
+            // 命中测试失效（点击/拖选都进不了编辑框）。
+            ui.push_id(("hex-path", side), |ui| this.path_header(ui, side, &history));
             header_rects[side] =
                 egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().right(), ui.cursor().top()));
         };

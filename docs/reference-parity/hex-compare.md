@@ -122,6 +122,7 @@
 2. **对齐策略枚举与算法边界**（反汇编 `THEXMAPALIGN.RUN` 及其嵌套例程证实）：
    - `THexAlignKind = (alignNone=0, alignFast=1, alignComplete=2)`（RTTI o2s 表逐字证实）；None → 全文件 `RUNNONE` 逐位；Fast/Complete 共享同一锚块主干（64 KB 分块读取；**50 字节锚窗**，Rabin 滚动哈希 base 257、mod 2¹⁶——`EXPMOD(257,50)` 逐指令验证；EOF 侧 50 字节余量；mismatch 前先输出公共前缀 same 段）。
    - **Complete**（默认）：mismatch 区间两侧均 **< 5000 字节** → `TBcByteAlign` 字节级 diff；任一侧 ≥ 5000 → `RUNRANGE` 锚点重同步（递归二分 + `SEQFIND` 顺序搜索，**skew = 10**，第 5 参数立即数证实）。
+   - Matcha 对应实现（2026-11-12）：`bc_core::align::resync_gap`——沿对角线逐字节配对（same/difference），失配时在 ±10 字节内找连续 4 字节相等作重同步点，跳过字节为孤儿，尾部余量为孤儿。最短匹配长度 4 为 Matcha 取值（参考未核对）；递归二分未复刻。实测两张不同 PNG（154625 / 420870 字节）开头 0x30 字节的配对与参考截图逐字节一致；参考在随机区段内重同步更频繁（孤儿段更多），属已知差异。
    - **Fast**：mismatch 区间不做字节级细化，直接 `RUNNONE` 逐位对齐（即锚块之间按位置对应）。
    - skew 值 10 为硬编码、UI 不暴露；设计 D6「skew_tolerance 归入 Complete 区间上限参数」维持不变，校准值以此为准（5000 为字节级细化上限、10 为大区间重同步 skew）。
 3. **View 菜单两个子菜单完整项集合**（macOS 5.0.4 运行时 AX 枚举，zh-CN 界面；与截图 `13-menu-view.png` 互证）：

@@ -842,3 +842,90 @@ fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
     assert_eq!(v.active_side, 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn frame_with(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Event>) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        events,
+        ..Default::default()
+    };
+    crate::chrome::test_frame(ctx, input, |ui| {
+        v.ui(ui);
+    })
+}
+
+fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+}
+
+/// 找到左侧地址栏编辑框：自上而下单击，首个让 egui 编辑框取得键盘焦点的 y。
+fn focus_left_path(ctx: &egui::Context, v: &mut HexCompareView) -> f32 {
+    for y in (0..200).step_by(4) {
+        let pos = egui::pos2(120.0, y as f32);
+        frame_with(ctx, v, vec![egui::Event::PointerMoved(pos)]);
+        frame_with(ctx, v, vec![pointer(pos, true)]);
+        frame_with(ctx, v, vec![pointer(pos, false)]);
+        frame_with(ctx, v, vec![]);
+        if ctx.egui_wants_keyboard_input() {
+            return y as f32;
+        }
+        // 点到别处（菜单等）后复位。
+        frame_with(ctx, v, vec![egui::Event::Key {
+            key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default(),
+        }]);
+    }
+    panic!("path bar edit box not found");
+}
+
+fn path_selection(ctx: &egui::Context) -> Option<std::ops::Range<usize>> {
+    let id = ctx.memory(|m| m.focused())?;
+    let state = egui::widgets::text_edit::TextEditState::load(ctx, id)?;
+    let r = state.cursor.char_range()?.as_sorted_char_range();
+    Some(r.start.0..r.end.0)
+}
+
+/// 地址栏可用鼠标拖选；Ctrl+A/Ctrl+C 作用于路径文本而非十六进制字节。
+#[test]
+fn path_bar_supports_mouse_selection_and_copy() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-pathsel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.bin");
+    let b = dir.join("b.bin");
+    std::fs::write(&a, b"aaaa").unwrap();
+    std::fs::write(&b, b"bbbb").unwrap();
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::open(&a, &b).unwrap();
+    ready(&mut v);
+    frame_with(&ctx, &mut v, vec![]);
+    frame_with(&ctx, &mut v, vec![]);
+    let y = focus_left_path(&ctx, &mut v);
+    // 拖选：从路径框左端拖到中部。
+    let (p0, p1) = (egui::pos2(14.0, y), egui::pos2(200.0, y));
+    frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(p0), pointer(p0, true)]);
+    frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(egui::pos2(100.0, y))]);
+    frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(p1)]);
+    frame_with(&ctx, &mut v, vec![pointer(p1, false)]);
+    let sel = path_selection(&ctx).expect("path edit focused");
+    assert!(sel.end > sel.start + 5, "drag should select text, got {sel:?}");
+    // Ctrl+A 全选路径；Ctrl+C 复制路径文本，不得改选十六进制字节或输出 hex dump。
+    let ctrl = egui::Modifiers::COMMAND;
+    let key = |k| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: ctrl };
+    frame_with(&ctx, &mut v, vec![key(egui::Key::A)]);
+    let out = frame_with(&ctx, &mut v, vec![key(egui::Key::C), egui::Event::Copy]);
+    let copied: Vec<String> = out
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(copied, vec![v.path_edits[0].clone()]);
+    assert_eq!(v.selection[0], None, "hex selection must stay untouched");
+    // 粘贴进路径框不得写入字节。
+    frame_with(&ctx, &mut v, vec![egui::Event::Paste("x".into())]);
+    ready(&mut v);
+    assert_eq!(v.map.left.bytes(), b"aaaa");
+    std::fs::remove_dir_all(&dir).ok();
+}
