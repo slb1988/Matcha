@@ -8,6 +8,7 @@ use crate::chrome::{
 };
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use std::path::PathBuf;
+use std::time::SystemTime;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HomeAction {
     OpenTextCompare {
@@ -129,7 +130,39 @@ enum Node {
     New,
     AutoSaved,
     Kind(usize),
+    /// Auto-saved 下的日期分组（[`DAY_GROUPS`] 下标）。
+    Day(usize),
     Recent(usize),
+}
+/// Auto-saved 日期分组（参考：Today / Yesterday / N days ago / More than 6 days ago）。
+const DAY_GROUPS: usize = 8;
+fn day_label(group: usize) -> String {
+    match group {
+        0 => "Today".into(),
+        1 => "Yesterday".into(),
+        2..=6 => format!("{group} days ago"),
+        _ => "More than 6 days ago".into(),
+    }
+}
+/// 本地日历日序号（含该时刻的时区/夏令时偏移）。
+fn local_day(time: SystemTime) -> i64 {
+    let seconds = match time.duration_since(std::time::UNIX_EPOCH) {
+        Ok(after) => after.as_secs() as i64,
+        Err(before) => -(before.duration().as_secs() as i64) - 1,
+    };
+    let offset = bc_script::platform::local(time).offset_minutes;
+    (seconds + i64::from(offset) * 60).div_euclid(86_400)
+}
+/// `when` 相对今天（`today` 为 [`local_day`]）落入的日期分组；未来时刻算 Today。
+fn day_group(today: i64, when: SystemTime) -> usize {
+    (today - local_day(when)).clamp(0, DAY_GROUPS as i64 - 1) as usize
+}
+/// 一条最近比较：左右路径与最后一次打开的时刻。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Recent {
+    left: PathBuf,
+    right: PathBuf,
+    when: SystemTime,
 }
 /// Icons per page of the grid (the reference shows three, then a chevron).
 const PAGE: usize = 3;
@@ -158,18 +191,40 @@ const SAVED_DRAWER: (Color32, Color32) = (
     Color32::from_rgb(0x9C, 0x77, 0x35),
 );
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HomeView {
     error: Option<String>,
-    recent: Vec<(PathBuf, PathBuf)>,
+    recent: Vec<Recent>,
     selected: Node,
     new_open: bool,
     auto_open: bool,
+    /// 各日期分组的展开状态（默认仅 Today 展开）。
+    day_open: [bool; DAY_GROUPS],
     filter: String,
     page: usize,
     hide_tree: bool,
     hide_panel: bool,
     about: bool,
+}
+/// 会话树默认展开 New 与 Auto-saved（其下仅 Today 展开）。
+impl Default for HomeView {
+    fn default() -> Self {
+        let mut day_open = [false; DAY_GROUPS];
+        day_open[0] = true;
+        Self {
+            error: None,
+            recent: Vec::new(),
+            selected: Node::New,
+            new_open: true,
+            auto_open: true,
+            day_open,
+            filter: String::new(),
+            page: 0,
+            hide_tree: false,
+            hide_panel: false,
+            about: false,
+        }
+    }
 }
 fn item(label: &str, id: &str, enabled: bool) -> MenuItem {
     MenuItem {
@@ -212,13 +267,20 @@ impl HomeView {
     #[cfg(test)]
     pub(crate) fn with_recent(recent: Vec<(PathBuf, PathBuf)>) -> Self {
         Self {
-            recent,
+            recent: recent
+                .into_iter()
+                .map(|(left, right)| Recent {
+                    left,
+                    right,
+                    when: SystemTime::now(),
+                })
+                .collect(),
             ..Default::default()
         }
     }
     #[cfg(test)]
-    pub(crate) fn auto_open(&self) -> bool {
-        self.auto_open
+    pub(crate) fn new_open(&self) -> bool {
+        self.new_open
     }
     /// 重读最近比较（其他标签页刚记录了新的比较）。
     pub fn refresh_recent(&mut self) {
@@ -234,8 +296,15 @@ impl HomeView {
         let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
         let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
         let mut recent = load_recent();
-        recent.retain(|p| p.0 != left || p.1 != right);
-        recent.insert(0, (left, right));
+        recent.retain(|p| p.left != left || p.right != right);
+        recent.insert(
+            0,
+            Recent {
+                left,
+                right,
+                when: SystemTime::now(),
+            },
+        );
         recent.truncate(12);
         save_recent(&recent);
     }
@@ -497,21 +566,35 @@ impl HomeView {
         }
         rows.push((Node::AutoSaved, 0, "Auto-saved".into()));
         if auto_open {
-            for (i, (l, r)) in self.recent.iter().enumerate() {
-                let full = format!("{} {}", l.display(), r.display()).to_lowercase();
-                if !filter.is_empty() && !full.contains(&filter) {
+            let name = |p: &PathBuf| {
+                p.file_name()
+                    .map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into())
+            };
+            let today = local_day(SystemTime::now());
+            let mut groups: [Vec<usize>; DAY_GROUPS] = Default::default();
+            for (i, item) in self.recent.iter().enumerate() {
+                let full = format!("{} {}", item.left.display(), item.right.display());
+                if filter.is_empty() || full.to_lowercase().contains(&filter) {
+                    groups[day_group(today, item.when)].push(i);
+                }
+            }
+            for (group, items) in groups.iter().enumerate() {
+                if items.is_empty() {
                     continue;
                 }
-                let name = |p: &PathBuf| {
-                    p.file_name()
-                        .map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into())
-                };
-                rows.push((Node::Recent(i), 1, format!("{} ↔ {}", name(l), name(r))));
+                rows.push((Node::Day(group), 1, day_label(group)));
+                if self.day_open[group] || !filter.is_empty() {
+                    rows.extend(items.iter().map(|&i| {
+                        let item = &self.recent[i];
+                        let label = format!("{} <--> {}", name(&item.left), name(&item.right));
+                        (Node::Recent(i), 2, label)
+                    }));
+                }
             }
         }
         let clip = painter.with_clip_rect(span(0.0, HEADER_BOTTOM + 1.0, TREE_WIDTH, toolbar_top));
         let glyph = |node: Node, indent: f32, cy: f32| match node {
-            Node::New | Node::AutoSaved => {
+            Node::New | Node::AutoSaved | Node::Day(_) => {
                 let (fill, handle) = if node == Node::New {
                     NEW_DRAWER
                 } else {
@@ -536,7 +619,7 @@ impl HomeView {
             if top + TREE_ROW > toolbar_top {
                 break;
             }
-            let group = matches!(node, Node::New | Node::AutoSaved);
+            let group = matches!(node, Node::New | Node::AutoSaved | Node::Day(_));
             let indent = depth as f32 * 19.0;
             let cy = top + TREE_ROW / 2.0;
             let response = ui.interact(
@@ -546,12 +629,12 @@ impl HomeView {
             );
             if group {
                 // Expander chevron ">" (open: "v") and the dotted stub.
-                let open = if node == Node::New {
-                    self.new_open
-                } else {
-                    auto_open
+                let open = match node {
+                    Node::New => self.new_open,
+                    Node::Day(g) => self.day_open[g] || !filter.is_empty(),
+                    _ => auto_open,
                 };
-                let c = at(10.5, cy);
+                let c = at(10.5 + indent, cy);
                 let points = if open {
                     vec![
                         c + Vec2::new(-3.0, -1.5),
@@ -567,7 +650,7 @@ impl HomeView {
                 };
                 clip.add(egui::Shape::line(points, Stroke::new(1.0, EXPANDER)));
                 let mut dots = egui::Mesh::default();
-                for x in [15.0, 17.0, 19.0] {
+                for x in [15.0 + indent, 17.0 + indent, 19.0 + indent] {
                     dots.add_colored_rect(span(x, cy, x + 1.0, cy + 1.0), EXPANDER);
                 }
                 clip.add(egui::Shape::mesh(dots));
@@ -596,18 +679,18 @@ impl HomeView {
                 self.selected = node;
                 let on_expander = response
                     .interact_pointer_pos()
-                    .is_some_and(|p| p.x < at(20.0, 0.0).x);
+                    .is_some_and(|p| p.x < at(20.0 + indent, 0.0).x);
                 if group && on_expander {
                     self.toggle(node);
                 }
             }
             if response.double_clicked() {
                 match node {
-                    Node::New | Node::AutoSaved => self.toggle(node),
+                    Node::New | Node::AutoSaved | Node::Day(_) => self.toggle(node),
                     Node::Kind(i) => *action = Some(KINDS[i].new_session(None)),
                     Node::Recent(i) => {
-                        let (l, r) = self.recent[i].clone();
-                        *action = Some(routed(l, r));
+                        let item = self.recent[i].clone();
+                        *action = Some(routed(item.left, item.right));
                     }
                 }
             }
@@ -618,6 +701,7 @@ impl HomeView {
         match node {
             Node::New => self.new_open = !self.new_open,
             Node::AutoSaved => self.auto_open = !self.auto_open,
+            Node::Day(g) => self.day_open[g] = !self.day_open[g],
             _ => {}
         }
     }
@@ -881,34 +965,84 @@ impl HomeView {
         }
     }
 }
-fn save_recent(recent: &[(PathBuf, PathBuf)]) {
+/// `recent-text.txt` v2：首行标记，之后每条一行 `纪元秒\t左\t右`（路径不含制表符）。
+const RECENT_V2: &str = "# matcha recent v2";
+fn save_recent(recent: &[Recent]) {
     if let Some(file) = recent_path() {
         if let Some(parent) = file.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let text = recent
-            .iter()
-            .map(|(l, r)| format!("{}\n{}\n", l.display(), r.display()))
-            .collect::<String>();
-        let _ = std::fs::write(file, text);
+        let _ = std::fs::write(file, format_recent(recent));
     }
 }
+fn format_recent(recent: &[Recent]) -> String {
+    let mut text = format!("{RECENT_V2}\n");
+    for item in recent {
+        let seconds = item
+            .when
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        text += &format!(
+            "{seconds}\t{}\t{}\n",
+            item.left.display(),
+            item.right.display()
+        );
+    }
+    text
+}
 fn recent_path() -> Option<PathBuf> {
+    // 单元测试会经 app 流程记录比较，不能写进用户的真实最近列表。
+    if cfg!(test) {
+        return Some(
+            std::env::temp_dir().join(format!("matcha-test-recent-{}.txt", std::process::id())),
+        );
+    }
     bc_formats::registry::user_formats_dir()
         .ok()
         .and_then(|p| p.parent().map(|p| p.join("recent-text.txt")))
 }
-fn load_recent() -> Vec<(PathBuf, PathBuf)> {
-    let Some(text) = recent_path().and_then(|p| std::fs::read_to_string(p).ok()) else {
+fn load_recent() -> Vec<Recent> {
+    let Some(file) = recent_path() else {
         return Vec::new();
     };
-    let lines: Vec<_> = text.lines().collect();
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    // 旧格式（每对两行、无时间）以文件修改时间为准。
+    let modified = std::fs::metadata(&file)
+        .and_then(|m| m.modified())
+        .unwrap_or_else(|_| SystemTime::now());
+    parse_recent(&text, modified)
+}
+fn parse_recent(text: &str, legacy_time: SystemTime) -> Vec<Recent> {
+    let mut lines = text.lines();
+    if text.starts_with(RECENT_V2) {
+        lines.next();
+        return lines
+            .filter_map(|line| {
+                let mut parts = line.splitn(3, '\t');
+                let seconds = parts.next()?.parse::<u64>().ok()?;
+                let (left, right) = (parts.next()?, parts.next()?);
+                Some(Recent {
+                    left: left.into(),
+                    right: right.into(),
+                    when: std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds),
+                })
+            })
+            .take(12)
+            .collect();
+    }
+    let lines: Vec<_> = lines.collect();
     lines
         .as_chunks::<2>()
         .0
         .iter()
         .take(12)
-        .map(|p| (PathBuf::from(p[0]), PathBuf::from(p[1])))
+        .map(|p| Recent {
+            left: p[0].into(),
+            right: p[1].into(),
+            when: legacy_time,
+        })
         .collect()
 }
 #[cfg(test)]
@@ -1003,7 +1137,10 @@ mod tests {
     }
     #[test]
     fn bin_mask_routes_to_hex_and_unknown_to_text() {
-        let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+        let corpus = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/reference-parity/hex-compare/corpus/"
+        );
         let (bin_l, bin_r) = (
             PathBuf::from(format!("{corpus}l2.bin")),
             PathBuf::from(format!("{corpus}r2.bin")),
@@ -1058,16 +1195,26 @@ mod tests {
         assert_eq!(home.command("options"), Some(HomeAction::Options));
         home.command("view:panel");
         assert!(home.hide_panel);
-        // Tree: Auto-saved children are the recent pairs; double-click opens.
-        home.recent = vec![(l.clone(), r.clone())];
+        // Tree (expanded by default): New, its 5 types, Auto-saved, Today,
+        // then the recent pair (row 8, y221..241); double-click opens.
+        home.recent = HomeView::with_recent(vec![(l.clone(), r.clone())]).recent;
+        assert!(home.new_open && home.auto_open && home.day_open[0]);
         let ctx = egui::Context::default();
         frame(&ctx, &mut home, vec![]);
-        // Expander of "Auto-saved" (second row, y81..100).
-        click(&ctx, &mut home, Pos2::new(10.0, 90.0));
+        // Expander of "Auto-saved" (row 6, y181..201) collapses and reopens it.
+        click(&ctx, &mut home, Pos2::new(10.0, 191.0));
+        assert!(!home.auto_open);
+        for _ in 0..8 {
+            frame(&ctx, &mut home, vec![]);
+        }
+        click(&ctx, &mut home, Pos2::new(10.0, 191.0));
         assert!(home.auto_open);
-        click(&ctx, &mut home, Pos2::new(100.0, 110.0));
+        for _ in 0..8 {
+            frame(&ctx, &mut home, vec![]);
+        }
+        click(&ctx, &mut home, Pos2::new(100.0, 231.0));
         assert_eq!(home.selected, Node::Recent(0));
-        let pos = Pos2::new(100.0, 110.0);
+        let pos = Pos2::new(100.0, 231.0);
         let press = |pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -1087,5 +1234,75 @@ mod tests {
             action,
             Some(HomeAction::OpenTextCompare { left: l, right: r })
         );
+    }
+    #[test]
+    fn auto_saved_groups_recent_pairs_by_local_day() {
+        use std::time::Duration;
+        let now = SystemTime::now();
+        let today = local_day(now);
+        let days = |n: u64| now - Duration::from_secs(n * 86_400);
+        assert_eq!(day_group(today, now), 0);
+        assert_eq!(day_group(today, now + Duration::from_secs(3 * 86_400)), 0);
+        assert_eq!(day_group(today, days(1)), 1);
+        assert_eq!(day_group(today, days(5)), 5);
+        assert_eq!(day_group(today, days(30)), DAY_GROUPS - 1);
+        assert_eq!(
+            (0..DAY_GROUPS).map(day_label).collect::<Vec<_>>(),
+            [
+                "Today",
+                "Yesterday",
+                "2 days ago",
+                "3 days ago",
+                "4 days ago",
+                "5 days ago",
+                "6 days ago",
+                "More than 6 days ago"
+            ]
+        );
+        // v2 round trip keeps whole seconds; the legacy two-line format takes
+        // the file time.
+        let when = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let items = vec![Recent {
+            left: PathBuf::from(r"C:\a b\left.xlsx"),
+            right: PathBuf::from(r"C:\right.xlsx"),
+            when,
+        }];
+        assert_eq!(parse_recent(&format_recent(&items), now), items);
+        assert_eq!(
+            parse_recent("a.txt\nb.txt\n", when),
+            vec![Recent {
+                left: "a.txt".into(),
+                right: "b.txt".into(),
+                when
+            }]
+        );
+    }
+    #[test]
+    fn tree_shows_day_groups_with_only_today_open() {
+        use std::time::Duration;
+        let now = SystemTime::now();
+        let pair = |l: &str, r: &str, when| Recent {
+            left: l.into(),
+            right: r.into(),
+            when,
+        };
+        let mut home = HomeView {
+            recent: vec![
+                pair("left.xlsx", "right.xlsx", now),
+                pair("l2.bin", "r2.bin", now - Duration::from_secs(86_400)),
+            ],
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut home, vec![]);
+        // Rows: New + 5 types (0..6), Auto-saved (6), Today (7), pair (8),
+        // Yesterday (9, collapsed). Clicking the Yesterday expander opens it.
+        click(&ctx, &mut home, Pos2::new(29.0, 251.0));
+        assert!(home.day_open[1]);
+        for _ in 0..8 {
+            frame(&ctx, &mut home, vec![]);
+        }
+        click(&ctx, &mut home, Pos2::new(100.0, 271.0));
+        assert_eq!(home.selected, Node::Recent(1));
     }
 }

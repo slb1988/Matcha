@@ -6,7 +6,10 @@
 ## 功能简介
 
 - 唯一依赖 GUI 工具包的 crate：`bc-gui`（eframe 0.37，glow 后端）；引擎 crate 全部平台中性。
-- Home：路径框、双文件/文件夹拖放、最近文件对。
+- Home：路径框、双文件/文件夹拖放、最近文件对。会话树默认展开 New 与 Auto-saved；Auto-saved 下
+  按本地日期分组（Today / Yesterday / N days ago / More than 6 days ago，仅 Today 默认展开），
+  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matchaecent-text.txt`（v2：首行
+  `# matcha recent v2`，每行 `纪元秒	左	右`；旧的两行一对格式以文件修改时间读入）。
 - 比较视图（文本/表格/Hex/文件夹/同步）：把文件从资源管理器拖到哪一侧就替换哪一侧（按落点判定，
   与当前活动侧无关）。
 - 视图：`text/`（文本比较）、`dir_view.rs`（文件夹）、`sync_view.rs`（同步）、

@@ -264,9 +264,9 @@ fn home_tree_expansion_survives_a_tab_round_trip() {
             right.clone(),
         )])));
         run(&ctx, &mut app, vec![]);
-        // 展开 Auto-saved（第二行展开钮），再双击其下的最近比较。
-        click(&ctx, &mut app, Pos2::new(10.0, 90.0));
-        let row = Pos2::new(100.0, 110.0);
+        // 折叠 New（首行展开钮）；Auto-saved 与 Today 默认展开，最近比较在第 4 行。
+        click(&ctx, &mut app, Pos2::new(10.0, 71.0));
+        let row = Pos2::new(100.0, 131.0);
         run(&ctx, &mut app, vec![egui::Event::PointerMoved(row)]);
         for pressed in [true, false, true, false] {
             run(&ctx, &mut app, vec![press(row, pressed)]);
@@ -277,7 +277,7 @@ fn home_tree_expansion_survives_a_tab_round_trip() {
         // 切回 Home 页：同一个 HomeView，展开状态仍在。
         click(&ctx, &mut app, HOME_TAB);
         match app.active_view() {
-            View::Home(home) => assert!(home.auto_open()),
+            View::Home(home) => assert!(!home.new_open()),
             _ => panic!("Home tab not active"),
         }
     }

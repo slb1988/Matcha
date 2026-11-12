@@ -198,6 +198,7 @@ dependencies = [
  "bc-engine-text",
  "bc-formats",
  "bc-jobs",
+ "bc-script",
  "bc-session",
  "bc-shell",
  "bc-vfs",

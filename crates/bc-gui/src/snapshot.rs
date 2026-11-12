@@ -131,7 +131,7 @@ pub const REGISTRY: [Scene; 20] = [
         view: SceneView::Text,
         preset: Preset::LongScrolled,
     },
-    // Reference: "collapse Auto-saved; select New" — the Home defaults.
+    // Home defaults: New and Auto-saved expanded (Today open); New selected.
     Scene {
         name: "home",
         view: SceneView::Home,
