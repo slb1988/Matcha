@@ -1220,3 +1220,32 @@ fn compare_selection_to_clipboard_opens_a_text_session() {
     }
     assert!(v.compare_selection.is_none());
 }
+#[test]
+fn clicking_a_gap_row_moves_focus_so_paste_reaches_that_pane() {
+    let mut v = view("", "");
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let left = v.pane_rects[0].center();
+    click(&ctx, &mut v, left);
+    let long: String = (0..400).map(|i| format!("left {i}\n")).collect();
+    frame(&ctx, &mut v, vec![egui::Event::Paste(long)]);
+    frame(&ctx, &mut v, vec![]);
+    // 左侧 400 行把右窗格全部变成空隙行：点在哪里都必须能把焦点切到右侧。
+    let right = v.pane_rects[1].center();
+    click(&ctx, &mut v, right);
+    assert_eq!(v.active, 1);
+    assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(1)));
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::Paste("right a\nright b\n".into())],
+    );
+    // 空文件按平台默认行尾写入，只比较内容。
+    let right_text = String::from_utf8(v.map.right.to_bytes().unwrap()).unwrap();
+    assert_eq!(right_text.replace("\r\n", "\n"), "right a\nright b\n");
+    assert_eq!(v.map.left.lines.borrow().len(), 400);
+    // 点回左侧空隙之外的文字行仍正常切换。
+    click(&ctx, &mut v, left);
+    assert_eq!(v.active, 0);
+    assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(0)));
+}

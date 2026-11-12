@@ -487,6 +487,32 @@ impl TextCompareView {
             ..Default::default()
         }
     }
+    /// 点在本侧空隙行（只有对侧有内容）上：仍激活该窗格，光标落到空隙之后本侧第一行行首
+    /// （之后没有本侧行时落在文件末尾）。否则对侧内容很长时整个窗格都是空隙，鼠标永远
+    /// 无法把焦点切过来，粘贴/输入都会落空。
+    pub(crate) fn place_in_gap(&mut self, s: usize, row: usize) {
+        let line = (row..self.row_count())
+            .find_map(|r| index(self.row(r), s))
+            .unwrap_or_else(|| self.content(s).lines.borrow().len());
+        self.active = s;
+        self.current_row = row;
+        let content = if s == 0 {
+            &self.map.left
+        } else {
+            &self.map.right
+        };
+        self.editors[s].place(Caret { line, byte: 0 }, false);
+        self.editors[s].clamp(content);
+        if let Some(other) = index(self.row(row), 1 - s) {
+            self.editors[1 - s].place(
+                Caret {
+                    line: other,
+                    byte: 0,
+                },
+                false,
+            );
+        }
+    }
     pub(crate) fn row_for_line(&self, side: usize, line: usize) -> usize {
         if self.map.is_stale() {
             return line;

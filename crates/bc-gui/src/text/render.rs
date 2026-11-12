@@ -434,6 +434,9 @@ impl TextCompareView {
                                                 .place(Caret { line, byte: 0 }, false);
                                         }
                                     }
+                                } else {
+                                    self.place_in_gap(s, row);
+                                    ui.memory_mut(|m| m.request_focus(id));
                                 }
                             }
                             if ui.is_enabled() && (pressed || (held && self.dragging == Some(s))) {
@@ -466,6 +469,11 @@ impl TextCompareView {
                                             }
                                         }
                                     }
+                                } else if pressed {
+                                    // 本侧空隙行：同样切换焦点；dragging 让松开时恢复焦点。
+                                    self.place_in_gap(s, row);
+                                    ui.memory_mut(|m| m.request_focus(id));
+                                    self.dragging = Some(s);
                                 }
                             }
                         }

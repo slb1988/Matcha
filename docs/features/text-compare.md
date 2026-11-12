@@ -10,6 +10,8 @@
 - 就地编辑：UTF-8 字节光标、选区、IME、undo/redo；保存可独立单侧进行。
 - 语法高亮来自文件格式库（见 [sessions-and-formats.md](sessions-and-formats.md)）。
 - 视图投影：All / Differences / Same / Context 区段折叠。
+- 鼠标点窗格任意位置（包括只有对侧有内容的空隙行）都会把焦点和活动侧切到该窗格；
+  空隙行上光标落到其后本侧第一行行首（`TextCompareView::place_in_gap`）。
 
 ## 代码地图
 
