@@ -40,6 +40,8 @@ pub fn show_with_history(
                     egui::TextEdit::singleline(path)
                         .id(edit_id)
                         .margin(egui::vec2(8.0, 2.0))
+                        // egui 0.37 起 TextEdit 文本默认 LEFT_TOP；撑高的框内要垂直居中。
+                        .align(egui::Align2::LEFT_CENTER)
                         .show(ui)
                 },
             )

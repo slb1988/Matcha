@@ -4,6 +4,18 @@
 
 ## 2026-11-12
 
+- **修复：地址栏光标/文本不垂直居中**。egui 0.37 起 TextEdit 文本默认改为 LEFT_TOP 对齐，
+  地址栏把编辑框撑高到 28 px 后文本贴顶（光标顶在框上沿）。现显式设 `Align2::LEFT_CENTER`，
+  影响文本/表格/Hex 共用的路径框（`chrome::pathbar`）。
+
+- **修复：双击 Auto-saved 记录后地址栏带 `\\?\` 前缀**。记录最近比较时 `canonicalize` 在
+  Windows 返回 verbatim 路径（`\\?\C:\…`）并原样写入 recent-text.txt；现统一还原为常规写法
+  （`\\?\UNC\host\share` 转为 `\\host\share`），存量 recent 文件里带前缀的记录读入时一并清理。
+- **修复：地址栏选区内右击会丢选区（Cut/Copy/Delete 全灰）**。右键「按下」帧 egui TextEdit
+  就把选区折叠成落点光标，帧末的选区快照随之被覆盖，等「释放」帧菜单打开时快照已毁；现
+  按下帧即从事件落点恢复快照选区，释放帧的恢复变为幂等重复。点在选区外仍按系统编辑控件
+  惯例收拢选区。影响文本/表格/Hex 共用的路径框（`chrome::pathbar`）。
+
 - **表格报告：`title-row` 下单元格行去掉冗余列字母**。加了 `/reportoptions=title-row:<n>` 且列名只是
   字母时，单元格行从 `K[AttachConfigs] (K1172): …` 改为 `AttachConfigs (K1172): …`（引用里已有
   列字母）。`key:`、行标题键值、单侧行仍写 `K[AttachConfigs]`；不加该选项时输出不变。
