@@ -19,7 +19,7 @@
 ## 3. 黄金语料
 
 - [x] 3.1 语料生成器入 `bc-core/tests/golden/hex/`（固定种子伪随机 + 程序化改动/插入/删除）；验证：`cargo test` 生成确定性语料
-- [ ] 3.2 用参考工具 `hex-report`（side-by-side + line-numbers、display-all/display-mismatches）生成期望并对拍对齐与统计；验证：黄金测试通过，差异记入 `KNOWN_DIFFS.md`
+- [x] 3.2 用参考工具 `hex-report`（side-by-side + line-numbers、display-all/display-mismatches）生成期望并对拍对齐与统计；验证：黄金测试通过，差异记入 `KNOWN_DIFFS.md`
 
 ## 4. 视图渲染
 
@@ -43,5 +43,5 @@
 ## 7. 验收
 
 - [x] 7.1 大文件性能：256 MB 语料在 Fast 档下对齐可取消、视图滚动流畅，记录耗时；验证：基准数字写入 worker-report
-- [ ] 7.2 全量门禁：`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`cargo build --release -p bcompare`；验证：三条命令零告警通过
+- [x] 7.2 全量门禁：`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`cargo build --release -p bcompare`；验证：三条命令零告警通过
 - [x] 7.3 Matcha 快照与参考截图并排对照（主视图/插入区/Diffs 过滤三场景），几何与着色差异列入 worker-report；验证：对照记录入 `docs/reference-parity/hex-compare.md` 补记

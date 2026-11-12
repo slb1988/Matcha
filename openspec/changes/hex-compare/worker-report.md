@@ -43,5 +43,6 @@
 
 ## 已知阻塞
 
-- **3.2 hex-report 黄金对拍**：期望输出须由参考工具 Pro 实例生成（本机 Standard，`@script` exit 107；GUI 报告采集因机器占用中止）。生成步骤与脚本已备于 `crates/bc-core/tests/golden/hex/README.md`；拿到期望后补对拍断言与 `KNOWN_DIFFS.md`。
-- 参考工具 Fast 档实际语义为"区间逐位对齐"（REA 反汇编），本实现按设计 D1 取更保守的孤儿段（不产生跨位移假 same）——有意分叉，记录在案。
+- ~~3.2 hex-report 黄金对拍~~ **已完成（2026-11-12）**：经本机 GUI 报告对话框生成四份期望并入库，
+  对拍全绿（`bc-engine-bin/tests/golden_hex.rs`，KNOWN_DIFFS 无记录）。
+- 参考工具 Fast 档实际语义为“区间逐位对齐”（REA 反汇编），本实现按设计 D1 取更保守的孤儿段（不产生跨位移假 same）——有意分叉，记录在案。

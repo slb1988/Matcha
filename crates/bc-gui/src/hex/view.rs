@@ -1499,17 +1499,18 @@ impl HexCompareView {
         };
         // 两条竖滚动条：点击轨道定位、拖动滑块跟随（两侧共用同一滚动偏移）。
         let mut bar_resp = Vec::with_capacity(2);
-        for side in 0..2 {
-            let thumb = render::scrollbar_thumb(bars[side], pane_h, body.height(), self.scroll);
+        for (side, bar) in bars.iter().enumerate() {
+            let bar = *bar;
+            let thumb = render::scrollbar_thumb(bar, pane_h, body.height(), self.scroll);
             let r = overlay.interact(
-                bars[side],
+                bar,
                 overlay.scope_id().with(("scrollbar", side)),
                 egui::Sense::click_and_drag(),
             );
             if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let thumb_h = thumb.map(|t| t.height()).unwrap_or(20.0);
-                    self.scroll = render::scrollbar_scroll_at(pos.y, bars[side], thumb_h, pane_h, body.height());
+                    self.scroll = render::scrollbar_scroll_at(pos.y, bar, thumb_h, pane_h, body.height());
                 }
             }
             bar_resp.push(r);

@@ -1,0 +1,9 @@
+16 进制比较
+已产生： 11/12/26 B10:18:38
+
+左边文件： /Users/sun/Documents/GitHub/Matcha/docs/reference-parity/hex-compare/corpus/left.bin
+右边文件： /Users/sun/Documents/GitHub/Matcha/docs/reference-parity/hex-compare/corpus/right.bin
+4120 个相同字节
+32 个左边独有字节
+16 个右边独有字节
+8 个差异字节

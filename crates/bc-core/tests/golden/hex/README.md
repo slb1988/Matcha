@@ -9,10 +9,12 @@
 - `odd_insert()` → l2.bin(2,048B)/r2.bin(2,053B)：0x123 处 5 字节插入（AA..EE），
   验证行中孤儿与行标签相位。
 
-## 参考期望的生成（任务 3.2）
+## 参考期望（已入库）
 
-期望文件由参考工具的 `hex-report` 脚本命令生成（**需要 Pro 版脚本能力**；本机
-Standard 版 `@script` 被拒，exit 107）。在 Windows 参考机（或任何 Pro 实例）上：
+`expected/` 四份纯文本报告已由参考工具 5.0.4.30422（macOS GUI 报告对话框）生成并入库，
+`bc-engine-bin/tests/golden_hex.rs` 四项对拍全绿，无已知差异（`KNOWN_DIFFS.md`）。
+
+若需在 Windows Pro 机重生成（如升级参考版本），用下面的脚本（持 `%TEMP%\matcha-reference-tool.lock`）：
 
 ```text
 :: gen_expected.bcscript（脚本模式逐行执行；路径按生成机实际位置替换）
@@ -27,6 +29,13 @@ hex-report layout:interleaved options:display-all,line-numbers output-to:"<repo>
 
 期望文件入库后，`golden_hex.rs` 增加逐字节对拍断言；正式差异记本目录
 `KNOWN_DIFFS.md`（随首个差异创建）。
+
+### 格式要点（实测）
+
+- side-by-side **24 格/行**（与视图默认 16 不同），`=` 标相同块首行、`<>` 标差异块首行，
+  块间虚线分隔；孤儿区对侧整格留空。
+- display-mismatches 按差异区域自起点重打包（16 字节上下文），保留区域全部行。
+- summary 输出四分类计数本地化文案；interleaved 每行 `左地址 右地址 字节 ASCII`。
 
 ## 口径备注
 

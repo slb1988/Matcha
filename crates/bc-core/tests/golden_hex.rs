@@ -57,3 +57,4 @@ fn primary_corpus_alignment_stats() {
     }
     assert_eq!((same, diff, lo, ro), (4120, 8, 32, 16));
 }
+
