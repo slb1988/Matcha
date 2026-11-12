@@ -353,14 +353,7 @@ impl ScriptRunner {
             };
             (kind, e.message)
         })?;
-        let files = [
-            paths[0].display().to_string(),
-            paths[1].display().to_string(),
-        ];
-        let renderer = bc_report::table::TableReportRenderer {
-            files: [&files[0], &files[1]],
-            sheets: &sheets,
-        };
+        let renderer = bc_report::table::TableReportRenderer { sheets: &sheets };
         let report = renderer
             .render(request)
             .map_err(|e| (FailureKind::Other, e.to_string()))?;

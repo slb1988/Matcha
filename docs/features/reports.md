@@ -30,9 +30,6 @@
 格式（UTF-8，LF 换行，无 BOM；只列差异，相同行不出现）：
 
 ```text
-MATCHA-TABLE-REPORT 1
-left:   D:\data\left.xlsx
-right:  D:\data\right.xlsx
 result: different
 sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
 legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
@@ -48,7 +45,7 @@ rows: 1 changed, 0 unimportant, 0 left-only, 1 right-only, 1 same
 
 - `result:` 为 `same` / `different` / `unimportant differences only`；每个 sheet 标题同样带状态，
   单侧 sheet 为 `left-only` / `right-only`（附行列数，不展开内容）。两侧都只有一个 sheet 时
-  不论名字都配对（与 GUI 一致），否则按名字配对。
+  不论名字都配对（与 GUI 一致），否则按名字配对。两侧文件路径不写入报告（命令行里已有）。
 - 行标题 = 键值（自动推断，与 GUI 默认相同；推断失败时用全部列）+ 两侧源行号（1 起，含表头
   行，即 Excel 行号）。只含不重要差异的行写 `~ … (unimportant)`。
 - 列标题行 `title-row:<n>`（Matcha 扩展，命令行写 `/reportoptions=title-row:1`；`n` 为 1 起的
@@ -59,7 +56,7 @@ rows: 1 changed, 0 unimportant, 0 left-only, 1 right-only, 1 same
   单元格行在列名只是字母时只写标题（括号里的单元格引用已带列字母，不再写 `F[Name] (F70)`）；
   列名是识别出的表头名时仍写 `列名[标题]`。
   该行已被识别为表头（列名就是标题）、超出数据范围、标题为空或与列名相同时不附加。
-  不加该选项时输出与之前逐字节相同，版本号不变。
+  不加该选项时输出与之前逐字节相同。
 - 单元格引用：工作簿给 A1 引用，两侧不同时写 `(left C2, right D3)`；CSV 无引用。
 - `columns:` 小节列出列插入（`+`）/ 删除（`-`）/ 重命名、移动（`~`）。
 - 值转义：`\\`、`\n`、`\r`、`\t` 与控制字符转义；空值写 `(empty)`；首尾带空白或与保留字冲突时

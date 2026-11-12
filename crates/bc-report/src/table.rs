@@ -1,8 +1,8 @@
 //! `summary` 布局的表格差异报告（Matcha 自有文本格式，不对齐参考工具字节）。
 //!
 //! 目标读者是人和 AI：一眼可读的差异式文本，逐 sheet → 行 → 单元格列出差异，相同的行不出现。
-//! 格式约定见 `docs/features/reports.md` 的“表格差异报告”一节；改格式必须同步该文档，并递增
-//! 首行的版本号。
+//! 格式约定见 `docs/features/reports.md` 的“表格差异报告”一节；改格式必须同步该文档。
+//! 两侧文件路径不写入报告：调用方命令行里已经带了，报告不再重复。
 //!
 //! 单元格内容是来自比较文件的不可信数据，这里只做转义保证结构可辨认，不赋予它任何指令含义。
 
@@ -15,8 +15,6 @@ use bc_engine_table::{
 use bc_session::SessionKind;
 use std::fmt::Write as _;
 
-/// 报告首行：格式名 + 版本号。
-pub const MAGIC: &str = "MATCHA-TABLE-REPORT 1";
 /// 写在报告头部的图例，让读者（尤其 AI）不必查文档就能读懂行前缀。
 pub const LEGEND: &str = "legend: \"~\" changed row, \"-\" left-only row, \"+\" right-only row; \
 cell lines are \"column (ref): left -> right\"";
@@ -51,9 +49,8 @@ pub enum SheetComparison {
     },
 }
 
-/// 表格报告渲染器：两侧路径 + 按配对顺序排列的 sheet 比较。
+/// 表格报告渲染器：按配对顺序排列的 sheet 比较。
 pub struct TableReportRenderer<'a> {
-    pub files: [&'a str; 2],
     pub sheets: &'a [SheetComparison],
 }
 
@@ -66,7 +63,6 @@ impl Renderer for TableReportRenderer<'_> {
             });
         }
         Ok(Report::Text(render(
-            self.files,
             self.sheets,
             request.options.title_row,
         )))
@@ -112,7 +108,7 @@ fn state_of(sheet: &SheetComparison) -> State {
 }
 
 /// 渲染整份报告。`title_row`：见 [`crate::ReportOptions::title_row`]。
-pub fn render(files: [&str; 2], sheets: &[SheetComparison], title_row: Option<usize>) -> String {
+pub fn render(sheets: &[SheetComparison], title_row: Option<usize>) -> String {
     let states: Vec<State> = sheets.iter().map(state_of).collect();
     let count = |s: State| states.iter().filter(|&&x| x == s).count();
     let overall = if states
@@ -130,9 +126,6 @@ pub fn render(files: [&str; 2], sheets: &[SheetComparison], title_row: Option<us
         .filter(|s| !matches!(s, State::LeftOnly | State::RightOnly))
         .count();
     let mut out = String::new();
-    let _ = writeln!(out, "{MAGIC}");
-    let _ = writeln!(out, "left:   {}", files[0]);
-    let _ = writeln!(out, "right:  {}", files[1]);
     let _ = writeln!(out, "result: {}", overall.label());
     let _ = writeln!(
         out,

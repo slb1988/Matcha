@@ -4,6 +4,10 @@
 
 ## 2026-11-12
 
+- **表格报告：去掉首行格式标识与两侧路径**。`/report=summary`（表格差异报告）不再输出
+  `MATCHA-TABLE-REPORT 1` 首行与 `left:` / `right:` 路径行（路径在命令行里已有，无任何程序
+  消费该标识）；报告现在以 `result:` 行开头，其余格式不变。
+
 - **修复：地址栏光标/文本不垂直居中**。egui 0.37 起 TextEdit 文本默认改为 LEFT_TOP 对齐，
   地址栏把编辑框撑高到 28 px 后文本贴顶（光标顶在框上沿）。现显式设 `Align2::LEFT_CENTER`，
   影响文本/表格/Hex 共用的路径框（`chrome::pathbar`）。

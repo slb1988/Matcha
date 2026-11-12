@@ -208,10 +208,7 @@ fn xlsx_report_lists_sheets_rows_and_cells() {
     assert_eq!(patch.code, ExitCode::Success, "{}", patch.stderr);
     assert_eq!(patch.stdout, summary.stdout);
     let expected = format!(
-        "MATCHA-TABLE-REPORT 1\n\
-         left:   {}\n\
-         right:  {}\n\
-         result: different\n\
+        "result: different\n\
          sheets: 2 compared, 1 different, 1 same, 1 left-only, 1 right-only\n\
          {}\n\
          \n\
@@ -229,8 +226,6 @@ fn xlsx_report_lists_sheets_rows_and_cells() {
          === sheet \"Old\": left-only (1 rows x 2 columns)\n\
          \n\
          === sheet \"New\": right-only (1 rows x 2 columns)\n",
-        dir.join("left.xlsx").display(),
-        dir.join("right.xlsx").display(),
         bc_report::table::LEGEND,
     );
     assert_eq!(summary.stdout, expected);
@@ -245,7 +240,7 @@ fn identical_workbooks_report_same() {
     std::fs::write(dir.join("b.xlsx"), workbook(&[("S", rows)])).unwrap();
     let run = report(&dir, "patch", None, "a.xlsx", "b.xlsx");
     assert_eq!(run.code, ExitCode::Success, "{}", run.stderr);
-    assert!(run.stdout.contains("\nresult: same\n"), "{}", run.stdout);
+    assert!(run.stdout.starts_with("result: same\n"), "{}", run.stdout);
     assert!(run.stdout.ends_with("=== sheet \"S\": same\nkey: id\nrows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 1 same\n"), "{}", run.stdout);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -270,7 +265,7 @@ fn csv_summary_reports_column_changes_without_cell_refs() {
     // CSV with a patch layout stays a text patch.
     let patch = report(&dir, "patch", None, "a.csv", "b.csv");
     assert!(patch.stdout.contains("\r\n1,3c1,3\r\n"), "{}", patch.stdout);
-    assert!(!patch.stdout.starts_with("MATCHA-TABLE-REPORT"));
+    assert!(!patch.stdout.starts_with("result: "));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
