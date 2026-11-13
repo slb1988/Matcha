@@ -1,0 +1,53 @@
+result: different
+sheets: 4 compared, 1 different, 3 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "StaticMeshProperty": different
+key: (none; rows aligned by content)
+rows: 11 changed, 0 unimportant, 0 left-only, 1 right-only, 3849 same
+~ (left row 894, right row 894)
+    MaterialPath (F894): /Game/008_Environment/004_Item/Material/MLS_Rock_01.MLS_Rock_01 -> /Game/008_Environment/004_Item/Material/MLS_StoneWall_Cracked_01.MLS_StoneWall_Cracked_01
+~ (left row 1046, right row 1046)
+    StaticMesh (E1046): /Script/Engine.StaticMesh'/Game/008_Environment/003_Building/Mesh/SM_PostStation_02.SM_PostStation_02' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_PostStation_02.SM_PostStation_02'
+    MaterialPath (F1046): /Game/008_Environment/003_Building/Material/MLS_PostStation_02.MLS_PostStation_02 -> /Game/008_Environment/004_Item/Material/MLS_Edgestone_02.MLS_Edgestone_02;/Game/008_Environment/004_Item/Material/MLS_RoadBridge_01.MLS_RoadBridge_01
+~ (left row 1638, right row 1638)
+    MaterialPath (F1638): /Game/008_Environment/004_Item/Material/MLS_FeastPre_Boar_01.MLS_FeastPre_Boar_01 -> /Game/008_Environment/004_Item/Material/MLS_FeastPre_Wolf_02.MLS_FeastPre_Wolf_02
+~ (left row 1856, right row 1856)
+    StaticMesh (E1856): /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_Berry_01.SM_Berry_01' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_WatersVegetable_Seedling_CN_01.SM_WatersVegetable_Seedling_CN_01'
+    MaterialPath (F1856): (empty) -> /Game/008_Environment/004_Item/Material/MLS_WatersVegetable_01.MLS_WatersVegetable_01
+~ (left row 1904, right row 1904)
+    StaticMesh (E1904): /Game/008_Environment/002_Foliage/Mesh/SM_BerrySeedling_CN_01.SM_BerrySeedling_CN_01 -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_WatersVegetable_CN_01.SM_WatersVegetable_CN_01'
+    MaterialPath (F1904): (empty) -> /Game/008_Environment/004_Item/Material/MLS_WatersVegetable_Seedling_01.MLS_WatersVegetable_Seedling_01
+~ (left row 2422, right row 2422)
+    StaticMesh (E2422): /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_FireStone_01.SM_FireStone_01' -> /Script/Engine.StaticMesh'/Game/008_Environment/003_Building/Mesh/SM_PotteryStove_01.SM_PotteryStove_01'
+    MaterialPath (F2422): /Game/008_Environment/004_Item/Material/MLS_FireStone_01.MLS_FireStone_01 -> /Game/008_Environment/003_Building/Material/MLS_PotteryStove_01.MLS_PotteryStove_01
+~ (left row 2972, right row 2972)
+    StaticMesh (E2972): /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_FeastPre_Deer_02.SM_FeastPre_Deer_02' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_FeastPre_LushForest_CN_01.SM_FeastPre_LushForest_CN_01'
+    MaterialPath (F2972): /Game/008_Environment/004_Item/Material/MLS_FeastPre_Deer_02.MLS_FeastPre_Deer_02 -> /Game/008_Environment/004_Item/Material/MLS_Feast_Roast_LushForest_01.MLS_Feast_Roast_LushForest_01
+~ (left row 2973, right row 2973)
+    StaticMesh (E2973): /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_RoastFeast_Deer_01.SM_RoastFeast_Deer_01' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_FeastPre_LushForest_CN_01.SM_FeastPre_LushForest_CN_01'
+    MaterialPath (F2973): /Game/008_Environment/004_Item/Material/MLS_RoastFeast_Deer_01.MLS_RoastFeast_Deer_01 -> /Game/008_Environment/004_Item/Material/MLS_FeastPre_LushForest_01.MLS_FeastPre_LushForest_01
+~ (left row 3103, right row 3103)
+    StaticMesh (E3103): /Script/Engine.StaticMesh'/Game/008_Environment/003_Building/Mesh/SM_Endpoint_Rope_01.SM_Endpoint_Rope_01' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_Endpoint_Rope_01.SM_Endpoint_Rope_01'
+    MaterialPath (F3103): /Game/008_Environment/003_Building/Material/MLS_Endpoint_Rope_01.MLS_Endpoint_Rope_01 -> /Game/008_Environment/004_Item/Material/MLS_Endpoint_Rope_01.MLS_Endpoint_Rope_01
+~ (left row 3228, right row 3228)
+    StaticMesh (E3228): /Script/Engine.StaticMesh'/Game/008_Environment/002_Foliage/Mesh/SM_BerryBush_01.SM_BerryBush_01' -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_WatersVegetable_Bush_CN_01.SM_WatersVegetable_Bush_CN_01'
+    MaterialPath (F3228): /Game/008_Environment/002_Foliage/Material/MLS_BerryBush_01_Trunk.MLS_BerryBush_01_Trunk;/Game/008_Environment/002_Foliage/Material/MLS_BerryBush_01_Leaves.MLS_BerryBush_01_Leaves -> /Game/008_Environment/004_Item/Material/MLS_WatersVegetable_Bush_01.MLS_WatersVegetable_Bush_01
+~ (left row 3860, right row 3860)
+    ComponentTag (B3860): (empty) -> AssetTag.PLStaticMesh.01
+    StaticMesh (E3860): (empty) -> /Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_LeafPile_CN_01.SM_LeafPile_CN_01'
+    MaterialPath (F3860): (empty) -> /Game/008_Environment/004_Item/Material/MLS_LeafPile_01.MLS_LeafPile_01
++ (right row 3861)
+    A[TagName]=Entity.Feast.Roast.Boar | B[ComponentTag]=AssetTag.PLStaticMesh.02 | C[VariantId]=1 | D[Name]=(empty) | E[StaticMesh]=/Script/Engine.StaticMesh'/Game/008_Environment/004_Item/Mesh/SM_Feast_Roast_Boar_02.SM_Feast_Roast_Boar_02' | F[MaterialPath]=/Game/008_Environment/004_Item/Material/MLS_Feast_Roast_Boar_02.MLS_Feast_Roast_Boar_02 | G[SkeletalMesh]=(empty) | H[PhysMaterialOverride]=(empty) | I[Mobility]=(empty) | J[bSimulatePhysics]=(empty) | K[bNotifyRigidBodyCollision]=(empty) | L[bGenerateOverlapEvents]=(empty) | M[CollisionProfileName]=(empty) | N[MassInKgOverride]=(empty) | O[LinearDamping]=(empty) | P[MaxAngularVelocity]=(empty) | Q[bCanEverAffectNavigation]=(empty) | R[体积]=(empty) | S[重量]=(empty) | T[线性阻尼查询值]=(empty) | U=(empty) | V=(empty) | W[Num]=01 | X[bOverrideMass]=(empty) | Y[bOverrideMaxAngularVelocity]=(empty)
+
+=== sheet "~LinearDamping": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 10 same
+
+=== sheet "~MeshPath": same
+key: A[Entity Tag]
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 1521 same
+
+=== sheet "~NewMeshPath": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 0 same

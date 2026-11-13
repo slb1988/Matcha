@@ -1,0 +1,31 @@
+result: different
+sheets: 2 compared, 1 different, 1 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "MortiseTable": different
+key: A[ID]
+rows: 0 changed, 0 unimportant, 0 left-only, 10 right-only, 144 same
++ A[ID]=206  (right row 145)
+    A[ID]=206 | B[Name]=0级武器维修零件 | C[ProductTag]=Entity.WeaponFix.A | D[RecipeLevel]=0 | E[MaterialRequirements]=Entity.Stone=3\|Entity.Fragment.Nolander=2 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=0 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=207  (right row 146)
+    A[ID]=207 | B[Name]=0级护甲维修零件 | C[ProductTag]=Entity.ArmorFix.A | D[RecipeLevel]=0 | E[MaterialRequirements]=Entity.Plate.Vine=3\|Entity.Fragment.Nolander=2 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=0 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=210  (right row 147)
+    A[ID]=210 | B[Name]=1级武器维修零件 | C[ProductTag]=Entity.WeaponFix.B | D[RecipeLevel]=1 | E[MaterialRequirements]=Entity.Fragment.Hardstone=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=211  (right row 148)
+    A[ID]=211 | B[Name]=1级护甲维修零件 | C[ProductTag]=Entity.ArmorFix.B | D[RecipeLevel]=1 | E[MaterialRequirements]=Entity.Fragment.Fur=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=212  (right row 149)
+    A[ID]=212 | B[Name]=2级武器维修零件 | C[ProductTag]=Entity.WeaponFix.C | D[RecipeLevel]=2 | E[MaterialRequirements]=Entity.Fragment.WindJade=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=213  (right row 150)
+    A[ID]=213 | B[Name]=2级护甲维修零件 | C[ProductTag]=Entity.ArmorFix.C | D[RecipeLevel]=2 | E[MaterialRequirements]=Entity.BlindBeast.DriedSkin=1\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=214  (right row 151)
+    A[ID]=214 | B[Name]=3级武器维修零件 | C[ProductTag]=Entity.WeaponFix.D | D[RecipeLevel]=3 | E[MaterialRequirements]=Entity.CopperIngot=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=215  (right row 152)
+    A[ID]=215 | B[Name]=3级护甲维修零件 | C[ProductTag]=Entity.ArmorFix.D | D[RecipeLevel]=3 | E[MaterialRequirements]=Entity.Buffalo.DriedSkin=1\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=246  (right row 153)
+    A[ID]=246 | B[Name]=4级武器维修零件 | C[ProductTag]=Entity.WeaponFix.E | D[RecipeLevel]=4 | E[MaterialRequirements]=Entity.GouMangMaterial=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
++ A[ID]=247  (right row 154)
+    A[ID]=247 | B[Name]=4级护甲维修零件 | C[ProductTag]=Entity.ArmorFix.E | D[RecipeLevel]=4 | E[MaterialRequirements]=Entity.GouMangMaterial=2\|Entity.Fragment.Nolander=5 | F[ProductAmount]=1 | G[ProductRarity]=EntityRarity.Common | H[RecipeType]=(empty) | I[bIsLockedbyAchievement]=1 | J[RequiredBuildings]=(empty) | K=(empty) | L=(empty) | M=(empty) | N=(empty) | O=(empty) | P=(empty) | Q=(empty) | R=(empty)
+
+=== sheet "~数据处理": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 51 same

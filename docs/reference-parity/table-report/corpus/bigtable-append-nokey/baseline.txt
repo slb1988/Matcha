@@ -1,0 +1,17 @@
+result: different
+sheets: 2 compared, 1 different, 1 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "PLDataAsset_Phase": different
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 3 right-only, 4237 same
++ (right row 4238)
+    A[Name]=Entity.Goaf | B=(empty) | C[GrantedSensitiveTags]=PLStatus.Sensitive.Health\|PLStatus.Sensitive.Durability\|PLStatus.Sensitive.Bash\|PLStatus.Sensitive.Freeze\|PLStatus.Sensitive.Humidity\|PLStatus.Sensitive.KO\|PLStatus.Sensitive.Think\|PLStatus.Sensitive.Physics | D[GrantedTransableTags]=PLStatus.Transable.Health.Empty\|PLStatus.Transable.Think.Full | E[GrantedImmuneTags]=(empty) | F[GrantedPhasingTags]=(empty) | G[GrantedAdditionalTags]=(empty) | H=(empty) | I=(empty) | J=(empty) | K=(empty) | L=(empty) | M=(empty)
++ (right row 4239)
+    A[Name]=Entity.StickyBall | B=(empty) | C[GrantedSensitiveTags]=PLStatus.Sensitive.Health\|PLStatus.Sensitive.Bash\|PLStatus.Sensitive.Freeze\|PLStatus.Sensitive.Humidity\|PLStatus.Sensitive.Think\|PLStatus.Sensitive.Physics | D[GrantedTransableTags]=PLStatus.Transable.Health.Empty\|PLStatus.Transable.Slash.Full\|PLStatus.Transable.Think.Full | E[GrantedImmuneTags]=(empty) | F[GrantedPhasingTags]=(empty) | G[GrantedAdditionalTags]=(empty) | H=(empty) | I=(empty) | J=(empty) | K=(empty) | L=(empty) | M=(empty)
++ (right row 4240)
+    A[Name]=Entity.Bandage | B=(empty) | C[GrantedSensitiveTags]=PLStatus.Sensitive.Durability | D[GrantedTransableTags]=PLStatus.Transable.Durability.Empty | E[GrantedImmuneTags]=(empty) | F[GrantedPhasingTags]=(empty) | G[GrantedAdditionalTags]=(empty) | H=(empty) | I=(empty) | J=(empty) | K=(empty) | L=(empty) | M=(empty)
+
+=== sheet "~~数据处理": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 1263 same

@@ -14,6 +14,10 @@
   相近度：短行对所有长行都封底到同一分数，平局落到最后一个候选（例：左侧 `Entity.LeafPile` 被配给
   右侧新增的 `Entity.Feast.Roast.Boar`）。现改为按列比较非空单元格是否一致的单元格相近度
   （与文本相近度同一打分形状），左右行正确配对、新增行显示为右侧孤行；超大差异块仍走原算法。
+- **新增表格报告真实数据回归语料** `docs/reference-parity/table-report/corpus/`：12 个来自
+  ProjectLungfish RawData 配表管线的真实 xlsx P4 revision 对（单格修改、数值调参、整行清空、
+  批量追加、多 sheet、表中间插入、大表追加、公式无缓存值、表尾修改+新增等形态），
+  附 `run_corpus.py` 一键与 baseline 对拍（退出码可进 CI），用例语义与历史缺陷记录见目录 README。
 
 ## 2026-11-12
 

@@ -1,0 +1,25 @@
+result: different
+sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "ExpSourceConfig": different
+key: Id
+rows: 5 changed, 0 unimportant, 0 left-only, 0 right-only, 14 same
+~ Id=5  (left row 8, right row 8)
+    Factor (E8): 0.1 -> 0.002
+    AccumulateThreshold (F8): 100 -> 2500
+    Comment (H8): 超重移动→体魄:IsOverweight直查,按移动距离(uu)累计。系数TODO待策划定 -> 超重移动→体魄:IsOverweight直查,按移动距离(uu)累计。系数TODO待策划定 | 2026-11-08 修:原T=100(=1米)F=0.1每秒约+50失控;改25米攒一笔发+5(约0.2/米)
+~ Id=6  (left row 9, right row 9)
+    AccumulateThreshold (F9): 1 -> 10
+    Comment (H9): 烫伤状态掉血→生存(条件tag Molecule.Scald,原值平移1:1) -> 烫伤状态掉血→生存(条件tag Molecule.Scald,原值平移1:1) | 2026-11-08 修:阈值1->10,掉10血攒一笔发(率不变,去掉每跳刷屏)
+~ Id=7  (left row 10, right row 10)
+    AccumulateThreshold (F10): 1 -> 10
+    Comment (H10): 冻伤状态掉血→生存(条件tag Molecule.Freeze,原值平移1:1) -> 冻伤状态掉血→生存(条件tag Molecule.Freeze,原值平移1:1) | 2026-11-08 修:阈值1->10,掉10血攒一笔发(率不变,去掉每跳刷屏)
+~ Id=9  (left row 11, right row 11)
+    Factor (E11): 0.01 -> 0.002
+    AccumulateThreshold (F11): 1 -> 2500
+    Comment (H11): Lift搬运移动→体魄(原值平移:移动距离uu*0.01) -> Lift搬运移动→体魄(原值平移:移动距离uu*0.01) | 2026-11-08 修:原T=1cm每帧发一笔约+3/秒;改25米攒一笔发+5(约0.2/米)
+~ Id=11  (left row 13, right row 13)
+    Factor (E13): 1 -> 0.1
+    AccumulateThreshold (F13): 1 -> 100
+    Comment (H13): 挨饿→生存(无FoodBuff.HaveFood/HaveFeast时每秒+1)。系数TODO待策划定 -> 挨饿→生存(无FoodBuff.HaveFood/HaveFeast时每秒+1)。系数TODO待策划定 | 2026-11-08 修:原每秒+1失控;改攒100秒发一笔+10(对齐体力行,约6/分钟)

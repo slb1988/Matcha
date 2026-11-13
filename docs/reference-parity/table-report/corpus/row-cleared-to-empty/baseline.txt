@@ -1,0 +1,11 @@
+result: different
+sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "BuildingMergeAchievementList": different
+key: AchievementTag
+rows: 0 changed, 0 unimportant, 1 left-only, 1 right-only, 497 same
+- AchievementTag=Achievement.Show.RoadandBridges.Overpass  (left row 481)
+    Id=482 | Name=Achievement.Show.RoadandBridges.Overpass | DevComment=路桥：解锁引桥 | AchievementTag=Achievement.Show.RoadandBridges.Overpass | CompletionNumberLimit=1 | bActiveOnStart=TRUE | AchievementType=AssetTag.Achievement.Show.BuildMerge | Goal=1 | ExpToGive=0 | AchievementName=【引桥】 | AchievementDescription=【路桥】 | OperationTip=(empty) | AchievementDescriptionFull=【路桥】 | AchievementShowTime=5 | TalentScale=1 | bShowInFirstBook=TRUE | bOnlyShowOnTriggered=TRUE | AchievementTexture=(empty) | SuccessorAchievements={"ActivateAchievementTags":{"GameplayTags":[],"ParentTags":[]},"TriggerAchievementTags":{"GameplayTags":[],"ParentTags":[]}}
++ AchievementTag=(empty)  (right row 481)
+    Id=(empty) | Name=(empty) | DevComment=(empty) | AchievementTag=(empty) | CompletionNumberLimit=(empty) | bActiveOnStart=(empty) | AchievementType=(empty) | Goal=(empty) | ExpToGive=(empty) | AchievementName=(empty) | AchievementDescription=(empty) | OperationTip=(empty) | AchievementDescriptionFull=(empty) | AchievementShowTime=(empty) | TalentScale=(empty) | bShowInFirstBook=(empty) | bOnlyShowOnTriggered=(empty) | AchievementTexture=(empty) | SuccessorAchievements=(empty)

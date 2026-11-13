@@ -1,0 +1,9 @@
+result: different
+sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "PLEntityTagMapping": different
+key: A[EntityId]
+rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 200 same
+~ A[EntityId]=4069  (left row 70, right row 70)
+    InstanceTag (F70): Instance.Character.Monster.FillerMisc.Chameleon -> Instance.Character.Monster.Chameleon

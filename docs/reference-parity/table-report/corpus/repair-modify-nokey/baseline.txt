@@ -1,0 +1,17 @@
+result: different
+sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "PLEntityTagMapping": different
+key: (none; rows aligned by content)
+rows: 5 changed, 0 unimportant, 0 left-only, 0 right-only, 253 same
+~ (left row 195, right row 195)
+    SoftActorToSpawnClass (M195): /Game/007_Entities/011_Weapon/TwoHandHammer/BP_Hammer2H_BladeJellyFish.BP_Hammer2H_BladeJellyFish_C -> /Game/007_Entities/011_Weapon/TwoHandHammer/BP_Hammer2H_UNI_BladeJellyFish.BP_Hammer2H_UNI_BladeJellyFish_C
+~ (left row 196, right row 196)
+    SoftActorToSpawnClass (M196): /Game/007_Entities/011_Weapon/Shield/BP_Shield_TianWu.BP_Shield_TianWu_C -> /Game/007_Entities/011_Weapon/Shield/BP_Shield_UNI_TianWu.BP_Shield_UNI_TianWu_C
+~ (left row 197, right row 197)
+    SoftActorToSpawnClass (M197): /Game/007_Entities/011_Weapon/Spear/BP_Spear_BladeJellyFish.BP_Spear_BladeJellyFish_C -> /Game/007_Entities/011_Weapon/Spear/BP_Spear_UNI_BladeJellyFish.BP_Spear_UNI_BladeJellyFish_C
+~ (left row 222, right row 222)
+    SoftActorToSpawnClass (M222): /Game/007_Entities/011_Weapon/TwoHandHammer/BP_Hammer2H_MonkeyKing.BP_Hammer2H_MonkeyKing_C -> /Game/007_Entities/011_Weapon/TwoHandHammer/BP_Hammer2H_UNI_MonkeyKing.BP_Hammer2H_UNI_MonkeyKing_C
+~ (left row 230, right row 230)
+    SoftActorToSpawnClass (M230): /Game/007_Entities/011_Weapon/Bow/BP_Bow_QiongQI.BP_Bow_QiongQI_C -> /Game/007_Entities/011_Weapon/Bow/BP_Bow_UNI_QiongQI.BP_Bow_UNI_QiongQI_C

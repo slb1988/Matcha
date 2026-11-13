@@ -1,0 +1,29 @@
+result: different
+sheets: 5 compared, 1 different, 4 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "CraftMaterial": different
+key: Name
+rows: 0 changed, 0 unimportant, 0 left-only, 3 right-only, 601 same
++ Name=OneHandedMelee_Entity.Handle.Rebel  (right row 603)
+    Name=OneHandedMelee_Entity.Handle.Rebel | GroupTag=OneHandedMelee | EntityTag=Entity.Handle.Rebel | AppearanceWeight=0 | IsUnique=0 | ResultEntityTag=Entity.Hammer.Base | MeshInfo_Path_Map=Entity.Axe.Base=/Script/Engine.StaticMesh'/Game/006_ModelAndAnims/007_SyntheticWeapon/PC_WP/PC_01133_WP_001/SM_PC_01133_WP_Handle_all_001.SM_PC_01133_WP_Handle_all_001'\|Entity.Hammer.Base=/Script/Engine.StaticMesh'/Game/006_ModelAndAnims/007_SyntheticWeapon/PC_WP/PC_01133_WP_001/SM_PC_01133_WP_Handle_all_001.SM_PC_01133_WP_Handle_all_001'\|Entity.Spear.Base=/Script/Engine.StaticMesh'/Game/006_ModelAndAnims/007_SyntheticWeapon/PC_WP/PC_01133_WP_001/SM_PC_01133_WP_Handle_all_001.SM_PC_01133_WP_Handle_all_001' | MeshInfo_Component=AssetTag.TargetMesh.Craft.EntityType.Handle | EntityInstanceVariantConfigID=0 | ShowMaterialNameOnResultEntity=0 | RepairMaterialCount=1 | ~状态=占位资产-待替换 | ~备注=新组(主表无参照); ResultEntityTag无众数，请手填
++ Name=Shield_Entity.Handle.Rebel  (right row 604)
+    Name=Shield_Entity.Handle.Rebel | GroupTag=Shield | EntityTag=Entity.Handle.Rebel | AppearanceWeight=20 | IsUnique=0 | ResultEntityTag=Entity.Shield.Wood | MeshInfo_Path_Map=(empty) | MeshInfo_Component=(empty) | EntityInstanceVariantConfigID=0 | ShowMaterialNameOnResultEntity=0 | RepairMaterialCount=1 | ~状态=(empty) | ~备注=(empty)
++ Name=Torch_Entity.Handle.Rebel  (right row 605)
+    Name=Torch_Entity.Handle.Rebel | GroupTag=Torch | EntityTag=Entity.Handle.Rebel | AppearanceWeight=20 | IsUnique=0 | ResultEntityTag=Entity.Torch.Base | MeshInfo_Path_Map=Entity.Torch.Base=/Script/Engine.StaticMesh'/Game/006_ModelAndAnims/007_SyntheticWeapon/PC_WP/PC_01133_WP_001/SM_PC_01133_WP_Handle_all_001.SM_PC_01133_WP_Handle_all_001' | MeshInfo_Component=AssetTag.TargetMesh.Craft.EntityType.Handle | EntityInstanceVariantConfigID=0 | ShowMaterialNameOnResultEntity=0 | RepairMaterialCount=1 | ~状态=(empty) | ~备注=(empty)
+
+=== sheet "~720备份": same
+key: Name
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 154 same
+
+=== sheet "~610备份2（结束后恢复）": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 153 same
+
+=== sheet "~327备份（结束后恢复）": same
+key: (none; rows aligned by content)
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 161 same
+
+=== sheet "~AutoGen": same
+key: Name
+rows: 0 changed, 0 unimportant, 0 left-only, 0 right-only, 35 same

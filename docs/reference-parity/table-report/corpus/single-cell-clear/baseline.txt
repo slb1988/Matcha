@@ -1,0 +1,9 @@
+result: different
+sheets: 1 compared, 1 different, 0 same, 0 left-only, 0 right-only
+legend: "~" changed row, "-" left-only row, "+" right-only row; cell lines are "column (ref): left -> right"
+
+=== sheet "DropConfig": different
+key: (none; rows aligned by content)
+rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 925 same
+~ (left row 104, right row 104)
+    DropLibrary2 (J104): 5000066 -> (empty)
