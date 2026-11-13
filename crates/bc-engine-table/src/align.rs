@@ -37,6 +37,16 @@ pub struct KeyAlignment {
 }
 #[derive(Debug, Default)]
 pub struct KeyAlign;
+/// One key column: rules column index, its handling, and whether formula
+/// cells in it hash by formula text (some cell on either side has no cached
+/// result, so values cannot be trusted to line up).
+type KeyColumn = (usize, ColumnHandling, bool);
+/// Formula text of a by-formula key cell (`None`: hash/compare the value).
+fn key_formula<S: TableData>(sheet: &S, row: usize, column: Option<usize>) -> Option<String> {
+    let info = sheet.cell_info(row, column?)?;
+    let formula = crate::compare::formula_text(Some(&info));
+    (!formula.is_empty()).then(|| formula.to_owned())
+}
 fn atom_bytes(value: &CellData, out: &mut Vec<u8>) {
     match value {
         CellData::Empty => out.push(0),
@@ -67,20 +77,28 @@ fn hash_row<S: TableData>(
     row: usize,
     side: Side,
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
     exact_only: bool,
     bytes: &mut Vec<u8>,
 ) -> ContentHash {
     bytes.clear();
-    for (column, handling) in keys {
+    for (column, handling, by_formula) in keys {
         if exact_only && (handling.numeric_tolerance > 0.0 || handling.date_tolerance.0 > 0) {
             continue;
         }
         let column = rules.columns.0[*column].index(side);
-        let value = normalized_value(sheet, row, column, handling);
         let start = bytes.len();
         bytes.extend([0; 8]);
-        atom_bytes(&value, bytes);
+        match by_formula
+            .then(|| key_formula(sheet, row, column))
+            .flatten()
+        {
+            Some(formula) => {
+                bytes.push(6);
+                bytes.extend(formula.as_bytes());
+            }
+            None => atom_bytes(&normalized_value(sheet, row, column, handling), bytes),
+        }
         let len = (bytes.len() - start - 8) as u64;
         bytes[start..start + 8].copy_from_slice(&len.to_le_bytes());
     }
@@ -92,10 +110,17 @@ fn keys_equal<S: TableData>(
     l: usize,
     r: usize,
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
 ) -> bool {
     let same_regional = left.regional() == right.regional();
-    keys.iter().all(|(c, h)| {
+    keys.iter().all(|(c, h, by_formula)| {
+        if *by_formula {
+            let lf = key_formula(left, l, rules.columns.0[*c].left);
+            let rf = key_formula(right, r, rules.columns.0[*c].right);
+            if lf.is_some() || rf.is_some() {
+                return lf == rf;
+            }
+        }
         let lc = rules.columns.0[*c].left.and_then(|col| left.cell_info(l, col));
         let rc = rules.columns.0[*c].right.and_then(|col| right.cell_info(r, col));
         if same_regional
@@ -136,7 +161,7 @@ fn order<S: TableData>(
     sheet: &S,
     side: Side,
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
     cancel: &dyn CancelCheck,
 ) -> Result<Vec<usize>> {
     let mut order: Vec<_> = (0..sheet.row_count()).collect();
@@ -145,7 +170,7 @@ fn order<S: TableData>(
             if cancel.is_cancelled() {
                 return Ordering::Equal;
             }
-            for (c, h) in keys {
+            for (c, h, _) in keys {
                 let col = rules.columns.0[*c].index(side);
                 let cmp = value_cmp(
                     &normalized_value(sheet, a, col, h),
@@ -169,7 +194,7 @@ fn hashes_chunk<S: TableData>(
     rows: &[usize],
     side: Side,
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
     cancel: &dyn CancelCheck,
 ) -> Result<Vec<u64>> {
     let mut out = Vec::with_capacity(rows.len());
@@ -187,7 +212,7 @@ fn hashes<S: TableData + Sync>(
     order: &[usize],
     side: Side,
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
     cancel: &dyn CancelCheck,
 ) -> Result<(Vec<ContentHash>, usize)> {
     // Pass 1: per-row key hashes, chunked across scoped workers.
@@ -239,9 +264,9 @@ fn bucket<S: TableData>(
     row: usize,
     side: Side,
     rules: &TableRules,
-    first: &(usize, ColumnHandling),
+    first: &KeyColumn,
 ) -> i64 {
-    let (c, h) = first;
+    let (c, h, _) = first;
     let value = normalized_value(sheet, row, rules.columns.0[*c].index(side), h);
     match &value {
         CellData::Number(n) if h.numeric_tolerance > 0.0 => {
@@ -255,7 +280,7 @@ struct KeyContext<'a, S: TableData> {
     left: &'a S,
     right: &'a S,
     rules: &'a TableRules,
-    keys: &'a [(usize, ColumnHandling)],
+    keys: &'a [KeyColumn],
 }
 /// Positive tolerances are not transitive, so quantizing alone is incorrect.
 /// Search neighboring buckets and verify every candidate against the actual
@@ -274,7 +299,7 @@ fn tolerant_tokens<S: TableData>(
     let (lo, ro) = orders;
     let first = keys
         .iter()
-        .find(|(_, h)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
+        .find(|(_, h, _)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
         .unwrap();
     let mut index: HashMap<(ContentHash, i64), BTreeSet<usize>> = HashMap::new();
     let mut scratch = Vec::new();
@@ -425,7 +450,7 @@ fn verify_filter_chunk<S: TableData>(
     right: &S,
     orders: (&[usize], &[usize]),
     rules: &TableRules,
-    keys: &[(usize, ColumnHandling)],
+    keys: &[KeyColumn],
     keyed: bool,
     hashes: (&[ContentHash], &[ContentHash]),
     anchors: &AlignmentOverrides,
@@ -459,6 +484,200 @@ fn verify_filter_chunk<S: TableData>(
             }
         }
         out.push(row);
+    }
+    Ok(out)
+}
+/// Upper bound on `left rows × right rows × key columns` cell comparisons for
+/// one difference run; larger runs keep the line-text closeness result.
+const CELL_CLOSENESS_BUDGET: usize = 50_000_000;
+/// Per key column atom hash of one row; 0 marks an empty cell.
+fn cell_atoms<S: TableData>(
+    sheet: &S,
+    row: usize,
+    side: Side,
+    rules: &TableRules,
+    keys: &[KeyColumn],
+    bytes: &mut Vec<u8>,
+) -> Vec<u64> {
+    keys.iter()
+        .map(|(column, handling, by_formula)| {
+            let column = rules.columns.0[*column].index(side);
+            bytes.clear();
+            match by_formula
+                .then(|| key_formula(sheet, row, column))
+                .flatten()
+            {
+                Some(formula) => {
+                    bytes.push(6);
+                    bytes.extend(formula.as_bytes());
+                }
+                None => match normalized_value(sheet, row, column, handling) {
+                    CellData::Empty => return 0,
+                    value => atom_bytes(&value, bytes),
+                },
+            }
+            LineHasher::default().hash_line(bytes).0.max(1)
+        })
+        .collect()
+}
+/// Table analogue of the line closeness score: the same shape as the
+/// byte-histogram formula, but counting per-column agreement of non-empty
+/// cells. Byte histograms ignore columns, so a sparse row scores the same
+/// (clamped) against every long row and ties fall to the last candidate.
+fn cell_score(a: &[u64], b: &[u64]) -> i64 {
+    let len_a = a.iter().filter(|&&h| h != 0).count() as i64;
+    let len_b = b.iter().filter(|&&h| h != 0).count() as i64;
+    if len_a == 0 && len_b == 0 {
+        return -10;
+    }
+    if len_a == 0 || len_b == 0 {
+        return (-4 * (len_a + len_b) - 1).clamp(-40, -11);
+    }
+    let common = a.iter().zip(b).filter(|(x, y)| **x != 0 && x == y).count() as i64;
+    let t = 3 * common - len_a - len_b;
+    if t < 1 {
+        (4 * t - 1).max(-40)
+    } else {
+        25 * t / len_a.min(len_b)
+    }
+}
+/// One emitted row of a refined run.
+fn run_row(
+    l: Option<usize>,
+    r: Option<usize>,
+    hashes: (&[ContentHash], &[ContentHash]),
+) -> AlignRow {
+    let kind = match (l, r) {
+        (Some(l), Some(r)) if hashes.0[l] == hashes.1[r] => DiffKind::Same,
+        (Some(_), Some(_)) => DiffKind::Changed,
+        (Some(_), None) => DiffKind::LeftOnly,
+        _ => DiffKind::RightOnly,
+    };
+    AlignRow {
+        left: l,
+        right: r,
+        center: None,
+        kind,
+    }
+}
+/// Content alignment only: re-resolve every run of non-Same rows between
+/// fixed rows (hash-equal pairs and manual anchors) with a monotone
+/// cell-closeness DP. Same tie rules as the core closeness DP: the pair wins
+/// ties, and a gap must be strictly better.
+#[allow(clippy::too_many_arguments)]
+fn refine_content_runs<S: TableData>(
+    rows: Vec<AlignRow>,
+    left: &S,
+    right: &S,
+    orders: (&[usize], &[usize]),
+    rules: &TableRules,
+    keys: &[KeyColumn],
+    hashes: (&[ContentHash], &[ContentHash]),
+    anchors: &AlignmentOverrides,
+    cancel: &dyn CancelCheck,
+) -> Result<Vec<AlignRow>> {
+    const PAIR: u8 = 0;
+    const LEFT_GAP: u8 = 1;
+    const RIGHT_GAP: u8 = 2;
+    let gap = bc_core::align::CLOSENESS_GAP_PENALTY;
+    let (lo, ro) = orders;
+    let (lh, rh) = hashes;
+    let fixed = |row: &AlignRow| match (row.left, row.right) {
+        (Some(l), Some(r)) => lh[l] == rh[r] || anchors.pairs().binary_search(&(l, r)).is_ok(),
+        _ => false,
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    let mut bytes = Vec::new();
+    let mut start = 0;
+    while start < rows.len() {
+        if start.is_multiple_of(4096) {
+            cancel.check()?;
+        }
+        if fixed(&rows[start]) {
+            out.push(rows[start]);
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end < rows.len() && !fixed(&rows[end]) {
+            end += 1;
+        }
+        let run = &rows[start..end];
+        start = end;
+        let ls: Vec<usize> = run.iter().filter_map(|r| r.left).collect();
+        let rs: Vec<usize> = run.iter().filter_map(|r| r.right).collect();
+        if ls.is_empty()
+            || rs.is_empty()
+            || ls
+                .len()
+                .saturating_mul(rs.len())
+                .saturating_mul(keys.len().max(1))
+                > CELL_CLOSENESS_BUDGET
+        {
+            out.extend_from_slice(run);
+            continue;
+        }
+        cancel.check()?;
+        let la: Vec<_> = ls
+            .iter()
+            .map(|&l| cell_atoms(left, lo[l], Side::Left, rules, keys, &mut bytes))
+            .collect();
+        let ra: Vec<_> = rs
+            .iter()
+            .map(|&r| cell_atoms(right, ro[r], Side::Right, rules, keys, &mut bytes))
+            .collect();
+        let cols = rs.len() + 1;
+        let mut directions = vec![PAIR; (ls.len() + 1) * cols];
+        directions[1..cols].fill(RIGHT_GAP);
+        let mut previous: Vec<i64> = (0..cols as i64).map(|j| j * gap).collect();
+        let mut current = vec![0i64; cols];
+        for (i, a) in la.iter().enumerate() {
+            cancel.check()?;
+            let i = i + 1;
+            current[0] = i as i64 * gap;
+            directions[i * cols] = LEFT_GAP;
+            for (j, b) in ra.iter().enumerate() {
+                let j = j + 1;
+                let mut best = previous[j - 1] + cell_score(a, b);
+                let mut direction = PAIR;
+                if current[j - 1] + gap > best {
+                    best = current[j - 1] + gap;
+                    direction = RIGHT_GAP;
+                }
+                if previous[j] + gap > best {
+                    best = previous[j] + gap;
+                    direction = LEFT_GAP;
+                }
+                current[j] = best;
+                directions[i * cols + j] = direction;
+            }
+            std::mem::swap(&mut previous, &mut current);
+        }
+        let (mut i, mut j) = (ls.len(), rs.len());
+        let mut path = Vec::with_capacity(i + j);
+        while i > 0 || j > 0 {
+            let direction = directions[i * cols + j];
+            path.push(direction);
+            match direction {
+                PAIR => {
+                    i -= 1;
+                    j -= 1;
+                }
+                LEFT_GAP => i -= 1,
+                _ => j -= 1,
+            }
+        }
+        let (mut i, mut j) = (0, 0);
+        for &direction in path.iter().rev() {
+            let (l, r) = match direction {
+                PAIR => (Some(ls[i]), Some(rs[j])),
+                LEFT_GAP => (Some(ls[i]), None),
+                _ => (None, Some(rs[j])),
+            };
+            i += usize::from(l.is_some());
+            j += usize::from(r.is_some());
+            out.push(run_row(l, r, hashes));
+        }
     }
     Ok(out)
 }
@@ -544,10 +763,22 @@ impl KeyAlign {
     ) -> Result<KeyAlignment> {
         cancel.check()?;
         rules.validate(left.column_count(), right.column_count())?;
-        let keys: Vec<_> = rules
+        let uncached = (
+            left.uncached_formula_columns(),
+            right.uncached_formula_columns(),
+        );
+        let keys: Vec<KeyColumn> = rules
             .key_columns()
             .into_iter()
-            .map(|c| (c, rules.handling(c)))
+            .map(|c| {
+                let column = &rules.columns.0[c];
+                let flagged = |side: &[bool], index: Option<usize>| {
+                    index.is_some_and(|i| side.get(i).copied().unwrap_or(false))
+                };
+                let by_formula =
+                    flagged(&uncached.0, column.left) || flagged(&uncached.1, column.right);
+                (c, rules.handling(c), by_formula)
+            })
             .collect();
         let t = std::time::Instant::now();
         let lo = order(left, Side::Left, rules, &keys, cancel)?;
@@ -561,7 +792,7 @@ impl KeyAlign {
         crate::perf::span("key-align:hashes", t);
         if keys
             .iter()
-            .any(|(_, h)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
+            .any(|(_, h, _)| h.numeric_tolerance > 0.0 || h.date_tolerance.0 > 0)
         {
             (lh, rh) = tolerant_tokens(
                 &KeyContext {
@@ -639,7 +870,24 @@ impl KeyAlign {
         drop(text);
         crate::perf::span("key-align:strategy-align", t);
         let t = std::time::Instant::now();
-        let map_rows = map.into_rows();
+        let mut map_rows = map.into_rows();
+        // Content alignment pairs rows by cell agreement, not line text.
+        if rules.content_aligned() && rules.strategy == AlignStrategy::Smart && rules.use_closeness
+        {
+            map_rows = refine_content_runs(
+                map_rows,
+                left,
+                right,
+                (&lo, &ro),
+                rules,
+                &keys,
+                (&lh, &rh),
+                &anchors,
+                cancel,
+            )?;
+        }
+        crate::perf::span("key-align:cell-closeness", t);
+        let t = std::time::Instant::now();
         let threads = crate::perf::phase_threads(map_rows.len());
         // Same definition as the report's `key:` line: content alignment (no
         // real key columns) must not verify-split closeness pairs.

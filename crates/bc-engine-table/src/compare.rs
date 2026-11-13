@@ -166,6 +166,15 @@ impl CellComparator<'_> {
             && raw_text_equal(lc.as_ref(), rc.as_ref());
         let value = if lc.is_some() != rc.is_some() {
             changed
+        } else if let Some(same) = uncached_formula_equal(lc.as_ref(), rc.as_ref()) {
+            // At least one side's result was never calculated (no cached
+            // value in the file): its value is unknown, not empty, so the
+            // formula text is the only evidence left.
+            if same {
+                Importance::Same
+            } else {
+                changed
+            }
         } else if raw_text_same
             || equal_values(
                 &normalized_value(left, l, columns.0, &exact_handling),
@@ -208,8 +217,23 @@ impl CellComparator<'_> {
     }
 }
 
+/// Formula cell whose file carries no cached result (e.g. written by a tool
+/// that does not recalculate): its value is unknown rather than empty.
+pub(crate) fn uncached_formula(c: Option<&CellInfo<'_>>) -> bool {
+    c.is_some_and(|i| matches!(i.value, CellData::Empty) && !formula_text(Some(i)).is_empty())
+}
+/// Both cells hold formulas and at least one has no cached result: `Some`
+/// with whether the formula texts agree; `None` when values are comparable.
+pub(crate) fn uncached_formula_equal(
+    a: Option<&CellInfo<'_>>,
+    b: Option<&CellInfo<'_>>,
+) -> Option<bool> {
+    let (fa, fb) = (formula_text(a), formula_text(b));
+    (!fa.is_empty() && !fb.is_empty() && (uncached_formula(a) || uncached_formula(b)))
+        .then(|| fa == fb)
+}
 /// Formula text for comparison: trimmed, without the leading '='.
-fn formula_text<'a>(c: Option<&'a CellInfo<'a>>) -> &'a str {
+pub(crate) fn formula_text<'a>(c: Option<&'a CellInfo<'a>>) -> &'a str {
     c.and_then(|i| i.formula)
         .unwrap_or("")
         .trim()

@@ -88,6 +88,11 @@ pub trait TableData {
     fn revision(&self) -> u64;
     /// Rows touched by edits (Sheet: `changed` + `row_edit_marks`).
     fn collect_edited_rows(&self, out: &mut HashSet<usize>);
+    /// Per source column: holds at least one formula without a cached result.
+    /// Storage without formulas (text sources) returns an empty list.
+    fn uncached_formula_columns(&self) -> Vec<bool> {
+        Vec::new()
+    }
 }
 
 impl TableData for Sheet {
@@ -127,5 +132,19 @@ impl TableData for Sheet {
     fn collect_edited_rows(&self, out: &mut HashSet<usize>) {
         out.extend(self.changed.iter().map(|&(r, _)| r));
         out.extend(self.row_edit_marks.iter().copied());
+    }
+    fn uncached_formula_columns(&self) -> Vec<bool> {
+        self.columns
+            .iter()
+            .map(|column| {
+                column.iter().any(|cell| {
+                    matches!(cell.value, CellValue::Empty)
+                        && cell
+                            .formula
+                            .as_deref()
+                            .is_some_and(|f| !f.trim().trim_start_matches('=').is_empty())
+                })
+            })
+            .collect()
     }
 }

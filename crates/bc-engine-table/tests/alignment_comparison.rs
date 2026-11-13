@@ -163,6 +163,102 @@ fn content_alignment_pairs_changed_rows_explicit_all_columns_orphans() {
     assert_eq!(stats.left_only, 1);
     assert_eq!(stats.right_only, 1);
 }
+fn content_rules(cols: usize) -> TableRules {
+    TableRules {
+        columns: ColumnMapping::by_number(cols, cols),
+        keys: KeySelection::Manual(Vec::new()),
+        ..Default::default()
+    }
+}
+fn formula(value: CellValue, text: &str) -> Cell {
+    Cell {
+        value,
+        formula: Some(text.into()),
+        style: None,
+    }
+}
+#[test]
+fn uncached_formula_cells_compare_and_align_by_formula_text() {
+    // A workbook saved without recalculation stores formulas with no cached
+    // result (`<f>…</f><v/>`). The value is unknown, not empty: same formula
+    // text on both sides must not flood the result with changed rows.
+    let mut l = Sheet::default();
+    let mut r = Sheet::default();
+    for i in 0..3 {
+        let f = format!("=IF(ISNA(C{0}),0.2,C{0})", i + 1);
+        l.push_row(vec![
+            Cell::text(format!("e{i}")),
+            formula(CellValue::Number(0.3), &f),
+        ]);
+        r.push_row(vec![
+            Cell::text(format!("e{i}")),
+            formula(CellValue::Empty, &f),
+        ]);
+    }
+    // A genuinely different formula is still a change.
+    l.push_row(vec![
+        Cell::text("e3"),
+        formula(CellValue::Number(1.0), "=A1"),
+    ]);
+    r.push_row(vec![Cell::text("e3"), formula(CellValue::Empty, "=A2")]);
+    let map = TableMap::new(l, r, content_rules(2), &NeverCancel).unwrap();
+    let stats = map.statistics();
+    assert_eq!((stats.same, stats.important), (3, 1));
+    assert_eq!((stats.left_only, stats.right_only), (0, 0));
+    for i in 0..4 {
+        assert_eq!(map.row(i).unwrap().left, Some(i));
+        assert_eq!(map.row(i).unwrap().right, Some(i));
+    }
+    assert_eq!(map.cell_diff(0, 1).unwrap().value, Importance::Same);
+    assert_eq!(map.cell_diff(3, 1).unwrap().value, Importance::Important);
+    // A cached empty constant against an uncached formula is not a match.
+    let mut l = Sheet::default();
+    let mut r = Sheet::default();
+    l.push_row(vec![Cell::text("a"), Cell::number(0.3)]);
+    r.push_row(vec![Cell::text("a"), formula(CellValue::Empty, "=B9")]);
+    let map = TableMap::new(l, r, content_rules(2), &NeverCancel).unwrap();
+    assert_eq!(map.cell_diff(0, 1).unwrap().value, Importance::Important);
+}
+#[test]
+fn content_alignment_pairs_sparse_row_by_cell_agreement() {
+    // Line-text closeness clamps a short row against every long row to the
+    // same score and the tie falls to the last candidate; cell agreement
+    // pairs the sparse row with the row sharing its first and last cells.
+    let mesh = "/Script/Engine.StaticMesh'/Game/Item/Mesh/SM_LeafPile_CN_01.SM_LeafPile_CN_01'";
+    let boar =
+        "/Script/Engine.StaticMesh'/Game/Item/Mesh/SM_Feast_Roast_Boar_02.SM_Feast_Roast_Boar_02'";
+    let l = table(&[
+        &["same", "s", "s", "s"],
+        &["Entity.LeafPile", "", "", "PLN_SmallBush"],
+    ]);
+    let r = table(&[
+        &["same", "s", "s", "s"],
+        &[
+            "Entity.LeafPile",
+            "AssetTag.PLStaticMesh.01",
+            mesh,
+            "PLN_SmallBush",
+        ],
+        &[
+            "Entity.Feast.Roast.Boar",
+            "AssetTag.PLStaticMesh.02",
+            boar,
+            "",
+        ],
+    ]);
+    let map = TableMap::new(l, r, content_rules(4), &NeverCancel).unwrap();
+    assert_eq!(map.row_count(), 3);
+    let row = map.row(1).unwrap();
+    assert_eq!(
+        (row.left, row.right, row.kind),
+        (Some(1), Some(1), DiffKind::Changed)
+    );
+    let row = map.row(2).unwrap();
+    assert_eq!(
+        (row.left, row.right, row.kind),
+        (None, Some(2), DiffKind::RightOnly)
+    );
+}
 #[test]
 fn key_handling_normalization_and_tolerance_cross_bucket_boundary() {
     let l = table(&[&["  APPLE  pie ", "old"]]);

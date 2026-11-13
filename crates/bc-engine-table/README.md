@@ -23,6 +23,8 @@
 ## 对齐、三态与编辑
 
 - `KeyAlign::align` 复用 `bc_core` 的 Quick/Smart/Patience/None 与 `AlignmentOverrides` / `CancelCheck`，只负责规范化键/稳定排序/重复 occurrence 与 core map 接线。Smart 仍过滤不等键（Unaligned/手动锚点例外）；排序时 core 索引指向排列，`KeyAlignment::{left_order,right_order}` 才映射回源行。
+- 内容对齐（`content_aligned()`）+ Smart + closeness 时，core 结果中每段非 Same 行（哈希相等对与手动锚点为边界）由 `refine_content_runs` 重新做单调 DP：分数 `cell_score` 与 core 字节直方图同形（`t = 3·common − len_a − len_b`，`len` 为非空单元格数，`common` 为同列相等的非空单元格数），缺口罚分沿用 `CLOSENESS_GAP_PENALTY`，平局保留配对。单段 左×右×键列 超过 `CELL_CLOSENESS_BUDGET`（5e7）保持 core 结果。
+- 无缓存值的公式（值 Empty + 非空公式）：`TableData::uncached_formula_columns` 标记源列；任一侧被标记的键列 `by_formula`，其中有公式的单元格以公式文本参与行哈希 / `keys_equal` / 单元格相近度。`CellComparator` 值层：两侧都有公式且至少一侧无缓存值 → 公式文本相同即 Same，否则按变更。
 - 数值/日期容差不具传递性，不能单纯量化为哈希。容差键使用相邻桶候选 + 实际容差复核，按出现顺序消耗右侧候选。最坏的低选择性多列容差可能较慢；默认精确键走线性哈希准备。
 - `CellComparator` 保留值/公式/数字格式独立三态，`ComparedData` 为每格 6 bit（每层 2 bit）与每行 12 字节索引/汇总。`TableMap::rows/row` 是派生访问，无第二份展开大表。
 - 默认创建 `TableMap` 自动推断键；显式 AllColumns/ByColumnNumber/Manual 不被建议覆盖。`rules_mut()` 可调整规则，`is_stale()` 检测语义变化；Layers 与 Ignore Unimportant 只投影已有三态，不要求重新计算。导航、计数、过滤和标签状态使用同一投影。
