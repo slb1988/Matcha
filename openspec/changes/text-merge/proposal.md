@@ -36,7 +36,7 @@ Matcha 目前只支持两方比较，但版本控制工具（首当其冲是 Per
 - `crates/bc-engine-text`：`map.rs`（`AlignedData` center 列、`TextMap` center 访问）、`jobs.rs`（`Align3Job` / `Realign3Job`）、`merge.rs`（全部）、`rules.rs`（`TextMergeRules`：增 `conflict_gap`，删 `conflict_on_center_change`）。
 - `crates/bc-script`：`cli.rs`（`merge_spec()`、用法文本）、`runner.rs`（`auto_merge_files`）。
 - `apps/bcompare`：`routing.rs`（`Route::AutoMerge`，解除 Merge3/Merge4 的 Unsupported，改写既有单测）、`main.rs`（headless 执行、合并调用隐式等待、以标签页结果码退出）。
-- `crates/bc-gui`：新增 `merge/`；`text/render.rs` 窗格绘制抽取；`remote.rs`（`RemoteOpen` 合并载荷、`Outcome` 带结果码）、`app.rs`（`View::TextMerge`）、`lib.rs`（`LaunchOptions`、`run_with_remote` 返回值）、`snapshot.rs`（merge 场景）。
+- `crates/bc-gui`：新增 `merge/`（`model.rs`、`view.rs`，自带窗格绘制；`text/render.rs` 只开放 `layout` / `hatch` 两个函数）；`remote.rs`（`RemoteOpen` 合并载荷、`Outcome` 带结果码）、`app.rs`（`View::TextMerge`）、`lib.rs`（`LaunchOptions`、`run_with_remote` 返回值）、`snapshot.rs`（merge 场景）。
 - `tools/golden`：`gen_merge_expected.ps1` 与合并样本语料。
 - 文档：新增 `docs/features/text-merge.md`、`docs/reference-parity/text-merge.md`；更新 `docs/features/README.md`、`text-compare.md`、`cli-and-scripting.md`、`crates/bc-engine-text/README.md`、`crates/bc-script/README.md`、`apps/bcompare/README.md`、`apps/bcomp/README.md`、`.agents/skills/matcha-cli/SKILL.md`、`CHANGELOGS.md`。
 - 不涉及 `crates/bc-session`（命名会话不在本变更内）。

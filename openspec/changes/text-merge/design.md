@@ -137,7 +137,7 @@
 | 有冲突，其他 | 不写，已存在的文件保持原样 | 101 |
 | 参数/加载/写出错误 | 不写 | 100 |
 
-`/reviewconflicts` 优先于 `/force`；`/silent` 使 `/reviewconflicts` 失效。成功或有冲突时向 stdout 写一行结果（退出码描述，有冲突时附冲突区段数），`/silent` 时不写；错误写 stderr。
+`/reviewconflicts` 优先于 `/force`；`/silent` 使 `/reviewconflicts` 失效。成功或有冲突时向 stdout 写一行结果（退出码描述，有冲突时附冲突区段数），`/silent` 时不写；进程没有标准输出时（P4V 直接启动 `matcha.exe`）也不写，更不能像错误那样退化成消息框——否则每次自动合并成功都会弹一个框拦住调用方。错误写 stderr（无控制台时为消息框，与 `/qc` 一致）。
 
 **其他开关**：`/solo` 照常；`/title1..3` 用作输入窗格标题与冲突标记标签，`/title4` 用作输出窗格标题；`/iu`、`/favorleft|right`、`/force` 只在 `/automerge` 时生效（含由 `/reviewconflicts` 转入的 GUI 会话，使界面看到的冲突与自动合并判定一致）；`/ro*`、`/nobackups`、`/savetarget=`、`/vcs1..4` 接受但不产生效果。
 
@@ -211,7 +211,9 @@
 
 ### D12: 渲染复用方式
 
-`editor.rs`、`projection.rs`、`gutter.rs` 原样复用。`render.rs` 先做一次不改行为的抽取：把窗格绘制从 `impl TextCompareView` 中拆成接受"行来源 + 着色回调"的函数，文本比较视图改为调用它；以既有 text 快照场景逐像素不变作为这一步的验收，然后合并视图再接上去。抽取代价超出预期时，退路是合并视图自带一份精简绘制（不含行内差异），不动文本比较。
+`editor.rs`、`projection.rs`、`gutter.rs` 是独立组件；`render.rs` 的窗格绘制是 `impl TextCompareView` 的方法。原定先做一次不改行为的抽取、再让合并视图接上去，并留了退路：抽取代价超出预期时，合并视图自带一份精简绘制，不动文本比较。
+
+**实施结果：走了退路。** `pane()` 有 535 行，与文本比较的投影、行内差异缓存、查找、手工对齐、右键菜单状态交织在一起，抽取等于重写双方比较的热路径，风险与本变更的收益不相称。合并视图在 `merge/view.rs` 里自带绘制，复用 `Editor`（输出窗格的编辑、选区、输入法）以及 `render.rs` 的 `layout` 与 `hatch` 两个函数（改为 `pub(crate)`）。代价：合并窗格没有语法着色和行内差异高亮，纵向滚动是视图自己的一条滚动条，没有横向滚动条（Shift+滚轮可横向滚动）。
 
 ## 待参考样本确认
 

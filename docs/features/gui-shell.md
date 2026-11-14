@@ -1,6 +1,6 @@
 # GUI 外壳与视图架构（GUI Shell）
 
-> eframe/egui 桌面外壳：Home、文本/文件夹/同步/表格视图、单实例与资源管理器集成。
+> eframe/egui 桌面外壳：Home、文本比较/文本合并/文件夹/同步/表格视图、单实例与资源管理器集成。
 > 状态：**已实现**（视图群落地；外框已切换为 Matcha 现代设计系统，见 ADR 401）（2026-11-12 更新）。对应 FR-G1。
 
 ## 功能简介
@@ -13,8 +13,9 @@
   记录与读入时统一还原 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，地址栏只见常规路径。
 - 比较视图（文本/表格/Hex/文件夹/同步）：把文件从资源管理器拖到哪一侧就替换哪一侧（按落点判定，
   与当前活动侧无关）。
-- 视图：`text/`（文本比较）、`dir_view.rs`（文件夹）、`sync_view.rs`（同步）、
-  `table/`（表格）；两个目录参数自动进入文件夹视图。
+- 视图：`text/`（文本比较）、`merge/`（文本合并，`View::TextMerge`）、`dir_view.rs`（文件夹）、
+  `sync_view.rs`（同步）、`table/`（表格）；两个目录参数自动进入文件夹视图。
+  文本合并为上排三个只读输入窗格、底部可编辑输出窗格，共用行网格与滚动位置，见 [text-merge.md](text-merge.md)。
 - 单实例（`bc-instance`）与 Windows 资源管理器菜单（`bc-shell`）见各自 crate。
 - **视觉设计系统**（ADR 401）：冷中性灰表面 + 发丝线 + 圆角 + 柔和阴影，品牌强调色"抹茶绿"；
   token 集中在 `chrome/theme.rs`。确认类弹框（文本/表格/Hex 未保存、Hex 重载、文件操作确认、
@@ -32,7 +33,7 @@
 | `crates/bc-gui/src/app.rs` | View 切换、全局 Prefs、关闭保护；接线集中于 View/HomeAction/ViewAction |
 | `crates/bc-gui/src/home.rs` | 主页与拖放 |
 | `crates/bc-gui/src/chrome/drop.rs` | 比较视图的系统拖放落点 → 左/右侧判定（各视图共用） |
-| `crates/bc-gui/src/text/`、`table/`、`dir_view.rs`、`sync_view.rs` | 各功能视图（见对应 feature 文档） |
+| `crates/bc-gui/src/text/`、`crates/bc-gui/src/merge/`、`table/`、`dir_view.rs`、`sync_view.rs` | 各功能视图（文本合并为 `View::TextMerge`；见对应 feature 文档） |
 | `crates/bc-gui/src/chrome/`、`dialogs/`、`legend.rs`、`log_panel.rs` | 外框、对话框、颜色图例、虚拟化操作日志 |
 | `crates/bc-gui/src/chrome/theme.rs` | 设计 token（颜色/圆角/阴影/字号）与全局 egui 样式 |
 | `crates/bc-gui/src/chrome/modal.rs`、`chrome/controls.rs` | 现代确认弹框；主/次/危险按钮与标签 chip |

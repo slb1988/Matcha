@@ -1,7 +1,7 @@
 # 文本比较（Text Compare / Edit）
 
 > 核心功能：两个文本文件的差异对齐、着色、编辑与导航。状态：**已实现**（双向比较、编辑、
-> 行内差异、重要性；三路合并 FR-T7 仍是脚手架）。对应 FR-T1…T8。
+> 行内差异、重要性；三方合并 FR-T7 见 [text-merge.md](text-merge.md)）。对应 FR-T1…T8。
 
 ## 功能简介
 
@@ -17,7 +17,7 @@
 
 | 层 | 位置 | 内容 |
 |---|---|---|
-| 引擎 | `crates/bc-engine-text` | `TextContent`（单侧内容+EditStack）、`TextRules`、`TextMap`/`TextMapRow`、`importance`、`inline`、`merge`（脚手架）、`jobs`（Align2/Realign2/Align3/Realign3）、`search` |
+| 引擎 | `crates/bc-engine-text` | `TextContent`（单侧内容+EditStack）、`TextRules`、`TextMap`/`TextMapRow`、`importance`、`inline`、`merge`（已实现，见 [text-merge.md](text-merge.md)）、`jobs`（Align2/Realign2/Align3/Realign3）、`search` |
 | GUI | `crates/bc-gui/src/text/` | `view.rs`（控制器/导航/保存）、`render.rs`+`gutter.rs`（自绘）、`editor.rs`、`projection.rs`、`nav_bar.rs`（缩略条）、`worker.rs`（350ms 防抖 Realign2Job） |
 | 启动 | `apps/bcompare` | `matcha <left> <right>` 直接进入 |
 

@@ -1,7 +1,7 @@
 ---
 name: matcha-cli
 version: 1.0.0
-description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / matcha-comp.exe 三件套分工、/report 无窗口 diff 输出（文本 patch 四种布局、xlsx/CSV 表格差异报告）、/qc 快速比较与退出码、@script 脚本模式、GUI 启动方式。当用户问 matcha 命令行怎么用、matcha.com 是什么、如何用命令行比较文件/输出 diff、或在 CI/脚本里集成文件比较时使用。
+description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / matcha-comp.exe 三件套分工、/report 无窗口 diff 输出（文本 patch 四种布局、xlsx/CSV 表格差异报告）、/qc 快速比较、/automerge 自动合并与 P4V 配置、退出码、@script 脚本模式、GUI 启动方式。当用户问 matcha 命令行怎么用、matcha.com 是什么、如何用命令行比较或合并文件/输出 diff、或在 CI/脚本里集成文件比较时使用。
 ---
 
 # Matcha 命令行速查
@@ -9,12 +9,12 @@ description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / m
 发行产物在 `target/dist/matcha-<version>-windows-x86_64/`（由 `cargo xtask dist` 生成）。
 下文 `matcha` 均指把该目录加入 PATH 后直接调用；未加 PATH 时用全路径。
 
-## 三件套分工（对应 BC 的 BComp.exe / BComp.com / BCompare.exe）
+## 三件套分工
 
 | 文件 | 子系统 | 行为 | 用途 |
 |---|---|---|---|
 | `matcha.exe` | GUI | 主程序，全部比较逻辑 | 双击打开 GUI |
-| `matcha-comp.exe` | GUI | 转交给主程序后**立即返回** | VCS 集成（git difftool 等），不闪控制台 |
+| `matcha-comp.exe` | GUI | 转交给主程序后**立即返回** | VCS 比较集成（git difftool 等），不闪控制台；**不能用于合并** |
 | `matcha.com` | 控制台 | 转发参数给旁边的 `matcha.exe`，**等待比较结束并传播退出码** | 命令行交互、CI/脚本 |
 
 关键点：
@@ -22,6 +22,8 @@ description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / m
 - cmd/PowerShell 里敲 `matcha ...` 经 PATHEXT（`.com` 先于 `.exe`）自动命中 `matcha.com` —— 即默认就是"等待+退出码"语义。
 - 启动器不解析参数，原样转发；找不到旁边的 `matcha.exe` 报退出码 103。
 - `matcha /?` 输出完整帮助（由 matcha.com 打印）。
+- **合并调用总是等待**：`matcha.exe` 本身也等待，不依赖启动器标记；转交已有实例时等合并标签页关闭。
+  自己成为首个实例或 `/solo` 时要等整个窗口关闭（仅合并一页时关页即关窗）；无窗口合并等执行完成。
 
 ## 位置参数推断（无开关时）
 
@@ -29,13 +31,32 @@ description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / m
 matcha                          → Home 视图
 matcha <dir> <dir>              → 文件夹比较
 matcha <file> <file>            → 按文件格式选视图（或 /fv 强制）
-matcha <l> <r> <center> [<out>] → 文本合并（可带输出文件）
+matcha <left> <right> <center> [<output>] → 文本合并（可带输出文件）
 matcha <name>                   → 已保存的会话 / 工作区
 matcha @<script> [args…]        → 脚本模式（无界面执行）
 matcha <file.bcpkg>             → 导入设置包
 matcha <file.diff|.patch>       → Text Patch
 matcha -                        → 从 stdin 读入一个文件
 ```
+
+## 文本三方合并
+
+```bat
+matcha <left> <right> <center>
+matcha <left> <right> <center> <output>
+matcha /center=<file> [/mergeoutput=<path>] <left> <right>
+matcha /automerge theirs.txt yours.txt base.txt result.txt
+matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
+```
+
+一律按文本合并（CSV/TSV 按行），不按文件格式路由；`/mergeoutput=` 优先于第 4 个位置参数。
+`/automerge` 在发起进程内执行、从不转交已有实例，必须有输出目标；写同目录临时文件再替换，不建备份，
+不读旧输出，输出可等于某个输入。结果写 stdout 一行，`/silent` 或无标准输出时不写、不为结果弹框；
+错误写 stderr（无控制台时为消息框）。界面保存按当前输出写出，**不会插入冲突标记**。
+
+P4V：Application 用 `matcha.exe`，Arguments 用 `%1 %2 %b %r`（theirs / yours / base / result）；
+要“无冲突不开窗”用 `/automerge /reviewconflicts %1 %2 %b %r`。不要配置 `matcha-comp.exe`。
+合并语义**未经参考样本确认**；界面快捷键与验收见 `docs/features/text-merge.md`。
 
 ## 三个最常用形态（均已实测）
 
@@ -92,19 +113,19 @@ matcha /qc a.txt b.txt          :: rules-based（默认），打印一行结论
 matcha /qc=binary a.txt b.txt   :: 还有 size / crc
 ```
 
-## 退出码（对应 BC 约定）
+## 退出码（对应参考工具约定）
 
 | 码 | 含义 |
 |---|---|
-| 0 | 成功 |
+| 0 | 成功；无窗口自动合并：无冲突且已写出；界面合并：最后一次保存时无未解决冲突 |
 | 1 | 二进制相同 |
 | 2 | 规则相同（rules-based same） |
 | 11 | 二进制不同 |
 | 12 | 相似（只有不重要差异） |
 | 13 | 规则不同 |
-| 14 | 合并有冲突 |
-| 100 | 未知错误 |
-| 101 | 合并冲突且未写出 |
+| 14 | 无窗口自动合并：有冲突，带 `/force` 且已带标记写出；界面合并：最后一次保存时仍有未解决冲突 |
+| 100 | 错误；合并时为参数、输入或写出错误，或合并视图打不开 |
+| 101 | 无窗口自动合并：有冲突且未写出，既有输出保持原样；界面合并：从未保存 |
 | 102 / 103 | 启动器无法等待 / 找不到 matcha.exe |
 | 104~107 | 试用过期 / 脚本加载、语法、文件加载错误 |
 
@@ -116,16 +137,25 @@ matcha /qc=binary a.txt b.txt   :: 还有 size / crc
 /fv=<type>        强制视图类型，如 "Text Compare"
 /ro /ro1 /ro2     只读（全部/左/右）
 /edit             编辑模式打开
-/iu               忽略不重要差异
+/iu               合并时需带 /automerge 或 /reviewconflicts：不重要差异按相同处理
 /solo             强制新实例（不转交给已运行的 matcha）
-/silent           禁止一切交互弹窗（脚本必备）
-/title1=<t> /title2=<t>  面板标题（1..4：左、右、中、输出）
+/silent           自动合并不写结果行并禁用 /reviewconflicts；错误仍报告
+/title1..4=<t>    左/右/中/输出窗格标题；前两个兼作冲突标记标签（默认文件名）
 /filters=<masks>  文件夹会话的文件过滤
-/automerge /mergeoutput=<path> /force /favorleft /favorright   合并相关
+/automerge        发起进程内无窗口自动合并，必须有输出目标
+/reviewconflicts  配合 /automerge：无冲突写出并返回 0，有冲突先不写并进入界面；优先于 /force，/silent 时失效
+/force            仅 /automerge：有冲突也带标记写出（14）；界面保存不加标记
+/favorleft /favorright  带 /automerge 或 /reviewconflicts 且有 /iu：被忽略的不重要冲突取指定侧而非 center；两者互斥
+/mergeoutput=<path>  合并输出目标，优先于第 4 个位置参数
+/center=<file>    两个输入文件配此开关成为三方合并（共同祖先）
 /sync             以 Folder Sync 打开
 /vcs1..4=<path>   VCS 路径占位
 /savetarget=<f>   保存目标
 ```
+
+合并调用里 `/ro`、`/ro1`、`/ro2`、`/nobackups`、`/savetarget=`、`/vcs1..4` 接受但无效果；
+输入窗格恒只读，`/iu` 与 favor 可由 `/reviewconflicts` 带入界面会话。
+`/automerge /force` 的冲突标记为 `<<<<<<< <left 标签>`、left 各行、`=======`、right 各行、`>>>>>>> <right 标签>`。
 
 ## @script 脚本模式
 
@@ -145,9 +175,9 @@ matcha @script.txt        :: 无界面顺序执行脚本命令
 ## 已知坑（实测踩过）
 
 1. **Git Bash / MSYS 里必须用 `-` 前缀**：`/report=...` 会被路径转换吃掉，变成位置参数，
-   报 `Text Merge is not supported yet`。cmd/PowerShell 下 `/` 和 `-` 都行。
+   可能被误判为三方合并并报输入错误。cmd/PowerShell 下 `/` 和 `-` 都行。
 2. **`/report` 退出码恒 0**，判断差异用 `/qc`。
-3. patch 上下文是 **6 行**（BC 风格，`bc-report/src/patch.rs` 的 `CONTEXT = 6`），
+3. patch 上下文是 **6 行**（参考工具风格，`bc-report/src/patch.rs` 的 `CONTEXT = 6`），
    比 `git diff` 默认 3 行的 hunk 大。
 4. `side-by-side` / `summary` / `interleaved` / `statistics` / `xml` 布局已定义但**未实现**，
    会报 `the side-by-side layout is not supported yet`。

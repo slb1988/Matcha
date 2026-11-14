@@ -23,6 +23,8 @@ reference product's name.
 - Forward all arguments unchanged. The waiting launcher sets `bc_instance::WAIT_ENV`; the
   main program then blocks until the comparison closes and exits with its code, which the
   launcher propagates (`102` when the wait is lost).
+- Merge invocations always wait in `matcha` itself, even without the launcher's wait marker;
+  `matcha-comp` returns immediately and must not be configured as a merge tool.
 - `/?` is answered by the waiting launcher itself, named as invoked (`matcha` when shipped
   as `matcha.com`).
 

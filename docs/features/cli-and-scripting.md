@@ -1,7 +1,7 @@
 # 命令行与脚本（CLI / Script / 退出码）
 
-> 三件式命令行、无窗口快速比较与 `@script` 脚本引擎。状态：**已实现**
-> （无窗口子集：文本 patch 报告、`/qc`、脚本核心命令）。对应 FR-S1、FR-S2。
+> 三件式命令行、无窗口快速比较 / 自动合并与 `@script` 脚本引擎。状态：**已实现**
+> （无窗口子集：文本 patch 报告、`/qc`、`/automerge`、脚本核心命令）。对应 FR-S1、FR-S2。
 
 ## 功能简介
 
@@ -11,12 +11,23 @@
 |---|---|---|
 | `matcha.exe` | GUI | 双击/资源管理器菜单：开窗，无控制台 |
 | `matcha.com` | console | cmd/PowerShell 中 `matcha …`：等待、可重定向、回传退出码 |
-| `matcha-comp.exe` | GUI | VCS 集成：立即交接返回 |
+| `matcha-comp.exe` | GUI | VCS 比较集成：立即交接返回，不能用于合并 |
 
-无窗口能力（都在启动进程内执行，绝不进入已打开的窗口）：
+合并调用：`matcha <left> <right> <center>`、`matcha <left> <right> <center> <output>`，或
+`matcha /center=<file> [/mergeoutput=<path>] <left> <right>`；`/mergeoutput=` 优先于第 4 个位置参数。
+这些调用一律文本合并（CSV/TSV 按行），不按文件格式路由；原先三/四个路径报不支持并返回 100，现在打开合并视图。
+**合并调用总是等待**：`matcha.exe` 与 `matcha.com` 都等待合并标签页关闭并回传结果码，包括转交已有实例；
+自己成为首个实例或 `/solo` 时要等整个窗口关闭（仅合并一页时关页即关窗）。无窗口合并则等待执行完成。
+
+无窗口能力（无窗口执行阶段都在启动进程内运行，不转交给已打开的窗口）：
 
 - `/qc a b`：快速比较，退出码 2 same / 12 similar / 13 different；`/qc=binary|crc|size`
   → 1 / 11；`/silent` 抑制单行结果输出。
+- `/automerge left right center output`：需要输出目标；无冲突写出并返回 0，有冲突不写出为 101，
+  带 `/force` 时带冲突标记写出为 14；参数、输入或写出错误为 100。写同目录临时文件再替换，不建备份，
+  不读取既有输出；输出可等于输入，101 时既有输出保持原样。结果为 stdout 一行，`/silent` 或无标准输出时
+  不写也不为结果弹框；错误写 stderr（无控制台时为消息框）。加 `/reviewconflicts` 时，无冲突仍不开窗；
+  有冲突先不写输出，转入界面并由界面决定退出码。`/reviewconflicts` 优先于 `/force`，但 `/silent` 使它失效。
 - `/report=`：见 [reports.md](reports.md)。
 - `@script.txt a b`：脚本模式，`%1`…`%9` 参数替换、`%date%`、`#` 注释、`&` 续行、
   大小写不敏感；支持 `text-report`、`table-report`（`summary` 布局）、`log`、`option`、`beep`，
@@ -46,6 +57,9 @@ matcha /qc a.txt b.txt
 matcha /report=patch-unified a.txt b.txt
 matcha /report=summary a.xlsx b.xlsx
 matcha @diff.txt a.txt b.txt
+matcha theirs.txt yours.txt base.txt result.txt
+matcha /automerge theirs.txt yours.txt base.txt result.txt
+matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
 cargo test -p bc-script
 ```
 
@@ -53,6 +67,7 @@ cargo test -p bc-script
 
 ## 深入阅读
 
+- 文本合并、退出码与 P4V 配置：[text-merge.md](text-merge.md)
 - `crates/bc-script/README.md`、`apps/bcomp/README.md`
 - ADR：`docs/decisions/301-windows-subsystem-split.md`
 - 变更过程：`openspec/changes/text-patch-reports/`
