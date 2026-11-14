@@ -1,0 +1,5 @@
+id,name,note,price
+1,"Smith, John","said ""hi""",1.50
+2,"multi
+line",x,2.50
+3,plain,y,3.000

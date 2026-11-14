@@ -42,7 +42,7 @@ left / right 各自查找配对；center 没有的 left 行与 right 行再按�
 
 与 text-merge 的"行类型 / 冲突区段"两层同构：
 
-- **单元格类型**（每个对齐行 × 比较列）：Center/Left/Right/Both/Conflict 五态，相同性判定复用 `compare.rs` 的 `CellComparator` 与规则（容差、大小写、空白、按公式），比较层固定为 `ValuesAndFormulas`（评审修订：只比值会丢掉"只改公式、缓存值未变"的改动）。
+- **单元格类型**（每个对齐行 × 比较列）：Center/Left/Right/Both/Conflict 五态，相同性判定复用 `compare.rs` 的 `CellComparator` 与规则（容差、大小写、空白、按公式），比较层固定为 `ValuesAndFormulas`（评审修订：只比值会丢掉"只改公式、缓存值未变"的改动）。三方都有公式的格改为比较重定位到输出行坐标后的公式文本、不比缓存值（二次修订，见 D3）。
 - **行级结构**：左增 / 右增 / 同增 / 双增冲突（同键异内容）/ 删除 / 删改冲突。判定的"内容不同"归结为该行是否存在 Conflict 格。
 
 默认输出：逐格取 未变→center、左改→left、右改→right、同改→left、异改→center；结构行 左增/右增/同增取对应侧、删除不输出、删改冲突保留 center 行、双增冲突不输出任一新行。冲突区段 = 相邻含冲突对齐行的聚合（一期 gap=0，即只聚合物理相邻；text-merge 的 `conflict_gap` 在表格里语义存疑，见 Open Questions）。
@@ -54,6 +54,13 @@ left / right 各自查找配对；center 没有的 left 行与 right 行再按�
 - 评审补充：**数字格式随格写出**（读取时已有 `Style.number_format`，`builtin:N` 用 `set_num_format_index`）——否则日期格写成序列号、百分比写成小数，值虽相等但用户可见内容被破坏；日期值（Unix 毫秒）换算为 Excel 序列日并配日期格式。
 - 评审补充：**xlsm 宏工程**：以 `.xlsm` 输出却写普通 xlsx 内容类型时 Excel 拒绝打开。从输入（center 优先）用 `zip` 取 `xl/vbaProject.bin`，输出扩展名为 xlsm（或不是 xlsx）时原样带入；输出 .xlsx 而输入有宏时给警告。
 - 替代方案：`umya-spreadsheet` 读写保样式——依赖重、改写整文件的正确性风险高，弃；直接 zip 级外科手术改 sheet XML——复杂且脆弱，弃。
+
+**二次修订（用户要求保留样式，2026-11-14）**：改为以 center 包为模板的 zip 级写出（`xlsx_patch`），`rust_xlsxwriter` 新写降为后备。
+理由：样式、列宽、合并单元格、图表、批注、宏等全部在包里，只有 `<sheetData>` 与行引用需要改，模板写出是唯一能“原样保留”的做法；
+脆弱性用三点控制——只按元素局部名定位（容忍命名空间前缀），其余部件逐字节复制（`raw_copy_file`），失败即退回后备写出并告警。
+连带发现并修正：行增删后公式/定义名称/图表的行引用必须重定位（`formula_refs`），否则合并结果的公式指向错误行；
+公式格的比较改为“重定位到输出坐标后的公式文本”，否则任何一侧插删行都会让合计行成为双侧改动冲突（见 D2）。
+已用 Excel COM 打开生成结果核对：重算、合并区域、粗体表头、列宽、图表系列与定义名称均正确。
 
 ### D4: 路由按格式分派，csv/tsv 不 breaking
 

@@ -1,0 +1,178 @@
+{
+ "description": "左改日期、右改布尔：日期格式与值保留",
+ "keys": [
+  1
+ ],
+ "exit": 0,
+ "conflicts": 0,
+ "base": {
+  "sheets": [
+   {
+    "name": "Tasks",
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "due",
+       "s": "header"
+      },
+      {
+       "v": "done",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      {
+       "v": "date:2024-01-31",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      2,
+      {
+       "v": "date:2024-02-29",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      3,
+      {
+       "v": "date:2024-03-15",
+       "s": "day"
+      },
+      true
+     ]
+    ]
+   }
+  ]
+ },
+ "left": {
+  "sheets": [
+   {
+    "name": "Tasks",
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "due",
+       "s": "header"
+      },
+      {
+       "v": "done",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      {
+       "v": "date:2024-01-31",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      2,
+      {
+       "v": "date:2024-03-01",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      3,
+      {
+       "v": "date:2024-03-15",
+       "s": "day"
+      },
+      true
+     ]
+    ]
+   }
+  ]
+ },
+ "right": {
+  "sheets": [
+   {
+    "name": "Tasks",
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "due",
+       "s": "header"
+      },
+      {
+       "v": "done",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      {
+       "v": "date:2024-01-31",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      2,
+      {
+       "v": "date:2024-02-29",
+       "s": "day"
+      },
+      false
+     ],
+     [
+      3,
+      {
+       "v": "date:2024-03-15",
+       "s": "day"
+      },
+      false
+     ]
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "formats": {
+   "Tasks!B3": {
+    "num_fmt": "yyyy-mm-dd"
+   },
+   "Tasks!A1": {
+    "bold": true
+   }
+  }
+ },
+ "styles": {
+  "header": {
+   "bold": true,
+   "fill": "DDEBF7"
+  },
+  "money": {
+   "num_fmt": "#,##0.00"
+  },
+  "total": {
+   "italic": true
+  },
+  "red": {
+   "num_fmt": "#,##0.00",
+   "fill": "FF0000"
+  },
+  "day": {
+   "num_fmt": "yyyy-mm-dd"
+  }
+ }
+}

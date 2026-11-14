@@ -81,6 +81,8 @@ pub struct LoadedTableMerge {
     pub workbook: bool,
     /// 输入中 xlsm 的宏工程（center 优先），输出为 xlsm 时原样带入。
     pub vba: Option<Vec<u8>>,
+    /// 工作簿输入的原始字节（left、center、right）：以 center 为模板写出，保留样式与版式。
+    pub packages: Option<[Vec<u8>; 3]>,
     pub warnings: Vec<String>,
 }
 
@@ -158,6 +160,14 @@ pub fn load(spec: &MergeSpec, options: &TableMergeOptions) -> Result<LoadedTable
         }
     };
     let merge = TableMerge::new(inputs, options).map_err(|e| e.to_string())?;
+    let packages = if workbook {
+        let read = |path: &Path| {
+            std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+        };
+        Some([read(&spec.left)?, read(&spec.center)?, read(&spec.right)?])
+    } else {
+        None
+    };
     let mut vba = None;
     if workbook {
         for path in [&spec.center, &spec.left, &spec.right] {
@@ -174,11 +184,15 @@ pub fn load(spec: &MergeSpec, options: &TableMergeOptions) -> Result<LoadedTable
         merge,
         workbook,
         vba,
+        packages,
         warnings,
     })
 }
 
-/// 把合并结果写到 `path`（同目录临时文件再替换）。返回非致命提示（宏、样式未保留）。
+/// 把合并结果写到 `path`（同目录临时文件再替换）。`sheets` = `loaded.merge.output()`。
+/// 工作簿以 center 的包为模板写出（样式、列宽、合并单元格、图表、宏等保留，见
+/// `bc_engine_table::xlsx_patch`）；模板写出失败时退回新写工作簿并给出提示。
+/// 返回非致命提示。
 pub fn write_output(
     sheets: &[Sheet],
     loaded: &LoadedTableMerge,
@@ -186,8 +200,17 @@ pub fn write_output(
     inputs: &[&Path],
 ) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
-    let bytes = if loaded.workbook {
-        let xlsx = extension_is(path, &["xlsx"]);
+    let xlsx = extension_is(path, &["xlsx"]);
+    let patched = loaded.packages.as_ref().map(|[l, c, r]| {
+        bc_engine_table::xlsx_patch::patch_workbook(&loaded.merge, sheets, [l, c, r], !xlsx)
+    });
+    let bytes = if let Some(Ok((bytes, notes))) = patched {
+        warnings.extend(notes);
+        bytes
+    } else if loaded.workbook {
+        if let Some(Err(e)) = patched {
+            warnings.push(format!("{e}; written without styles"));
+        }
         let vba = loaded.vba.as_deref().filter(|_| !xlsx);
         if loaded.vba.is_some() && xlsx {
             warnings.push("macros not kept: the output is .xlsx".to_string());

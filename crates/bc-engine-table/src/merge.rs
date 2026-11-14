@@ -22,6 +22,7 @@ use crate::{
     align::{hashes, KeyColumn},
     columns::{ColumnMapping, Side as PairSide},
     compare::{CellComparator, Importance},
+    formula_refs::{shift_formula, RowMap},
     inference::infer_keys_data,
     invalid,
     model::{RawRow, SheetSource, TextSource},
@@ -505,6 +506,7 @@ impl SheetMerge {
             resolution: Resolution::default(),
         };
         merge.classify(&rules, options);
+        merge.normalize_formulas(options.ignore_unimportant);
         merge.sheet_presence();
         Ok(merge)
     }
@@ -651,6 +653,108 @@ impl SheetMerge {
     }
 
     /// Sheet-level structure: a sheet deleted on one side.
+    /// Formula cells compare by their formula re-pointed into output rows. A side that
+    /// inserted or deleted rows had its formulas adjusted by Excel (`SUM(C2:C6)` became
+    /// `SUM(C2:C5)`); without this every such formula reads as changed on both sides.
+    /// Cached values of formula cells are not compared (they are recalculated).
+    fn normalize_formulas(&mut self, ignore: bool) {
+        let sheets = [&self.left, &self.center, &self.right];
+        if !sheets.iter().any(|s| {
+            s.columns
+                .iter()
+                .any(|c| c.iter().any(|cell| cell.formula.is_some()))
+        }) {
+            return;
+        }
+        let maps = self.row_maps();
+        if maps.iter().all(RowMap::is_identity) {
+            return;
+        }
+        let n = self.columns;
+        let name = self.name.clone();
+        let sides = [Side::Left, Side::Center, Side::Right];
+        let mut updates = Vec::new();
+        for (r, row) in self.rows.iter().enumerate() {
+            let mut cells: Vec<CellChoice> = self.cells[r * n..(r + 1) * n].to_vec();
+            let mut touched = false;
+            for (column, choice) in cells.iter_mut().enumerate() {
+                let f: Vec<Option<String>> = sides
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, side)| {
+                        let index = row.index(*side)?;
+                        let formula = sheets[slot].cell(index, column)?.formula.as_deref()?;
+                        let map = &maps[slot];
+                        Some(shift_formula(formula, Some(map), &|s| {
+                            (s == name).then_some(map)
+                        }))
+                    })
+                    .collect();
+                if f.iter().all(Option::is_none) {
+                    continue;
+                }
+                let same = |a: usize, b: usize| match (&f[a], &f[b]) {
+                    (Some(x), Some(y)) => Some(x == y),
+                    _ => None,
+                };
+                let importance = |equal: bool| {
+                    if equal {
+                        Importance::Same
+                    } else {
+                        Importance::Important
+                    }
+                };
+                let decided = match row.kind {
+                    RowKind::Normal => match (same(0, 1), same(1, 2), same(0, 2)) {
+                        (Some(lc), Some(cr), Some(lr)) => Some(choice_of(
+                            [importance(lc), importance(cr), importance(lr)],
+                            ignore,
+                        )),
+                        _ => None,
+                    },
+                    RowKind::BothAdded | RowKind::AddConflict => same(0, 2).map(|equal| {
+                        if equal {
+                            CellChoice::Both
+                        } else {
+                            CellChoice::Conflict
+                        }
+                    }),
+                    RowKind::DeleteConflict => {
+                        let (other, changed) = if row.left.is_some() {
+                            (CellChoice::Left, same(0, 1))
+                        } else {
+                            (CellChoice::Right, same(1, 2))
+                        };
+                        changed.map(|equal| if equal { CellChoice::Center } else { other })
+                    }
+                    _ => None,
+                };
+                if let Some(decided) = decided {
+                    if *choice != decided {
+                        *choice = decided;
+                        touched = true;
+                    }
+                }
+            }
+            if touched {
+                updates.push((r, cells));
+            }
+        }
+        for (r, cells) in updates {
+            let kind = &mut self.rows[r].kind;
+            match *kind {
+                RowKind::AddConflict if !cells.contains(&CellChoice::Conflict) => {
+                    *kind = RowKind::BothAdded
+                }
+                RowKind::DeleteConflict if cells.iter().all(|c| *c == CellChoice::Center) => {
+                    *kind = RowKind::Deleted
+                }
+                _ => {}
+            }
+            self.cells[r * n..(r + 1) * n].copy_from_slice(&cells);
+        }
+    }
+
     fn sheet_presence(&mut self) {
         let [l, c, r] = self.present;
         if !c {
@@ -971,12 +1075,59 @@ impl SheetMerge {
 
     /// The merged sheet, or `None` when the sheet is dropped. Text tables keep the base
     /// side's records: unchanged fields, delimiters and line endings stay as they were.
+    /// Aligned rows that are in the output, in output order (output row `k` is
+    /// aligned row `output_rows()[k]`).
+    pub fn output_rows(&self) -> Vec<usize> {
+        if self.is_dropped() {
+            return Vec::new();
+        }
+        (0..self.rows.len())
+            .filter(|&row| self.row_base(row).is_some())
+            .collect()
+    }
+
+    /// Row maps of the left, center and right input sheets into the output (used to
+    /// re-point formula references after rows were inserted or removed).
+    pub fn row_maps(&self) -> [RowMap; 3] {
+        let sizes = [
+            self.left.row_count(),
+            self.center.row_count(),
+            self.right.row_count(),
+        ];
+        let mut maps = sizes.map(|n| RowMap {
+            rows: vec![None; n],
+            output_len: 0,
+        });
+        let output = self.output_rows();
+        for map in &mut maps {
+            map.output_len = output.len();
+        }
+        for (k, &row) in output.iter().enumerate() {
+            for (slot, side) in [Side::Left, Side::Center, Side::Right]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(index) = self.rows[row].index(side) {
+                    maps[slot].rows[index] = Some(k);
+                }
+            }
+        }
+        maps
+    }
+
+    /// Side an output cell's input comes from (`Edited` → the row's base side).
+    pub fn cell_side(&self, row: usize, column: usize) -> Option<Side> {
+        Some(match self.cell_source(row, column)? {
+            CellSource::Left => Side::Left,
+            CellSource::Right => Side::Right,
+            CellSource::Center => Side::Center,
+            CellSource::Edited => self.row_base(row)?,
+        })
+    }
+
     pub fn output_sheet(&self) -> Option<Sheet> {
         if self.is_dropped() {
             return None;
-        }
-        if let Some(side) = self.sheet_verbatim() {
-            return Some(self.sheet(side).clone());
         }
         let base = if self.present[1] {
             Side::Center
@@ -1182,10 +1333,49 @@ impl TableMerge {
 
     /// Output sheets (dropped sheets left out).
     pub fn output(&self) -> Vec<Sheet> {
-        self.sheets
-            .iter()
-            .filter_map(SheetMerge::output_sheet)
-            .collect()
+        let maps: Vec<[RowMap; 3]> = self.sheets.iter().map(SheetMerge::row_maps).collect();
+        let slot = |side: Side| match side {
+            Side::Left => 0,
+            Side::Right => 2,
+            _ => 1,
+        };
+        let mut out = Vec::new();
+        for (index, merge) in self.sheets.iter().enumerate() {
+            let Some(mut sheet) = merge.output_sheet() else {
+                continue;
+            };
+            if maps.iter().all(|m| m.iter().all(RowMap::is_identity)) {
+                out.push(sheet);
+                continue;
+            }
+            for (k, &row) in merge.output_rows().iter().enumerate() {
+                for column in 0..sheet.column_count() {
+                    let Some(formula) = sheet.cell(k, column).and_then(|c| c.formula.clone())
+                    else {
+                        continue;
+                    };
+                    if merge.cell_source(row, column) == Some(CellSource::Edited) {
+                        continue;
+                    }
+                    let Some(side) = merge.cell_side(row, column) else {
+                        continue;
+                    };
+                    let s = slot(side);
+                    let lookup = |name: &str| {
+                        self.sheets
+                            .iter()
+                            .position(|m| m.name == name && !m.is_dropped())
+                            .map(|i| &maps[i][s])
+                    };
+                    let shifted = shift_formula(&formula, Some(&maps[index][s]), &lookup);
+                    if *shifted != *formula {
+                        Arc::make_mut(&mut sheet.columns[column])[k].formula = Some(shifted.into());
+                    }
+                }
+            }
+            out.push(sheet);
+        }
+        out
     }
 
     /// Key columns per sheet, for result lines (`Sheet1: 1 (inferred)`).

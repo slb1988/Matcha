@@ -107,8 +107,9 @@ fn workbook_merge_by_format_and_output_overwriting_an_input() {
     assert_eq!(merge_kind(&spec, false), Ok(MergeKind::Table));
     let report = auto_merge_tables(&spec, &TableMergeOptions::default()).unwrap();
     assert_eq!(report.code, ExitCode::Success, "{}", report.summary());
+    // Written from the center package: no "without styles" fallback.
     assert!(
-        report.summary().contains("without styles"),
+        !report.summary().contains("without styles"),
         "{}",
         report.summary()
     );

@@ -1,0 +1,5 @@
+{
+  "description": "左删行、右改同一行：删改冲突",
+  "exit": 101,
+  "conflicts": 1
+}

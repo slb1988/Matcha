@@ -1,0 +1,5 @@
+{
+  "description": "两侧把同一格改成不同值：冲突，不写出",
+  "exit": 101,
+  "conflicts": 1
+}

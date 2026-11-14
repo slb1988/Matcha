@@ -35,7 +35,7 @@
 
 ## 5. 集成、语料与文档
 
-- [ ] 5.1 golden 语料：`tools/golden` 增加表格合并样本生成与预期（单元格冲突、删改、双增、多 sheet、xlsx 与 CSV 各若干）；golden 运行通过
+- [x] 5.1 golden 语料：`tools/golden` 增加表格合并样本生成与预期（单元格冲突、删改、双增、多 sheet、xlsx 与 CSV 各若干）；golden 运行通过
 - [x] 5.2 性能验证：大表（十万行级）三方合并耗时与内存记录在案，无数量级回归；结果写入 change 下的验证记录或 worker report
 - [x] 5.3 文档：新增 `docs/features/table-merge.md`（功能简介、验收方式、代码地图），更新 `docs/features/README.md` 索引与 `table-compare.md`/`text-merge.md` 交叉引用、`CHANGELOGS.md`（含 BREAKING 说明）；链接有效、验收命令可执行
 - [ ] 5.4 全量门禁：`cargo test` 全绿 + `powershell -ExecutionPolicy Bypass -File tools/dev-build.ps1` 通过
@@ -44,8 +44,9 @@
 
 - 5.2（2026-11-14，release，本机）：`cargo test --release -p bc-engine-table --lib merge_scale -- --ignored --nocapture`，
   100k 行 × 10 列、键自动推断：建立合并 0.27 s，输出 sheet 0.14 s，冲突统计 < 1 ms。无数量级问题。
-- 5.1 未做独立 golden 语料：语义由 `merge_tests.rs`（20 例）、`table_merge_tests.rs`（5 例）与
-  `apps/bcompare/tests/table_merge.rs`（真实二进制 P4V 形式）覆盖；golden 语料留待后续。
+- 5.1（2026-11-14）：`crates/bc-script/tests/golden/table_merge/` 24 例（16 个 CSV/TSV 字节级期望手写，8 个 xlsx 由
+  `case.json` 描述、测试时生成），`cargo test -p bc-script --test table_merge_golden` 全部通过；xlsx 输出另用 Excel COM 打开核对。
+- 追加任务（用户要求保留样式）：`xlsx_patch` 模板写出 + `formula_refs` 行引用重定位 + 公式格按重定位后文本比较，见 design D3 二次修订。
 
 ## Workflow follow-up
 

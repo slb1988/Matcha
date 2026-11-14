@@ -1,0 +1,398 @@
+{
+ "description": "左删未改动的 sheet Old、改 Notes；右新增 sheet New：输出 Data, Notes, New",
+ "keys": [
+  1
+ ],
+ "exit": 0,
+ "conflicts": 0,
+ "base": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   },
+   {
+    "name": "Notes",
+    "widths": {
+     "A": 40
+    },
+    "rows": [
+     [
+      {
+       "v": "keep",
+       "s": "header"
+      }
+     ]
+    ]
+   },
+   {
+    "name": "Old",
+    "rows": [
+     [
+      "legacy",
+      1
+     ]
+    ]
+   }
+  ]
+ },
+ "left": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   },
+   {
+    "name": "Notes",
+    "widths": {
+     "A": 40
+    },
+    "rows": [
+     [
+      {
+       "v": "kept and edited",
+       "s": "header"
+      }
+     ]
+    ]
+   }
+  ]
+ },
+ "right": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   },
+   {
+    "name": "Notes",
+    "widths": {
+     "A": 40
+    },
+    "rows": [
+     [
+      {
+       "v": "keep",
+       "s": "header"
+      }
+     ]
+    ]
+   },
+   {
+    "name": "Old",
+    "rows": [
+     [
+      "legacy",
+      1
+     ]
+    ]
+   },
+   {
+    "name": "New",
+    "widths": {
+     "C": 25
+    },
+    "rows": [
+     [
+      {
+       "v": "fresh",
+       "s": "header"
+      },
+      2
+     ]
+    ]
+   }
+  ]
+ },
+ "expect": {
+  "formats": {
+   "New!A1": {
+    "bold": true,
+    "fill": "DDEBF7"
+   },
+   "Notes!A1": {
+    "bold": true
+   }
+  },
+  "layout": {
+   "New": {
+    "widths": [
+     "C"
+    ]
+   },
+   "Notes": {
+    "widths": [
+     "A"
+    ]
+   }
+  }
+ },
+ "styles": {
+  "header": {
+   "bold": true,
+   "fill": "DDEBF7"
+  },
+  "money": {
+   "num_fmt": "#,##0.00"
+  },
+  "total": {
+   "italic": true
+  },
+  "red": {
+   "num_fmt": "#,##0.00",
+   "fill": "FF0000"
+  },
+  "day": {
+   "num_fmt": "yyyy-mm-dd"
+  }
+ }
+}

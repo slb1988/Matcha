@@ -15,15 +15,18 @@
 - `/automerge` 无窗口执行：无冲突写出返回 0，有冲突不写返回 101；`/reviewconflicts` 让它在有冲突时转入界面。
 - 界面：上排 LEFT / BASE / RIGHT 三个只读网格，底部可编辑 OUTPUT 网格，共用滚动；冲突导航、Take Left/Center/Right、
   接受当前内容、编辑输出格、撤销/重做、保存；多 sheet 工作簿有 sheet 标签，各 sheet 状态独立。
-- 写出：CSV/TSV 逐记录保真（未改字段的拼写、引号、分隔符、行尾、编码/BOM 原样）；xlsx 新写工作簿（值、公式及缓存结果、
-  数字格式、sheet 名与顺序；xlsm 带回宏工程），**不保留**字体/填充/边框/列宽/合并单元格/图表/图片。
+- 写出：CSV/TSV 逐记录保真（未改字段的拼写、引号、分隔符、行尾、编码/BOM 原样）；xlsx **以 center 工作簿为模板**写出，
+  样式（字体/填充/边框/数字格式）、列宽、行高、合并单元格、冻结窗格、条件格式、数据验证、图表、图片、批注、定义名称、
+  宏工程原样保留，只重写单元格数据；行增删后公式、合并单元格、定义名称、表格、图表系列的行引用随行重定位（与 Excel 插删行一致）。
 
 ## 代码地图
 
 | 层 | 位置 | 内容 |
 |---|---|---|
 | 引擎 | `crates/bc-engine-table/src/merge.rs` | `SheetMerge`（键连接、单元格/行分类、冲突区段、take/accept/edit、`output_sheet`）、`TableMerge`（多 sheet 配对）、`auto_merge` |
-| 写出 | `crates/bc-engine-table/src/xlsx_write.rs` | `workbook_bytes`（`rust_xlsxwriter`）、`vba_project`（从 xlsm 取 `vbaProject.bin`） |
+| 写出 | `crates/bc-engine-table/src/xlsx_patch.rs` | `patch_workbook`：以 center 包为模板重写 `<sheetData>`、并入他侧样式、重定位行引用、增删 sheet；`cell_format`/`sheet_layout` 诊断 |
+| 行引用 | `crates/bc-engine-table/src/formula_refs.rs` | `RowMap`、`shift_formula`（A1 引用随行移动，删除行 → `#REF!`，范围收缩）、`shift_sqref` |
+| 后备写出 | `crates/bc-engine-table/src/xlsx_write.rs` | 模板写出失败时的新写工作簿（`rust_xlsxwriter`，不保样式）、`vba_project` |
 | 宿主 | `crates/bc-script/src/table_merge.rs` | `merge_kind`（格式分派，含 ZIP 文件头识别）、`load`（读三方、文本表格表头由 center 决定）、`write_output`、`auto_merge_tables`、`options` |
 | 命令行 | `crates/bc-script/src/cli.rs` | `Switch::{TableMerge, Keys}`、`MergeSwitches.table`、`CliArgs::merge_keys` |
 | 应用 | `apps/bcompare/src/routing.rs`、`main.rs` | `merge_kind`、`Route::AutoMerge { table }`、`/force` 拒绝、`merge_launch` 带 `table`/`keys` |
@@ -32,6 +35,8 @@
 | 宿主测试 | `crates/bc-script/src/table_merge_tests.rs` | CSV/xlsx 自动合并、扣留、键越界、分派矩阵、VCS 临时文件名 |
 | 路由测试 | `apps/bcompare/src/routing.rs`（`table_merges_route_by_format`） | 按格式分派、`/force`、混合格式 |
 | GUI 测试 | `crates/bc-gui/src/table_merge/` 下的 `*_tests.rs` | 模型与视图命令 |
+| 写出测试 | `crates/bc-engine-table/src/xlsx_patch_tests.rs`、`formula_refs.rs` | 样式/列宽/冻结/合并单元格/图表/定义名称保留与行重定位，sheet 增删 |
+| 语料 | `crates/bc-script/tests/golden/table_merge/`（24 例）+ `tests/table_merge_golden.rs` | CSV/TSV 字节级期望；xlsx 用 `case.json` 描述三方工作簿（测试时生成，不入库二进制），校验值、公式、格式与版式 |
 
 ## 关键语义
 
@@ -43,7 +48,9 @@
 - **重复键**：第 k 次出现的键与另一侧第 k 次出现配对；结果行带 duplicate keys 警告。
 - **行序跟随 center**；只在一侧的新行排在它在本侧前一行（已配对行）之后。单侧调换行顺序**不会**合并进结果。
 - **列按位置**、宽度取三方最大值：一侧追加的列像普通改动一样并入；窄的一侧缺的格按空格处理。列级插删/移动不做冲突。
-- **单元格判定**比较值与公式（`ValuesAndFormulas`），按列规则（容差、大小写、空白、不重要列）；数字格式不参与。
+- **单元格判定**比较值与公式（`ValuesAndFormulas`），按列规则（容差、大小写、空白、不重要列）；数字格式与样式不参与
+  （只改样式不算改动，输出取该格来源侧的样式）。**公式格按“重定位到输出行坐标后的公式文本”比较**，不比缓存值：一侧插删行后
+  Excel 已改写的 `SUM(C2:C6)`→`SUM(C2:C5)` 不算改动；一侧把范围扩到新行算该侧改动。
 - 默认输出：未变取 center，左改取 left，右改取 right，同改取 left，异改**保留 center 并计为冲突**；
   左增/右增取对应行，同增取 left；删除不输出；**删改冲突**未解决时保留 center 行；**双增冲突**（同键异内容）未解决时两行都不输出。
 - **冲突区段** = 相邻含冲突的对齐行（间距 0，不像文本合并那样把相隔 2 行的改动并段）。
@@ -57,8 +64,14 @@
   输出顺序：center 的 sheet，然后 left 新增，再 right 新增。
 - **写出**：同目录临时文件再替换，输出可以是某个输入；扣留时已存在的输出文件保持原样；输出的既有内容不参与合并。
   文本表格以 center 的格式（分隔符、引号、编码、BOM、默认行尾）写回：整行来自某侧的行原样搬运该侧记录，
-  混合来源的行只替换变化的字段。工作簿输出总是 xlsx 内容；输出扩展名为 xlsm（或不是 xlsx 且输入带宏）时带回
-  `vbaProject.bin`，输出为 .xlsx 而输入有宏时警告宏未保留；输出覆盖某个输入时警告样式等未保留。
+  混合来源的行只替换变化的字段。
+- **工作簿写出**以 center 的 xlsx 包为模板：只有每个 sheet 的 `<sheetData>` 重新生成，其余部件原样复制。每格沿用来源侧的样式；
+  只有 left/right 有的样式并入 center 的 `styles.xml`（字体/填充/边框/数字格式去重后追加）。行属性（行高、隐藏、分级、行样式）取该行基准侧。
+  文本写为内联字符串，公式写为普通公式（共享/数组公式分组不保留），缓存结果照写，并设 `fullCalcOnLoad` 且删除 `calcChain.xml`，
+  Excel 打开即重算。行增删后重定位：本 sheet 公式、合并单元格、条件格式/数据验证/超链接/筛选/选区的 `ref`/`sqref`、表格部件、
+  定义名称、图表系列；被删行的单格引用变 `#REF!`，范围收缩。只在 left/right 有的 sheet 以该侧 sheet 为模板加入（去掉其图形、表格、
+  批注、条件格式等依赖关系的元素），被删除的 sheet 连同部件移除，`localSheetId` 随之调整。输出为 .xlsx 而 center 是宏工作簿时
+  去掉宏工程并警告。模板写出失败（包结构异常）时退回新写工作簿并在结果行警告“written without styles”。
 - **没有冲突标记形式**：`/force` 在表格合并里报错 100（`/reviewconflicts` 也不能让 `/force` 生效）。
 - xlsx 首行按数据参与合并（不当表头），所以表头行改名也按单元格合并；CSV 的表头由 center 判定一次，按同一设置读 left/right，
   表头名逐列三方取舍。
@@ -85,7 +98,13 @@ cargo test -p bc-engine-table --lib merge
 cargo test -p bc-script --lib table_merge
 cargo test -p bcompare
 cargo test -p bc-gui --lib table_merge
+cargo test -p bc-script --test table_merge_golden
 ```
+
+语料：`crates/bc-script/tests/golden/table_merge/<NN-name>/case.json`（`description`、`keys`、`exit`、`conflicts`、`key_label`、
+xlsx 例的 `left`/`base`/`right` 工作簿描述与 `expect.formulas|formats|layout`）。`MATCHA_BLESS=1` 按当前输出重写期望文件
+（审阅 diff 后再提交）；`MATCHA_GOLDEN_KEEP=<dir>` 把每例的输入与输出留在目录里，便于用 Excel 打开核对。
+目录带 `.gitattributes`（`-text`），CRLF/LF/BOM 按字节入库。
 
 P4V：Arguments 仍是 `%1 %2 %b %r`（或 `/automerge /reviewconflicts %1 %2 %b %r`），指向 xlsx 时自动走表格合并；
 CSV 想按表格合并时在前面加 `/tablemerge`。
@@ -96,7 +115,9 @@ Take/接受/编辑与保存后的退出码。
 
 ## 尚未实现
 
-- xlsx 样式/图表/列宽/合并单元格的保真写出；公式求值。
+- 公式求值（缓存结果按来源写，打开时由 Excel 重算）；单元格内富文本分段（写成整格纯文本，单元格字体保留）；
+  数组公式、共享公式分组；批注锚点、透视表、`docProps/app.xml` 的 sheet 标题不随行增删更新；
+  从 left/right 加入的新 sheet 不带其图形、表格与批注；R1C1 / 外部工作簿引用不重定位。
 - 列级三方合并（插删列、列移动的冲突语义）；行的结构编辑（输出网格插删行）。
 - 合并视图内修改键与列规则；命名会话与 Home 入口；容差键匹配。
 - 冲突区段的 `conflict_gap`（相近冲突并段）。

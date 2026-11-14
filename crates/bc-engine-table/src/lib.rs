@@ -16,6 +16,8 @@ pub mod jobs;
 pub mod map;
 pub mod merge;
 pub mod xlsx_write;
+pub mod formula_refs;
+pub mod xlsx_patch;
 pub use align::KeyAlign;
 pub use data::{CellData, CellInfo, TableData};
 pub use map::TableMap;

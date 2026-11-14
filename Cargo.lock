@@ -162,6 +162,7 @@ dependencies = [
  "calamine",
  "encoding_rs",
  "memmap2",
+ "quick-xml 0.41.0",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
@@ -255,6 +256,8 @@ dependencies = [
  "bc-report",
  "bc-session",
  "bc-vfs",
+ "rust_xlsxwriter",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 

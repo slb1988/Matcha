@@ -66,3 +66,13 @@
 - `xlsx_write::workbook_bytes(sheets, vba)`：`rust_xlsxwriter` 新写，值 / 公式（`set_result` 写缓存结果）/
   数字格式（`builtin:N` → `set_num_format_index`）/ 日期（Unix 毫秒 → Excel 序列日 + 日期格式）；`vba_project` 用 `zip` 取 `xl/vbaProject.bin`。
   `rust_xlsxwriter`、`zip` 为本功能新增直接依赖（zip 与 calamine 共用同一版本）。
+- **样式保留写出 `xlsx_patch::patch_workbook(merge, sheets, [left, center, right 包字节], keep_macros)`**：center 包为模板，
+  其余部件 `raw_copy_file` 逐字节复制，只重写各 sheet 的 `<sheetData>`（内联字符串、普通公式 + 缓存结果、来源侧样式索引经
+  `StyleMap` 映射到 center，他侧独有的字体/填充/边框/数字格式/xf 去重追加进 center 的 `styles.xml`）。XML 只按元素局部名定位
+  （容忍前缀），用 quick-xml 求元素跨度后字符串拼接。行引用重定位用 `formula_refs`：`SheetMerge::row_maps()` 给出三方各自
+  输入行 → 输出行的 `RowMap`，`TableMerge::output()` 先改写各格公式，`patch_workbook` 再改 `ref`/`sqref`、`mergeCells`、
+  条件格式/数据验证里的公式、表格部件、定义名称与图表 `<c:f>`。删除 `calcChain.xml`，设 `fullCalcOnLoad`。新增/删除 sheet 时
+  同步 workbook.xml、其 rels 与 `[Content_Types].xml`（`localSheetId`、`activeTab` 一并调整）。`xlsx_write` 仅作后备。
+- `SheetMerge::normalize_formulas`：分类后，三方都有公式的格按“各自 `RowMap` 重定位后的公式文本”重判（不比缓存值），
+  消除一侧插删行导致的伪改动；必要时把双增冲突/删改冲突降为同增/删除。
+- 测试语料：`crates/bc-script/tests/golden/table_merge/`（见 `docs/features/table-merge.md`）。

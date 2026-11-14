@@ -1,0 +1,334 @@
+{
+ "description": "两侧都新增同名 sheet：无 center 时逐行三方（各自新增的行都保留，同行同内容只出现一次）",
+ "keys": [
+  1
+ ],
+ "exit": 0,
+ "conflicts": 0,
+ "base": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   }
+  ]
+ },
+ "left": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   },
+   {
+    "name": "Extra",
+    "rows": [
+     [
+      "key",
+      "value"
+     ],
+     [
+      "a",
+      1
+     ],
+     [
+      "shared",
+      0
+     ]
+    ]
+   }
+  ]
+ },
+ "right": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   },
+   {
+    "name": "Extra",
+    "rows": [
+     [
+      "key",
+      "value"
+     ],
+     [
+      "b",
+      2
+     ],
+     [
+      "shared",
+      0
+     ]
+    ]
+   }
+  ]
+ },
+ "styles": {
+  "header": {
+   "bold": true,
+   "fill": "DDEBF7"
+  },
+  "money": {
+   "num_fmt": "#,##0.00"
+  },
+  "total": {
+   "italic": true
+  },
+  "red": {
+   "num_fmt": "#,##0.00",
+   "fill": "FF0000"
+  },
+  "day": {
+   "num_fmt": "yyyy-mm-dd"
+  }
+ }
+}

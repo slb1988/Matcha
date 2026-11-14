@@ -1,0 +1,300 @@
+{
+ "description": "两侧改同一格不同值：101，不写出",
+ "keys": [
+  1
+ ],
+ "exit": 101,
+ "conflicts": 1,
+ "base": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      20,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   }
+  ]
+ },
+ "left": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      21,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   }
+  ]
+ },
+ "right": {
+  "sheets": [
+   {
+    "name": "Data",
+    "widths": {
+     "B": 30
+    },
+    "freeze": [
+     1,
+     0
+    ],
+    "rows": [
+     [
+      {
+       "v": "id",
+       "s": "header"
+      },
+      {
+       "v": "item",
+       "s": "header"
+      },
+      {
+       "v": "qty",
+       "s": "header"
+      },
+      {
+       "v": "price",
+       "s": "header"
+      }
+     ],
+     [
+      1,
+      "apple",
+      10,
+      {
+       "v": 1.5,
+       "s": "money"
+      }
+     ],
+     [
+      2,
+      "pear",
+      22,
+      {
+       "v": 2.0,
+       "s": "money"
+      }
+     ],
+     [
+      3,
+      "plum",
+      30,
+      {
+       "v": 3.0,
+       "s": "money"
+      }
+     ],
+     [
+      4,
+      "fig",
+      40,
+      {
+       "v": 4.0,
+       "s": "money"
+      }
+     ],
+     [
+      5,
+      "kiwi",
+      50,
+      {
+       "v": 5.0,
+       "s": "money"
+      }
+     ],
+     [
+      null,
+      null,
+      "=SUM(C2:C6)"
+     ]
+    ],
+    "merge": [
+     {
+      "range": "A7:B7",
+      "value": "Total",
+      "style": "total"
+     }
+    ]
+   }
+  ]
+ },
+ "styles": {
+  "header": {
+   "bold": true,
+   "fill": "DDEBF7"
+  },
+  "money": {
+   "num_fmt": "#,##0.00"
+  },
+  "total": {
+   "italic": true
+  },
+  "red": {
+   "num_fmt": "#,##0.00",
+   "fill": "FF0000"
+  },
+  "day": {
+   "num_fmt": "yyyy-mm-dd"
+  }
+ }
+}

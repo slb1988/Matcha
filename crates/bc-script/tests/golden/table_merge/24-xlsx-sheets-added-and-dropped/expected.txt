@@ -1,0 +1,12 @@
+## Data
+id | item | qty | price
+1 | apple | 10 | 1.5
+2 | pear | 20 | 2
+3 | plum | 30 | 3
+4 | fig | 40 | 4
+5 | kiwi | 50 | 5
+Total |  | 0 |
+## Notes
+kept and edited
+## New
+fresh | 2
