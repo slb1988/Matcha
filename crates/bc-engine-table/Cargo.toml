@@ -11,6 +11,8 @@ bc-core = { workspace = true }
 bc-formats = { workspace = true }
 bc-jobs = { workspace = true }
 calamine = { workspace = true }
+rust_xlsxwriter = { workspace = true }
+zip = { workspace = true }
 encoding_rs = { workspace = true }
 memmap2 = { workspace = true }
 serde = { workspace = true }

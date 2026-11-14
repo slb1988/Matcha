@@ -39,6 +39,9 @@ pub enum Switch {
     ForceView(SessionKind),
     /// `/iu`
     IgnoreUnimportant,
+    /// `/keys=<n,…>` – key columns of a table merge (stored 0-based, priority order;
+    /// Matcha extension).
+    Keys(Vec<usize>),
     /// `/mergeoutput=<path>`
     MergeOutput(PathBuf),
     /// `/nobackups`
@@ -68,6 +71,8 @@ pub enum Switch {
     Solo,
     /// `/sync`
     Sync,
+    /// `/tablemerge` – merge text tables (csv/tsv) as tables (Matcha extension).
+    TableMerge,
     /// `/title1..4=<title>` (`lefttitle`, `righttitle`, `centertitle`, `outputtitle`); index 0-based.
     Title(u8, String),
     /// `/vcs1..4=<path>`; index 0-based.
@@ -278,9 +283,8 @@ impl CliArgs {
     /// The three-way merge this command line asks for, however it was spelled: three or
     /// four paths, or two paths plus `/center=`. `/mergeoutput=` wins over a fourth path.
     pub fn merge_spec(&self) -> Option<MergeSpec> {
-        let switch = |pick: fn(&Switch) -> Option<&PathBuf>| {
-            self.switches.iter().find_map(pick).cloned()
-        };
+        let switch =
+            |pick: fn(&Switch) -> Option<&PathBuf>| self.switches.iter().find_map(pick).cloned();
         let (left, right, center, output) = match &self.invocation {
             Invocation::Merge3 {
                 left,
@@ -321,6 +325,7 @@ impl CliArgs {
     pub fn merge_switches(&self) -> MergeSwitches {
         MergeSwitches {
             automerge: self.has(|s| matches!(s, Switch::AutoMerge)),
+            table: self.has(|s| matches!(s, Switch::TableMerge)),
             review_conflicts: self.has(|s| matches!(s, Switch::ReviewConflicts)),
             force: self.has(|s| matches!(s, Switch::Force)),
             ignore_unimportant: self.has(|s| matches!(s, Switch::IgnoreUnimportant)),
@@ -332,6 +337,14 @@ impl CliArgs {
                 Favor::None
             },
         }
+    }
+
+    /// `/keys=` of a table merge (0-based comparison columns); the last one given wins.
+    pub fn merge_keys(&self) -> Option<Vec<usize>> {
+        self.switches.iter().rev().find_map(|s| match s {
+            Switch::Keys(keys) => Some(keys.clone()),
+            _ => None,
+        })
     }
 
     /// `/title1..4` (0-based: left, right, center, output); the last one given wins.
@@ -365,6 +378,8 @@ pub struct MergeSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MergeSwitches {
     pub automerge: bool,
+    /// `/tablemerge`: text tables merge as tables (workbooks always do).
+    pub table: bool,
     pub review_conflicts: bool,
     pub force: bool,
     pub ignore_unimportant: bool,
@@ -408,7 +423,8 @@ pub fn usage() -> String {
         "  (none)                  Home view",
         "  <folder> <folder>       Folder Compare",
         "  <file> <file>           Compare (view chosen by file format, or /fv)",
-        "  <l> <r> <center> [<o>]  Text Merge (with output file)",
+        "  <l> <r> <center> [<o>]  Merge (with output file): Table Merge for xlsx/xlsm,",
+        "                          Text Merge otherwise",
         "  <name>                  Saved session or workspace",
         "  <file.bcpkg>            Import settings package",
         "  <file.diff|.patch>      Text Patch",
@@ -424,18 +440,20 @@ pub fn usage() -> String {
         "  /expandall              Expand all folders",
         "  /favorleft /favorright  With /automerge /iu: side taken for unimportant conflicts",
         "  /filters=<masks>        File filters for folder sessions",
-        "  /force                  With /automerge: write conflicts with markers",
+        "  /force                  With /automerge: write conflicts with markers (text only)",
         "  /fv=<type>              Force the view type (e.g. \"Text Compare\")",
         "  /iu                     With /automerge: ignore unimportant differences",
+        "  /keys=<n,...>           Table merge key columns (1-based, priority order)",
         "  /mergeoutput=<path>     Merge output file",
         "  /nobackups              Do not create backup files",
         "  /qc[=size|crc|binary]   Quick compare (rules-based without a value)",
-        "  /reviewconflicts        With /automerge: open Text Merge when conflicts remain",
+        "  /reviewconflicts        With /automerge: open the merge view when conflicts remain",
         "  /ro /ro1 /ro2           Read-only (all / left / right)",
         "  /savetarget=<file>      File to save to",
         "  /silent                 Suppress all interaction",
         "  /solo                   Force a new instance",
         "  /sync                   Open in Folder Sync",
+        "  /tablemerge             Merge csv/tsv files as tables (cells by key, not lines)",
         "  /title1..4=<title>      Pane titles (left, right, center, output)",
         "  /vcs1..4=<path>         Version-control paths",
         "",
@@ -526,6 +544,9 @@ fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
                 .ok_or_else(|| error(format!("unknown view type for /fv: {kind}")))
         }
         "iu" => flag(Switch::IgnoreUnimportant),
+        "keys" => parse_keys(&need()?)
+            .map(|keys| Some(Switch::Keys(keys)))
+            .map_err(error),
         "mergeoutput" | "mo" => Ok(Some(Switch::MergeOutput(PathBuf::from(need()?)))),
         "nobackups" => flag(Switch::NoBackups),
         "qc" => {
@@ -549,6 +570,7 @@ fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
         "silent" => flag(Switch::Silent),
         "solo" => flag(Switch::Solo),
         "sync" => flag(Switch::Sync),
+        "tablemerge" => flag(Switch::TableMerge),
         "selectleft" => flag(Switch::Shell(ShellVerb::SelectLeft)),
         "compareto" => flag(Switch::Shell(ShellVerb::CompareTo)),
         "comparepair" => flag(Switch::Shell(ShellVerb::ComparePair)),
@@ -578,6 +600,27 @@ fn parse_switch(arg: &str) -> Result<Option<Switch>, CliError> {
             }
         }
     }
+}
+
+/// `/keys=1,3`：1 起的列号，按给出顺序为优先级；转成 0 起，拒绝 0、非数字与重复。
+fn parse_keys(value: &str) -> Result<Vec<usize>, String> {
+    let mut keys = Vec::new();
+    for part in value.split(',').map(str::trim) {
+        match part.parse::<usize>() {
+            Ok(n) if n > 0 => {
+                if keys.contains(&(n - 1)) {
+                    return Err(format!("/keys lists column {n} twice"));
+                }
+                keys.push(n - 1);
+            }
+            _ => {
+                return Err(format!(
+                    "/keys expects 1-based column numbers such as /keys=1,3, got {part:?}"
+                ))
+            }
+        }
+    }
+    Ok(keys)
 }
 
 /// 位置参数推断：按个数，再按 `-`、扩展名与目录判断。
@@ -712,14 +755,19 @@ mod tests {
             ..expected.clone()
         };
         assert_eq!(spec(&["a", "b", "c", "d"]), Some(with_output.clone()));
-        assert_eq!(spec(&["/mergeoutput=d", "a", "b", "c"]), Some(with_output.clone()));
+        assert_eq!(
+            spec(&["/mergeoutput=d", "a", "b", "c"]),
+            Some(with_output.clone())
+        );
         assert_eq!(
             spec(&["-center=c", "-mergeoutput=d", "a", "b"]),
             Some(with_output)
         );
         // `/mergeoutput=` wins over the fourth path.
         assert_eq!(
-            spec(&["/mergeoutput=x/out", "a", "b", "c", "d"]).unwrap().output,
+            spec(&["/mergeoutput=x/out", "a", "b", "c", "d"])
+                .unwrap()
+                .output,
             Some(w.join("x/out"))
         );
         // Two paths without a center, folders and single paths are not merges.
@@ -747,6 +795,7 @@ mod tests {
             cli.merge_switches(),
             MergeSwitches {
                 automerge: true,
+                table: false,
                 review_conflicts: true,
                 force: false,
                 ignore_unimportant: true,
@@ -760,7 +809,30 @@ mod tests {
         assert!(!plain.automerge && plain.force && plain.favor == Favor::Left);
         assert!(CliArgs::parse_in(["/favorleft", "/favorright", "a", "b", "c"], &cwd()).is_err());
         let usage = usage();
-        for needle in ["/automerge", "/reviewconflicts", "/mergeoutput=<path>", "/center=<file>"] {
+        for needle in [
+            "/automerge",
+            "/reviewconflicts",
+            "/mergeoutput=<path>",
+            "/center=<file>",
+        ] {
+            assert!(usage.contains(needle), "{needle}");
+        }
+    }
+
+    #[test]
+    fn table_merge_switches() {
+        let cli = parse(&["/tablemerge", "/keys=2, 1", "a.csv", "b.csv", "c.csv"]);
+        assert!(cli.merge_switches().table);
+        assert_eq!(cli.merge_keys(), Some(vec![1, 0]));
+        assert_eq!(parse(&["a", "b", "c"]).merge_keys(), None);
+        for bad in ["/keys=0", "/keys=1,1", "/keys=a", "/keys=", "/keys=1,,2"] {
+            assert!(
+                CliArgs::parse_in([bad, "a", "b", "c"], &cwd()).is_err(),
+                "{bad}"
+            );
+        }
+        let usage = usage();
+        for needle in ["/tablemerge", "/keys=<n,...>"] {
             assert!(usage.contains(needle), "{needle}");
         }
     }

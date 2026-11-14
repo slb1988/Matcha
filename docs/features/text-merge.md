@@ -34,9 +34,10 @@
 
 ## 关键语义
 
-- **调用固定为文本合并**：`matcha <left> <right> <center> [<output>]`，或
+- **调用**：`matcha <left> <right> <center> [<output>]`，或
   `matcha /center=<file> [/mergeoutput=<path>] <left> <right>`；`/mergeoutput=` 优先于第 4 个位置参数。
-  不按文件格式路由，CSV/TSV 也按行合并；文件夹、缺失、不可读或非文本输入报错。
+  三个输入都是 xlsx/xlsm 工作簿时改走[表格合并](table-merge.md)，工作簿与非工作簿混合报错（100）；
+  其余（含 CSV/TSV，除非带 `/tablemerge`）按行文本合并；文件夹、缺失、不可读或非文本输入报错。
 - **行类型决定内容，冲突加在区段上。** 未变取 center，左改取 left，右改取 right，同改取 left，异改取 center。
   连续的非未变行是一个改动段；改动段里出现异改、或同时有两侧改动时是冲突；相隔不超过
   `conflict_gap`（默认 2）个未变行、分别带有相对侧改动的两段并成一个冲突。
@@ -147,3 +148,4 @@ Take 与接受作用于光标所在区段：冲突区段优先，否则为改动
 - 参考对照与未确认的语义：[reference-parity/text-merge.md](../reference-parity/text-merge.md)
 - `crates/bc-engine-text/README.md`、`crates/bc-script/README.md`
 - 命令行总览：[cli-and-scripting.md](cli-and-scripting.md)
+- xlsx/CSV 的键对齐逐格合并：[table-merge.md](table-merge.md)

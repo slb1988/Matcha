@@ -57,4 +57,5 @@ matcha /report=summary left.xlsx right.xlsx   # 命令行差异报告
 - `crates/bc-engine-table/README.md`（中文，最详尽的实现说明）
 - ADR：`docs/decisions/201-table-source-and-alignment.md`、`202-table-view-and-golden.md`
 - 行为对齐：`docs/reference-parity/table-compare.md`
+- 三方合并（复用本功能的读取、键哈希、键推断与单元格比较）：[table-merge.md](table-merge.md)
 - 实施报告：`docs/worker-reports/table-compare-xlsx-wave1…7*.md`、`table-memory-handoff.md`

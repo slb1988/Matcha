@@ -45,7 +45,8 @@ A syntax error anywhere wins over an unsupported command. Each rejection names t
 - `cli::Switch` – all switches: `/? /h /help /automerge /center= /closescript /edit
   /expandall /favorleft /favorright /filters= /force /fv= /iu /mergeoutput= /nobackups
   /qc[=] /reviewconflicts /ro /ro1 /ro2 (/readonly /lro /rro) /savetarget= /silent /solo
-  /sync /title1..4= (/lefttitle…) /vcs1..4=`; `cli::Invocation` – positional inference.
+  /sync /tablemerge /keys= /title1..4= (/lefttitle…) /vcs1..4=`; `cli::Invocation` –
+  positional inference.
 - `cli::{MergeSpec, MergeSwitches}` – normalized merge paths and switches;
   `CliArgs::merge_spec` accepts three/four positional paths or two paths plus `/center=`
   (`/mergeoutput=` overrides the fourth path), `CliArgs::merge_switches` collects the merge
@@ -54,6 +55,12 @@ A syntax error anywhere wins over an unsupported command. Each rejection names t
 - `runner::{AutoMergeRequest, AutoMergeReport, auto_merge_files}` – headless text merge;
   `AutoMergeRequest::from_cli` builds the request, `replace_file` writes through a temporary
   file, and `auto_merge_exit_code` maps the engine outcome to 0/14/101.
+- `table_merge` – table merges: `merge_kind` (all three inputs xlsx/xlsm by extension or ZIP
+  header → table; none → text, or table with `/tablemerge`; mixed → error), `load` (reads the
+  three sides like `table_report`; a text table's header mode is decided by the center and
+  reused for left/right), `write_output` (xlsx via `bc_engine_table::xlsx_write`, text tables
+  written back record-preserving, both through `replace_file`) and `auto_merge_tables`
+  (0 written / 101 withheld; the report carries the key columns used).
 
 `/automerge` requires an output target and returns 0 when conflict-free output was written,
 14 when conflicts were written with `/force`, 101 when conflicts prevented writing, or 100

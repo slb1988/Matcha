@@ -616,6 +616,8 @@ pub struct AutoMergeReport {
     /// Whether the output file was written.
     pub written: bool,
     pub warnings: Vec<String>,
+    /// Key columns a table merge used (`1 (inferred)`); `None` for text merges.
+    pub keys: Option<String>,
 }
 
 impl AutoMergeReport {
@@ -624,6 +626,9 @@ impl AutoMergeReport {
         let mut line = self.code.description().to_string();
         if self.conflicts > 0 {
             line.push_str(&format!(": {} conflict section(s)", self.conflicts));
+        }
+        if let Some(keys) = &self.keys {
+            line.push_str(&format!(" (keys: {keys})"));
         }
         for warning in &self.warnings {
             line.push_str(&format!(" (warning: {warning})"));
@@ -693,6 +698,7 @@ pub fn auto_merge_files(request: &AutoMergeRequest) -> Result<AutoMergeReport, S
         conflicts: outcome.conflicts.len(),
         written,
         warnings: outcome.warnings,
+        keys: None,
     })
 }
 
@@ -700,9 +706,9 @@ pub fn auto_merge_files(request: &AutoMergeRequest) -> Result<AutoMergeReport, S
 pub fn replace_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let failed = |e: std::io::Error| format!("cannot write {}: {e}", path.display());
-    let name = path.file_name().ok_or_else(|| {
-        format!("cannot write {}: not a file path", path.display())
-    })?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| format!("cannot write {}: not a file path", path.display()))?;
     let mut temp_name = std::ffi::OsString::from(".matcha-merge-");
     temp_name.push(std::process::id().to_string());
     temp_name.push("-");

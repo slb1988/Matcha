@@ -31,7 +31,7 @@ description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / m
 matcha                          → Home 视图
 matcha <dir> <dir>              → 文件夹比较
 matcha <file> <file>            → 按文件格式选视图（或 /fv 强制）
-matcha <left> <right> <center> [<output>] → 文本合并（可带输出文件）
+matcha <left> <right> <center> [<output>] → 三方合并（xlsx/xlsm 为表格合并，其余文本合并；可带输出文件）
 matcha <name>                   → 已保存的会话 / 工作区
 matcha @<script> [args…]        → 脚本模式（无界面执行）
 matcha <file.bcpkg>             → 导入设置包
@@ -49,7 +49,8 @@ matcha /automerge theirs.txt yours.txt base.txt result.txt
 matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
 ```
 
-一律按文本合并（CSV/TSV 按行），不按文件格式路由；`/mergeoutput=` 优先于第 4 个位置参数。
+非工作簿按行文本合并（CSV/TSV 也是，除非加 `/tablemerge`）；三个输入都是 xlsx/xlsm 时走下方表格合并，
+混合格式报错 100。`/mergeoutput=` 优先于第 4 个位置参数。
 `/automerge` 在发起进程内执行、从不转交已有实例，必须有输出目标；写同目录临时文件再替换，不建备份，
 不读旧输出，输出可等于某个输入。结果写 stdout 一行，`/silent` 或无标准输出时不写、不为结果弹框；
 错误写 stderr（无控制台时为消息框）。界面保存按当前输出写出，**不会插入冲突标记**。
@@ -57,6 +58,22 @@ matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
 P4V：Application 用 `matcha.exe`，Arguments 用 `%1 %2 %b %r`（theirs / yours / base / result）；
 要“无冲突不开窗”用 `/automerge /reviewconflicts %1 %2 %b %r`。不要配置 `matcha-comp.exe`。
 合并语义**未经参考样本确认**；界面快捷键与验收见 `docs/features/text-merge.md`。
+
+## 表格三方合并（xlsx/xlsm 自动，CSV/TSV 加 /tablemerge）
+
+```bat
+matcha theirs.xlsx yours.xlsx base.xlsx result.xlsx
+matcha /automerge theirs.xlsx yours.xlsx base.xlsx result.xlsx
+matcha /automerge /keys=1 theirs.xlsx yours.xlsx base.xlsx result.xlsx
+matcha /automerge /reviewconflicts theirs.xlsx yours.xlsx base.xlsx result.xlsx
+matcha /tablemerge /automerge theirs.csv yours.csv base.csv result.csv
+```
+
+行按键列对齐（`/keys=` 1 起列号 > 自动推断 > 整行作键），逐单元格合并：两侧改同行不同列不冲突，同格异值、
+一侧删行另一侧改行、两侧新增同键异内容是冲突。`/automerge` 退出码 0（已写出）/ 101（有冲突未写出）/ 100（错误）；
+**`/force` 报错 100**（单元格放不下冲突标记）。结果行带实际键列，如 `Success (keys: 1 (inferred))`。
+xlsx 输出重写工作簿：保留值、公式、数字格式与 sheet，xlsm 带回宏；**不保留**样式、列宽、图表。CSV 输出保真写回。
+P4V 参数不变（`%1 %2 %b %r`），扩展名不是 xlsx 的临时文件按 ZIP 文件头识别。详见 `docs/features/table-merge.md`。
 
 ## 三个最常用形态（均已实测）
 
@@ -148,6 +165,8 @@ matcha /qc=binary a.txt b.txt   :: 还有 size / crc
 /favorleft /favorright  带 /automerge 或 /reviewconflicts 且有 /iu：被忽略的不重要冲突取指定侧而非 center；两者互斥
 /mergeoutput=<path>  合并输出目标，优先于第 4 个位置参数
 /center=<file>    两个输入文件配此开关成为三方合并（共同祖先）
+/tablemerge       CSV/TSV 三方调用按表格（键对齐逐格）合并；xlsx/xlsm 不需要
+/keys=<n,...>     表格合并的键列（1 起，按顺序为优先级），越界/重复/0 报错
 /sync             以 Folder Sync 打开
 /vcs1..4=<path>   VCS 路径占位
 /savetarget=<f>   保存目标

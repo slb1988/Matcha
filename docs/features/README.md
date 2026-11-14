@@ -23,7 +23,8 @@
 | [text-compare.md](text-compare.md) | 文本比较 / 编辑（FR-T1…T8） | 双向比较已实现；三方合并见 [text-merge.md](text-merge.md) | `bc-engine-text` |
 | [text-merge.md](text-merge.md) | 文本三方合并（FR-T7）：自动合并、冲突解决、P4V 集成 | 已实现（引擎 + 命令行 + 界面；合并语义未经参考样本确认） | `bc-engine-text`、`bc-script`、`bc-gui` |
 | [folder-compare-sync.md](folder-compare-sync.md) | 文件夹比较与同步（FR-D1…D5） | 已实现（wave A/B/C 完成） | `bc-engine-dir` |
-| [table-compare.md](table-compare.md) | 表格比较 CSV/XLSX（FR-C1） | 已实现 | `bc-engine-table` |
+| [table-compare.md](table-compare.md) | 表格比较 CSV/XLSX（FR-C1） | 已实现；三方合并见 [table-merge.md](table-merge.md) | `bc-engine-table` |
+| [table-merge.md](table-merge.md) | 表格三方合并 xlsx/xlsm/CSV：键对齐逐格合并、自动合并、冲突解决 | 已实现（引擎 + 命令行 + 界面；BC 无对应功能，语义以 design 为准） | `bc-engine-table`、`bc-script`、`bc-gui` |
 | [hex-compare.md](hex-compare.md) | 十六进制比较（hex-compare change 已落地） | 21/23（3.2 待参考机生成期望；7.2 Mac 侧 4 个无关既有夹具失败） | `bc-engine-bin` |
 | [cli-and-scripting.md](cli-and-scripting.md) | 命令行三件套、脚本引擎、退出码（FR-S1/S2） | 无窗口子集已实现 | `bc-script` + `apps/` |
 | [reports.md](reports.md) | 报告输出（patch 四种布局等，FR-R1） | patch 布局已实现 | `bc-report` |

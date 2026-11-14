@@ -20,6 +20,7 @@ pub mod exit_code;
 pub mod parser;
 pub mod platform;
 pub mod runner;
+pub mod table_merge;
 pub mod table_report;
 
 pub use cli::{CliArgs, Invocation, Switch};

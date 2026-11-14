@@ -15,7 +15,8 @@
 
 合并调用：`matcha <left> <right> <center>`、`matcha <left> <right> <center> <output>`，或
 `matcha /center=<file> [/mergeoutput=<path>] <left> <right>`；`/mergeoutput=` 优先于第 4 个位置参数。
-这些调用一律文本合并（CSV/TSV 按行），不按文件格式路由；原先三/四个路径报不支持并返回 100，现在打开合并视图。
+三个输入都是 xlsx/xlsm 工作簿时走[表格合并](table-merge.md)（键对齐逐格合并），CSV/TSV 默认仍按行文本合并，
+加 `/tablemerge` 才按表格合并（`/keys=1,3` 指定键列）；工作簿与非工作簿混合报错 100。
 **合并调用总是等待**：`matcha.exe` 与 `matcha.com` 都等待合并标签页关闭并回传结果码，包括转交已有实例；
 自己成为首个实例或 `/solo` 时要等整个窗口关闭（仅合并一页时关页即关窗）。无窗口合并则等待执行完成。
 
@@ -28,6 +29,7 @@
   不读取既有输出；输出可等于输入，101 时既有输出保持原样。结果为 stdout 一行，`/silent` 或无标准输出时
   不写也不为结果弹框；错误写 stderr（无控制台时为消息框）。加 `/reviewconflicts` 时，无冲突仍不开窗；
   有冲突先不写输出，转入界面并由界面决定退出码。`/reviewconflicts` 优先于 `/force`，但 `/silent` 使它失效。
+  表格合并没有冲突标记形式：0 / 101 / 100，`/force` 报错 100；结果行带实际键列（`(keys: 1 (inferred))`）。
 - `/report=`：见 [reports.md](reports.md)。
 - `@script.txt a b`：脚本模式，`%1`…`%9` 参数替换、`%date%`、`#` 注释、`&` 续行、
   大小写不敏感；支持 `text-report`、`table-report`（`summary` 布局）、`log`、`option`、`beep`，
@@ -60,6 +62,8 @@ matcha @diff.txt a.txt b.txt
 matcha theirs.txt yours.txt base.txt result.txt
 matcha /automerge theirs.txt yours.txt base.txt result.txt
 matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
+matcha /automerge /keys=1 theirs.xlsx yours.xlsx base.xlsx result.xlsx
+matcha /tablemerge /automerge theirs.csv yours.csv base.csv result.csv
 cargo test -p bc-script
 ```
 
@@ -68,6 +72,7 @@ cargo test -p bc-script
 ## 深入阅读
 
 - 文本合并、退出码与 P4V 配置：[text-merge.md](text-merge.md)
+- 表格合并（xlsx/CSV）：[table-merge.md](table-merge.md)
 - `crates/bc-script/README.md`、`apps/bcomp/README.md`
 - ADR：`docs/decisions/301-windows-subsystem-split.md`
 - 变更过程：`openspec/changes/text-patch-reports/`

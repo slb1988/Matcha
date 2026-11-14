@@ -162,8 +162,10 @@ dependencies = [
  "calamine",
  "encoding_rs",
  "memmap2",
+ "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]
@@ -298,6 +300,8 @@ dependencies = [
 name = "bcompare"
 version = "0.1.0"
 dependencies = [
+ "bc-core",
+ "bc-engine-table",
  "bc-gui",
  "bc-instance",
  "bc-script",
@@ -2210,6 +2214,15 @@ name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
+
+[[package]]
+name = "rust_xlsxwriter"
+version = "0.102.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ca3d0e879a578c1313c2800ab0c6c029d38eed18098675e50341a30d32372ed"
+dependencies = [
+ "zip",
+]
 
 [[package]]
 name = "rustc-hash"

@@ -53,7 +53,7 @@ pub fn is_workbook(path: &Path) -> bool {
 }
 
 /// 与 GUI 相同的表格读取选项。
-fn read_options(path: &Path, registry: &FormatRegistry) -> Result<ReadOptions, TableError> {
+pub(crate) fn read_options(path: &Path, registry: &FormatRegistry) -> Result<ReadOptions, TableError> {
     if has_extension(path, &["xls", "ods"]) {
         return Err(TableError::other(format!(
             "{}: this workbook type is not supported; use XLSX/XLSM or CSV",

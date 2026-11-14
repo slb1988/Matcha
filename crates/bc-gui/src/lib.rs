@@ -30,6 +30,7 @@ pub mod remote;
 pub mod snapshot;
 pub mod sync_view;
 pub mod table;
+pub mod table_merge;
 pub mod text;
 
 use std::path::PathBuf;

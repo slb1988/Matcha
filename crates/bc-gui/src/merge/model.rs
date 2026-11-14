@@ -29,6 +29,10 @@ pub struct MergeLaunch {
     /// 仅由 `/automerge /reviewconflicts` 转入时带入，使界面与自动合并的判定一致。
     pub ignore_unimportant: bool,
     pub favor: Favor,
+    /// 表格合并（xlsx/xlsm，或 `/tablemerge` 的文本表格）：打开表格合并视图而非文本合并。
+    pub table: bool,
+    /// `/keys=`：表格合并的键列（0 起）。
+    pub keys: Option<Vec<usize>>,
 }
 
 impl MergeLaunch {
@@ -38,6 +42,8 @@ impl MergeLaunch {
             titles: Default::default(),
             ignore_unimportant: false,
             favor: Favor::None,
+            table: false,
+            keys: None,
         }
     }
 }

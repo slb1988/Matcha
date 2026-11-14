@@ -40,7 +40,7 @@ pub struct KeyAlign;
 /// One key column: rules column index, its handling, and whether formula
 /// cells in it hash by formula text (some cell on either side has no cached
 /// result, so values cannot be trusted to line up).
-type KeyColumn = (usize, ColumnHandling, bool);
+pub(crate) type KeyColumn = (usize, ColumnHandling, bool);
 /// Formula text of a by-formula key cell (`None`: hash/compare the value).
 fn key_formula<S: TableData>(sheet: &S, row: usize, column: Option<usize>) -> Option<String> {
     let info = sheet.cell_info(row, column?)?;
@@ -207,7 +207,7 @@ fn hashes_chunk<S: TableData>(
     }
     Ok(out)
 }
-fn hashes<S: TableData + Sync>(
+pub(crate) fn hashes<S: TableData + Sync>(
     sheet: &S,
     order: &[usize],
     side: Side,

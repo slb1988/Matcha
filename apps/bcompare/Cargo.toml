@@ -22,4 +22,6 @@ windows-sys = { workspace = true }
 
 [dev-dependencies]
 bc-instance = { workspace = true }
+bc-engine-table = { workspace = true }
+bc-core = { workspace = true }
 bc-shell = { workspace = true }

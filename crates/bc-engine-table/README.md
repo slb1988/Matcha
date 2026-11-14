@@ -45,3 +45,24 @@
 百万行基准：`cargo run --release -p bc-engine-table --example table_bench`；仅系统临时目录生成两份百万行 × 10 列 CSV，结束自动清理，输出各阶段时间/进程 RSS/累积峰值与后台取消延迟。
 
 接口与边界见 [ADR 201](../../docs/decisions/201-table-source-and-alignment.md)。
+
+## 三方合并（`merge`）与 xlsx 写出（`xlsx_write`）
+
+- `merge::SheetMerge::new(name, [left, center, right], &TableMergeOptions)`：缺席的一侧传 `None`（按空表处理）。
+  列按位置对齐，宽度取三方最大并把窄表 `ensure_size` 补齐，使越界格与空格一致。
+- **键连接而非序列对齐**：键列经 `align::hashes`（与双方对齐同一套归一、按公式哈希与出现序号）得到每行令牌；
+  center 令牌建索引后左右各自查找配对，center 没有的左右行再按令牌互配（同增 / 双增冲突由此得出）。
+  孤儿行按本侧前一个已配对行所对应的 center 行分桶（`reconcile3` 的分桶规则），桶内先左后右；行序因此是 center 的物理序。
+  不使用 `align3`：它按位置并排孤儿，无法识别“两侧新增同键”，排序对齐又会打乱输出行序。
+- 键来源：显式 > `infer_keys_data`（center 对 left、center 对 right 两次推断，候选须三方都唯一）> 全部列。
+- 单元格比较复用 `CellComparator`，层为 `ValuesAndFormulas`；`choice_of` 与文本合并同构。行级 `RowKind` 七种；
+  `cells` 为 行×列 的扁平 `CellChoice`，`importance` 为每行原始最大重要性。
+- 解决状态 `Resolution`（可整体克隆用于撤销）：结构行取侧、单元格取侧、手工编辑、已接受行、sheet 级取侧。
+  `row_base` 决定输出行基于哪一侧（`None` = 不输出），`cell_source` 决定每格来源。冲突区段 = 相邻冲突行（间距 0）。
+- `output_sheet`：文本表格构造新 `TextSource`——整行来自某侧且分隔符/引号一致时原样搬运该侧 `RawRow`，
+  其余字段记入 `changed` + `display_overrides`（保留来源拼写），由 `write_delimited` 写回；表头与 center 原表头相同才复用原始表头记录。
+- `TableMerge::new(MergeInputs, …)` 多 sheet：三方各至多一张时直接配对，否则按名字；sheet 级删改冲突未解决时输出 center 版本。
+  `auto_merge` 有冲突即扣留输出。
+- `xlsx_write::workbook_bytes(sheets, vba)`：`rust_xlsxwriter` 新写，值 / 公式（`set_result` 写缓存结果）/
+  数字格式（`builtin:N` → `set_num_format_index`）/ 日期（Unix 毫秒 → Excel 序列日 + 日期格式）；`vba_project` 用 `zip` 取 `xl/vbaProject.bin`。
+  `rust_xlsxwriter`、`zip` 为本功能新增直接依赖（zip 与 calamine 共用同一版本）。

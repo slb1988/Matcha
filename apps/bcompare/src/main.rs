@@ -133,7 +133,7 @@ fn main() -> ExitCode {
         Route::QuickCompare { left, right, mode } => {
             quick_compare(&left, &right, mode, cli.silent())
         }
-        Route::AutoMerge { spec } => match auto_merge(&cli, &spec) {
+        Route::AutoMerge { spec, table } => match auto_merge(&cli, &spec, table) {
             Some(code) => code,
             // `/reviewconflicts` 且有冲突：没有写输出，转入与普通合并调用相同的界面路径。
             None => {
@@ -176,9 +176,21 @@ fn main() -> ExitCode {
 /// `/automerge`：不开窗口；结果一行写到 stdout（`/silent` 时不写），以 0 / 14 / 101 结束，
 /// 输入或写出有问题时 100。`None` = 带 `/reviewconflicts`、未 `/silent` 且有冲突：什么都没写，
 /// 由调用方转去开合并视图。
-fn auto_merge(cli: &CliArgs, spec: &cli::MergeSpec) -> Option<ExitCode> {
+fn auto_merge(cli: &CliArgs, spec: &cli::MergeSpec, table: bool) -> Option<ExitCode> {
     let switches = cli.merge_switches();
     let review = switches.review_conflicts && !cli.silent();
+    if table {
+        let options = bc_script::table_merge::options(
+            cli.merge_keys(),
+            switches.ignore_unimportant,
+            switches.favor,
+        );
+        return report_auto_merge(
+            cli,
+            review,
+            bc_script::table_merge::auto_merge_tables(spec, &options),
+        );
+    }
     let label = |index: u8, path: &Path| {
         cli.title(index).map(str::to_string).unwrap_or_else(|| {
             path.file_name()
@@ -196,7 +208,16 @@ fn auto_merge(cli: &CliArgs, spec: &cli::MergeSpec) -> Option<ExitCode> {
         console::tell(Kind::Error, "/automerge needs an output file");
         return Some(exit(Code::UnknownError));
     };
-    Some(match bc_script::runner::auto_merge_files(&request) {
+    report_auto_merge(cli, review, bc_script::runner::auto_merge_files(&request))
+}
+
+/// `/automerge` 的结果：一行结果与退出码；`None` = `/reviewconflicts` 且有冲突（转界面）。
+fn report_auto_merge(
+    cli: &CliArgs,
+    review: bool,
+    result: Result<bc_script::runner::AutoMergeReport, String>,
+) -> Option<ExitCode> {
+    Some(match result {
         Ok(report) if review && report.conflicts > 0 => return None,
         Ok(report) => {
             // 结果行只写给已有的标准输出：由 P4V 等 GUI 程序启动时没有控制台，不能为一行

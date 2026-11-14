@@ -14,6 +14,8 @@ mod copying;
 pub mod editing;
 pub mod jobs;
 pub mod map;
+pub mod merge;
+pub mod xlsx_write;
 pub use align::KeyAlign;
 pub use data::{CellData, CellInfo, TableData};
 pub use map::TableMap;

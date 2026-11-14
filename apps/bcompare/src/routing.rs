@@ -2,6 +2,7 @@
 //! 纯逻辑，无 I/O，便于单测。
 use bc_gui::bench::BenchOptions;
 use bc_script::cli::{CliArgs, ContentCompare, Invocation, MergeSpec, ReportSwitches, Switch};
+use bc_script::table_merge::MergeKind;
 use std::path::{Path, PathBuf};
 
 /// 开发/测试用开关（不属于参考命令行）：`--bench[=N]`、`--bench-dir`、`--bench-table`、
@@ -146,8 +147,9 @@ pub enum Route {
         mode: Option<ContentCompare>,
     },
     /// `/automerge`：本进程内无窗口三方合并，不转交；结果为退出码 0 / 14 / 101（与一行文本）。
-    /// 带 `/reviewconflicts` 且有冲突时由调用方转去开合并视图。
-    AutoMerge { spec: MergeSpec },
+    /// 带 `/reviewconflicts` 且有冲突时由调用方转去开合并视图。`table` = 表格合并（xlsx/xlsm，
+    /// 或 `/tablemerge` 的文本表格）。
+    AutoMerge { spec: MergeSpec, table: bool },
     /// 参考命令行支持、GUI 尚未实现的调用；退出码 100。
     Unsupported(String),
 }
@@ -178,6 +180,9 @@ pub fn route(dev: &DevFlags, cli: &CliArgs, perf_env: bool) -> Route {
     if let Some(route) = quick_compare(cli) {
         return route;
     }
+    if let Some(Err(message)) = merge_kind(cli) {
+        return Route::Unsupported(message);
+    }
     if let Some(route) = auto_merge(cli) {
         return route;
     }
@@ -203,14 +208,31 @@ fn quick_compare(cli: &CliArgs) -> Option<Route> {
     })
 }
 
+/// 合并调用按文本还是表格合并（读文件头识别工作簿）；不是合并调用为 `None`，输入格式不一致
+/// 等为 `Some(Err)`（退出码 100）。
+pub fn merge_kind(cli: &CliArgs) -> Option<Result<MergeKind, String>> {
+    let spec = cli.merge_spec()?;
+    Some(bc_script::table_merge::merge_kind(
+        &spec,
+        cli.merge_switches().table,
+    ))
+}
+
 /// `/automerge` 需要三方调用（三个路径，或两个路径加 `/center=`）和输出目标（第 4 个路径或
 /// `/mergeoutput=`）；文件夹、缺失或非文本输入由合并本身报错（退出码 100）。
 fn auto_merge(cli: &CliArgs) -> Option<Route> {
     if !cli.merge_switches().automerge {
         return None;
     }
+    let table = matches!(merge_kind(cli), Some(Ok(MergeKind::Table)));
+    if table && cli.merge_switches().force {
+        return Some(Route::Unsupported(
+            "/force: a table merge cannot write conflict markers; drop /force (conflicts              leave the output unwritten, exit code 101)"
+                .into(),
+        ));
+    }
     Some(match cli.merge_spec() {
-        Some(spec) if spec.output.is_some() => Route::AutoMerge { spec },
+        Some(spec) if spec.output.is_some() => Route::AutoMerge { spec, table },
         Some(_) => Route::Unsupported(
             "/automerge needs an output file: matcha /automerge <left> <right> <center> <output> \
              (or /mergeoutput=<path>)"
@@ -261,8 +283,11 @@ pub fn merge_launch(cli: &CliArgs) -> Option<bc_gui::merge::MergeLaunch> {
     let spec = cli.merge_spec()?;
     let switches = cli.merge_switches();
     let carried = switches.automerge || switches.review_conflicts;
+    let table = matches!(merge_kind(cli), Some(Ok(MergeKind::Table)));
     Some(bc_gui::merge::MergeLaunch {
         spec,
+        table,
+        keys: cli.merge_keys(),
         titles: [0, 1, 2, 3].map(|index| cli.title(index).map(str::to_string)),
         ignore_unimportant: carried && switches.ignore_unimportant,
         favor: if carried {
@@ -417,11 +442,34 @@ mod tests {
         // `/solo`、`/silent`、`/force`、`/reviewconflicts` 不改变路由。
         for args in [
             &["/automerge", "a", "b", "c", "d"][..],
-            &["/solo", "/silent", "/automerge", "/force", "a", "b", "c", "d"],
-            &["/automerge", "/reviewconflicts", "/mergeoutput=d", "a", "b", "c"],
+            &[
+                "/solo",
+                "/silent",
+                "/automerge",
+                "/force",
+                "a",
+                "b",
+                "c",
+                "d",
+            ],
+            &[
+                "/automerge",
+                "/reviewconflicts",
+                "/mergeoutput=d",
+                "a",
+                "b",
+                "c",
+            ],
             &["/automerge", "/center=c", "/mergeoutput=d", "a", "b"],
         ] {
-            assert_eq!(routed(args), Route::AutoMerge { spec: spec.clone() }, "{args:?}");
+            assert_eq!(
+                routed(args),
+                Route::AutoMerge {
+                    spec: spec.clone(),
+                    table: false
+                },
+                "{args:?}"
+            );
         }
         for (args, needle) in [
             (&["/automerge", "a", "b", "c"][..], "needs an output file"),
@@ -436,11 +484,89 @@ mod tests {
     }
 
     #[test]
+    fn table_merges_route_by_format() {
+        let w = Path::new("C:/work");
+        let spec = |ext: &str| MergeSpec {
+            left: w.join(format!("a.{ext}")),
+            right: w.join(format!("b.{ext}")),
+            center: w.join(format!("c.{ext}")),
+            output: Some(w.join(format!("d.{ext}"))),
+        };
+        // xlsx/xlsm always merge as tables; csv only with /tablemerge.
+        assert_eq!(
+            routed(&["/automerge", "a.xlsx", "b.xlsx", "c.xlsx", "d.xlsx"]),
+            Route::AutoMerge {
+                spec: spec("xlsx"),
+                table: true
+            }
+        );
+        assert_eq!(
+            routed(&["/automerge", "a.csv", "b.csv", "c.csv", "d.csv"]),
+            Route::AutoMerge {
+                spec: spec("csv"),
+                table: false
+            }
+        );
+        assert_eq!(
+            routed(&[
+                "/automerge",
+                "/tablemerge",
+                "a.csv",
+                "b.csv",
+                "c.csv",
+                "d.csv"
+            ]),
+            Route::AutoMerge {
+                spec: spec("csv"),
+                table: true
+            }
+        );
+        assert_eq!(
+            routed(&["a.xlsx", "b.xlsx", "c.xlsx", "d.xlsx"]),
+            Route::SingleInstance
+        );
+        for (args, needle) in [
+            (&["a.xlsx", "b.csv", "c.xlsx"][..], "different formats"),
+            (
+                &[
+                    "/automerge",
+                    "/force",
+                    "a.xlsx",
+                    "b.xlsx",
+                    "c.xlsx",
+                    "d.xlsx",
+                ],
+                "/force",
+            ),
+            (&["/tablemerge", "a.xls", "b.xls", "c.xls"], "not supported"),
+        ] {
+            match routed(args) {
+                Route::Unsupported(message) => assert!(message.contains(needle), "{message}"),
+                other => panic!("{args:?}: {other:?}"),
+            }
+        }
+        let cli = CliArgs::parse_in(["/keys=2", "a.xlsm", "b.xlsm", "c.xlsm"], w).unwrap();
+        let launch = merge_launch(&cli).unwrap();
+        assert!(launch.table);
+        assert_eq!(launch.keys, Some(vec![1]));
+        let cli = CliArgs::parse_in(["a.csv", "b.csv", "c.csv"], w).unwrap();
+        assert!(!merge_launch(&cli).unwrap().table);
+    }
+
+    #[test]
     fn merge_launch_carries_titles_and_review_rules() {
         let cli = |args: &[&str]| CliArgs::parse_in(args, Path::new("C:/work")).unwrap();
         let w = Path::new("C:/work");
-        let launch = merge_launch(&cli(&["/title1=Theirs", "/title4=Result", "/iu", "a", "b", "c", "d"]))
-            .unwrap();
+        let launch = merge_launch(&cli(&[
+            "/title1=Theirs",
+            "/title4=Result",
+            "/iu",
+            "a",
+            "b",
+            "c",
+            "d",
+        ]))
+        .unwrap();
         assert_eq!(launch.spec.center, w.join("c"));
         assert_eq!(launch.spec.output, Some(w.join("d")));
         assert_eq!(
@@ -450,8 +576,15 @@ mod tests {
         // 普通合并调用：`/iu`、favor 不生效。
         assert!(!launch.ignore_unimportant);
         // 由 `/reviewconflicts` 转入：带上。
-        let launch =
-            merge_launch(&cli(&["/reviewconflicts", "/iu", "/favorleft", "a", "b", "c"])).unwrap();
+        let launch = merge_launch(&cli(&[
+            "/reviewconflicts",
+            "/iu",
+            "/favorleft",
+            "a",
+            "b",
+            "c",
+        ]))
+        .unwrap();
         assert!(launch.ignore_unimportant);
         assert_eq!(launch.favor, bc_script::cli::Favor::Left);
         assert!(merge_launch(&cli(&["a", "b"])).is_none());
@@ -472,7 +605,14 @@ mod tests {
         ]);
         assert_eq!(
             review_args(&args),
-            strings(&["/reviewconflicts", "/iu", "a.txt", "b.txt", "c.txt", "d.txt"])
+            strings(&[
+                "/reviewconflicts",
+                "/iu",
+                "a.txt",
+                "b.txt",
+                "c.txt",
+                "d.txt"
+            ])
         );
         let cli = CliArgs::parse_in(review_args(&args), Path::new("C:/w")).unwrap();
         assert!(unsupported(&cli).is_none());
