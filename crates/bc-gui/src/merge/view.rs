@@ -137,8 +137,8 @@ fn menus() -> Vec<MenuSpec> {
             "Search",
             'r',
             vec![
-                menu_item("Next Conflict Section", Some("Ctrl+N")),
-                menu_item("Previous Conflict Section", Some("Ctrl+P")),
+                menu_item("Next Change Section", Some("Ctrl+N")),
+                menu_item("Previous Change Section", Some("Ctrl+P")),
             ],
         ),
     ]
@@ -167,8 +167,8 @@ impl MergeView {
             message: String::new(),
             menus: menus(),
         };
-        // 打开即定位到第一个冲突。
-        if let Some(row) = view.model.state.conflicts().first().map(|c| c.rows.start) {
+        // 打开即定位到第一个冲突（没有冲突则第一个改动）。
+        if let Some(row) = view.model.first_conflict_or_change() {
             view.goto_row(row);
         }
         view
@@ -184,7 +184,7 @@ impl MergeView {
                 editor.insert(content, "# merged by hand\n")?;
                 Ok(true)
             });
-            self.command("Next Conflict Section");
+            self.command("Next Change Section");
         } else {
             self.goto_row(0);
         }
@@ -375,15 +375,15 @@ impl MergeView {
                     }
                 }
             }
-            "Next Conflict Section" | "Previous Conflict Section" => {
-                let forward = id == "Next Conflict Section";
-                match self.model.next_conflict(self.current_row, forward) {
+            "Next Change Section" | "Previous Change Section" => {
+                let forward = id == "Next Change Section";
+                match self.model.next_change(self.current_row, forward) {
                     Some(row) => self.goto_row(row),
                     None => {
                         self.message = if forward {
-                            "No more unresolved conflicts below".into()
+                            "No more changes below".into()
                         } else {
-                            "No more unresolved conflicts above".into()
+                            "No more changes above".into()
                         }
                     }
                 }
@@ -410,8 +410,8 @@ impl MergeView {
                     (egui::Key::B, true, _) => Some("Take Center"),
                     (egui::Key::R, true, _) => Some("Take Right"),
                     (egui::Key::K, true, _) => Some("Accept Current Content"),
-                    (egui::Key::N, true, _) => Some("Next Conflict Section"),
-                    (egui::Key::P, true, _) => Some("Previous Conflict Section"),
+                    (egui::Key::N, true, _) => Some("Next Change Section"),
+                    (egui::Key::P, true, _) => Some("Previous Change Section"),
                     (egui::Key::T, true, _) => Some("New Tab"),
                     (egui::Key::W, true, _) => Some("Close Tab"),
                     (egui::Key::Q, true, _) => Some("Exit"),
@@ -601,7 +601,7 @@ impl MergeView {
             self.command(&action);
         }
         let on_section = self.model.section_at(self.current_row).is_some();
-        let conflicts = self.model.unresolved() > 0;
+        let changes = self.model.has_changes();
         let items: Vec<ToolItem> = [
             (Icon::Home, "Home", "Home", "home", true),
             (Icon::Save, "Save", "Save Output", "file", true),
@@ -615,8 +615,8 @@ impl MergeView {
                 "take",
                 self.model.state.in_conflict(self.current_row),
             ),
-            (Icon::Next, "Next Conflict", "Next Conflict Section", "nav", conflicts),
-            (Icon::Prev, "Prev Conflict", "Previous Conflict Section", "nav", conflicts),
+            (Icon::Next, "Next Change", "Next Change Section", "nav", changes),
+            (Icon::Prev, "Prev Change", "Previous Change Section", "nav", changes),
         ]
         .into_iter()
         .map(|(icon, label, action, group, enabled)| ToolItem {

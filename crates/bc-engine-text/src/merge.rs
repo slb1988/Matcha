@@ -335,6 +335,11 @@ impl MergeState {
             .collect()
     }
 
+    /// Change runs: maximal ranges of rows that are not `Center` (conflicts included).
+    pub fn changes(&self) -> &[Range<usize>] {
+        &self.runs
+    }
+
     /// Every conflict section with its resolved flag (for display and undo).
     pub fn conflict_sections(&self) -> impl Iterator<Item = (Range<usize>, bool)> + '_ {
         self.conflicts.iter().map(|c| (c.rows.clone(), c.resolved))

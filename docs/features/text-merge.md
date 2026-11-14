@@ -10,7 +10,8 @@
 - 能自动合并的自动合并；两侧改动重叠或相距很近的区段标为冲突，交给用户。
 - 命令行 `/automerge` 无窗口执行，以退出码报告结果；`/reviewconflicts` 让它在有冲突时转入界面。
 - 界面：上排三个只读输入窗格（LEFT / BASE / RIGHT），底部可编辑的输出窗格（OUTPUT）。
-  四个窗格共用一张行网格与同一滚动位置，右侧一条纵向滚动条；打开即定位到第一个冲突。
+  四个窗格共用一张行网格与同一滚动位置，右侧一条纵向滚动条；打开即定位到第一个冲突
+  （没有冲突则第一个改动），`Ctrl+N` / `Ctrl+P` 逐个走改动区段（含冲突）。
 - 各窗格标题条的路径是只读地址框（`chrome::pathbar::show_readonly`）：可选中、Ctrl+C 复制，
   右键菜单 Copy / Select All，选区内右击保留选区。
 - 左改动 / 右改动 / 冲突 / 手工编辑四种着色（`chrome/theme.rs` 的 `MERGE_*`）；未解决冲突行的
@@ -127,8 +128,8 @@ cargo test -p bc-gui --lib merge
 | Take Center | `Ctrl+B` | 当前区段取共同祖先 |
 | Take Right | `Ctrl+R` | 当前区段取右侧 |
 | Accept Current Content | `Ctrl+K` | 不改输出，清除当前区段冲突标记，然后跳到下一个冲突 |
-| Next Conflict Section | `Ctrl+N` | 下一个未解决冲突区段 |
-| Previous Conflict Section | `Ctrl+P` | 上一个未解决冲突区段 |
+| Next Change Section | `Ctrl+N` | 下一个改动区段（含冲突） |
+| Previous Change Section | `Ctrl+P` | 上一个改动区段（含冲突） |
 | New Tab | `Ctrl+T` | 新建标签页 |
 | Close Tab | `Ctrl+W` | 关闭当前标签页 |
 | Exit | `Ctrl+Q` | 退出 |

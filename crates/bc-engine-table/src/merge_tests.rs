@@ -345,6 +345,68 @@ fn keys_are_inferred_and_fall_back_to_whole_rows() {
 }
 
 #[test]
+fn blank_key_cells_do_not_block_inference() {
+    // 第 1 列非空值唯一、但有空白键行（分隔行）：仍按第 1 列对齐，
+    // 单元格改动不再是「删行 + 增行」，空白行按序配对留在原位。
+    let base: &[&[&str]] = &[
+        &["id", "name", "qty"],
+        &["1", "apple", "10"],
+        &["", "", ""],
+        &["", "", ""],
+        &["2", "pear", "20"],
+        &["3", "plum", "30"],
+    ];
+    let mut right = base.to_vec();
+    right[4] = &["2", "pear", "22"];
+    let m = merge(base, base, &right, &TableMergeOptions::default());
+    assert_eq!(m.keys.source, KeySource::Inferred);
+    assert_eq!(m.keys.columns, vec![0]);
+    // 没有结构行：变化是一行右改（Normal 行 + Right 格），不是增删行。
+    assert!(m.rows.iter().all(|r| r.kind == RowKind::Normal));
+    assert_eq!(m.changes(), vec![4..5]);
+    assert!(m.conflicts().is_empty());
+    let out = texts(&m.output_sheet().unwrap());
+    assert_eq!(out.len(), base.len());
+    assert_eq!(out[4], vec!["2", "pear", "22"]);
+}
+
+#[test]
+fn nonblank_duplicate_keys_still_fall_back_to_whole_rows() {
+    // 非空键重复：容忍空白键的推断不适用，退回整行作键。
+    let dup: &[&[&str]] = &[
+        &["a", "x"],
+        &["a", "x"],
+        &["", "z"],
+        &["", "z"],
+    ];
+    let m = merge(dup, dup, dup, &TableMergeOptions::default());
+    assert_eq!(m.keys.source, KeySource::AllColumns);
+}
+
+#[test]
+fn lenient_key_needs_overlap_with_center() {
+    // 非空键各自唯一但三方互不重合：宽松推断不取该列作键（重合度不足）。
+    let center: &[&[&str]] = &[&["k1", "a"], &["k2", "a"], &["", ""]];
+    let left: &[&[&str]] = &[&["x1", "a"], &["x2", "a"], &["", ""]];
+    let right: &[&[&str]] = &[&["y1", "a"], &["y2", "a"], &["", ""]];
+    let m = merge(left, center, right, &TableMergeOptions::default());
+    assert_eq!(m.keys.source, KeySource::AllColumns);
+}
+
+#[test]
+fn lenient_key_prefers_better_overlap_then_leftmost() {
+    // 两列都满足「非空唯一 + 重合过半」：重合度高者胜；同行再靠左。
+    let base: &[&[&str]] = &[
+        &["id", "name", "qty"],
+        &["1", "apple", "10"],
+        &["", "", ""],
+        &["2", "pear", "20"],
+    ];
+    let m = merge(base, base, base, &TableMergeOptions::default());
+    assert_eq!(m.keys.columns, vec![0]);
+}
+
+#[test]
 fn explicit_key_out_of_range_is_an_error() {
     let options = TableMergeOptions {
         keys: Some(vec![98]),

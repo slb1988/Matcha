@@ -301,6 +301,31 @@ impl MergeModel {
                 .map(|c| c.rows.start)
         }
     }
+    /// 从对齐行 `from` 出发的下一个 / 上一个改动区段（含冲突）的首行。
+    pub fn next_change(&self, from: usize, forward: bool) -> Option<usize> {
+        let changes = self.state.changes();
+        if forward {
+            changes.iter().map(|r| r.start).find(|&start| start > from)
+        } else {
+            changes
+                .iter()
+                .rev()
+                .find(|r| r.end <= from)
+                .map(|r| r.start)
+        }
+    }
+    /// 还有改动（含冲突）。
+    pub fn has_changes(&self) -> bool {
+        !self.state.changes().is_empty()
+    }
+    /// 打开落点：有冲突停在第一个冲突，否则第一个改动。
+    pub fn first_conflict_or_change(&self) -> Option<usize> {
+        self.state
+            .conflicts()
+            .first()
+            .map(|c| c.rows.start)
+            .or_else(|| self.state.changes().first().map(|r| r.start))
+    }
 
     fn snapshot(&self, caret: Caret) -> Snapshot {
         Snapshot {

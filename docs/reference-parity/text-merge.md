@@ -137,12 +137,12 @@
 | 命令 | 状态 | 对应实现或理由 |
 |---|---|---|
 | Clear Conflict Section, Next | 已实现 | "接受当前内容"后自动定位下一冲突 |
-| Next Conflict Section | 已实现 | 只在未解决冲突间跳转 |
-| Previous Conflict Section | 已实现 | 同上 |
-| Next Difference | 后置 | |
-| Previous Difference | 后置 | |
-| Next Difference Section | 后置 | 一期只提供冲突导航 |
-| Previous Difference Section | 后置 | 同上 |
+| Next Conflict Section | 已实现（改名 Next Change Section） | 逐个走改动区段（含冲突，不再只跳未解决冲突） |
+| Previous Conflict Section | 已实现（改名 Previous Change Section） | 同上 |
+| Next Difference | 已实现 | 与 Next Change Section 同一命令（`Ctrl+N`） |
+| Previous Difference | 已实现 | 与 Previous Change Section 同一命令（`Ctrl+P`） |
+| Next Difference Section | 已实现 | 改动区段即“删改增”连续段，导航按区段跳动 |
+| Previous Difference Section | 已实现 | 同上 |
 | Next Difference Files | 后置 | 子会话不在范围 |
 | Previous Difference Files | 后置 | 同上 |
 | Take Left File and Open Next Difference | 后置 | 同上 |

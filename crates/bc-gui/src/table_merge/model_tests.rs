@@ -129,3 +129,25 @@ fn missing_input_fails_to_load() {
     let error = TableMergeModel::load(&f.launch).err().unwrap();
     assert!(error.contains("does not exist"), "{error}");
 }
+
+#[test]
+fn next_change_walks_changes_even_without_conflicts() {
+    // 只有自动合并改动（无冲突）：导航逐段走改动，打开落点是第一个改动。
+    let f = Fixture::new(
+        "changes",
+        "id,name,qty\r\n1,apple,12\r\n2,pear,20\r\n3,plum,30\r\n",
+        "id,name,qty\r\n1,apple,10\r\n2,pear,20\r\n3,plum,33\r\n",
+        BASE,
+    );
+    let model = TableMergeModel::load(&f.launch).unwrap();
+    assert_eq!(model.unresolved(), 0);
+    assert!(model.has_changes());
+    // 两处改动各自成段（1 号左改、3 号右改，2 号未动隔开）。
+    assert_eq!(model.changes(), &[0..1, 2..3]);
+    assert_eq!(model.first_conflict_or_change(), Some(0));
+    assert_eq!(model.next_change(0, true), Some(2));
+    assert_eq!(model.next_change(2, true), None);
+    assert_eq!(model.next_change(2, false), Some(0));
+    assert_eq!(model.next_change(0, false), None);
+    assert_eq!(model.next_change_sheet(true), None);
+}

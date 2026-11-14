@@ -115,28 +115,34 @@ fn commands_resolve_navigate_and_undo() {
     frame(&ctx, &mut v, vec![key(egui::Key::R, true)]);
     assert_eq!(v.unresolved(), 2);
     assert_eq!(text(&v), joined(&edit(&b, &[(5, "R5"), (33, "L33"), (35, "R35")])));
-    // 下一冲突 / 再下一冲突 / 到头。
+    // 下一改动（含冲突）：第 20 行 / 近距离冲突的两段 / 到头。
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 19);
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 32);
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
-    assert_eq!(v.current_row, 32);
+    assert_eq!(v.current_row, 34);
+    frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.current_row, 34);
     assert!(v.message.contains("No more"));
     // 近距离冲突：接受当前内容，输出不变。
     let before = text(&v);
     frame(&ctx, &mut v, vec![key(egui::Key::K, true)]);
     assert_eq!(v.unresolved(), 1);
     assert_eq!(text(&v), before);
-    // 上一冲突回到第 20 行，Take Left，再撤销。
+    // 上一改动两次回到第 20 行（途径近距离冲突的 32 段），Take Left，再撤销。
+    frame(&ctx, &mut v, vec![key(egui::Key::P, true)]);
+    assert_eq!(v.current_row, 32);
     frame(&ctx, &mut v, vec![key(egui::Key::P, true)]);
     assert_eq!(v.current_row, 19);
     frame(&ctx, &mut v, vec![key(egui::Key::L, true)]);
     assert_eq!(v.unresolved(), 0);
-    assert!(text(&v).contains("L20\n"));
+    assert!(text(&v).contains("L20
+"));
     frame(&ctx, &mut v, vec![key(egui::Key::Z, true)]);
     assert_eq!(v.unresolved(), 1);
-    assert!(!text(&v).contains("L20\n"));
+    assert!(!text(&v).contains("L20
+"));
     frame(&ctx, &mut v, vec![key(egui::Key::Y, true)]);
     assert_eq!(v.unresolved(), 0);
     // 光标不在改动上时 Take 不做事。

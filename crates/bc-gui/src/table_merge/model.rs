@@ -23,6 +23,8 @@ struct SheetCache {
     sections: Vec<(Range<usize>, bool)>,
     /// 未解决的冲突区段。
     conflicts: Vec<Conflict>,
+    /// 改动区段（含冲突）。
+    changes: Vec<Range<usize>>,
 }
 
 /// 撤销栈最多保留的步数。
@@ -82,6 +84,7 @@ impl TableMergeModel {
         SheetCache {
             sections: sheet.sections(),
             conflicts: sheet.conflicts(),
+            changes: sheet.changes(),
         }
     }
 
@@ -163,6 +166,44 @@ impl TableMergeModel {
         } else {
             (0..self.sheet).rev().find(|&i| self.unresolved_in(i) > 0)
         }
+    }
+
+    /// 任意 sheet 还有改动（含冲突）。
+    pub fn has_changes(&self) -> bool {
+        self.cache.iter().any(|c| !c.changes.is_empty())
+    }
+
+    /// 当前 sheet 的改动区段（含冲突）。
+    pub fn changes(&self) -> &[Range<usize>] {
+        &self.cache[self.sheet].changes
+    }
+
+    /// 当前 sheet 从 `from` 出发的下一个 / 上一个改动区段的首行。
+    pub fn next_change(&self, from: usize, forward: bool) -> Option<usize> {
+        let changes = self.changes();
+        if forward {
+            changes.iter().map(|r| r.start).find(|&s| s > from)
+        } else {
+            changes.iter().rev().find(|r| r.end <= from).map(|r| r.start)
+        }
+    }
+
+    /// 当前 sheet 之后 / 之前第一个还有改动的 sheet。
+    pub fn next_change_sheet(&self, forward: bool) -> Option<usize> {
+        let n = self.cache.len();
+        if forward {
+            (self.sheet + 1..n).find(|&i| !self.cache[i].changes.is_empty())
+        } else {
+            (0..self.sheet).rev().find(|&i| !self.cache[i].changes.is_empty())
+        }
+    }
+
+    /// 打开 / 切 sheet 的落点：有冲突停在第一个冲突，否则第一个改动。
+    pub fn first_conflict_or_change(&self) -> Option<usize> {
+        self.conflicts()
+            .first()
+            .map(|c| c.rows.start)
+            .or_else(|| self.changes().first().map(|r| r.start))
     }
 
     fn act(&mut self, f: impl FnOnce(&mut SheetMerge) -> bool) -> bool {

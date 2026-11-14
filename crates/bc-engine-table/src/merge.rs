@@ -20,8 +20,9 @@
 //! other change.
 use crate::{
     align::{hashes, KeyColumn},
-    columns::{ColumnMapping, Side as PairSide},
+    columns::{finish_row_hash, row_hash_into, ColumnMapping, Side as PairSide},
     compare::{CellComparator, Importance},
+    data::{CellData, TableData},
     formula_refs::{shift_formula, RowMap},
     inference::infer_keys_data,
     invalid,
@@ -327,6 +328,52 @@ fn infer(sheets: [&Sheet; 3], rules: &TableRules) -> Result<Option<Vec<usize>>> 
     }
     Ok(None)
 }
+/// 容忍全空键的单列推断：某列的非空键在三个 sheet 各自唯一、且与 center 的重合度
+/// 都过半时取它为键（多列满足时取重合度高、并列取靠左的）。空键行由对齐按序配对
+/// （与整行作键时的重复键同一机制）；非空键重复或重合度不足则退回整行作键。
+fn infer_lenient(sheets: [&Sheet; 3], rules: &TableRules) -> Result<Option<Vec<usize>>> {
+    let mut best: Option<(usize, f64)> = None;
+    for column in 0..rules.columns.0.len() {
+        let handling = [rules.handling(column)];
+        let mut sets = Vec::with_capacity(3);
+        let mut unique = true;
+        for sheet in sheets {
+            let mut seen = HashSet::new();
+            for row in 0..sheet.row_count() {
+                let blank = match sheet.cell_info(row, column).map(|info| info.value) {
+                    None | Some(CellData::Empty) => true,
+                    Some(CellData::Text(text)) => text.trim().is_empty(),
+                    _ => false,
+                };
+                if blank {
+                    continue;
+                }
+                let mut bytes = Vec::new();
+                row_hash_into(sheet, row, &[column], &handling, &mut bytes);
+                if !seen.insert(finish_row_hash(&bytes)) {
+                    unique = false;
+                    break;
+                }
+            }
+            if !unique {
+                break;
+            }
+            sets.push(seen);
+        }
+        if !unique {
+            continue;
+        }
+        let overlap = |a: &HashSet<ContentHash>, b: &HashSet<ContentHash>| {
+            let shared = a.intersection(b).count() as f64;
+            shared / a.len().min(b.len()).max(1) as f64
+        };
+        let score = overlap(&sets[0], &sets[1]).min(overlap(&sets[1], &sets[2]));
+        if score >= 0.5 && best.is_none_or(|(_, s)| score > s) {
+            best = Some((column, score));
+        }
+    }
+    Ok(best.map(|(column, _)| vec![column]))
+}
 
 /// Three-way key join; returns aligned rows (kind not yet set) in output order.
 fn join(tokens: [&[ContentHash]; 3]) -> Vec<MergeRow> {
@@ -454,16 +501,22 @@ impl SheetMerge {
                     source: KeySource::Explicit,
                 }
             }
-            None => match infer([&left, &center, &right], &rules)? {
-                Some(columns) => MergeKeys {
-                    columns,
-                    source: KeySource::Inferred,
-                },
-                None => MergeKeys {
-                    columns: (0..columns).collect(),
-                    source: KeySource::AllColumns,
-                },
-            },
+            None => {
+                let mut inferred = infer([&left, &center, &right], &rules)?;
+                if inferred.is_none() {
+                    inferred = infer_lenient([&left, &center, &right], &rules)?;
+                }
+                match inferred {
+                    Some(columns) => MergeKeys {
+                        columns,
+                        source: KeySource::Inferred,
+                    },
+                    None => MergeKeys {
+                        columns: (0..columns).collect(),
+                        source: KeySource::AllColumns,
+                    },
+                }
+            }
         };
         let key_cols = key_columns(&rules, &keys.columns, [&left, &center, &right]);
         let (lt, ld) = tokens(&left, &rules, &key_cols)?;
@@ -805,6 +858,31 @@ impl SheetMerge {
         kind.is_structural_conflict()
             || (kind == RowKind::Normal
                 && (0..self.columns).any(|c| self.choice(row, c) == CellChoice::Conflict))
+    }
+
+    /// The row differs from base on some side (added / deleted / changed cells),
+    /// regardless of conflict or resolution state.
+    pub fn row_changed(&self, row: usize) -> bool {
+        self.rows[row].kind != RowKind::Normal
+            || (0..self.columns).any(|c| self.choice(row, c) != CellChoice::Center)
+    }
+
+    /// Maximal runs of changed rows (conflicts included), in row order.
+    pub fn changes(&self) -> Vec<Range<usize>> {
+        let mut out = Vec::new();
+        let mut row = 0;
+        while row < self.rows.len() {
+            if !self.row_changed(row) {
+                row += 1;
+                continue;
+            }
+            let start = row;
+            while row < self.rows.len() && self.row_changed(row) {
+                row += 1;
+            }
+            out.push(start..row);
+        }
+        out
     }
 
     /// The cell is a conflict nobody decided yet.

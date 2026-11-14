@@ -137,8 +137,8 @@ fn menus() -> Vec<MenuSpec> {
             "Search",
             'r',
             vec![
-                menu_item("Next Conflict Section", Some("Ctrl+N")),
-                menu_item("Previous Conflict Section", Some("Ctrl+P")),
+                menu_item("Next Change Section", Some("Ctrl+N")),
+                menu_item("Previous Change Section", Some("Ctrl+P")),
             ],
         ),
     ]
@@ -172,8 +172,8 @@ impl TableMergeView {
             menus: menus(),
             path_edit_focused: false,
         };
-        // 打开即定位到第一个冲突。
-        if let Some(row) = view.model.conflicts().first().map(|c| c.rows.start) {
+        // 打开即定位到第一个冲突（没有冲突则第一个改动）。
+        if let Some(row) = view.model.first_conflict_or_change() {
             view.goto_row(row);
         }
         view
@@ -183,7 +183,7 @@ impl TableMergeView {
     pub(crate) fn snapshot_preset(&mut self, scene: &str) {
         if scene == "table-merge-conflict" {
             self.command("Take Right");
-            self.command("Next Conflict Section");
+            self.command("Next Change Section");
         } else {
             self.goto_row(0);
         }
@@ -303,7 +303,7 @@ impl TableMergeView {
             self.model.set_sheet(sheet);
             self.selected = (0, 0);
             self.scroll = egui::Vec2::ZERO;
-            if let Some(row) = self.model.conflicts().first().map(|c| c.rows.start) {
+            if let Some(row) = self.model.first_conflict_or_change() {
                 self.goto_row(row);
             }
         }
@@ -380,26 +380,26 @@ impl TableMergeView {
                 }
                 None => self.message = "The selection is not on a conflict".into(),
             },
-            "Next Conflict Section" | "Previous Conflict Section" => {
-                let forward = id == "Next Conflict Section";
-                if let Some(row) = self.model.next_conflict(row, forward) {
+            "Next Change Section" | "Previous Change Section" => {
+                let forward = id == "Next Change Section";
+                if let Some(row) = self.model.next_change(row, forward) {
                     self.goto_row(row);
-                } else if let Some(sheet) = self.model.next_conflict_sheet(forward) {
+                } else if let Some(sheet) = self.model.next_change_sheet(forward) {
                     self.switch_sheet(sheet);
                     let target = if forward {
-                        self.model.conflicts().first()
+                        self.model.changes().first()
                     } else {
-                        self.model.conflicts().last()
+                        self.model.changes().last()
                     }
-                    .map(|c| c.rows.start);
+                    .map(|r| r.start);
                     if let Some(row) = target {
                         self.goto_row(row);
                     }
                 } else {
                     self.message = if forward {
-                        "No more unresolved conflicts below".into()
+                        "No more changes below".into()
                     } else {
-                        "No more unresolved conflicts above".into()
+                        "No more changes above".into()
                     }
                 }
             }
@@ -469,8 +469,8 @@ impl TableMergeView {
                 (egui::Key::B, true, true) => Some("Take Center (Cell)"),
                 (egui::Key::R, true, true) => Some("Take Right (Cell)"),
                 (egui::Key::K, true, _) => Some("Accept Current Content"),
-                (egui::Key::N, true, _) => Some("Next Conflict Section"),
-                (egui::Key::P, true, _) => Some("Previous Conflict Section"),
+                (egui::Key::N, true, _) => Some("Next Change Section"),
+                (egui::Key::P, true, _) => Some("Previous Change Section"),
                 (egui::Key::T, true, _) => Some("New Tab"),
                 (egui::Key::W, true, _) => Some("Close Tab"),
                 (egui::Key::Q, true, _) => Some("Exit"),
@@ -720,7 +720,7 @@ impl TableMergeView {
         }
         let has_rows = self.sheet().row_count() > 0;
         let on_section = self.model.section_at(self.selected.0).is_some();
-        let conflicts = self.model.unresolved() > 0;
+        let changes = self.model.has_changes();
         let items: Vec<ToolItem> = [
             (Icon::Home, "Home", "Home", "home", true),
             (Icon::Save, "Save", "Save Output", "file", true),
@@ -736,17 +736,17 @@ impl TableMergeView {
             ),
             (
                 Icon::Next,
-                "Next Conflict",
-                "Next Conflict Section",
+                "Next Change",
+                "Next Change Section",
                 "nav",
-                conflicts,
+                changes,
             ),
             (
                 Icon::Prev,
-                "Prev Conflict",
-                "Previous Conflict Section",
+                "Prev Change",
+                "Previous Change Section",
                 "nav",
-                conflicts,
+                changes,
             ),
         ]
         .into_iter()
