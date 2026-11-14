@@ -72,6 +72,8 @@ pub struct TableMergeView {
     menus: Vec<MenuSpec>,
     /// 标题条路径框持焦（上一帧）：持焦时无修饰键留给文本编辑。
     path_edit_focused: bool,
+    /// 打开 / 切 sheet 时布局未就绪，布局完成后补做一次选中格可见保证。
+    pending_ensure: bool,
 }
 
 fn menu_item(label: &str, shortcut: Option<&str>) -> MenuItem {
@@ -171,10 +173,11 @@ impl TableMergeView {
             message: String::new(),
             menus: menus(),
             path_edit_focused: false,
+            pending_ensure: false,
         };
         // 打开即定位到第一个冲突（没有冲突则第一个改动）。
         if let Some(row) = view.model.first_conflict_or_change() {
-            view.goto_row(row);
+            view.goto_change(row);
         }
         view
     }
@@ -304,7 +307,7 @@ impl TableMergeView {
             self.selected = (0, 0);
             self.scroll = egui::Vec2::ZERO;
             if let Some(row) = self.model.first_conflict_or_change() {
-                self.goto_row(row);
+                self.goto_change(row);
             }
         }
     }
@@ -375,7 +378,7 @@ impl TableMergeView {
                     let from = rows.start;
                     self.model.accept(rows);
                     if let Some(next) = self.model.next_conflict(from, true) {
-                        self.goto_row(next);
+                        self.goto_change(next);
                     }
                 }
                 None => self.message = "The selection is not on a conflict".into(),
@@ -383,7 +386,7 @@ impl TableMergeView {
             "Next Change Section" | "Previous Change Section" => {
                 let forward = id == "Next Change Section";
                 if let Some(row) = self.model.next_change(row, forward) {
-                    self.goto_row(row);
+                    self.goto_change(row);
                 } else if let Some(sheet) = self.model.next_change_sheet(forward) {
                     self.switch_sheet(sheet);
                     let target = if forward {
@@ -393,7 +396,7 @@ impl TableMergeView {
                     }
                     .map(|r| r.start);
                     if let Some(row) = target {
-                        self.goto_row(row);
+                        self.goto_change(row);
                     }
                 } else {
                     self.message = if forward {
@@ -515,6 +518,42 @@ impl TableMergeView {
         } else if row + 1 >= top + shown {
             self.pending_scroll = Some(row + 2 - shown.min(row + 2));
         }
+        // 水平：以最窄窗格为准，保证选中格在每个窗格都可见（首帧布局前不调整）。
+        let width = self
+            .pane_rects
+            .iter()
+            .map(egui::Rect::width)
+            .fold(f32::INFINITY, f32::min);
+        if !width.is_finite() || width <= GUTTER {
+            return;
+        }
+        let view = width - GUTTER;
+        let left = self.selected.1 as f32 * COLUMN_WIDTH;
+        let right = left + COLUMN_WIDTH;
+        if left < self.scroll.x {
+            self.scroll.x = left;
+        } else if right > self.scroll.x + view {
+            self.scroll.x = right - view;
+        }
+    }
+
+    /// `row` 里第一个改动格的列（普通行；结构行或没有改动格时保持当前列）。
+    fn first_changed_column(&self, row: usize) -> usize {
+        let sheet = self.sheet();
+        if row >= sheet.row_count() || sheet.rows[row].kind != RowKind::Normal {
+            return self.selected.1;
+        }
+        (0..sheet.columns)
+            .find(|&c| sheet.choice(row, c) != CellChoice::Center)
+            .unwrap_or(self.selected.1)
+    }
+
+    /// 跳到改动区段的首行，并把选中格落在该行的第一个改动格上（列随格可见）。
+    fn goto_change(&mut self, row: usize) {
+        self.goto_row(row);
+        self.selected.1 = self.first_changed_column(self.selected.0);
+        self.ensure_visible();
+        self.pending_ensure = true;
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, _prefs: &mut Prefs) -> Option<MergeAction> {
@@ -531,14 +570,25 @@ impl TableMergeView {
         if self.model.sheets().len() > 1 {
             self.sheet_tabs(ui);
         }
+        let rows = self.sheet().row_count();
+        let columns = self.sheet().columns;
         let available = ui.available_rect_before_wrap();
         let status = egui::Rect::from_min_max(
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
+        // 水平滚动范围由等宽的输入窗格决定（输出窗格更宽，总能显示更多列）；
+        // 内容超宽时底部让出 16 px 给横向滚动条。
+        let input_width = (available.width() - 16.0 - 2.0) / 3.0;
+        let max_x = (columns as f32 * COLUMN_WIDTH + GUTTER - input_width + 20.0).max(0.0);
+        let hbar_height = if max_x > 0.0 { 16.0 } else { 0.0 };
+        let hbar = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - hbar_height),
+            egui::pos2(available.right() - 16.0, status.top()),
+        );
         let body = egui::Rect::from_min_max(
             available.min,
-            egui::pos2(available.right() - 16.0, status.top()),
+            egui::pos2(available.right() - 16.0, hbar.top()),
         );
         let top_height = ((body.height() - HEADER) * 0.55).max(80.0);
         let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
@@ -552,9 +602,11 @@ impl TableMergeView {
         }
         self.pane_rects[OUT] = output;
         self.path_edit_focused = false;
+        if self.pending_ensure {
+            self.pending_ensure = false;
+            self.ensure_visible();
+        }
 
-        let rows = self.sheet().row_count();
-        let columns = self.sheet().columns;
         let shortest = self
             .pane_rects
             .iter()
@@ -571,10 +623,7 @@ impl TableMergeView {
             self.scroll.y -= delta.y;
         }
         self.scroll.y = self.scroll.y.clamp(0.0, max_y);
-        self.scroll.x = self.scroll.x.clamp(
-            0.0,
-            (columns as f32 * COLUMN_WIDTH + GUTTER - width + 20.0).max(0.0),
-        );
+        self.scroll.x = self.scroll.x.clamp(0.0, max_x);
 
         for pane in 0..4 {
             let rect = self.pane_rects[pane];
@@ -608,6 +657,16 @@ impl TableMergeView {
                 self.scroll.y = top as f32 * ROW_HEIGHT;
             }
         });
+        if max_x > 0.0 {
+            let max_column = (max_x / COLUMN_WIDTH).ceil() as usize;
+            let mut first = (self.scroll.x / COLUMN_WIDTH).round() as usize;
+            ui.scope_builder(egui::UiBuilder::new().max_rect(hbar), |ui| {
+                if chrome::scrollbar::show_horizontal(ui, 0..=max_column, &mut first).changed()
+                {
+                    self.scroll.x = first as f32 * COLUMN_WIDTH;
+                }
+            });
+        }
 
         ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
             use chrome::statusbar::{self, StatusField};

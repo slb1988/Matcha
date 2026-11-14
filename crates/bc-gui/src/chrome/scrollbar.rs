@@ -79,6 +79,84 @@ pub fn show(
     }
     response
 }
+/// 经典横向滚动条近似：左右按钮、比例滑块、轨道定位与拖动（`show` 的横向版）。
+/// `range` 是可滚动首列范围。返回合并的响应，数值变化时标记 changed。
+pub fn show_horizontal(
+    ui: &mut egui::Ui,
+    range: std::ops::RangeInclusive<usize>,
+    value: &mut usize,
+) -> egui::Response {
+    let min = *range.start();
+    let max = (*range.end()).max(min);
+    let before = *value;
+    *value = (*value).clamp(min, max);
+    let (rect, mut response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().max(64.0), 16.0),
+        Sense::hover(),
+    );
+    let left = Rect::from_min_size(rect.min, egui::vec2(16.0, 16.0));
+    let right = Rect::from_min_size(
+        rect.right_top() - egui::vec2(16.0, 0.0),
+        egui::vec2(16.0, 16.0),
+    );
+    let track = Rect::from_min_max(left.right_top(), right.left_bottom());
+    ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
+    for (button, is_left) in [(left, true), (right, false)] {
+        let r = ui.interact(button, response.id.with(is_left), Sense::click());
+        if r.clicked() {
+            *value = if is_left {
+                value.saturating_sub(1).max(min)
+            } else {
+                value.saturating_add(1).min(max)
+            };
+        }
+        if r.hovered() {
+            ui.painter().rect_filled(
+                button.shrink(1.0),
+                super::theme::RADIUS_SM,
+                super::theme::HOVER,
+            );
+        }
+        let c = button.center();
+        let x = if is_left { -1.0 } else { 1.0 };
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![
+                c + egui::vec2(-3.0 * x, 0.0),
+                c + egui::vec2(2.0 * x, -3.0),
+                c + egui::vec2(2.0 * x, 3.0),
+            ],
+            super::theme::TEXT_FAINT,
+            Stroke::NONE,
+        ));
+        response = response.union(r);
+    }
+    let thumb_width =
+        (track.width() / ((max - min + 1) as f32).sqrt()).clamp(16.0, track.width());
+    let travel = track.width() - thumb_width;
+    let x = track.left() + travel * ((*value - min) as f32 / (max - min).max(1) as f32);
+    let thumb = Rect::from_min_size(egui::pos2(x, track.top()), egui::vec2(thumb_width, 16.0));
+    let r = ui.interact(track, response.id.with("track"), Sense::click_and_drag());
+    if (r.clicked() || r.dragged()) && travel > 0.0 {
+        if let Some(pos) = r.interact_pointer_pos() {
+            let ratio = ((pos.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0);
+            *value = min + (ratio * (max - min) as f32).round() as usize;
+        }
+    }
+    ui.painter().rect_filled(
+        thumb.shrink2(egui::vec2(1.0, 4.0)),
+        4.0,
+        if r.hovered() || r.dragged() {
+            Color32::from_rgb(0xA9, 0xB0, 0xB8)
+        } else {
+            Color32::from_rgb(0xC6, 0xCB, 0xD1)
+        },
+    );
+    response = response.union(r);
+    if *value != before {
+        response.mark_changed();
+    }
+    response
+}
 #[cfg(test)]
 mod tests {
     #[test]

@@ -189,3 +189,72 @@ fn header_path_edit_focus_blocks_plain_keys() {
     frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false, false)]);
     assert_ne!(v.selected, selected);
 }
+
+/// 12 列 CSV：第 1 列为键，right 把 k2 行的第 10 列改成 X。
+fn wide(tag: &str) -> Fixture {
+    let head = "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12";
+    let a = "a,a,a,a,a,a,a,a,a,a,a";
+    let base = format!("{head}\r\nk1,{a}\r\nk2,{a}\r\nk3,{a}\r\n");
+    let right = format!("{head}\r\nk1,{a}\r\nk2,a,a,a,a,a,a,a,a,X,a,a\r\nk3,{a}\r\n");
+    Fixture::new(tag, &base, &right, &base)
+}
+
+#[test]
+fn wide_sheet_has_hbar_and_opens_on_the_changed_cell() {
+    let f = wide("hbar");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    for _ in 0..3 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    // 打开落到第一个改动格（表头按数据行计：k2 是第 2 行、X 是第 9 列）。
+    assert_eq!(v.selected, (2, 9));
+    // 水平可见：选中格在最窄的输入窗格里完整可见。
+    let width = v
+        .pane_rects
+        .iter()
+        .map(egui::Rect::width)
+        .fold(f32::INFINITY, f32::min);
+    let view_width = width - GUTTER;
+    assert!(v.scroll.x > 0.0);
+    let left = 9.0 * COLUMN_WIDTH;
+    let right = left + COLUMN_WIDTH;
+    assert!(left >= v.scroll.x - 0.5);
+    assert!(right <= v.scroll.x + view_width + 0.5);
+    // 超宽时输出窗格让出 16 px 横向滚动条。
+    let narrow = conflicted("narrow");
+    let mut nv = view(&narrow);
+    for _ in 0..3 {
+        frame(&ctx, &mut nv, vec![]);
+    }
+    assert!(v.pane_rects[OUT].height() < nv.pane_rects[OUT].height());
+}
+
+#[test]
+fn arrow_keys_scroll_horizontally_to_keep_the_cell_visible() {
+    let f = wide("hscroll");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    for _ in 0..2 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    v.selected = (1, 0);
+    v.scroll.x = 0.0;
+    for _ in 0..8 {
+        frame(&ctx, &mut v, vec![key(egui::Key::ArrowRight, false, false)]);
+    }
+    assert_eq!(v.selected.1, 8);
+    let width = v
+        .pane_rects
+        .iter()
+        .map(egui::Rect::width)
+        .fold(f32::INFINITY, f32::min);
+    let view_width = width - GUTTER;
+    let left = 8.0 * COLUMN_WIDTH;
+    assert!(v.scroll.x > 0.0);
+    assert!(left + COLUMN_WIDTH <= v.scroll.x + view_width + 0.5);
+    // 滚轮横向滚动不会把选中格吸回视野（手动查看自由）。
+    let before = v.scroll.x;
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.x, before);
+}

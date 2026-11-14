@@ -7,15 +7,17 @@
 
 ## 功能简介
 
-- 合并调用（`matcha <left> <right> <center> [<output>]`、`/center=`、`/mergeoutput=`，与文本合并同一套词汇）
+- 合并调用（`matcha <base> <left> <right> [<output>]`、`/center=`、`/mergeoutput=`，与文本合并同一套词汇）
   的三个输入都是 xlsx/xlsm 工作簿时自动走表格合并；CSV/TSV 默认仍按行做文本合并，加 `/tablemerge` 才按表格合并。
 - 行按**键列**对齐（`/keys=` 指定，否则自动推断，推断不出退化为整行作键），列按位置对齐。
 - 逐单元格判定未变 / 左改 / 右改 / 同改 / 异改；行级判定左增 / 右增 / 同增 / 双增冲突 / 删除 / 删改冲突。
   两侧改同一行的不同列不冲突，两侧把同一格改成不同值才冲突。
 - `/automerge` 无窗口执行：无冲突写出返回 0，有冲突不写返回 101；`/reviewconflicts` 让它在有冲突时转入界面。
 - 界面：上排 LEFT / BASE / RIGHT 三个只读网格，底部可编辑 OUTPUT 网格，共用滚动；`Ctrl+N` / `Ctrl+P`
-  逐个走改动区段（含冲突），打开落点是第一个冲突（没有冲突则第一个改动）；Take Left/Center/Right、
+  逐个走改动区段（含冲突），落点是区段首行的第一个改动格（列随格水平滚动到可见），
+  打开停在第一个冲突（没有冲突则第一个改动）；Take Left/Center/Right、
   接受当前内容、编辑输出格、撤销/重做、保存；多 sheet 工作簿有 sheet 标签，各 sheet 状态独立。
+  方向键移动选中格时横向自动滚动保持其可见；内容超宽时底部有横向滚动条（以列为单位，仅超宽时出现）。
 - 各网格标题条的路径是只读地址框（`chrome::pathbar::show_readonly`）：可选中、Ctrl+C 复制，
   右键菜单 Copy / Select All，选区内右击保留选区；路径框持焦时方向键/Delete/F2/Enter 留给文本编辑，
   不作用于网格（Ctrl 快捷键照常）。
@@ -112,7 +114,7 @@ xlsx 例的 `left`/`base`/`right` 工作簿描述与 `expect.formulas|formats|la
 （审阅 diff 后再提交）；`MATCHA_GOLDEN_KEEP=<dir>` 把每例的输入与输出留在目录里，便于用 Excel 打开核对。
 目录带 `.gitattributes`（`-text`），CRLF/LF/BOM 按字节入库。
 
-P4V：Arguments 仍是 `%1 %2 %b %r`（或 `/automerge /reviewconflicts %1 %2 %b %r`），指向 xlsx 时自动走表格合并；
+P4V：Arguments 与文本合并相同，`%b %1 %2 %r`（或 `/automerge /reviewconflicts %b %1 %2 %r`），指向 xlsx 时自动走表格合并；
 CSV 想按表格合并时在前面加 `/tablemerge`。
 
 验收：准备 base / left / right 三个 xlsx（或 CSV），分别构造单侧改格、两侧改同行不同列、两侧改同格异值、
