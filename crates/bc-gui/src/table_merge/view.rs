@@ -70,6 +70,8 @@ pub struct TableMergeView {
     action: Option<MergeAction>,
     pub message: String,
     menus: Vec<MenuSpec>,
+    /// 标题条路径框持焦（上一帧）：持焦时无修饰键留给文本编辑。
+    path_edit_focused: bool,
 }
 
 fn menu_item(label: &str, shortcut: Option<&str>) -> MenuItem {
@@ -168,6 +170,7 @@ impl TableMergeView {
             action: None,
             message: String::new(),
             menus: menus(),
+            path_edit_focused: false,
         };
         // 打开即定位到第一个冲突。
         if let Some(row) = view.model.conflicts().first().map(|c| c.rows.start) {
@@ -450,6 +453,10 @@ impl TableMergeView {
             else {
                 continue;
             };
+            // 标题条路径框持焦时，无修饰键（方向/Delete/F2/Enter）留给文本编辑。
+            if self.path_edit_focused && !modifiers.command && !modifiers.alt {
+                continue;
+            }
             let command = match (*key, modifiers.command, modifiers.shift) {
                 (egui::Key::S, true, _) => Some("Save Output"),
                 (egui::Key::F12, _, _) => Some("Save Output As..."),
@@ -544,6 +551,7 @@ impl TableMergeView {
             );
         }
         self.pane_rects[OUT] = output;
+        self.path_edit_focused = false;
 
         let rows = self.sheet().row_count();
         let columns = self.sheet().columns;
@@ -757,7 +765,7 @@ impl TableMergeView {
         }
     }
 
-    fn header(&self, ui: &egui::Ui, pane: usize, rect: egui::Rect) {
+    fn header(&mut self, ui: &mut egui::Ui, pane: usize, rect: egui::Rect) {
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, theme::HEADER_FILL);
         painter.line_segment(
@@ -796,13 +804,13 @@ impl TableMergeView {
                 text.push_str("  •  not saved");
             }
         }
-        painter.with_clip_rect(rect.intersect(ui.clip_rect())).text(
-            egui::pos2(chip.right() + 8.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            text,
-            egui::FontId::proportional(theme::UI_SIZE - 1.0),
-            theme::TEXT,
+        // 只读路径框：可选中/复制，右键 Copy / Select All。
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(chip.right() + 8.0, rect.top()),
+            egui::pos2(rect.right() - 4.0, rect.bottom()),
         );
+        let edit = chrome::pathbar::show_readonly(ui, text_rect, &text);
+        self.path_edit_focused |= edit.has_focus();
     }
 
     /// 输入格的底色：按与 base 的差异与冲突状态。

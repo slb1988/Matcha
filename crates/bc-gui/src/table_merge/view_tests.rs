@@ -154,3 +154,38 @@ fn unresolved_save_asks_first_and_reports_14() {
     v.save_now(None);
     assert_eq!(v.result_code(), 14);
 }
+
+#[test]
+fn header_path_edit_focus_blocks_plain_keys() {
+    let f = conflicted("view-header-focus");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    // 先空帧注册 widget（egui 命中测试用上一帧的注册表）。
+    for _ in 0..2 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    // 点击标题条路径文本：路径框持焦。
+    let rect = v.pane_rects[0];
+    click(
+        &ctx,
+        &mut v,
+        egui::pos2(rect.left() + 80.0, rect.top() + HEADER / 2.0),
+    );
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.path_edit_focused);
+    // 无修饰键留给路径框：方向键不动选中格，Delete 不清输出格。
+    let selected = v.selected;
+    let dirty = v.model.is_dirty();
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false, false)]);
+    frame(&ctx, &mut v, vec![key(egui::Key::Delete, false, false)]);
+    assert_eq!(v.selected, selected);
+    assert_eq!(v.model.is_dirty(), dirty);
+    // Ctrl 快捷键照常（这里用 Ctrl+N 冲突导航验证，当前已在首个冲突，落到下一冲突或保持）。
+    // 点击输出网格：焦点交回，普通按键恢复。
+    let out_cell = cell_pos(&v, OUT, 0, 0);
+    click(&ctx, &mut v, out_cell);
+    frame(&ctx, &mut v, vec![]);
+    assert!(!v.path_edit_focused);
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false, false)]);
+    assert_ne!(v.selected, selected);
+}

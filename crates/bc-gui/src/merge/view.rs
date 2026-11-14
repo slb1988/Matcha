@@ -634,7 +634,7 @@ impl MergeView {
         }
     }
 
-    fn header(&self, ui: &egui::Ui, pane: usize, rect: egui::Rect) {
+    fn header(&self, ui: &mut egui::Ui, pane: usize, rect: egui::Rect) {
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, theme::HEADER_FILL);
         painter.line_segment(
@@ -670,13 +670,12 @@ impl MergeView {
         if pane == OUT && self.model.is_dirty() {
             text.push_str("  •  not saved");
         }
-        painter.with_clip_rect(rect.intersect(ui.clip_rect())).text(
-            egui::pos2(chip.right() + 8.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            text,
-            egui::FontId::proportional(theme::UI_SIZE - 1.0),
-            theme::TEXT,
+        // 只读路径框：可选中/复制，右键 Copy / Select All。
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(chip.right() + 8.0, rect.top()),
+            egui::pos2(rect.right() - 4.0, rect.bottom()),
         );
+        chrome::pathbar::show_readonly(ui, text_rect, &text);
     }
 
     /// 一个窗格：标题条 + 可见的网格行。

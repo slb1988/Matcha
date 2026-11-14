@@ -218,6 +218,26 @@ fn byte_of(text: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map_or(text.len(), |(byte, _)| byte)
 }
+fn action_item(label: &str, mnemonic: char, enabled: bool) -> MenuItem {
+    MenuItem {
+        label: label.into(),
+        mnemonic: Some(mnemonic),
+        shortcut: None,
+        kind: MenuItemKind::Action,
+        enabled,
+        action_id: label.into(),
+    }
+}
+fn separator_item() -> MenuItem {
+    MenuItem {
+        label: String::new(),
+        mnemonic: None,
+        shortcut: None,
+        kind: MenuItemKind::Separator,
+        enabled: false,
+        action_id: String::new(),
+    }
+}
 /// 右键菜单项（对齐经典系统编辑控件；IME/Unicode 项按需求不实现）。
 /// 启用态基于「上一帧末的选区」快照：点击菜单项会让 egui 判定「点了编辑框外面」
 /// 而收走焦点，本帧 show() 随即把选区折叠成光标，实时状态不可信。
@@ -227,66 +247,39 @@ fn menu_items(
     path: &str,
     snapshot: Option<egui::text::CCursorRange>,
 ) -> Vec<MenuItem> {
-    fn item(label: &str, mnemonic: char, enabled: bool) -> MenuItem {
-        MenuItem {
-            label: label.into(),
-            mnemonic: Some(mnemonic),
-            shortcut: None,
-            kind: MenuItemKind::Action,
-            enabled,
-            action_id: label.into(),
-        }
-    }
-    fn separator() -> MenuItem {
-        MenuItem {
-            label: String::new(),
-            mnemonic: None,
-            shortcut: None,
-            kind: MenuItemKind::Separator,
-            enabled: false,
-            action_id: String::new(),
-        }
-    }
     let selection = snapshot.is_some_and(|r| !r.is_empty());
     let state = egui::widgets::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     let undo = state
         .undoer()
         .has_undo(&(snapshot.unwrap_or_default(), path.to_owned()));
     let paste = clipboard_text().is_some();
-    let mut browse = item("Browse (Alt+B)", 'b', true);
+    let mut browse = action_item("Browse (Alt+B)", 'b', true);
     browse.action_id = "browse".into();
     vec![
-        item("Undo", 'u', undo),
-        separator(),
-        item("Cut", 't', selection),
-        item("Copy", 'c', selection),
-        item("Paste", 'p', paste),
-        item("Delete", 'd', selection),
-        separator(),
-        item("Select All", 'a', !path.is_empty()),
-        separator(),
+        action_item("Undo", 'u', undo),
+        separator_item(),
+        action_item("Cut", 't', selection),
+        action_item("Copy", 'c', selection),
+        action_item("Paste", 'p', paste),
+        action_item("Delete", 'd', selection),
+        separator_item(),
+        action_item("Select All", 'a', !path.is_empty()),
+        separator_item(),
         browse,
     ]
 }
-/// 编辑框右键菜单：点在上一帧选区内时恢复选区（TextEdit 会把右键当普通点击而
-/// 收拢选区）；编辑命令就地执行（TextEdit 每帧的 undoer feed 会自动记录这些改动），
-/// 完成后焦点还给编辑框；"browse" 冒泡给调用者。
-fn edit_menu(
+/// 「选区内右键保留选区」：egui 的 secondary_clicked 在右键「释放」帧才触发，
+/// 而按下帧 TextEdit 已把选区折叠成落点光标（pointer_interaction 对任意指针键
+/// 按下都收拢选区）；若等释放帧才恢复，帧末快照早被折叠后的光标覆盖，选区就找
+/// 不回了。因此按下帧（本函数在 TextEdit::show 之后运行）就从事件落点恢复选区，
+/// 释放帧的恢复只是幂等的重复。
+fn preserve_selection_on_right_click(
     ui: &egui::Ui,
     edit: &egui::Response,
     galley: &egui::Galley,
     galley_pos: egui::Pos2,
-    path: &mut String,
-) -> Option<String> {
-    use egui::text::{CCursor, CCursorRange};
-    let ctx = ui.ctx().clone();
-    let snapshot_id = edit.id.with("pathbar-selection");
-    let snapshot: Option<CCursorRange> = ctx.data(|d| d.get_temp(snapshot_id)).unwrap_or(None);
-    // 「选区内右键保留选区」：egui 的 secondary_clicked 在右键「释放」帧才触发，
-    // 而按下帧 TextEdit 已把选区折叠成落点光标（pointer_interaction 对任意指针键
-    // 按下都收拢选区）；若等释放帧才恢复，帧末快照早被折叠后的光标覆盖，选区就找
-    // 不回了。因此按下帧（本函数在 TextEdit::show 之后运行）就从事件落点恢复选区，
-    // 释放帧的恢复只是幂等的重复。
+    snapshot: Option<egui::text::CCursorRange>,
+) {
     let right_pressed_at = ui.input(|i| {
         i.events.iter().find_map(|event| match event {
             egui::Event::PointerButton {
@@ -308,13 +301,29 @@ fn edit_menu(
             galley.cursor_from_pos(pos - galley_pos + egui::vec2(galley.rect.left(), 0.0));
         if let Some(sel) = snapshot.filter(|r| !r.is_empty()) {
             if sel.as_sorted_char_range().contains(&ccursor.index) {
-                let mut state = egui::widgets::text_edit::TextEditState::load(&ctx, edit.id)
+                let mut state = egui::widgets::text_edit::TextEditState::load(ui.ctx(), edit.id)
                     .unwrap_or_default();
                 state.cursor.set_char_range(Some(sel));
-                state.store(&ctx, edit.id);
+                state.store(ui.ctx(), edit.id);
             }
         }
     }
+}
+/// 编辑框右键菜单：点在上一帧选区内时恢复选区（TextEdit 会把右键当普通点击而
+/// 收拢选区）；编辑命令就地执行（TextEdit 每帧的 undoer feed 会自动记录这些改动），
+/// 完成后焦点还给编辑框；"browse" 冒泡给调用者。
+fn edit_menu(
+    ui: &egui::Ui,
+    edit: &egui::Response,
+    galley: &egui::Galley,
+    galley_pos: egui::Pos2,
+    path: &mut String,
+) -> Option<String> {
+    use egui::text::{CCursor, CCursorRange};
+    let ctx = ui.ctx().clone();
+    let snapshot_id = edit.id.with("pathbar-selection");
+    let snapshot: Option<CCursorRange> = ctx.data(|d| d.get_temp(snapshot_id)).unwrap_or(None);
+    preserve_selection_on_right_click(ui, edit, galley, galley_pos, snapshot);
     let action = super::popup::context_menu(edit, || menu_items(&ctx, edit.id, path, snapshot));
     if let Some(action) = action {
         let mut state =
@@ -399,6 +408,96 @@ fn edit_menu(
         .and_then(|s| s.cursor.char_range());
     ctx.data_mut(|d| d.insert_temp(snapshot_id, current));
     None
+}
+/// 只读路径框（合并视图标题条）：文本可选中、Ctrl+C 复制，右键菜单 Copy / Select All。
+/// 无边框透明底（标题条自己画背景与边框），交互对齐系统只读编辑控件。
+/// `rect` 是标题条里留给路径文本的区域；返回内部编辑框的响应（调用方可查焦点）。
+pub fn show_readonly(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::Response {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        let edit_id = ui.make_persistent_id("pathbar-readonly");
+        // &str 实现 TextBuffer 且 is_mutable()==false：egui 只读编辑框，可选中/复制。
+        let mut buffer = text;
+        let output = ui
+            .allocate_ui_with_layout(
+                rect.size(),
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    egui::TextEdit::singleline(&mut buffer)
+                        .id(edit_id)
+                        .frame(egui::Frame::NONE)
+                        .margin(egui::vec2(0.0, 0.0))
+                        .font(egui::FontId::proportional(super::theme::UI_SIZE - 1.0))
+                        .text_color(super::theme::TEXT)
+                        .align(egui::Align2::LEFT_CENTER)
+                        .show(ui)
+                },
+            )
+            .inner;
+        let edit = output.response.response.clone();
+        readonly_menu(ui, &edit, &output.galley, output.galley_pos, text);
+        edit
+    })
+    .inner
+}
+/// 只读路径框的右键菜单项：Copy 需有选区，Select All 需非空。
+fn readonly_menu_items(selection: bool, empty: bool) -> Vec<MenuItem> {
+    vec![
+        action_item("Copy", 'c', selection),
+        separator_item(),
+        action_item("Select All", 'a', !empty),
+    ]
+}
+/// 只读路径框的右键菜单：与 edit_menu 相同的选区快照机制，只是不改文本。
+fn readonly_menu(
+    ui: &egui::Ui,
+    edit: &egui::Response,
+    galley: &egui::Galley,
+    galley_pos: egui::Pos2,
+    text: &str,
+) {
+    use egui::text::CCursorRange;
+    let ctx = ui.ctx().clone();
+    let snapshot_id = edit.id.with("pathbar-readonly-selection");
+    let snapshot: Option<CCursorRange> = ctx.data(|d| d.get_temp(snapshot_id)).unwrap_or(None);
+    preserve_selection_on_right_click(ui, edit, galley, galley_pos, snapshot);
+    let action = super::popup::context_menu(edit, || {
+        readonly_menu_items(snapshot.is_some_and(|r| !r.is_empty()), text.is_empty())
+    });
+    if let Some(action) = action {
+        let mut state =
+            egui::widgets::text_edit::TextEditState::load(&ctx, edit.id).unwrap_or_default();
+        let len = text.chars().count();
+        let (start, end) = snapshot
+            .map(|r| r.as_sorted_char_range())
+            .map_or((0, 0), |r| (r.start.0.min(len), r.end.0.min(len)));
+        match action.as_str() {
+            "Copy" => {
+                if start != end {
+                    ctx.copy_text(text[byte_of(text, start)..byte_of(text, end)].to_owned());
+                }
+                // Copy 不改文本：恢复快照选区（本帧 show 已因失焦把它折叠了）。
+                if let Some(sel) = snapshot {
+                    state.cursor.set_char_range(Some(sel));
+                }
+            }
+            "Select All" => {
+                state
+                    .cursor
+                    .set_char_range(Some(CCursorRange::select_all_str(text)));
+            }
+            _ => {}
+        }
+        let new_range = state.cursor.char_range();
+        state.store(&ctx, edit.id);
+        // 焦点被菜单点击收走了，拿回编辑框。
+        ctx.memory_mut(|m| m.request_focus(edit.id));
+        ctx.data_mut(|d| d.insert_temp(snapshot_id, new_range));
+        return;
+    }
+    // 每帧末快照选区，供下一帧菜单与右键判断使用。
+    let current = egui::widgets::text_edit::TextEditState::load(&ctx, edit.id)
+        .and_then(|s| s.cursor.char_range());
+    ctx.data_mut(|d| d.insert_temp(snapshot_id, current));
 }
 #[cfg(test)]
 mod tests {
@@ -611,6 +710,115 @@ mod tests {
             false,
         );
         assert_eq!(path, "a");
+    }
+    // ---- 只读路径框（合并视图标题条）----
+    fn readonly_frame(
+        ctx: &egui::Context,
+        text: &str,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        crate::chrome::test_frame(
+            ctx,
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500.0, 300.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                show_readonly(
+                    ui,
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 24.0)),
+                    text,
+                );
+            },
+        )
+    }
+    // 只读菜单（Copy / Select All）的行中心：右键点 (30,12)，顶 5 px，26 px 行高 + 9 px 分隔。
+    const RO_COPY: egui::Pos2 = egui::pos2(70.0, 30.0);
+    const RO_SELECT_ALL: egui::Pos2 = egui::pos2(70.0, 65.0);
+    fn readonly_select_all(ctx: &egui::Context, text: &str) {
+        // 先空一帧：egui 命中测试用上一帧注册的 widget，首帧的点击不生效。
+        readonly_frame(ctx, text, vec![]);
+        // 点击聚焦后 Ctrl+A 全选。
+        readonly_frame(
+            ctx,
+            text,
+            click(egui::pos2(30.0, 12.0), egui::PointerButton::Primary),
+        );
+        readonly_frame(
+            ctx,
+            text,
+            vec![egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            }],
+        );
+    }
+    fn open_readonly_menu(ctx: &egui::Context, text: &str) {
+        readonly_frame(ctx, text, vec![]);
+        readonly_frame(ctx, text, click(RIGHT, egui::PointerButton::Secondary));
+        readonly_frame(ctx, text, vec![]);
+    }
+    fn copied(out: &egui::FullOutput) -> Option<String> {
+        out.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+    }
+    #[test]
+    fn readonly_right_click_copy_writes_selection_to_clipboard() {
+        let ctx = egui::Context::default();
+        let text = "C:/work/left.txt";
+        readonly_select_all(&ctx, text);
+        readonly_frame(&ctx, text, vec![]); // 帧末快照写入选区
+        open_readonly_menu(&ctx, text);
+        let out = readonly_frame(&ctx, text, click(RO_COPY, egui::PointerButton::Primary));
+        assert_eq!(copied(&out).as_deref(), Some(text));
+    }
+    #[test]
+    fn readonly_copy_disabled_without_selection() {
+        let ctx = egui::Context::default();
+        let text = "C:/work/left.txt";
+        open_readonly_menu(&ctx, text);
+        let out = readonly_frame(&ctx, text, click(RO_COPY, egui::PointerButton::Primary));
+        assert_eq!(copied(&out), None);
+    }
+    #[test]
+    fn readonly_select_all_then_copy() {
+        let ctx = egui::Context::default();
+        let text = "C:/work/left.txt";
+        open_readonly_menu(&ctx, text);
+        readonly_frame(&ctx, text, click(RO_SELECT_ALL, egui::PointerButton::Primary));
+        // 全选后再右键（点在刚选中的文本上）：选区保留，Copy 可用。
+        open_readonly_menu(&ctx, text);
+        let out = readonly_frame(&ctx, text, click(RO_COPY, egui::PointerButton::Primary));
+        assert_eq!(copied(&out).as_deref(), Some(text));
+    }
+    #[test]
+    fn readonly_never_mutates_on_paste_or_typing() {
+        let ctx = egui::Context::default();
+        let text = "C:/work/left.txt";
+        readonly_select_all(&ctx, text);
+        // &str 缓冲不可变：文本事件与粘贴都不生效，也不 panic。
+        readonly_frame(
+            &ctx,
+            text,
+            vec![
+                egui::Event::Text("typed".into()),
+                egui::Event::Paste("pasted".into()),
+            ],
+        );
+        readonly_select_all(&ctx, text);
+        readonly_frame(&ctx, text, vec![]);
+        open_readonly_menu(&ctx, text);
+        let out = readonly_frame(&ctx, text, click(RO_COPY, egui::PointerButton::Primary));
+        assert_eq!(copied(&out).as_deref(), Some(text));
     }
     #[test]
     fn browse_action_from_menu_and_alt_b() {

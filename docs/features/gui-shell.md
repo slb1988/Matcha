@@ -51,6 +51,7 @@
   见 `pathbar::clean_pasted_path`。
 - **路径框右键菜单**：选区内右击保留选区（Cut/Copy/Delete 可用）——egui 在右键按下帧就折叠
   选区，故恢复发生在按下帧而非 `secondary_clicked` 的释放帧；点在选区外则按系统惯例收拢选区。
+  合并视图标题条用只读变体 `pathbar::show_readonly`（同一套选区快照机制，菜单只有 Copy / Select All）。
 - **系统文件拖放落点**（`chrome::drop`）：winit 投递拖放事件时不带坐标，且系统拖动期间窗口
   收不到鼠标移动（Windows OLE 拖动、macOS 拖拽会话皆然），egui 指针位置在落下时是旧值或空
   （曾因此回落到活动侧：拖到右栏却换了左栏）。落点改取系统光标（`bc_shell::cursor_screen_pos`
