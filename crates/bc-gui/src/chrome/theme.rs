@@ -55,6 +55,15 @@ pub const INFO_SOFT: Color32 = Color32::from_rgb(0xE8, 0xF0, 0xFD);
 /// rows, below a file's last line): one step darker than the chrome so white
 /// content reads as a sheet lying on it.
 pub const CANVAS: Color32 = Color32::from_rgb(0xE9, 0xEC, 0xEF);
+/// 合并视图的四个色位：左侧改动、右侧改动、冲突、手工编辑（各一深一浅）。
+pub const MERGE_LEFT: Color32 = Color32::from_rgb(0x12, 0x8A, 0x8A);
+pub const MERGE_LEFT_SOFT: Color32 = Color32::from_rgb(0xDC, 0xF3, 0xF1);
+pub const MERGE_RIGHT: Color32 = Color32::from_rgb(0xA8, 0x3A, 0xB0);
+pub const MERGE_RIGHT_SOFT: Color32 = Color32::from_rgb(0xF6, 0xE4, 0xF8);
+pub const MERGE_CONFLICT: Color32 = DANGER;
+pub const MERGE_CONFLICT_SOFT: Color32 = DANGER_SOFT;
+pub const MERGE_MANUAL: Color32 = Color32::from_rgb(0xA8, 0x80, 0x00);
+pub const MERGE_MANUAL_SOFT: Color32 = Color32::from_rgb(0xFF, 0xF5, 0xC7);
 /// Faint dot texture on [`CANVAS`].
 pub const CANVAS_DOT: Color32 = Color32::from_rgb(0xC9, 0xCF, 0xD6);
 /// Row/column header fill of grids (row numbers, column letters).

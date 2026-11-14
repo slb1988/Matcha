@@ -7,8 +7,9 @@ use std::sync::{mpsc, Arc, Mutex};
 /// 被转交会话的结束方式。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// 标签页已关闭（含应用退出时随之关闭）。
-    Closed,
+    /// 标签页已关闭（含应用退出时随之关闭），附会话结果码：合并页为 0 / 14 / 101，
+    /// 其余视图恒为 0。
+    Closed(i32),
     /// 未能打开比较。
     Failed(String),
 }
@@ -16,10 +17,14 @@ pub enum Outcome {
 /// 会话结束时调用一次（`matcha-compc` 等待的就是它）。
 pub type Completion = Box<dyn FnOnce(Outcome) + Send>;
 
-/// 一次转交：两侧路径都有则开比较标签页，否则只把窗口提到前台。
+/// 启动标签页的结果码落点（`run_with_remote` 以它作为返回值）。
+pub type ResultSlot = Arc<Mutex<Option<i32>>>;
+
+/// 一次转交：`merge` 开合并标签页；否则两侧路径都有则开比较标签页，都没有只把窗口提到前台。
 pub struct RemoteOpen {
     pub left: Option<PathBuf>,
     pub right: Option<PathBuf>,
+    pub merge: Option<Box<crate::merge::MergeLaunch>>,
     pub done: Option<Completion>,
 }
 

@@ -1,0 +1,31 @@
+[package]
+name = "sample"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+serde = "1"
+anyhow = "1"
+log = "0.4"
+regex = "1.11"
+
+[features]
+default = ["safe"]
+extra = ["serde"]
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = false
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[workspace]
+members = ["a", "b", "c"]
+resolver = "1"
+exclude = ["target"]

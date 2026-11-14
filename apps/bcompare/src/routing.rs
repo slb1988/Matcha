@@ -1,7 +1,7 @@
 //! 命令行路由：开发用 `--` 开关的预处理，以及“自己开窗口 / 转交常驻实例 / 报错”的判定。
 //! 纯逻辑，无 I/O，便于单测。
 use bc_gui::bench::BenchOptions;
-use bc_script::cli::{CliArgs, ContentCompare, Invocation, ReportSwitches, Switch};
+use bc_script::cli::{CliArgs, ContentCompare, Invocation, MergeSpec, ReportSwitches, Switch};
 use std::path::{Path, PathBuf};
 
 /// 开发/测试用开关（不属于参考命令行）：`--bench[=N]`、`--bench-dir`、`--bench-table`、
@@ -34,12 +34,14 @@ impl DevFlags {
     pub fn into_launch_with(
         self,
         pair: Option<(PathBuf, PathBuf)>,
+        merge: Option<bc_gui::merge::MergeLaunch>,
         force_view: Option<bc_session::SessionKind>,
     ) -> bc_gui::LaunchOptions {
         let (left, right) = pair.unzip();
         bc_gui::LaunchOptions {
             left,
             right,
+            merge,
             force_view,
             bench: self.bench,
             bench_table: self.bench_table,
@@ -143,6 +145,9 @@ pub enum Route {
         right: PathBuf,
         mode: Option<ContentCompare>,
     },
+    /// `/automerge`：本进程内无窗口三方合并，不转交；结果为退出码 0 / 14 / 101（与一行文本）。
+    /// 带 `/reviewconflicts` 且有冲突时由调用方转去开合并视图。
+    AutoMerge { spec: MergeSpec },
     /// 参考命令行支持、GUI 尚未实现的调用；退出码 100。
     Unsupported(String),
 }
@@ -173,6 +178,9 @@ pub fn route(dev: &DevFlags, cli: &CliArgs, perf_env: bool) -> Route {
     if let Some(route) = quick_compare(cli) {
         return route;
     }
+    if let Some(route) = auto_merge(cli) {
+        return route;
+    }
     if let Some(reason) = unsupported(cli) {
         return Route::Unsupported(reason);
     }
@@ -195,9 +203,32 @@ fn quick_compare(cli: &CliArgs) -> Option<Route> {
     })
 }
 
-/// 尚未实现的调用（合并、会话名、补丁、包、stdin）。常驻实例收到转交请求时也用它
-/// 拒绝：`/qc`、`/report` 与脚本总在发起进程内执行，不应被转交。
+/// `/automerge` 需要三方调用（三个路径，或两个路径加 `/center=`）和输出目标（第 4 个路径或
+/// `/mergeoutput=`）；文件夹、缺失或非文本输入由合并本身报错（退出码 100）。
+fn auto_merge(cli: &CliArgs) -> Option<Route> {
+    if !cli.merge_switches().automerge {
+        return None;
+    }
+    Some(match cli.merge_spec() {
+        Some(spec) if spec.output.is_some() => Route::AutoMerge { spec },
+        Some(_) => Route::Unsupported(
+            "/automerge needs an output file: matcha /automerge <left> <right> <center> <output> \
+             (or /mergeoutput=<path>)"
+                .into(),
+        ),
+        None => Route::Unsupported(
+            "/automerge needs three files: matcha /automerge <left> <right> <center> <output>"
+                .into(),
+        ),
+    })
+}
+
+/// 尚未实现的调用（会话名、补丁、包、stdin）。常驻实例收到转交请求时也用它
+/// 拒绝：`/qc`、`/report`、`/automerge` 与脚本总在发起进程内执行，不应被转交。
 pub fn unsupported(cli: &CliArgs) -> Option<String> {
+    if cli.merge_switches().automerge {
+        return Some("/automerge runs in the starting process and cannot be handed off".into());
+    }
     if cli.has(|s| matches!(s, Switch::QuickCompare(_))) {
         return Some("/qc runs in the starting process and cannot be handed off".into());
     }
@@ -208,10 +239,11 @@ pub fn unsupported(cli: &CliArgs) -> Option<String> {
         Invocation::Home
         | Invocation::Files(..)
         | Invocation::Folders(..)
+        | Invocation::Merge3 { .. }
+        | Invocation::Merge4 { .. }
         | Invocation::Single(_) => return None,
         Invocation::Session(name) => format!("opening saved session {name:?}"),
         Invocation::Workspace(name) => format!("opening workspace {name:?}"),
-        Invocation::Merge3 { .. } | Invocation::Merge4 { .. } => "Text Merge".into(),
         Invocation::Script { .. } => {
             return Some("scripts run in the starting process and cannot be handed off".into())
         }
@@ -220,6 +252,38 @@ pub fn unsupported(cli: &CliArgs) -> Option<String> {
         Invocation::Stdin => "reading stdin".into(),
     };
     Some(format!("{what} is not supported yet"))
+}
+
+/// 合并调用的 GUI 启动参数。`/iu` 与 favor 只属于 `/automerge`：由 `/automerge
+/// /reviewconflicts` 转入界面时带上（转交后只剩 `/reviewconflicts`），使界面看到的冲突与
+/// 自动合并的判定一致；普通合并调用忽略它们。
+pub fn merge_launch(cli: &CliArgs) -> Option<bc_gui::merge::MergeLaunch> {
+    let spec = cli.merge_spec()?;
+    let switches = cli.merge_switches();
+    let carried = switches.automerge || switches.review_conflicts;
+    Some(bc_gui::merge::MergeLaunch {
+        spec,
+        titles: [0, 1, 2, 3].map(|index| cli.title(index).map(str::to_string)),
+        ignore_unimportant: carried && switches.ignore_unimportant,
+        favor: if carried {
+            switches.favor
+        } else {
+            bc_script::cli::Favor::None
+        },
+    })
+}
+
+/// 交给 GUI 的启动参数（去掉只属于发起进程的 `/automerge`）：`/automerge /reviewconflicts`
+/// 发现冲突后以它转入合并视图，常驻实例不会再把它当成无窗口合并拒绝。
+pub fn review_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .filter(|arg| {
+            CliArgs::parse_in([arg.as_str()], Path::new(".")).map_or(true, |one| {
+                !matches!(one.switches.as_slice(), [Switch::AutoMerge])
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 /// 两侧路径（文件或文件夹）；其余调用（Home、单个路径）没有比较可开。
@@ -325,7 +389,6 @@ mod tests {
             &["/qc", "a"][..],
             &["/qc", "a", "b", "c"],
             &["/report=patch", "a"],
-            &["a", "b", "c"],
             &["MySession"],
             &["x.patch"],
             &["-"],
@@ -335,6 +398,85 @@ mod tests {
                 "{args:?} should be unsupported"
             );
         }
+    }
+
+    #[test]
+    fn merges_open_a_view_and_automerge_runs_locally() {
+        let w = Path::new("C:/work");
+        // 三/四个路径、两个路径加 /center：普通 GUI 路由。
+        assert_eq!(routed(&["a", "b", "c"]), Route::SingleInstance);
+        assert_eq!(routed(&["a", "b", "c", "d"]), Route::SingleInstance);
+        assert_eq!(routed(&["/center=c", "a", "b"]), Route::SingleInstance);
+        assert_eq!(routed(&["/solo", "a", "b", "c", "d"]), Route::Standalone);
+        let spec = MergeSpec {
+            left: w.join("a"),
+            right: w.join("b"),
+            center: w.join("c"),
+            output: Some(w.join("d")),
+        };
+        // `/solo`、`/silent`、`/force`、`/reviewconflicts` 不改变路由。
+        for args in [
+            &["/automerge", "a", "b", "c", "d"][..],
+            &["/solo", "/silent", "/automerge", "/force", "a", "b", "c", "d"],
+            &["/automerge", "/reviewconflicts", "/mergeoutput=d", "a", "b", "c"],
+            &["/automerge", "/center=c", "/mergeoutput=d", "a", "b"],
+        ] {
+            assert_eq!(routed(args), Route::AutoMerge { spec: spec.clone() }, "{args:?}");
+        }
+        for (args, needle) in [
+            (&["/automerge", "a", "b", "c"][..], "needs an output file"),
+            (&["/automerge", "a", "b"], "needs three files"),
+            (&["/automerge"], "needs three files"),
+        ] {
+            match routed(args) {
+                Route::Unsupported(message) => assert!(message.contains(needle), "{message}"),
+                other => panic!("{args:?}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn merge_launch_carries_titles_and_review_rules() {
+        let cli = |args: &[&str]| CliArgs::parse_in(args, Path::new("C:/work")).unwrap();
+        let w = Path::new("C:/work");
+        let launch = merge_launch(&cli(&["/title1=Theirs", "/title4=Result", "/iu", "a", "b", "c", "d"]))
+            .unwrap();
+        assert_eq!(launch.spec.center, w.join("c"));
+        assert_eq!(launch.spec.output, Some(w.join("d")));
+        assert_eq!(
+            launch.titles,
+            [Some("Theirs".into()), None, None, Some("Result".into())]
+        );
+        // 普通合并调用：`/iu`、favor 不生效。
+        assert!(!launch.ignore_unimportant);
+        // 由 `/reviewconflicts` 转入：带上。
+        let launch =
+            merge_launch(&cli(&["/reviewconflicts", "/iu", "/favorleft", "a", "b", "c"])).unwrap();
+        assert!(launch.ignore_unimportant);
+        assert_eq!(launch.favor, bc_script::cli::Favor::Left);
+        assert!(merge_launch(&cli(&["a", "b"])).is_none());
+        assert!(merge_launch(&cli(&[])).is_none());
+    }
+
+    #[test]
+    fn review_args_drop_only_automerge() {
+        let args = strings(&[
+            "/automerge",
+            "/reviewconflicts",
+            "/iu",
+            "-AUTOMERGE",
+            "a.txt",
+            "b.txt",
+            "c.txt",
+            "d.txt",
+        ]);
+        assert_eq!(
+            review_args(&args),
+            strings(&["/reviewconflicts", "/iu", "a.txt", "b.txt", "c.txt", "d.txt"])
+        );
+        let cli = CliArgs::parse_in(review_args(&args), Path::new("C:/w")).unwrap();
+        assert!(unsupported(&cli).is_none());
+        assert!(cli.merge_spec().is_some());
     }
 
     #[test]
@@ -374,6 +516,7 @@ mod tests {
             &["@s.txt"][..],
             &["/report=patch", "a", "b"],
             &["/qc", "a", "b"],
+            &["/automerge", "a", "b", "c", "d"],
         ] {
             let message = unsupported(&cli(args)).unwrap_or_default();
             assert!(

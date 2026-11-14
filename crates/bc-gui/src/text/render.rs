@@ -599,7 +599,7 @@ impl TextCompareView {
     }
 }
 #[allow(clippy::too_many_arguments)]
-fn layout(
+pub(crate) fn layout(
     text: &str,
     start: usize,
     tokens: &[Token],
@@ -672,7 +672,7 @@ fn syntax_color(kind: ElementKind, normal: egui::Color32) -> egui::Color32 {
     }
 }
 
-fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
+pub(crate) fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     painter.rect_filled(rect, 0.0, egui::Color32::WHITE);
     // 参考为 8 px 周期平铺菱格位图（非几何线），颜色 #E6E6E6，相位锚定客户区原点。

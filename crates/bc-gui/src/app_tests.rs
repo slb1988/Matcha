@@ -346,6 +346,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
     let open = |pair: &[std::path::PathBuf; 2], done| RemoteOpen {
         left: Some(pair[0].clone()),
         right: Some(pair[1].clone()),
+        merge: None,
         done,
     };
 
@@ -362,6 +363,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
         .send(RemoteOpen {
             left: None,
             right: None,
+            merge: None,
             done: done(&outcomes),
         })
         .is_ok());
@@ -370,7 +372,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
     assert!(matches!(app.tabs[1].view, View::FolderCompare(_)));
     assert!(matches!(app.tabs[2].view, View::FolderCompare(_)));
     assert_eq!(app.active_tab(), 2);
-    assert_eq!(*outcomes.lock().unwrap(), vec![Outcome::Closed]);
+    assert_eq!(*outcomes.lock().unwrap(), vec![Outcome::Closed(0)]);
     run(&ctx, &mut app, vec![]);
 
     // 关闭被等待的那一页才通知等待方。
@@ -379,7 +381,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
     app.close_tab(&ctx, 1);
     assert_eq!(
         *outcomes.lock().unwrap(),
-        vec![Outcome::Closed, Outcome::Closed]
+        vec![Outcome::Closed(0), Outcome::Closed(0)]
     );
 
     // 打不开的比较：回到 Home 显示错误，等待方得到 Failed。
@@ -398,7 +400,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
     app.poll_remote(&ctx);
     assert_eq!(outcomes.lock().unwrap().len(), 3);
     drop(app);
-    assert_eq!(outcomes.lock().unwrap().last(), Some(&Outcome::Closed));
+    assert_eq!(outcomes.lock().unwrap().last(), Some(&Outcome::Closed(0)));
     assert_eq!(outcomes.lock().unwrap().len(), 4);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -441,4 +443,144 @@ fn bin_mask_routes_to_hex_compare_view() {
     };
     let view = MatchaApp::launch_view(&egui::Context::default(), &options);
     assert!(matches!(view, View::HexCompare(_)));
+}
+
+/// 三份合并输入（左右在同一行改得不同 → 一个冲突）与一个尚不存在的输出路径。
+fn merge_files(tag: &str) -> (std::path::PathBuf, crate::merge::MergeLaunch) {
+    let root = std::env::temp_dir().join(format!("matcha-app-merge-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let base = "one\ntwo\nthree\nfour\nfive\n";
+    std::fs::write(root.join("base.txt"), base).unwrap();
+    std::fs::write(root.join("theirs.txt"), base.replace("three", "THEIRS")).unwrap();
+    std::fs::write(root.join("yours.txt"), base.replace("three", "YOURS")).unwrap();
+    let launch = crate::merge::MergeLaunch::new(bc_script::cli::MergeSpec {
+        left: root.join("theirs.txt"),
+        right: root.join("yours.txt"),
+        center: root.join("base.txt"),
+        output: Some(root.join("result.txt")),
+    });
+    (root, launch)
+}
+
+#[test]
+fn merge_launch_opens_a_merge_tab_and_reports_its_result_code() {
+    let (root, launch) = merge_files("launch");
+    let options = LaunchOptions {
+        merge: Some(launch.clone()),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    let view = MatchaApp::launch_view(&ctx, &options);
+    assert!(matches!(view, View::TextMerge(_)));
+    assert_eq!(view.kind(), "Text Merge");
+    assert_eq!(view.caption(), "theirs.txt <--> yours.txt");
+    let mut app = MatchaApp::with_view(view);
+    let slot: crate::remote::ResultSlot = Default::default();
+    app.watch_launch(slot.clone(), true);
+    run(&ctx, &mut app, vec![]);
+    run(&ctx, &mut app, vec![]);
+    // 带输出目标的合并自打开起未保存：关页先问，不直接关。
+    app.close_tab(&ctx, 0);
+    assert_eq!(app.tab_count(), 1);
+    assert!(app.active_view().prompt_open());
+    assert_eq!(*slot.lock().unwrap(), None);
+    // 保存后再关：结果码 14（保存时仍有未解决冲突）。
+    let View::TextMerge(merge) = &mut app.tabs[0].view else {
+        unreachable!()
+    };
+    let target = merge.model.target.clone().unwrap();
+    merge.model.save(&target).unwrap();
+    drop(app);
+    assert_eq!(*slot.lock().unwrap(), Some(14));
+    assert_eq!(
+        std::fs::read_to_string(root.join("result.txt")).unwrap(),
+        "one\ntwo\nthree\nfour\nfive\n"
+    );
+
+    // 启动时就打不开：回 Home 显示错误，结果码立即为 100。
+    let mut missing = launch;
+    missing.spec.center = root.join("missing.txt");
+    let options = LaunchOptions {
+        merge: Some(missing),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&ctx, &options);
+    assert!(matches!(view, View::Home(_)));
+    let mut app = MatchaApp::with_view(view);
+    let slot: crate::remote::ResultSlot = Default::default();
+    app.watch_launch(slot.clone(), true);
+    assert_eq!(*slot.lock().unwrap(), Some(100));
+    // 非合并启动：结果码恒为 0。
+    let mut app = home_app();
+    let slot: crate::remote::ResultSlot = Default::default();
+    app.watch_launch(slot.clone(), false);
+    drop(app);
+    assert_eq!(*slot.lock().unwrap(), Some(0));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn handed_off_merges_open_tabs_and_answer_with_the_merge_result() {
+    use crate::remote::{channel, RemoteOpen};
+    use std::sync::{Arc, Mutex};
+    let (root, launch) = merge_files("remote");
+    let outcomes: Arc<Mutex<Vec<Outcome>>> = Default::default();
+    let done = |outcomes: &Arc<Mutex<Vec<Outcome>>>| {
+        let outcomes = outcomes.clone();
+        Some(Box::new(move |o| outcomes.lock().unwrap().push(o)) as crate::remote::Completion)
+    };
+    let request = |launch: &crate::merge::MergeLaunch, done| RemoteOpen {
+        left: None,
+        right: None,
+        merge: Some(Box::new(launch.clone())),
+        done,
+    };
+    let ctx = egui::Context::default();
+    let mut app = home_app();
+    let (tx, inbox) = channel();
+    app.attach_remote(&ctx, inbox);
+    run(&ctx, &mut app, vec![]);
+    assert!(tx.send(request(&launch, done(&outcomes))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 2);
+    assert!(matches!(app.active_view(), View::TextMerge(_)));
+    run(&ctx, &mut app, vec![]);
+    // 用户不保存就关：等待方得到 101（合并输出未写出）。
+    let View::TextMerge(merge) = &mut app.tabs[1].view else {
+        unreachable!()
+    };
+    assert!(merge.is_dirty());
+    app.remove_tab(&ctx, 1);
+    assert_eq!(*outcomes.lock().unwrap(), vec![Outcome::Closed(101)]);
+    assert!(!root.join("result.txt").exists());
+
+    // 解决冲突并保存后关：0。
+    assert!(tx.send(request(&launch, done(&outcomes))).is_ok());
+    app.poll_remote(&ctx);
+    let View::TextMerge(merge) = &mut app.tabs[1].view else {
+        unreachable!()
+    };
+    merge.command("Take Right");
+    merge.command("Save Output");
+    assert!(!merge.is_dirty());
+    app.close_tab(&ctx, 1);
+    assert_eq!(app.tab_count(), 1);
+    assert_eq!(outcomes.lock().unwrap().last(), Some(&Outcome::Closed(0)));
+    assert_eq!(
+        std::fs::read_to_string(root.join("result.txt")).unwrap(),
+        "one\ntwo\nYOURS\nfour\nfive\n"
+    );
+
+    // 打不开：回 Home 显示错误，等待方得到 Failed。
+    let mut missing = launch;
+    missing.spec.left = root.join("missing.txt");
+    assert!(tx.send(request(&missing, done(&outcomes))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 1);
+    assert!(matches!(
+        outcomes.lock().unwrap().last(),
+        Some(Outcome::Failed(message)) if message.contains("missing.txt")
+    ));
+    let _ = std::fs::remove_dir_all(&root);
 }

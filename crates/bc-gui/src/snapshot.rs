@@ -37,6 +37,8 @@ pub const SCENES: &[&str] = &[
     "table-cursor-on-diff",
     "folder-sync",
     "text-unsaved-modal",
+    "merge-basic",
+    "merge-conflict",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -54,6 +56,7 @@ pub enum SceneView {
     Home,
     Table,
     Hex,
+    Merge,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
@@ -73,7 +76,22 @@ pub struct Scene {
 /// hex-compare 快照语料：与参考截图同一字节（docs 语料库，SHA-256 校验过）。
 pub const HEX_LEFT: &str = "docs/reference-parity/hex-compare/corpus/left.bin";
 pub const HEX_RIGHT: &str = "docs/reference-parity/hex-compare/corpus/right.bin";
-pub const REGISTRY: [Scene; 21] = [
+/// text-merge 快照语料：base 与两侧各自的修改（单侧改动、同改、重叠冲突、近距离冲突各一处）。
+pub const MERGE_LEFT: &str = "tools/visual/corpus/merge-left.txt";
+pub const MERGE_RIGHT: &str = "tools/visual/corpus/merge-right.txt";
+pub const MERGE_BASE: &str = "tools/visual/corpus/merge-base.txt";
+pub const REGISTRY: [Scene; 23] = [
+    // text-merge：打开即定位到第一个冲突 / 解决第一个冲突之后。
+    Scene {
+        name: "merge-basic",
+        view: SceneView::Merge,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "merge-conflict",
+        view: SceneView::Merge,
+        preset: Preset::CursorOnDifference,
+    },
     // hex-compare：主视图 / 插入区 / Diffs 过滤三场景（对照参考 01/06/22）。
     Scene {
         name: "hex-basic",
@@ -244,6 +262,18 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
     };
     options.left = None;
     options.right = None;
+    options.merge = None;
+    if entry.view == SceneView::Merge {
+        for path in [MERGE_LEFT, MERGE_RIGHT, MERGE_BASE] {
+            std::fs::metadata(path)?;
+        }
+        options.merge = Some(crate::merge::MergeLaunch::new(bc_script::cli::MergeSpec {
+            left: PathBuf::from(MERGE_LEFT),
+            right: PathBuf::from(MERGE_RIGHT),
+            center: PathBuf::from(MERGE_BASE),
+            output: Some(PathBuf::from("target/visual/matcha/merge-output.txt")),
+        }));
+    }
     if let Some((left, right)) = inputs {
         std::fs::metadata(&left)?;
         std::fs::metadata(&right)?;

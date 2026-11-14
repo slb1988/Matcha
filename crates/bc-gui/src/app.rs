@@ -12,6 +12,7 @@ use crate::{
     },
     dir_view::DirCompareView,
     home::{HomeAction, HomeView, SessionKind},
+    merge::{MergeAction, MergeView},
     remote::{Completion, Outcome, RemoteInbox, RemoteOpen},
     sync_view::SyncView,
     hex::{HexAction, HexCompareView},
@@ -30,6 +31,7 @@ pub enum View {
     HexCompare(Box<HexCompareView>),
     FolderCompare(Box<DirCompareView>),
     FolderSync(Box<SyncView>),
+    TextMerge(Box<MergeView>),
 }
 impl View {
     fn kind(&self) -> &'static str {
@@ -40,6 +42,14 @@ impl View {
             View::HexCompare(_) => "Hex Compare",
             View::FolderCompare(_) => "Folder Compare",
             View::FolderSync(_) => "Folder Sync",
+            View::TextMerge(_) => "Text Merge",
+        }
+    }
+    /// 会话结果码：合并页为 0 / 14 / 101（见 `MergeView::result_code`），其余恒为 0。
+    fn result_code(&self) -> i32 {
+        match self {
+            View::TextMerge(v) => v.result_code(),
+            _ => 0,
         }
     }
     fn icon(&self) -> Icon {
@@ -50,6 +60,7 @@ impl View {
             View::HexCompare(_) => Icon::File,
             View::FolderCompare(_) => Icon::Folder,
             View::FolderSync(_) => Icon::Sync,
+            View::TextMerge(_) => Icon::Files,
         }
     }
     /// 两侧显示名（文件名，无文件名时用整条路径）；空会话两侧皆为 None。
@@ -70,6 +81,7 @@ impl View {
             View::HexCompare(v) => v.paths().map(|p| p.as_deref().map(name)),
             View::FolderCompare(v) => texts(v.path_texts()),
             View::FolderSync(v) => texts(v.folder.path_texts()),
+            View::TextMerge(v) => v.paths().map(|p| p.as_deref().map(name)),
         }
     }
     /// 标签页标题：会话为 "左 <--> 右"，空会话为类型名。
@@ -98,6 +110,7 @@ impl View {
             View::HexCompare(v) => v.is_dirty(),
             View::FolderCompare(v) => v.text_dirty(),
             View::FolderSync(v) => v.folder.text_dirty(),
+            View::TextMerge(v) => v.is_dirty(),
         }
     }
     fn prompt_open(&self) -> bool {
@@ -108,6 +121,7 @@ impl View {
             View::HexCompare(v) => v.prompt_open(),
             View::FolderCompare(v) => v.prompt_open(),
             View::FolderSync(v) => v.folder.prompt_open(),
+            View::TextMerge(v) => v.prompt_open(),
         }
     }
     /// 退出前的保存确认（沿用各视图原有的 Exit 确认）。
@@ -123,6 +137,7 @@ impl View {
             View::FolderSync(v) => {
                 v.folder.request_text_close(true);
             }
+            View::TextMerge(v) => v.request_exit(),
         }
     }
     /// 关闭标签页前的保存确认；确认后视图回报 Close。
@@ -134,6 +149,7 @@ impl View {
             View::HexCompare(v) => v.request_close(),
             View::FolderCompare(v) => v.request_tab_close(),
             View::FolderSync(v) => v.folder.request_tab_close(),
+            View::TextMerge(v) => v.request_close(),
         }
     }
 }
@@ -161,7 +177,7 @@ impl Drop for Tab {
     fn drop(&mut self) {
         // 关页、原位换类型以外的丢弃（含应用退出）都算会话结束。
         if let Some(done) = self.on_close.take() {
-            done(Outcome::Closed);
+            done(Outcome::Closed(self.view.result_code()));
         }
     }
 }
@@ -275,6 +291,21 @@ impl MatchaApp {
             options: Default::default(),
         }
     }
+    /// 把"启动标签页"的结果交给 `slot`：该页关闭（或随应用退出）时写入其结果码；合并
+    /// 调用在启动时就没能打开则立即写入 100。进程以它作为退出码。
+    pub fn watch_launch(&mut self, slot: crate::remote::ResultSlot, merge_requested: bool) {
+        let failed = bc_script::ExitCode::UnknownError.code();
+        if merge_requested && !matches!(self.tabs[0].view, View::TextMerge(_)) {
+            *slot.lock().unwrap() = Some(failed);
+            return;
+        }
+        self.tabs[0].on_close = Some(Box::new(move |outcome| {
+            *slot.lock().unwrap() = Some(match outcome {
+                Outcome::Closed(code) => code,
+                Outcome::Failed(_) => failed,
+            });
+        }));
+    }
     /// 接入转交队列。
     pub fn attach_remote(&mut self, ctx: &egui::Context, inbox: RemoteInbox) {
         inbox.attach(ctx);
@@ -290,7 +321,33 @@ impl MatchaApp {
     /// 转交请求：两侧路径齐全则开新比较标签页（打不开时回 Home 显示错误），然后把
     /// 窗口提到前台；没有路径时只提到前台。
     pub fn open_remote(&mut self, ctx: &egui::Context, request: RemoteOpen) {
-        let RemoteOpen { left, right, done } = request;
+        let RemoteOpen {
+            left,
+            right,
+            merge,
+            done,
+        } = request;
+        if let Some(launch) = merge {
+            match MergeView::open(*launch) {
+                Ok(view) => {
+                    self.bench = None;
+                    self.open_tab(View::TextMerge(Box::new(view)));
+                    self.tabs[self.active].on_close = done;
+                }
+                Err(message) => {
+                    self.go_home();
+                    if let View::Home(home) = self.view_mut() {
+                        home.set_error(format!("Cannot open: {message}"));
+                    }
+                    if let Some(done) = done {
+                        done(Outcome::Failed(message));
+                    }
+                }
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            return;
+        }
         match (left, right) {
             (Some(left), Some(right)) => {
                 match Self::comparison_view(ctx, crate::home::routed(left, right)) {
@@ -316,7 +373,7 @@ impl MatchaApp {
             }
             _ => {
                 if let Some(done) = done {
-                    done(Outcome::Closed);
+                    done(Outcome::Closed(0));
                 }
             }
         }
@@ -326,6 +383,17 @@ impl MatchaApp {
     /// 命令行给了两个路径时直接打开比较（唯一标签页，不附带 Home）；否则为 Home。
     fn launch_view(ctx: &egui::Context, options: &LaunchOptions) -> View {
         let home = HomeView::new;
+        // 合并调用：一律文本合并，不按文件格式路由。
+        if let Some(launch) = &options.merge {
+            return match MergeView::open(launch.clone()) {
+                Ok(view) => View::TextMerge(Box::new(view)),
+                Err(e) => {
+                    let mut home = home();
+                    home.set_error(format!("Cannot open: {e}"));
+                    View::Home(home)
+                }
+            };
+        }
         // `/fv=` 强制会话类型（仅文件对；其它类型继续走格式路由）。
         if let (Some(l), Some(r)) = (&options.left, &options.right) {
             let forced = match options.force_view {
@@ -636,6 +704,7 @@ impl MatchaApp {
                 | View::HexCompare(_)
                 | View::FolderCompare(_)
                 | View::FolderSync(_)
+                | View::TextMerge(_)
                 | View::Home(_)
         )
     }
@@ -813,6 +882,7 @@ impl MatchaApp {
         let mut view_action = None;
         let mut table_action = None;
         let mut hex_action = None;
+        let mut merge_action = None;
         let mut folder_switch = None;
         let panel = if self.has_own_chrome() {
             egui::CentralPanel::default()
@@ -834,6 +904,7 @@ impl MatchaApp {
             View::HexCompare(view) => hex_action = view.ui(ui),
             View::FolderCompare(view) => folder_switch = view.ui(ui),
             View::FolderSync(view) => folder_switch = view.ui(ui),
+            View::TextMerge(view) => merge_action = view.ui(ui, prefs),
         });
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.tabs[self.active].view {
@@ -842,7 +913,7 @@ impl MatchaApp {
                 View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
                 View::FolderCompare(v) => !v.busy(),
                 View::FolderSync(v) => !v.folder.busy() && v.folder.snapshot.sync_stats.is_some(),
-                View::Home(_) => true,
+                View::TextMerge(_) | View::Home(_) => true,
             };
             if ready && !self.snapshot_preset_applied {
                 match &mut self.tabs[self.active].view {
@@ -861,6 +932,9 @@ impl MatchaApp {
                     }
                     View::FolderSync(v) => v.snapshot_preset(),
                     View::HexCompare(v) => {
+                        v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
+                    }
+                    View::TextMerge(v) => {
                         v.snapshot_preset(self.snapshot.as_deref().unwrap_or_default())
                     }
                     _ => {}
@@ -929,6 +1003,14 @@ impl MatchaApp {
             None => {}
         }
         self.options.ui(&ctx, &mut self.prefs);
+        match merge_action {
+            Some(MergeAction::Home) => commands.push(TabCommand::Home),
+            Some(MergeAction::NewTab) => commands.push(TabCommand::NewTab),
+            Some(MergeAction::Close) => commands.push(TabCommand::Close),
+            // 合并页自己已完成保存确认。
+            Some(MergeAction::Exit) => commands.push(TabCommand::Exit(true)),
+            None => {}
+        }
         if let Some(action) = table_action {
             let command = match action {
                 TableAction::Home => Some(TabCommand::Home),
@@ -1049,6 +1131,7 @@ impl MatchaApp {
                 View::HexCompare(_) => "hex",
                 View::FolderCompare(_) => "folder",
                 View::FolderSync(_) => "sync",
+                View::TextMerge(_) => "merge",
             };
             log.record(started, self.last_update_ms as f32, view);
         }

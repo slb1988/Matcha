@@ -23,6 +23,13 @@
 //! `/qc[=type]`：在本进程内比较两个文件，不开窗口、不参与单实例，结果为参考表中的退出码
 //! （1/11 字节模式，2/12/13 规则模式），并向 stdout 写一行结果（`/silent` 时不写）。
 //!
+//! 合并（三/四个路径，或两个路径加 `/center=`）：打开 Text Merge 标签页。合并调用**总是等待**
+//! ——不论是否由控制台启动器启动——转交方阻塞到该标签页关闭，以其结果码结束：0 已保存且无
+//! 冲突、14 带未解决冲突保存、101 未保存、100 打不开。自己成为首个实例或 `/solo` 时，以启动
+//! 标签页的结果码作为进程退出码。`/automerge` 在本进程内无窗口合并（0 / 14 / 101 / 100，
+//! stdout 一行结果，`/silent` 时不写）；带 `/reviewconflicts` 且有冲突时不写输出，转去开合并
+//! 标签页。
+//!
 //! 子系统（[`console`]）：Windows 上本程序是 GUI 子系统，双击不弹控制台。命令行用法走
 //! 同目录的控制台启动器 `matcha.com`（`PATHEXT` 让 `matcha …` 优先解析到 `.com`），它设置
 //! 等待标记并等本进程结束，本进程据此附着到它的控制台输出文本、以退出码结束。
@@ -108,7 +115,8 @@ fn main() -> ExitCode {
         },
     };
     let route = routing::route(&dev, &cli, perf_env);
-    let pair = routing::comparison_pair(&cli.invocation);
+    let merge = routing::merge_launch(&cli);
+    let pair = routing::comparison_pair(&cli.invocation).filter(|_| merge.is_none());
     match route {
         Route::Help => {
             let scenes = bc_gui::snapshot::SCENES.join(", ");
@@ -125,6 +133,20 @@ fn main() -> ExitCode {
         Route::QuickCompare { left, right, mode } => {
             quick_compare(&left, &right, mode, cli.silent())
         }
+        Route::AutoMerge { spec } => match auto_merge(&cli, &spec) {
+            Some(code) => code,
+            // `/reviewconflicts` 且有冲突：没有写输出，转入与普通合并调用相同的界面路径。
+            None => {
+                let standalone = dev.any() || perf_env || cli.solo();
+                let launch = dev.into_launch_with(None, merge, cli.force_view());
+                if standalone {
+                    sync_shell_menu();
+                    run_gui(launch, None)
+                } else {
+                    single_instance(launch, routing::review_args(&args), true)
+                }
+            }
+        },
         Route::Unsupported(message) => {
             console::tell(Kind::Error, &message);
             exit(Code::UnknownError)
@@ -137,10 +159,58 @@ fn main() -> ExitCode {
             if !dev.any() && !perf_env {
                 sync_shell_menu();
             }
-            run_gui(dev.into_launch_with(pair, cli.force_view()), None)
+            run_gui(dev.into_launch_with(pair, merge, cli.force_view()), None)
         }
-        Route::SingleInstance => single_instance(dev.into_launch_with(pair, cli.force_view()), args, wait),
+        Route::SingleInstance => {
+            // 合并调用总是等待：调用方（P4V 等）靠进程退出判断合并结束。
+            let wait = wait || merge.is_some();
+            single_instance(
+                dev.into_launch_with(pair, merge, cli.force_view()),
+                args,
+                wait,
+            )
+        }
     }
+}
+
+/// `/automerge`：不开窗口；结果一行写到 stdout（`/silent` 时不写），以 0 / 14 / 101 结束，
+/// 输入或写出有问题时 100。`None` = 带 `/reviewconflicts`、未 `/silent` 且有冲突：什么都没写，
+/// 由调用方转去开合并视图。
+fn auto_merge(cli: &CliArgs, spec: &cli::MergeSpec) -> Option<ExitCode> {
+    let switches = cli.merge_switches();
+    let review = switches.review_conflicts && !cli.silent();
+    let label = |index: u8, path: &Path| {
+        cli.title(index).map(str::to_string).unwrap_or_else(|| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+    };
+    // `/reviewconflicts` 优先于 `/force`：有冲突时交给界面而不是带标记写出。
+    let Some(request) = bc_script::runner::AutoMergeRequest::from_cli(
+        spec,
+        switches,
+        switches.force && !review,
+        [label(0, &spec.left), label(1, &spec.right)],
+    ) else {
+        console::tell(Kind::Error, "/automerge needs an output file");
+        return Some(exit(Code::UnknownError));
+    };
+    Some(match bc_script::runner::auto_merge_files(&request) {
+        Ok(report) if review && report.conflicts > 0 => return None,
+        Ok(report) => {
+            // 结果行只写给已有的标准输出：由 P4V 等 GUI 程序启动时没有控制台，不能为一行
+            // "Success" 弹消息框拦住调用方。
+            if !cli.silent() && console::has_stream(Kind::Info) {
+                console::tell(Kind::Info, &report.summary());
+            }
+            exit(report.code)
+        }
+        Err(message) => {
+            console::tell(Kind::Error, &message);
+            exit(Code::UnknownError)
+        }
+    })
 }
 
 /// `@script`：加载（105/106/100 在执行前确定）后无界面执行。
@@ -292,7 +362,8 @@ fn run_gui(
     remote: Option<bc_gui::remote::RemoteInbox>,
 ) -> ExitCode {
     match bc_gui::run_with_remote(options, remote) {
-        Ok(()) => ExitCode::SUCCESS,
+        // 启动标签页的结果码：合并页 0 / 14 / 101 / 100，其余为 0。
+        Ok(code) => exit_raw(code),
         Err(e) => {
             console::tell(Kind::Error, &format!("gui error: {e}"));
             exit(Code::UnknownError)
@@ -378,11 +449,14 @@ fn accept(sender: &RemoteSender, request: Request, responder: Responder) {
     if let Some(message) = routing::unsupported(&cli) {
         return responder.reply(Reply::error(Code::UnknownError.code(), message));
     }
-    let (left, right) = routing::comparison_pair(&cli.invocation).unzip();
+    let merge = routing::merge_launch(&cli);
+    let (left, right) = routing::comparison_pair(&cli.invocation)
+        .filter(|_| merge.is_none())
+        .unzip();
     let (now, done) = if request.wait {
         let done: bc_gui::remote::Completion = Box::new(move |outcome| {
             responder.reply(match outcome {
-                Outcome::Closed => Reply::code(Code::Success.code()),
+                Outcome::Closed(code) => Reply::code(code),
                 Outcome::Failed(message) => Reply::error(Code::UnknownError.code(), message),
             })
         });
@@ -390,7 +464,12 @@ fn accept(sender: &RemoteSender, request: Request, responder: Responder) {
     } else {
         (Some(responder), None)
     };
-    match sender.send(RemoteOpen { left, right, done }) {
+    match sender.send(RemoteOpen {
+        left,
+        right,
+        merge: merge.map(Box::new),
+        done,
+    }) {
         Ok(()) => {
             if let Some(responder) = now {
                 responder.reply(Reply::code(Code::Success.code()));

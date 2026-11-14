@@ -24,6 +24,7 @@ pub mod hex;
 pub mod home;
 pub mod legend;
 pub mod log_panel;
+pub mod merge;
 pub mod perf;
 pub mod remote;
 pub mod snapshot;
@@ -38,6 +39,8 @@ use std::path::PathBuf;
 pub struct LaunchOptions {
     pub left: Option<PathBuf>,
     pub right: Option<PathBuf>,
+    /// 三方合并调用（3/4 个路径或 `/center=`）；有它时不看 `left` / `right`。
+    pub merge: Option<merge::MergeLaunch>,
     /// `/fv=<type>` 强制会话类型（hex-compare 起生效；None = 按格式路由）。
     pub force_view: Option<bc_session::SessionKind>,
     /// Run the scroll benchmark and exit.
@@ -56,14 +59,15 @@ pub struct LaunchOptions {
 
 /// Start the native window. Blocks until the window closes.
 pub fn run(options: LaunchOptions) -> Result<(), eframe::Error> {
-    run_with_remote(options, None)
+    run_with_remote(options, None).map(|_| ())
 }
 
 /// 同 [`run`]，并把单实例转交请求（`remote`）接入窗口：每个请求开一个新标签页。
+/// 返回启动标签页的会话结果码：合并页为 0 / 14 / 101（没能打开为 100），其余为 0。
 pub fn run_with_remote(
     options: LaunchOptions,
     remote: Option<remote::RemoteInbox>,
-) -> Result<(), eframe::Error> {
+) -> Result<i32, eframe::Error> {
     perf::mark("run:enter");
     // Overlap the system-font lookup with window creation.
     chrome::fonts::prefetch();
@@ -72,6 +76,9 @@ pub fn run_with_remote(
     let snapshot_mode = options.snapshot.is_some();
     let result: snapshot::CaptureResult = Default::default();
     let capture_result = result.clone();
+    let launch_result: remote::ResultSlot = Default::default();
+    let launch_slot = launch_result.clone();
+    let merge_requested = options.merge.is_some();
     let size = options.window_size.unwrap_or(if snapshot_mode {
         snapshot::DEFAULT_WINDOW_SIZE
     } else {
@@ -88,6 +95,7 @@ pub fn run_with_remote(
         native,
         Box::new(move |cc| {
             let mut app = app::MatchaApp::new(cc, options, capture_result);
+            app.watch_launch(launch_slot, merge_requested);
             if let Some(inbox) = remote {
                 app.attach_remote(&cc.egui_ctx, inbox);
             }
@@ -102,7 +110,9 @@ pub fn run_with_remote(
             .unwrap_or_else(|| Err("snapshot window closed before PNG was saved".into()));
         outcome.map_err(|e| eframe::Error::AppCreation(Box::new(std::io::Error::other(e))))?;
     }
-    Ok(())
+    // 快照运行只关心 PNG 是否写出；会话结果码只对真实的合并调用有意义。
+    let code = launch_result.lock().unwrap().take();
+    Ok(if snapshot_mode { 0 } else { code.unwrap_or(0) })
 }
 
 pub use eframe::egui;

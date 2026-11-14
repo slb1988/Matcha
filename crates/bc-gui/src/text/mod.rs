@@ -6,7 +6,7 @@ pub mod gutter;
 mod menu;
 pub mod nav_bar;
 pub mod projection;
-mod render;
+pub(crate) mod render;
 pub mod session_dialog;
 pub mod status_bar;
 pub mod view;

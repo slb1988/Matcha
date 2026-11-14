@@ -120,8 +120,143 @@ fn losing_the_running_instance_while_waiting_exits_102() {
 fn unsupported_invocations_fail_locally_without_a_hand_off() {
     let primary = fake_primary("unsupported");
     let cwd = work_dir("unsupported");
-    let child = primary.spawn(&matcha(), &["a", "b", "c"], &cwd, false);
+    let child = primary.spawn(&matcha(), &["fix.patch"], &cwd, false);
     assert_eq!(exit_code(child), Some(100));
+    assert!(primary.rx.try_recv().is_err());
+}
+
+/// 合并调用总是等待：没有启动器的等待标记，转交方也阻塞到标签页关闭，并以其结果码结束。
+#[test]
+fn merge_hand_off_waits_without_the_launcher_and_returns_the_tab_code() {
+    let primary = fake_primary("merge");
+    let cwd = work_dir("merge");
+    let args = ["theirs.txt", "yours.txt", "base.txt", "result.txt"];
+    let mut child = primary.spawn(&matcha(), &args, &cwd, false);
+    let (request, responder) = primary.next();
+    assert_eq!(request.args, args);
+    assert!(request.wait, "P4V starts matcha.exe directly and must still wait");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "returned before the merge tab closed"
+    );
+    // 用户没保存就关了标签页。
+    responder.reply(Reply::code(101));
+    assert_eq!(exit_code(child), Some(101));
+    // 三个路径、`/center=` 的写法同样等待。
+    for args in [
+        &["theirs.txt", "yours.txt", "base.txt"][..],
+        &["/center=base.txt", "/mergeoutput=result.txt", "theirs.txt", "yours.txt"],
+    ] {
+        let child = primary.spawn(&matcha(), args, &cwd, false);
+        let (request, responder) = primary.next();
+        assert!(request.wait, "{args:?}");
+        responder.reply(Reply::code(0));
+        assert_eq!(exit_code(child), Some(0));
+    }
+}
+
+const MERGE_BASE: &str = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";
+
+/// `/automerge` 在发起进程内完成：已有常驻实例时也不转交、不开窗口；退出码 0 / 14 / 101 / 100。
+#[test]
+fn automerge_never_hands_off() {
+    let primary = fake_primary("automerge");
+    let cwd = work_dir("automerge");
+    std::fs::write(cwd.join("base.txt"), MERGE_BASE).unwrap();
+    std::fs::write(cwd.join("a.txt"), MERGE_BASE.replace("two", "TWO")).unwrap();
+    std::fs::write(cwd.join("b.txt"), MERGE_BASE.replace("seven", "SEVEN")).unwrap();
+    std::fs::write(cwd.join("c.txt"), MERGE_BASE.replace("two", "2")).unwrap();
+    let run = |args: &[&str]| exit_code(primary.spawn(&matcha(), args, &cwd, false));
+    // 无冲突：写出，0。
+    assert_eq!(
+        run(&["/silent", "/automerge", "a.txt", "b.txt", "base.txt", "out.txt"]),
+        Some(0)
+    );
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("out.txt")).unwrap(),
+        MERGE_BASE.replace("two", "TWO").replace("seven", "SEVEN")
+    );
+    // 有冲突：不写，101；`/force`：带标记写出，14。
+    assert_eq!(
+        run(&["/silent", "/automerge", "a.txt", "c.txt", "base.txt", "conflict.txt"]),
+        Some(101)
+    );
+    assert!(!cwd.join("conflict.txt").exists());
+    assert_eq!(
+        run(&[
+            "/silent",
+            "/automerge",
+            "/force",
+            "/title1=Theirs",
+            "/mergeoutput=conflict.txt",
+            "a.txt",
+            "c.txt",
+            "base.txt"
+        ]),
+        Some(14)
+    );
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("conflict.txt")).unwrap(),
+        MERGE_BASE.replace("two\n", "<<<<<<< Theirs\nTWO\n=======\n2\n>>>>>>> c.txt\n")
+    );
+    // 缺输入、缺输出目标：100。
+    assert_eq!(
+        run(&["/silent", "/automerge", "a.txt", "missing.txt", "base.txt", "x.txt"]),
+        Some(100)
+    );
+    assert_eq!(
+        run(&["/silent", "/automerge", "a.txt", "b.txt", "base.txt"]),
+        Some(100)
+    );
+    assert!(!cwd.join("x.txt").exists());
+    assert!(primary.rx.try_recv().is_err());
+}
+
+/// `/automerge /reviewconflicts`：没有冲突就不开窗口；有冲突时不写输出，改为转交合并调用
+/// （去掉 `/automerge`，并等待）。`/silent` 使 `/reviewconflicts` 失效。
+#[test]
+fn review_conflicts_opens_the_merge_only_when_conflicts_remain() {
+    let primary = fake_primary("review");
+    let cwd = work_dir("review");
+    std::fs::write(cwd.join("base.txt"), MERGE_BASE).unwrap();
+    std::fs::write(cwd.join("a.txt"), MERGE_BASE.replace("two", "TWO")).unwrap();
+    std::fs::write(cwd.join("b.txt"), MERGE_BASE.replace("seven", "SEVEN")).unwrap();
+    std::fs::write(cwd.join("c.txt"), MERGE_BASE.replace("two", "2")).unwrap();
+    let clean = primary.spawn(
+        &matcha(),
+        &["/automerge", "/reviewconflicts", "/force", "a.txt", "b.txt", "base.txt", "out.txt"],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(clean), Some(0));
+    assert!(cwd.join("out.txt").is_file());
+    assert!(primary.rx.try_recv().is_err());
+
+    let mut child = primary.spawn(
+        &matcha(),
+        &["/automerge", "/reviewconflicts", "/force", "/iu", "a.txt", "c.txt", "base.txt", "out2.txt"],
+        &cwd,
+        false,
+    );
+    let (request, responder) = primary.next();
+    assert_eq!(
+        request.args,
+        ["/reviewconflicts", "/force", "/iu", "a.txt", "c.txt", "base.txt", "out2.txt"]
+    );
+    assert!(request.wait);
+    assert!(!cwd.join("out2.txt").exists(), "/reviewconflicts wins over /force");
+    assert!(child.try_wait().unwrap().is_none());
+    responder.reply(Reply::code(0));
+    assert_eq!(exit_code(child), Some(0));
+
+    let silent = primary.spawn(
+        &matcha(),
+        &["/silent", "/automerge", "/reviewconflicts", "a.txt", "c.txt", "base.txt", "out3.txt"],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(silent), Some(101));
     assert!(primary.rx.try_recv().is_err());
 }
 
