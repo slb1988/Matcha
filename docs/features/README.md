@@ -21,6 +21,7 @@
 | 文档 | 功能 | 状态 | 主要 crate |
 |---|---|---|---|
 | [text-compare.md](text-compare.md) | 文本比较 / 编辑（FR-T1…T8） | 双向比较已实现；三路合并为脚手架 | `bc-engine-text` |
+| [text-merge.md](text-merge.md) | 文本三方合并（FR-T7）：自动合并、冲突解决、P4V 集成 | 进行中（change `text-merge`；语义未经参考样本确认） | `bc-engine-text`、`bc-script` |
 | [folder-compare-sync.md](folder-compare-sync.md) | 文件夹比较与同步（FR-D1…D5） | 已实现（wave A/B/C 完成） | `bc-engine-dir` |
 | [table-compare.md](table-compare.md) | 表格比较 CSV/XLSX（FR-C1） | 已实现 | `bc-engine-table` |
 | [hex-compare.md](hex-compare.md) | 十六进制比较（hex-compare change 已落地） | 21/23（3.2 待参考机生成期望；7.2 Mac 侧 4 个无关既有夹具失败） | `bc-engine-bin` |
