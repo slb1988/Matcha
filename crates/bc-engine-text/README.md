@@ -1,8 +1,8 @@
 # bc-engine-text
 
 Text Compare / Merge / Edit engine (FR-T1…FR-T8). Owns the aligned text model and the
-semantics of importance, inline differences and replacements. Two-way comparison is
-implemented; three-way merge and the external job manager remain scaffolds.
+semantics of importance, inline differences and replacements. Two-way comparison and
+three-way merge are implemented; the external job manager remains a scaffold.
 
 ## Responsibilities
 
@@ -13,12 +13,49 @@ implemented; three-way merge and the external job manager remain scaffolds.
   and section index; navigation and section copy entry points.
 - `importance` – `Importance {Same, Unimportant, Important}` and block propagation (spec §6).
 - `inline` – character-level spans within a changed row (FR-T2).
-- `merge` – `MergeState`, `Conflict`, `auto_merge` → outcome used for exit codes 0/14/101.
+- `merge` – `MergeState`, `Conflict`, `auto_merge` → outcome used for exit codes 0/14/101
+  (see "Three-way merge" below).
 - `jobs` – `Align2Job`, `Realign2Job`, `Align3Job`, `Realign3Job` (`bc_jobs::Job` impls).
+  `Realign3Job` recomputes everything; its result equals `Align3Job` by contract.
 - `search` – find / replace-all (FR-T6).
 
 Test scaffold: `cargo test -p bc-engine-text`; lightweight baseline:
 `cargo run --release -p bc-engine-text --example text_baseline`.
+
+## Three-way merge
+
+`TextMap::merge(left, right, center, rules)` builds a three-column map: `Align3Job` runs
+the two-way pipeline on left/center and center/right and reconciles the two around the
+center (`bc_core::align::reconcile3`). The center column is stored beside the two-way
+rows (`AlignedData::center`, empty for two-way maps); `CompactRow` keeps its size.
+
+`MergeState::classify(map, rules)` works in two layers:
+
+- **Row type** (`MergeChoice`) decides content: `Center` (unchanged), `Left`, `Right`,
+  `Both` (same change), `Conflict` (changed differently). Default output takes center /
+  left / right / left / center respectively. Any difference counts, important or not;
+  `ignore_unimportant` makes unimportant differences count as none.
+- **Conflict sections** are ranges of rows: a change run holding both sides' changes, or
+  runs with opposite-side changes at most `conflict_gap` (default 2) unchanged rows
+  apart, joined together with the rows between. `Both` rows count for neither side.
+  Non-overlapping changes inside a conflict section are still taken.
+
+`TextMergeRules`: `text`, `favor` (side taken for ignored unimportant conflicts, only
+with `ignore_unimportant`; otherwise they read as center), `ignore_unimportant`,
+`force_conflict_markers`, `conflict_gap`.
+
+`take`/`resolve` replace a section by one side and clear its conflict; `accept` clears
+it without touching content. `output_lines` gives the output with per-line origin (the
+view builds its buffer from it); `render_output` encodes it, writing
+`<<<<<<< label` / `=======` / `>>>>>>> label` blocks for unresolved conflicts when
+`force_conflict_markers` is set. Every line keeps the ending of its source line; only
+the last output line may be unterminated. Encoding and BOM are a three-way pick
+(`output_encoding`); unrepresentable text is an error. `auto_merge` returns conflicts,
+bytes, `withheld` and warnings.
+
+Tests: `tests/align3.rs`, `tests/merge.rs`, `tests/golden_merge.rs` (20-case corpus;
+compares against reference samples once `tools/golden/gen_merge_expected.ps1` has
+produced them, pins the provisional semantics until then).
 
 ## Content, comparison and editing APIs
 

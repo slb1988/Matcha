@@ -254,6 +254,100 @@ fn right_only(line: usize) -> AlignRow {
     }
 }
 
+/// Reconcile two 2-way alignments that share the center into one 3-column map
+/// (`TTextMapAlign3Job`): `a` aligns left (its left side) with center (its right side),
+/// `b` aligns center (its left side) with right (its right side).
+///
+/// Every center line yields one row carrying its partners from `a` and `b`. Lines without
+/// a center partner go into the bucket numbered by how many center lines precede them in
+/// their own 2-way row order; inside a bucket, left and right orphans sit side by side by
+/// position, and the bucket precedes the center line of the same number.
+///
+/// Guarantees: each side is an ordered partition; left↔center pairs are exactly those of
+/// `a`, center↔right pairs exactly those of `b`. `kind` is `Same` only when the center
+/// line is unchanged on both sides, `LeftOnly`/`RightOnly` for single-side rows, and
+/// `Changed` otherwise.
+pub fn reconcile3(a: &AlignMap, b: &AlignMap) -> Result<AlignMap, crate::CoreError> {
+    reconcile3_cancellable(a, b, &NeverCancel)
+}
+
+pub fn reconcile3_cancellable(
+    a: &AlignMap,
+    b: &AlignMap,
+    cancel: &dyn CancelCheck,
+) -> Result<AlignMap, crate::CoreError> {
+    let centers = a.right_to_row.len();
+    if centers != b.left_to_row.len() {
+        return Err(crate::CoreError::Invalid(
+            "three-way reconcile: the two alignments disagree on the center length".into(),
+        ));
+    }
+    // Per center line: partner and whether that pair is unchanged. Per bucket: orphans.
+    let mut left_of = vec![(None, false); centers];
+    let mut right_of = vec![(None, false); centers];
+    let mut left_orphans: Vec<Vec<usize>> = vec![Vec::new(); centers + 1];
+    let mut right_orphans: Vec<Vec<usize>> = vec![Vec::new(); centers + 1];
+    let mut seen = 0;
+    for row in &a.rows {
+        match (row.left, row.right) {
+            (left, Some(center)) => {
+                left_of[center] = (left, row.kind == DiffKind::Same);
+                seen = center + 1;
+            }
+            (Some(left), None) => left_orphans[seen].push(left),
+            (None, None) => {}
+        }
+    }
+    cancel.check()?;
+    seen = 0;
+    for row in &b.rows {
+        match (row.left, row.right) {
+            (Some(center), right) => {
+                right_of[center] = (right, row.kind == DiffKind::Same);
+                seen = center + 1;
+            }
+            (None, Some(right)) => right_orphans[seen].push(right),
+            (None, None) => {}
+        }
+    }
+    cancel.check()?;
+    let mut rows = Vec::with_capacity(a.rows.len().max(b.rows.len()));
+    for bucket in 0..=centers {
+        if bucket % 4096 == 0 {
+            cancel.check()?;
+        }
+        let (lefts, rights) = (&left_orphans[bucket], &right_orphans[bucket]);
+        for i in 0..lefts.len().max(rights.len()) {
+            let (left, right) = (lefts.get(i).copied(), rights.get(i).copied());
+            rows.push(AlignRow {
+                left,
+                right,
+                center: None,
+                kind: match (left, right) {
+                    (Some(_), None) => DiffKind::LeftOnly,
+                    (None, Some(_)) => DiffKind::RightOnly,
+                    _ => DiffKind::Changed,
+                },
+            });
+        }
+        if bucket < centers {
+            let (left, left_same) = left_of[bucket];
+            let (right, right_same) = right_of[bucket];
+            rows.push(AlignRow {
+                left,
+                right,
+                center: Some(bucket),
+                kind: if left_same && right_same {
+                    DiffKind::Same
+                } else {
+                    DiffKind::Changed
+                },
+            });
+        }
+    }
+    AlignMap::from_rows_cancellable(rows, cancel)
+}
+
 /// Session-owned, ordered manual anchors, deliberately separate from an AlignMap.
 /// Reuse this value across recompare/realign; clear it to recover automatic output.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -404,14 +498,15 @@ impl Aligner for QuickAlign {
             .expect("valid alignment inputs")
     }
 
-    #[allow(unused_variables)] // remaining scaffold entry point
     fn align3(
         &self,
         left: AlignInput<'_>,
         center: AlignInput<'_>,
         right: AlignInput<'_>,
     ) -> AlignMap {
-        todo!("bc-core::align: quick 3-way alignment")
+        let a = self.align2(left, center.clone());
+        let b = self.align2(center, right);
+        reconcile3(&a, &b).expect("both alignments share the center")
     }
 }
 
@@ -731,14 +826,15 @@ impl Aligner for SmartAlign {
             .expect("valid Smart alignment inputs")
     }
 
-    #[allow(unused_variables)] // remaining scaffold entry point
     fn align3(
         &self,
         left: AlignInput<'_>,
         center: AlignInput<'_>,
         right: AlignInput<'_>,
     ) -> AlignMap {
-        todo!("bc-core::align: smart 3-way alignment")
+        let a = self.align2(left, center.clone());
+        let b = self.align2(center, right);
+        reconcile3(&a, &b).expect("both alignments share the center")
     }
 }
 
@@ -789,14 +885,15 @@ impl Aligner for PatienceAlign {
             .expect("valid Patience alignment inputs")
     }
 
-    #[allow(unused_variables)] // remaining scaffold entry point
     fn align3(
         &self,
         left: AlignInput<'_>,
         center: AlignInput<'_>,
         right: AlignInput<'_>,
     ) -> AlignMap {
-        todo!("bc-core::align: patience 3-way alignment")
+        let a = self.align2(left, center.clone());
+        let b = self.align2(center, right);
+        reconcile3(&a, &b).expect("both alignments share the center")
     }
 }
 

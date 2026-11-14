@@ -65,6 +65,7 @@ impl Align2Job {
             revisions: (self.left.revision(), self.right.revision()),
             rules: self.rules.clone(),
             overrides: self.overrides.clone(),
+            ..Default::default()
         };
         data.rebuild_sections();
         cancel.check()?;
@@ -509,6 +510,7 @@ impl Realign2Job {
             revisions: (self.base.left.revision(), self.base.right.revision()),
             rules: self.base.rules.clone(),
             overrides: self.base.overrides.clone(),
+            ..Default::default()
         };
         data.rebuild_sections();
         cancel.check()?;
@@ -529,8 +531,26 @@ impl Job for Realign2Job {
     }
 }
 
-// Three-way jobs intentionally remain outside this change.
-#[derive(Debug)]
+/// Importance of one aligned pair; two gaps compare as the same.
+pub(crate) fn pair_importance(
+    a: &SideSnapshot,
+    b: &SideSnapshot,
+    ai: Option<usize>,
+    bi: Option<usize>,
+    comparison: &CompiledComparison,
+    cancel: &dyn CancelCheck,
+) -> Result<Importance, CoreError> {
+    if ai.is_none() && bi.is_none() {
+        return Ok(Importance::Same);
+    }
+    Ok(classify_row(a, b, ai, bi, comparison, cancel)?.importance)
+}
+
+/// Three-way alignment around the center (`TTextMapAlign3Job`): the two-way pipeline runs
+/// on left/center and center/right, then `bc_core::align::reconcile3` merges the two.
+/// The importance of a row is the larger of the two side-versus-center importances,
+/// so `sections()` are the change runs; `kind` only tells `Same` from `Changed`.
+#[derive(Debug, Clone)]
 pub struct Align3Job {
     pub left: SideSnapshot,
     pub center: SideSnapshot,
@@ -538,24 +558,140 @@ pub struct Align3Job {
     pub strategy: AlignStrategy,
     pub rules: TextRules,
 }
+impl Align3Job {
+    /// `None` for a two-way map (no center).
+    pub fn from_map(map: &TextMap) -> Option<Self> {
+        Some(Self {
+            left: map.left.snapshot(),
+            center: map.center.as_ref()?.snapshot(),
+            right: map.right.snapshot(),
+            strategy: map.rules.alignment.strategy,
+            rules: map.rules.clone(),
+        })
+    }
+    fn pair(&self, left: &SideSnapshot, right: &SideSnapshot) -> Align2Job {
+        Align2Job {
+            left: left.clone(),
+            right: right.clone(),
+            strategy: self.strategy,
+            rules: self.rules.clone(),
+            overrides: AlignmentOverrides::default(),
+        }
+    }
+    pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<AlignOutput, CoreError> {
+        cancel.check()?;
+        let comparison = CompiledComparison::new(&self.rules.comparison)?;
+        let lh = hash_side(&self.left, Side::Left, &comparison, cancel)?;
+        let rh = hash_side(&self.right, Side::Right, &comparison, cancel)?;
+        // The center is the right operand against left and the left operand against
+        // right; side-specific replacements make those two hash sets differ.
+        let ch_right = hash_side(&self.center, Side::Right, &comparison, cancel)?;
+        let ch_left = if self.rules.comparison.replacements.is_empty() {
+            None
+        } else {
+            Some(hash_side(&self.center, Side::Left, &comparison, cancel)?)
+        };
+        let a = align_range(
+            &self.pair(&self.left, &self.center),
+            &lh,
+            &ch_right,
+            0..lh.len(),
+            0..ch_right.len(),
+            cancel,
+        )?;
+        let b = align_range(
+            &self.pair(&self.center, &self.right),
+            ch_left.as_deref().unwrap_or(&ch_right),
+            &rh,
+            0..ch_right.len(),
+            0..rh.len(),
+            cancel,
+        )?;
+        let aligned = bc_core::align::reconcile3_cancellable(&a, &b, cancel)?.into_rows();
+        drop((a, b));
+        let mut rows = Vec::with_capacity(aligned.len());
+        let mut center = Vec::with_capacity(aligned.len());
+        for (i, row) in aligned.into_iter().enumerate() {
+            if i % 128 == 0 {
+                cancel.check()?;
+            }
+            let left = pair_importance(
+                &self.left,
+                &self.center,
+                row.left,
+                row.center,
+                &comparison,
+                cancel,
+            )?;
+            let right = pair_importance(
+                &self.center,
+                &self.right,
+                row.center,
+                row.right,
+                &comparison,
+                cancel,
+            )?;
+            let importance = left.max(right);
+            let kind = if importance == Importance::Same {
+                DiffKind::Same
+            } else {
+                DiffKind::Changed
+            };
+            rows.push(CompactRow::new(row.left, row.right, kind, importance)?);
+            center.push(CompactRow::new(row.center, None, kind, importance)?.left);
+        }
+        let len = rows.len();
+        let mut data = AlignedData {
+            rows,
+            sections: Vec::new(),
+            left_hashes: Arc::new(lh),
+            right_hashes: Arc::new(rh),
+            revisions: (self.left.revision(), self.right.revision()),
+            rules: self.rules.clone(),
+            overrides: AlignmentOverrides::default(),
+            center,
+            center_hashes: Arc::new(ch_right),
+            center_revision: Some(self.center.revision()),
+        };
+        data.rebuild_sections();
+        cancel.check()?;
+        Ok(AlignOutput {
+            data: Arc::new(data),
+            rules: self.rules.clone(),
+            overrides: AlignmentOverrides::default(),
+            recomputed_rows: 0..len,
+        })
+    }
+}
 impl Job for Align3Job {
     fn name(&self) -> String {
         "Aligning merge".into()
     }
-    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
-        todo!("three-way change")
+    fn priority(&self) -> Priority {
+        Priority::High
+    }
+    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+        Ok(Box::new(self.execute(&ctx.cancel).map_err(job_error)?))
     }
 }
-#[derive(Debug)]
+/// Re-alignment of a merge. The result is by contract identical to a full
+/// [`Align3Job`]; this change recomputes everything (merge inputs are read-only, so
+/// there is no editing loop that would need a local window).
+#[derive(Debug, Clone)]
 pub struct Realign3Job {
     pub base: Align3Job,
     pub dirty_rows: Range<usize>,
+}
+impl Realign3Job {
+    pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<AlignOutput, CoreError> {
+        self.base.execute(cancel)
+    }
 }
 impl Job for Realign3Job {
     fn name(&self) -> String {
         "Re-aligning merge".into()
     }
-    fn run(self: Box<Self>, _ctx: &JobContext) -> JobResult {
-        todo!("three-way change")
+    fn run(self: Box<Self>, ctx: &JobContext) -> JobResult {
+        Ok(Box::new(self.execute(&ctx.cancel).map_err(job_error)?))
     }
 }

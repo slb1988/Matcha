@@ -23,7 +23,7 @@ pub struct TextMapRow {
     pub importance: Importance,
     pub section: Option<usize>,
 }
-const GAP: u32 = u32::MAX;
+pub(crate) const GAP: u32 = u32::MAX;
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(crate) struct CompactRow {
@@ -71,6 +71,8 @@ impl CompactRow {
         self
     }
 }
+// Two-way maps keep exactly this row size; three-way data lives in a parallel column.
+const _: () = assert!(std::mem::size_of::<CompactRow>() == 12);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub rows: Range<usize>,
@@ -85,6 +87,11 @@ pub(crate) struct AlignedData {
     pub revisions: ((u64, u64), (u64, u64)),
     pub rules: TextRules,
     pub overrides: AlignmentOverrides,
+    /// Three-way only: the center line of each row, parallel to `rows` (`GAP` = none).
+    /// Empty for two-way maps, so the two-way row layout and memory stay untouched.
+    pub center: Vec<u32>,
+    pub center_hashes: Arc<Vec<ContentHash>>,
+    pub center_revision: Option<(u64, u64)>,
 }
 impl AlignedData {
     pub(crate) fn rebuild_sections(&mut self) {
@@ -123,7 +130,11 @@ impl AlignedData {
         Some(TextMapRow {
             left: row.index(Side::Left),
             right: row.index(Side::Right),
-            center: None,
+            center: self
+                .center
+                .get(index)
+                .filter(|&&c| c != GAP)
+                .map(|&c| c as usize),
             kind: row.kind,
             importance: row.importance,
             section,
@@ -172,13 +183,31 @@ impl TextMap {
         map.recompare()?;
         Ok(map)
     }
+    /// Three-way map (`center` required); aligned around the center by `Align3Job`.
+    pub fn merge(
+        left: TextContent,
+        right: TextContent,
+        center: TextContent,
+        rules: TextRules,
+    ) -> Result<Self, CoreError> {
+        let mut map = Self::new(left, right, Some(center), rules);
+        map.recompare()?;
+        Ok(map)
+    }
     pub fn recompare(&mut self) -> Result<(), CoreError> {
-        let output =
-            crate::jobs::Align2Job::from_map(self).execute(&bc_core::cancel::NeverCancel)?;
+        let cancel = bc_core::cancel::NeverCancel;
+        let output = match crate::jobs::Align3Job::from_map(self) {
+            Some(job) => job.execute(&cancel)?,
+            None => crate::jobs::Align2Job::from_map(self).execute(&cancel)?,
+        };
         self.set_alignment(output)
+    }
+    fn center_revision(&self) -> Option<(u64, u64)> {
+        self.center.as_ref().map(TextContent::revision)
     }
     pub fn set_alignment(&mut self, output: crate::jobs::AlignOutput) -> Result<(), CoreError> {
         if output.data.revisions != (self.left.revision(), self.right.revision())
+            || output.data.center_revision != self.center_revision()
             || !output.rules.same_comparison(&self.rules)
             || output.overrides != self.overrides
         {
@@ -190,6 +219,7 @@ impl TextMap {
     pub fn is_stale(&self) -> bool {
         let data = self.data.borrow();
         data.revisions != (self.left.revision(), self.right.revision())
+            || data.center_revision != self.center_revision()
             || !data.rules.same_comparison(&self.rules)
             || data.overrides != self.overrides
     }
@@ -197,6 +227,9 @@ impl TextMap {
     pub fn reclassify(&mut self, rules: crate::rules::ComparisonRules) -> Result<(), CoreError> {
         let old = self.rules.comparison.clone();
         self.rules.comparison = rules;
+        if self.center.is_some() {
+            return self.recompare();
+        }
         let a = &old.importance;
         let b = &self.rules.comparison.importance;
         if old.replacements != self.rules.comparison.replacements
@@ -262,7 +295,8 @@ impl TextMap {
         let (content, index) = match side {
             Side::Left => (&self.left, row.left?),
             Side::Right => (&self.right, row.right?),
-            _ => return None,
+            Side::Center => (self.center.as_ref()?, row.center?),
+            Side::Output => return None,
         };
         Ref::filter_map(content.lines.borrow(), |lines| lines.line_bytes(index)).ok()
     }
@@ -466,7 +500,8 @@ impl TextMap {
         let d = self.data.borrow();
         d.rows.capacity() * std::mem::size_of::<CompactRow>()
             + d.sections.capacity() * std::mem::size_of::<Section>()
-            + (d.left_hashes.capacity() + d.right_hashes.capacity())
+            + d.center.capacity() * std::mem::size_of::<u32>()
+            + (d.left_hashes.capacity() + d.right_hashes.capacity() + d.center_hashes.capacity())
                 * std::mem::size_of::<ContentHash>()
     }
 }

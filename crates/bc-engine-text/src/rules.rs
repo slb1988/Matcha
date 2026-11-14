@@ -63,7 +63,7 @@ impl TextRules {
     }
 }
 
-/// Which side wins unimportant conflicts – CLI `/favorleft` `/favorright`.
+/// Which side wins ignored unimportant conflicts – CLI `/favorleft` `/favorright`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Favor {
     #[default]
@@ -73,14 +73,27 @@ pub enum Favor {
 }
 
 /// Text Merge rules – `TTextMergeRules` (adds merge-specific options).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextMergeRules {
     pub text: TextRules,
+    /// Side taken for ignored unimportant conflicts (only with `ignore_unimportant`).
     pub favor: Favor,
-    /// `/iu`: ignore unimportant differences when auto-merging.
+    /// `/iu`: unimportant differences count as no difference.
     pub ignore_unimportant: bool,
     /// `/force`: write conflicts with CVS-style markers instead of failing.
     pub force_conflict_markers: bool,
-    /// Treat center-only changes as conflicts (BC "Conflicts" options).
-    pub conflict_on_center_change: bool,
+    /// "A merge conflict is: left change and right change separated by N lines":
+    /// opposite-side changes at most this many unchanged rows apart form one conflict.
+    pub conflict_gap: u32,
+}
+impl Default for TextMergeRules {
+    fn default() -> Self {
+        Self {
+            text: TextRules::default(),
+            favor: Favor::None,
+            ignore_unimportant: false,
+            force_conflict_markers: false,
+            conflict_gap: 2,
+        }
+    }
 }
