@@ -91,9 +91,9 @@ fn opens_on_the_first_conflict_with_four_panes() {
     frame(&ctx, &mut v, vec![]);
     assert_eq!(v.unresolved(), 1);
     assert_eq!(v.current_row, 19);
-    // 上排三个输入并排，输出在下方，四者都有面积。
+    // 上排三个输入并排（BASE | LEFT | RIGHT），输出在下方，四者都有面积。
     let [l, c, r, o] = v.pane_rects;
-    assert!(l.right() <= c.left() && c.right() <= r.left());
+    assert!(c.right() <= l.left() && l.right() <= r.left());
     assert!(o.top() >= l.bottom() - 0.5);
     assert!(v.pane_rects.iter().all(|p| p.width() > 100.0 && p.height() > 100.0));
     // 定位：冲突行滚到视野上方附近。

@@ -89,8 +89,10 @@ pub struct MergeModel {
     pub map: TextMap,
     pub state: MergeState,
     pub output: TextContent,
-    /// 输出目标；`None` 时保存即另存。
+    /// 保存目标：默认是 LEFT 的文件（本地文件）；`None` 时保存即另存。
     pub target: Option<PathBuf>,
+    /// 输出文件（第 4 个参数 / `/mergeoutput=`，P4V 的 `%r`）：每次保存后同步一份。
+    pub mirror: Option<PathBuf>,
     meta: Vec<OutLine>,
     grid: Vec<GridRow>,
     /// 每个对齐行在网格里的首个显示行。
@@ -110,6 +112,16 @@ fn origin_of(side: Side) -> OutOrigin {
         Side::Left => OutOrigin::Left,
         Side::Right => OutOrigin::Right,
         _ => OutOrigin::Center,
+    }
+}
+
+/// 保存后把写好的文件复制到 `mirror`（P4V 的 `%r` 结果文件）；与已写路径相同时跳过。
+pub(crate) fn copy_to_mirror(written: &Path, mirror: Option<&Path>) -> Result<(), String> {
+    match mirror {
+        Some(mirror) if mirror != written => std::fs::copy(written, mirror)
+            .map(drop)
+            .map_err(|e| format!("cannot write {}: {e}", mirror.display())),
+        _ => Ok(()),
     }
 }
 
@@ -148,7 +160,8 @@ impl MergeModel {
             ..Default::default()
         };
         let mut model = Self::from_contents(left, right, center, rules).map_err(|e| e.to_string())?;
-        model.target = launch.spec.output.clone();
+        model.target = Some(launch.spec.left.clone());
+        model.mirror = launch.spec.output.clone();
         Ok(model)
     }
 
@@ -194,6 +207,7 @@ impl MergeModel {
             state,
             output,
             target: None,
+            mirror: None,
             meta,
             grid: Vec::new(),
             grid_of_row: Vec::new(),
@@ -508,6 +522,7 @@ impl MergeModel {
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
         let bytes = self.output_bytes().map_err(|e| e.to_string())?;
         bc_script::runner::replace_file(path, &bytes)?;
+        copy_to_mirror(path, self.mirror.as_deref())?;
         self.target = Some(path.to_path_buf());
         self.saved = Some(self.unresolved() > 0);
         self.changed = false;

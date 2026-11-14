@@ -13,7 +13,7 @@
 | `matcha.com` | console | cmd/PowerShell 中 `matcha …`：等待、可重定向、回传退出码 |
 | `matcha-comp.exe` | GUI | VCS 比较集成：立即交接返回，不能用于合并 |
 
-合并调用：`matcha <left> <right> <center>`、`matcha <left> <right> <center> <output>`，或
+合并调用：`matcha <base> <theirs> <yours> [<output>]`（即 P4V `%b %1 %2 %r`；theirs 进 RIGHT，yours 进 LEFT，界面保存写 LEFT），或
 `matcha /center=<file> [/mergeoutput=<path>] <left> <right>`；`/mergeoutput=` 优先于第 4 个位置参数。
 三个输入都是 xlsx/xlsm 工作簿时走[表格合并](table-merge.md)（键对齐逐格合并），CSV/TSV 默认仍按行文本合并，
 加 `/tablemerge` 才按表格合并（`/keys=1,3` 指定键列）；工作簿与非工作簿混合报错 100。
@@ -24,7 +24,7 @@
 
 - `/qc a b`：快速比较，退出码 2 same / 12 similar / 13 different；`/qc=binary|crc|size`
   → 1 / 11；`/silent` 抑制单行结果输出。
-- `/automerge left right center output`：需要输出目标；无冲突写出并返回 0，有冲突不写出为 101，
+- `/automerge base theirs yours output`：需要输出目标；无冲突写出并返回 0，有冲突不写出为 101，
   带 `/force` 时带冲突标记写出为 14；参数、输入或写出错误为 100。写同目录临时文件再替换，不建备份，
   不读取既有输出；输出可等于输入，101 时既有输出保持原样。结果为 stdout 一行，`/silent` 或无标准输出时
   不写也不为结果弹框；错误写 stderr（无控制台时为消息框）。加 `/reviewconflicts` 时，无冲突仍不开窗；
@@ -59,11 +59,11 @@ matcha /qc a.txt b.txt
 matcha /report=patch-unified a.txt b.txt
 matcha /report=summary a.xlsx b.xlsx
 matcha @diff.txt a.txt b.txt
-matcha theirs.txt yours.txt base.txt result.txt
-matcha /automerge theirs.txt yours.txt base.txt result.txt
-matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
-matcha /automerge /keys=1 theirs.xlsx yours.xlsx base.xlsx result.xlsx
-matcha /tablemerge /automerge theirs.csv yours.csv base.csv result.csv
+matcha base.txt theirs.txt yours.txt result.txt
+matcha /automerge base.txt theirs.txt yours.txt result.txt
+matcha /automerge /reviewconflicts base.txt theirs.txt yours.txt result.txt
+matcha /automerge /keys=1 base.xlsx theirs.xlsx yours.xlsx result.xlsx
+matcha /tablemerge /automerge base.csv theirs.csv yours.csv result.csv
 cargo test -p bc-script
 ```
 

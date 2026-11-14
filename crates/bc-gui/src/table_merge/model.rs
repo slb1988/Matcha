@@ -33,7 +33,7 @@ const UNDO_LIMIT: usize = 200;
 pub struct TableMergeModel {
     pub loaded: LoadedTableMerge,
     pub launch: MergeLaunch,
-    /// 输出目标；`None` 时保存即另存。
+    /// 保存目标：默认是 LEFT 的文件（本地文件）；`None` 时保存即另存。
     pub target: Option<PathBuf>,
     /// 当前显示的 sheet。
     pub sheet: usize,
@@ -58,7 +58,7 @@ impl TableMergeModel {
 
     pub fn from_loaded(loaded: LoadedTableMerge, launch: MergeLaunch) -> Self {
         let mut model = Self {
-            target: launch.spec.output.clone(),
+            target: Some(launch.spec.left.clone()),
             loaded,
             launch,
             sheet: 0,
@@ -296,6 +296,8 @@ impl TableMergeModel {
             path,
             &[&spec.left, &spec.right, &spec.center],
         )?;
+        // 输出文件（P4V 的 `%r`）每次保存后同步一份。
+        crate::merge::model::copy_to_mirror(path, spec.output.as_deref())?;
         self.target = Some(path.to_path_buf());
         self.saved = Some(self.unresolved() > 0);
         self.changed = false;

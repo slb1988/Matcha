@@ -20,6 +20,8 @@ use std::path::PathBuf;
 pub(crate) const OUT: usize = 3;
 const SIDES: [Side; 3] = [Side::Left, Side::Center, Side::Right];
 const BADGES: [&str; 4] = ["LEFT", "BASE", "RIGHT", "OUTPUT"];
+/// 输入窗格（left、center、right）在上排的列位：BASE | LEFT | RIGHT。
+const COLUMN_OF: [usize; 3] = [1, 0, 2];
 pub(crate) const GUTTER: f32 = 46.0;
 /// 窗格标题条。
 pub(crate) const HEADER: f32 = 24.0;
@@ -28,6 +30,8 @@ pub(crate) const COLUMNS: f32 = 20.0;
 pub(crate) const COLUMN_WIDTH: f32 = 110.0;
 pub(crate) const ROW_HEIGHT: f32 = 20.0;
 const SHEET_TABS: f32 = 24.0;
+/// 选中格详情条的高度（状态条之上）。
+const DETAILS: f32 = 62.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pending {
@@ -62,7 +66,12 @@ pub struct TableMergeView {
     active: usize,
     /// 选中的格（对齐行, 列）。
     pub(crate) selected: (usize, usize),
-    scroll: egui::Vec2,
+    /// 纵向滚动位置（四窗格共用，行保持对齐）。
+    scroll_y: f32,
+    /// 横向滚动位置：每窗格独立（列对齐靠内容，宽度不同各滚各的）。
+    scroll_x: [f32; 4],
+    /// 每窗格的最大横向滚动量（>0 时该窗格显示横向滚动条）。
+    max_x: [f32; 4],
     pending_scroll: Option<usize>,
     pub(crate) pane_rects: [egui::Rect; 4],
     editing: Option<Editing>,
@@ -74,6 +83,8 @@ pub struct TableMergeView {
     path_edit_focused: bool,
     /// 打开 / 切 sheet 时布局未就绪，布局完成后补做一次选中格可见保证。
     pending_ensure: bool,
+    /// 详情条文本框持焦（上一帧）：持焦时无修饰键留给文本编辑。
+    details_focused: bool,
 }
 
 fn menu_item(label: &str, shortcut: Option<&str>) -> MenuItem {
@@ -164,7 +175,9 @@ impl TableMergeView {
             model,
             active: OUT,
             selected: (0, 0),
-            scroll: egui::Vec2::ZERO,
+            scroll_y: 0.0,
+            scroll_x: [0.0; 4],
+            max_x: [0.0; 4],
             pending_scroll: None,
             pane_rects: [egui::Rect::NOTHING; 4],
             editing: None,
@@ -174,6 +187,7 @@ impl TableMergeView {
             menus: menus(),
             path_edit_focused: false,
             pending_ensure: false,
+            details_focused: false,
         };
         // 打开即定位到第一个冲突（没有冲突则第一个改动）。
         if let Some(row) = view.model.first_conflict_or_change() {
@@ -305,7 +319,8 @@ impl TableMergeView {
             self.editing = None;
             self.model.set_sheet(sheet);
             self.selected = (0, 0);
-            self.scroll = egui::Vec2::ZERO;
+            self.scroll_y = 0.0;
+            self.scroll_x = [0.0; 4];
             if let Some(row) = self.model.first_conflict_or_change() {
                 self.goto_change(row);
             }
@@ -456,8 +471,11 @@ impl TableMergeView {
             else {
                 continue;
             };
-            // 标题条路径框持焦时，无修饰键（方向/Delete/F2/Enter）留给文本编辑。
-            if self.path_edit_focused && !modifiers.command && !modifiers.alt {
+            // 路径框 / 详情条持焦时，无修饰键（方向/Delete/F2/Enter）留给文本编辑。
+            if (self.path_edit_focused || self.details_focused)
+                && !modifiers.command
+                && !modifiers.alt
+            {
                 continue;
             }
             let command = match (*key, modifiers.command, modifiers.shift) {
@@ -510,30 +528,29 @@ impl TableMergeView {
 
     fn ensure_visible(&mut self) {
         let row = self.selected.0;
-        let shown =
-            ((self.pane_rects[OUT].height() - HEADER - COLUMNS) / ROW_HEIGHT).max(1.0) as usize;
-        let top = (self.scroll.y / ROW_HEIGHT) as usize;
+        let hbar = if self.max_x[OUT] > 0.0 { 16.0 } else { 0.0 };
+        let shown = ((self.pane_rects[OUT].height() - HEADER - COLUMNS - hbar) / ROW_HEIGHT)
+            .max(1.0) as usize;
+        let top = (self.scroll_y / ROW_HEIGHT) as usize;
         if row < top {
             self.pending_scroll = Some(row);
         } else if row + 1 >= top + shown {
             self.pending_scroll = Some(row + 2 - shown.min(row + 2));
         }
-        // 水平：以最窄窗格为准，保证选中格在每个窗格都可见（首帧布局前不调整）。
-        let width = self
-            .pane_rects
-            .iter()
-            .map(egui::Rect::width)
-            .fold(f32::INFINITY, f32::min);
-        if !width.is_finite() || width <= GUTTER {
-            return;
-        }
-        let view = width - GUTTER;
+        // 水平：每窗格按自己的宽度调整，选中格在四窗格都可见（布局未就绪时跳过）。
         let left = self.selected.1 as f32 * COLUMN_WIDTH;
         let right = left + COLUMN_WIDTH;
-        if left < self.scroll.x {
-            self.scroll.x = left;
-        } else if right > self.scroll.x + view {
-            self.scroll.x = right - view;
+        for (pane, rect) in self.pane_rects.iter().enumerate() {
+            let view = rect.width() - GUTTER;
+            if !view.is_finite() || view <= 0.0 {
+                continue;
+            }
+            let x = &mut self.scroll_x[pane];
+            if left < *x {
+                *x = left;
+            } else if right > *x + view {
+                *x = right - view;
+            }
         }
     }
 
@@ -577,18 +594,14 @@ impl TableMergeView {
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
-        // 水平滚动范围由等宽的输入窗格决定（输出窗格更宽，总能显示更多列）；
-        // 内容超宽时底部让出 16 px 给横向滚动条。
-        let input_width = (available.width() - 16.0 - 2.0) / 3.0;
-        let max_x = (columns as f32 * COLUMN_WIDTH + GUTTER - input_width + 20.0).max(0.0);
-        let hbar_height = if max_x > 0.0 { 16.0 } else { 0.0 };
-        let hbar = egui::Rect::from_min_max(
-            egui::pos2(available.left(), status.top() - hbar_height),
+        // 选中格详情条：状态条之上；网格区在它的上面。
+        let details = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - DETAILS),
             egui::pos2(available.right() - 16.0, status.top()),
         );
         let body = egui::Rect::from_min_max(
             available.min,
-            egui::pos2(available.right() - 16.0, hbar.top()),
+            egui::pos2(available.right() - 16.0, details.top()),
         );
         let top_height = ((body.height() - HEADER) * 0.55).max(80.0);
         let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
@@ -596,12 +609,19 @@ impl TableMergeView {
         let width = (inputs.width() - 2.0) / 3.0;
         for pane in 0..3 {
             self.pane_rects[pane] = egui::Rect::from_min_size(
-                inputs.min + egui::vec2(pane as f32 * (width + 1.0), 0.0),
+                inputs.min + egui::vec2(COLUMN_OF[pane] as f32 * (width + 1.0), 0.0),
                 egui::vec2(width, inputs.height()),
             );
         }
         self.pane_rects[OUT] = output;
         self.path_edit_focused = false;
+        self.details_focused = false;
+        // 每窗格的横向滚动范围（>0 显示横向滚动条）。
+        for pane in 0..4 {
+            self.max_x[pane] =
+                (columns as f32 * COLUMN_WIDTH + GUTTER - self.pane_rects[pane].width() + 20.0)
+                    .max(0.0);
+        }
         if self.pending_ensure {
             self.pending_ensure = false;
             self.ensure_visible();
@@ -610,20 +630,36 @@ impl TableMergeView {
         let shortest = self
             .pane_rects
             .iter()
-            .map(|r| r.height() - HEADER - COLUMNS)
+            .enumerate()
+            .map(|(pane, r)| {
+                r.height()
+                    - HEADER
+                    - COLUMNS
+                    - if self.max_x[pane] > 0.0 { 16.0 } else { 0.0 }
+            })
             .fold(f32::INFINITY, f32::min)
             .max(ROW_HEIGHT);
         let max_y = (rows as f32 * ROW_HEIGHT - shortest + ROW_HEIGHT).max(0.0);
         if let Some(row) = self.pending_scroll.take() {
-            self.scroll.y = row as f32 * ROW_HEIGHT;
+            self.scroll_y = row as f32 * ROW_HEIGHT;
         }
         if !blocked {
             let delta = chrome::wheel::delta(&ctx, &self.pane_rects);
-            self.scroll.x -= delta.x;
-            self.scroll.y -= delta.y;
+            // 纵向四窗格共用；横向只滚指针下的那个窗格。
+            self.scroll_y -= delta.y;
+            if delta.x != 0.0 {
+                if let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) {
+                    if let Some(pane) = self.pane_rects.iter().position(|r| r.contains(pointer))
+                    {
+                        self.scroll_x[pane] -= delta.x;
+                    }
+                }
+            }
         }
-        self.scroll.y = self.scroll.y.clamp(0.0, max_y);
-        self.scroll.x = self.scroll.x.clamp(0.0, max_x);
+        self.scroll_y = self.scroll_y.clamp(0.0, max_y);
+        for pane in 0..4 {
+            self.scroll_x[pane] = self.scroll_x[pane].clamp(0.0, self.max_x[pane]);
+        }
 
         for pane in 0..4 {
             let rect = self.pane_rects[pane];
@@ -638,7 +674,7 @@ impl TableMergeView {
             );
         }
         for x in [
-            self.pane_rects[1].left() - 1.0,
+            self.pane_rects[0].left() - 1.0,
             self.pane_rects[2].left() - 1.0,
         ] {
             ui.painter().line_segment(
@@ -649,24 +685,15 @@ impl TableMergeView {
         self.edit_box(ui);
 
         let bar =
-            egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), status.right_top());
+            egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), body.right_bottom());
         let last = (max_y / ROW_HEIGHT).ceil() as usize;
-        let mut top = (self.scroll.y / ROW_HEIGHT).round() as usize;
+        let mut top = (self.scroll_y / ROW_HEIGHT).round() as usize;
         ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
             if chrome::scrollbar::show(ui, 0..=last, &mut top).changed() {
-                self.scroll.y = top as f32 * ROW_HEIGHT;
+                self.scroll_y = top as f32 * ROW_HEIGHT;
             }
         });
-        if max_x > 0.0 {
-            let max_column = (max_x / COLUMN_WIDTH).ceil() as usize;
-            let mut first = (self.scroll.x / COLUMN_WIDTH).round() as usize;
-            ui.scope_builder(egui::UiBuilder::new().max_rect(hbar), |ui| {
-                if chrome::scrollbar::show_horizontal(ui, 0..=max_column, &mut first).changed()
-                {
-                    self.scroll.x = first as f32 * COLUMN_WIDTH;
-                }
-            });
-        }
+        self.details(ui, details);
 
         ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
             use chrome::statusbar::{self, StatusField};
@@ -718,6 +745,62 @@ impl TableMergeView {
         } else {
             format!("{place}  {kind}")
         }
+    }
+
+    /// 详情条显示的文本：活动窗格选中格的完整内容。
+    pub(crate) fn details_text(&self) -> String {
+        let (row, column) = self.selected;
+        let sheet = self.sheet();
+        if self.active < 3 {
+            sheet.input_text(SIDES[self.active], row, column)
+        } else {
+            sheet.output_cell(row, column).map(|(_, text, _)| text)
+        }
+        .unwrap_or_default()
+    }
+
+    /// 选中格详情条：活动窗格徽标 + 位置与类型 + 完整内容
+    /// （换行显示、内部滚动、可选中复制）。
+    fn details(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, theme::PANEL_BG);
+        painter.line_segment(
+            [rect.left_top(), rect.right_top()],
+            egui::Stroke::new(1.0, theme::BORDER),
+        );
+        ui.scope_builder(
+            egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(8.0, 4.0))),
+            |ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                let (fill, ink) = match self.active {
+                    0 => (theme::MERGE_LEFT_SOFT, theme::MERGE_LEFT),
+                    2 => (theme::MERGE_RIGHT_SOFT, theme::MERGE_RIGHT),
+                    _ => (theme::SURFACE, theme::TEXT_MUTED),
+                };
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(BADGES[self.active])
+                            .color(ink)
+                            .background_color(fill)
+                            .small(),
+                    );
+                    ui.label(
+                        egui::RichText::new(self.describe_cell()).color(theme::TEXT_MUTED),
+                    );
+                });
+                let text = self.details_text();
+                let edit = ui.add_sized(
+                    ui.available_size(),
+                    egui::TextEdit::multiline(&mut text.as_str())
+                        .id(ui.make_persistent_id("table-merge-details"))
+                        .frame(egui::Frame::NONE)
+                        .font(egui::FontId::proportional(theme::UI_SIZE - 1.0))
+                        .text_color(theme::TEXT)
+                        .hint_text("(empty cell)"),
+                );
+                self.details_focused |= edit.has_focus();
+            },
+        );
     }
 
     fn sheet_tabs(&mut self, ui: &mut egui::Ui) {
@@ -844,30 +927,38 @@ impl TableMergeView {
         );
         painter.rect_filled(chip, theme::RADIUS_SM, fill);
         painter.galley(chip.min + egui::vec2(5.0, 2.0), badge, ink);
-        let spec = &self.model.launch.spec;
-        let path = match pane {
-            0 => Some(&spec.left),
-            1 => Some(&spec.center),
-            2 => Some(&spec.right),
-            _ => self.model.target.as_ref(),
-        };
-        let mut text = self.model.launch.titles[pane]
-            .clone()
-            .or_else(|| path.map(|p| p.display().to_string()))
-            .unwrap_or_else(|| "(no output file – Save will ask for one)".into());
-        if pane == OUT {
-            if self.sheet().is_dropped() {
-                text.push_str("  •  sheet not in output");
-            }
-            if self.model.is_dirty() {
-                text.push_str("  •  not saved");
-            }
-        }
-        // 只读路径框：可选中/复制，右键 Copy / Select All。
         let text_rect = egui::Rect::from_min_max(
             egui::pos2(chip.right() + 8.0, rect.top()),
             egui::pos2(rect.right() - 4.0, rect.bottom()),
         );
+        if pane == OUT {
+            // 输出不显示路径（保存目标即 LEFT 的文件），只显示状态。
+            let mut status = Vec::new();
+            if self.sheet().is_dropped() {
+                status.push("sheet not in output");
+            }
+            if self.model.is_dirty() {
+                status.push("not saved");
+            }
+            ui.painter().text(
+                text_rect.left_center(),
+                egui::Align2::LEFT_CENTER,
+                status.join("  •  "),
+                egui::FontId::proportional(12.0),
+                theme::TEXT_MUTED,
+            );
+            return;
+        }
+        let spec = &self.model.launch.spec;
+        let path = match pane {
+            0 => &spec.left,
+            1 => &spec.center,
+            _ => &spec.right,
+        };
+        let text = self.model.launch.titles[pane]
+            .clone()
+            .unwrap_or_else(|| path.display().to_string());
+        // 只读路径框：可选中/复制，右键 Copy / Select All。
         let edit = chrome::pathbar::show_readonly(ui, text_rect, &text);
         self.path_edit_focused |= edit.has_focus();
     }
@@ -927,19 +1018,26 @@ impl TableMergeView {
         }
     }
 
-    /// 一个窗格：标题条 + 列名行 + 可见的网格行。
+    /// 一个窗格：标题条 + 列名行 + 可见的网格行 + （超宽时）横向滚动条。
     fn pane(&mut self, ui: &mut egui::Ui, pane: usize, rect: egui::Rect) {
         let header = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), HEADER));
         self.header(ui, pane, header);
         let names =
             egui::Rect::from_min_size(header.left_bottom(), egui::vec2(rect.width(), COLUMNS));
-        let area = egui::Rect::from_min_max(names.left_bottom(), rect.max);
+        let hbar_height = if self.max_x[pane] > 0.0 { 16.0 } else { 0.0 };
+        let hbar = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - hbar_height),
+            rect.max,
+        );
+        let area =
+            egui::Rect::from_min_max(names.left_bottom(), egui::pos2(rect.right(), hbar.top()));
         ui.painter().rect_filled(area, 0.0, theme::CANVAS);
         let clip = ui.clip_rect();
         let painter = ui.painter().with_clip_rect(area.intersect(clip));
         let columns = self.sheet().columns;
-        let x0 = rect.left() + GUTTER - self.scroll.x;
-        let first_column = (self.scroll.x / COLUMN_WIDTH) as usize;
+        let scroll_x = self.scroll_x[pane];
+        let x0 = rect.left() + GUTTER - scroll_x;
+        let first_column = (scroll_x / COLUMN_WIDTH) as usize;
         let shown_columns = ((rect.width() - GUTTER) / COLUMN_WIDTH).ceil() as usize + 1;
         let visible_columns = first_column..(first_column + shown_columns).min(columns);
         let font = egui::FontId::proportional(theme::UI_SIZE - 1.0);
@@ -989,8 +1087,8 @@ impl TableMergeView {
 
         let id = egui::Id::unique(("table-merge-grid", pane));
         let response = ui.interact(area, id, egui::Sense::click());
-        let first = (self.scroll.y / ROW_HEIGHT) as usize;
-        let offset = self.scroll.y - first as f32 * ROW_HEIGHT;
+        let first = (self.scroll_y / ROW_HEIGHT) as usize;
+        let offset = self.scroll_y - first as f32 * ROW_HEIGHT;
         let shown = (area.height() / ROW_HEIGHT).ceil() as usize + 1;
         let rows = self.sheet().row_count();
         let side = (pane < 3).then(|| SIDES[pane]);
@@ -1086,11 +1184,35 @@ impl TableMergeView {
                 );
             }
         }
+        // 悬停显示完整格内容（网格里放不下时被截断的长文本）。
+        if let Some(pos) = response.hover_pos() {
+            if area.contains(pos) {
+                let row = first + ((pos.y - area.top() + offset) / ROW_HEIGHT) as usize;
+                let x = pos.x - rect.left() - GUTTER + scroll_x;
+                if row < rows && x >= 0.0 {
+                    let column = ((x / COLUMN_WIDTH) as usize).min(columns.saturating_sub(1));
+                    let text = match side {
+                        Some(side) => self.sheet().input_text(side, row, column),
+                        None => self
+                            .sheet()
+                            .output_cell(row, column)
+                            .map(|(_, text, _)| text),
+                    };
+                    if let Some(text) = text.filter(|t| !t.is_empty()) {
+                        response.clone().on_hover_ui(|ui| {
+                            ui.set_max_width(720.0);
+                            let capped: String = text.chars().take(4000).collect();
+                            ui.add(egui::Label::new(capped).wrap());
+                        });
+                    }
+                }
+            }
+        }
         // 点击选格；输出网格双击编辑。
         if let Some(pos) = response.interact_pointer_pos() {
             if response.clicked() || response.double_clicked() {
                 let row = first + ((pos.y - area.top() + offset) / ROW_HEIGHT) as usize;
-                let x = pos.x - rect.left() - GUTTER + self.scroll.x;
+                let x = pos.x - rect.left() - GUTTER + scroll_x;
                 if row < rows && x >= 0.0 {
                     let column = ((x / COLUMN_WIDTH) as usize).min(columns.saturating_sub(1));
                     if self.editing.is_some() {
@@ -1103,6 +1225,18 @@ impl TableMergeView {
                     }
                 }
             }
+        }
+        // 窗格自己的横向滚动条（内容超宽时）。
+        if hbar_height > 0.0 {
+            let max_column = (self.max_x[pane] / COLUMN_WIDTH).ceil() as usize;
+            let mut first_column = (self.scroll_x[pane] / COLUMN_WIDTH).round() as usize;
+            ui.scope_builder(egui::UiBuilder::new().max_rect(hbar), |ui| {
+                if chrome::scrollbar::show_horizontal(ui, 0..=max_column, &mut first_column)
+                    .changed()
+                {
+                    self.scroll_x[pane] = first_column as f32 * COLUMN_WIDTH;
+                }
+            });
         }
         if self.active == pane {
             ui.painter().line_segment(
@@ -1118,8 +1252,8 @@ impl TableMergeView {
             return;
         };
         let area = self.pane_rects[OUT];
-        let top = area.top() + HEADER + COLUMNS + edit.row as f32 * ROW_HEIGHT - self.scroll.y;
-        let left = area.left() + GUTTER + edit.column as f32 * COLUMN_WIDTH - self.scroll.x;
+        let top = area.top() + HEADER + COLUMNS + edit.row as f32 * ROW_HEIGHT - self.scroll_y;
+        let left = area.left() + GUTTER + edit.column as f32 * COLUMN_WIDTH - self.scroll_x[OUT];
         let rect =
             egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(COLUMN_WIDTH, ROW_HEIGHT));
         let id = egui::Id::unique("table-merge-edit");

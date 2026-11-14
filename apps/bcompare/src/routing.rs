@@ -234,13 +234,12 @@ fn auto_merge(cli: &CliArgs) -> Option<Route> {
     Some(match cli.merge_spec() {
         Some(spec) if spec.output.is_some() => Route::AutoMerge { spec, table },
         Some(_) => Route::Unsupported(
-            "/automerge needs an output file: matcha /automerge <left> <right> <center> <output> \
+            "/automerge needs an output file: matcha /automerge <base> <right> <left> <output> \
              (or /mergeoutput=<path>)"
                 .into(),
         ),
         None => Route::Unsupported(
-            "/automerge needs three files: matcha /automerge <left> <right> <center> <output>"
-                .into(),
+            "/automerge needs three files: matcha /automerge <base> <right> <left> <output>".into(),
         ),
     })
 }
@@ -441,24 +440,24 @@ mod tests {
         };
         // `/solo`、`/silent`、`/force`、`/reviewconflicts` 不改变路由。
         for args in [
-            &["/automerge", "a", "b", "c", "d"][..],
+            &["/automerge", "c", "b", "a", "d"][..],
             &[
                 "/solo",
                 "/silent",
                 "/automerge",
                 "/force",
-                "a",
-                "b",
                 "c",
+                "b",
+                "a",
                 "d",
             ],
             &[
                 "/automerge",
                 "/reviewconflicts",
                 "/mergeoutput=d",
-                "a",
-                "b",
                 "c",
+                "b",
+                "a",
             ],
             &["/automerge", "/center=c", "/mergeoutput=d", "a", "b"],
         ] {
@@ -472,7 +471,7 @@ mod tests {
             );
         }
         for (args, needle) in [
-            (&["/automerge", "a", "b", "c"][..], "needs an output file"),
+            (&["/automerge", "c", "b", "a"][..], "needs an output file"),
             (&["/automerge", "a", "b"], "needs three files"),
             (&["/automerge"], "needs three files"),
         ] {
@@ -494,14 +493,14 @@ mod tests {
         };
         // xlsx/xlsm always merge as tables; csv only with /tablemerge.
         assert_eq!(
-            routed(&["/automerge", "a.xlsx", "b.xlsx", "c.xlsx", "d.xlsx"]),
+            routed(&["/automerge", "c.xlsx", "b.xlsx", "a.xlsx", "d.xlsx"]),
             Route::AutoMerge {
                 spec: spec("xlsx"),
                 table: true
             }
         );
         assert_eq!(
-            routed(&["/automerge", "a.csv", "b.csv", "c.csv", "d.csv"]),
+            routed(&["/automerge", "c.csv", "b.csv", "a.csv", "d.csv"]),
             Route::AutoMerge {
                 spec: spec("csv"),
                 table: false
@@ -511,9 +510,9 @@ mod tests {
             routed(&[
                 "/automerge",
                 "/tablemerge",
-                "a.csv",
-                "b.csv",
                 "c.csv",
+                "b.csv",
+                "a.csv",
                 "d.csv"
             ]),
             Route::AutoMerge {
@@ -522,7 +521,7 @@ mod tests {
             }
         );
         assert_eq!(
-            routed(&["a.xlsx", "b.xlsx", "c.xlsx", "d.xlsx"]),
+            routed(&["c.xlsx", "b.xlsx", "a.xlsx", "d.xlsx"]),
             Route::SingleInstance
         );
         for (args, needle) in [
@@ -531,9 +530,9 @@ mod tests {
                 &[
                     "/automerge",
                     "/force",
-                    "a.xlsx",
-                    "b.xlsx",
                     "c.xlsx",
+                    "b.xlsx",
+                    "a.xlsx",
                     "d.xlsx",
                 ],
                 "/force",
@@ -561,9 +560,9 @@ mod tests {
             "/title1=Theirs",
             "/title4=Result",
             "/iu",
-            "a",
-            "b",
             "c",
+            "b",
+            "a",
             "d",
         ]))
         .unwrap();

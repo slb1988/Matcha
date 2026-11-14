@@ -2,7 +2,7 @@
 //!
 //! Switches use `/` on Windows and `-` on macOS/Linux; both are accepted everywhere.
 //! Positional arguments are inferred: named session / named workspace / two folders /
-//! two files / three files (merge) / four files (merge + output) / `@script` / `.bcpkg`
+//! two files / three files (merge: base, right, left) / four files (merge + output) / `@script` / `.bcpkg`
 //! / `.diff|.patch` / `-` (stdin).
 
 /// `/qc=<type>` values (re-exported so callers need not depend on the folder engine).
@@ -109,13 +109,13 @@ pub enum Invocation {
     Folders(PathBuf, PathBuf),
     /// Two files → view chosen by file format (or `/fv`).
     Files(PathBuf, PathBuf),
-    /// Three files → Text Merge (left, right, center).
+    /// Three files → merge, given as `<base> <right> <left>` (P4V `%b %1 %2`: base, theirs, yours).
     Merge3 {
         left: PathBuf,
         right: PathBuf,
         center: PathBuf,
     },
-    /// Four files → Text Merge with output.
+    /// Four files → merge with output: `<base> <right> <left> <output>` (P4V `%b %1 %2 %r`).
     Merge4 {
         left: PathBuf,
         right: PathBuf,
@@ -416,15 +416,16 @@ impl std::error::Error for CliError {}
 /// Usage text printed by `/?` on a console (wording aligned with the reference, spec §5).
 pub fn usage() -> String {
     const LINES: &[&str] = &[
-        "Usage: matcha [<switches>] [<left> [<right> [<center> [<output>]]]]",
+        "Usage: matcha [<switches>] [<left> [<right>]]",
+        "       matcha [<switches>] <base> <right> <left> [<output>]",
         "       matcha [<switches>] @<script> [<script args>]",
         "",
         "Positional arguments:",
         "  (none)                  Home view",
         "  <folder> <folder>       Folder Compare",
         "  <file> <file>           Compare (view chosen by file format, or /fv)",
-        "  <l> <r> <center> [<o>]  Merge (with output file): Table Merge for xlsx/xlsm,",
-        "                          Text Merge otherwise",
+        "  <base> <r> <l> [<o>]    Merge (P4V: %b %1 %2 %r); Save writes <l> (and <o>):",
+        "                          Table Merge for xlsx/xlsm, Text Merge otherwise",
         "  <name>                  Saved session or workspace",
         "  <file.bcpkg>            Import settings package",
         "  <file.diff|.patch>      Text Patch",
@@ -658,17 +659,25 @@ fn infer(cwd: &Path, positional: Vec<String>) -> Result<Invocation, CliError> {
                 Invocation::Files(left, right)
             }
         }
-        3 => Invocation::Merge3 {
-            left: next(),
-            right: next(),
-            center: next(),
-        },
-        4 => Invocation::Merge4 {
-            left: next(),
-            right: next(),
-            center: next(),
-            output: next(),
-        },
+        // 三方合并的位置参数按 P4V `%b %1 %2 [%r]`：base、theirs、yours、result。
+        // yours（本地文件）进 LEFT——界面默认保存到它；theirs 进 RIGHT。
+        3 => {
+            let (center, right, left) = (next(), next(), next());
+            Invocation::Merge3 {
+                left,
+                right,
+                center,
+            }
+        }
+        4 => {
+            let (center, right, left, output) = (next(), next(), next(), next());
+            Invocation::Merge4 {
+                left,
+                right,
+                center,
+                output,
+            }
+        }
         n => {
             return Err(error(format!(
                 "too many arguments ({n}); at most four paths are accepted"
@@ -748,15 +757,16 @@ mod tests {
             center: w.join("c"),
             output: None,
         };
-        assert_eq!(spec(&["a", "b", "c"]), Some(expected.clone()));
+        // Positional merges follow P4V `%b %1 %2 %r`: `<base> <right> <left> [<output>]`.
+        assert_eq!(spec(&["c", "b", "a"]), Some(expected.clone()));
         assert_eq!(spec(&["/center=c", "a", "b"]), Some(expected.clone()));
         let with_output = MergeSpec {
             output: Some(w.join("d")),
             ..expected.clone()
         };
-        assert_eq!(spec(&["a", "b", "c", "d"]), Some(with_output.clone()));
+        assert_eq!(spec(&["c", "b", "a", "d"]), Some(with_output.clone()));
         assert_eq!(
-            spec(&["/mergeoutput=d", "a", "b", "c"]),
+            spec(&["/mergeoutput=d", "c", "b", "a"]),
             Some(with_output.clone())
         );
         assert_eq!(

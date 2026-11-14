@@ -136,7 +136,9 @@ fn save_and_close_report_result_codes() {
     assert_eq!(v.unresolved(), 0);
     v.command("Save Output");
     assert!(!v.prompt_open(), "{}", v.message);
-    assert!(f.output().is_file());
+    // 默认写 LEFT 的文件，并同步到输出文件（P4V `%r`）。
+    let left = std::fs::read(&f.launch.spec.left).unwrap();
+    assert_eq!(left, std::fs::read(f.output()).unwrap());
     assert_eq!(v.result_code(), 0);
     v.request_close();
     assert_eq!(frame(&ctx, &mut v, vec![]), Some(MergeAction::Close));
@@ -209,25 +211,24 @@ fn wide_sheet_has_hbar_and_opens_on_the_changed_cell() {
     }
     // 打开落到第一个改动格（表头按数据行计：k2 是第 2 行、X 是第 9 列）。
     assert_eq!(v.selected, (2, 9));
-    // 水平可见：选中格在最窄的输入窗格里完整可见。
-    let width = v
-        .pane_rects
-        .iter()
-        .map(egui::Rect::width)
-        .fold(f32::INFINITY, f32::min);
-    let view_width = width - GUTTER;
-    assert!(v.scroll.x > 0.0);
+    // 水平可见：输入窗格滚到选中格完整可见；输出窗格够宽（12 列全显示）不滚。
+    let view_width = v.pane_rects[0].width() - GUTTER;
+    assert!(v.scroll_x[0] > 0.0);
     let left = 9.0 * COLUMN_WIDTH;
     let right = left + COLUMN_WIDTH;
-    assert!(left >= v.scroll.x - 0.5);
-    assert!(right <= v.scroll.x + view_width + 0.5);
-    // 超宽时输出窗格让出 16 px 横向滚动条。
+    assert!(left >= v.scroll_x[0] - 0.5);
+    assert!(right <= v.scroll_x[0] + view_width + 0.5);
+    assert_eq!(v.scroll_x[OUT], 0.0);
+    // 详情条显示活动窗格选中格的完整内容。
+    assert_eq!(v.details_text(), "X");
+    // 超宽时各窗格按需出横向滚动条（输入窗格超宽，3 列的窄夹具不超宽）。
+    assert!(v.max_x[0] > 0.0);
     let narrow = conflicted("narrow");
     let mut nv = view(&narrow);
     for _ in 0..3 {
         frame(&ctx, &mut nv, vec![]);
     }
-    assert!(v.pane_rects[OUT].height() < nv.pane_rects[OUT].height());
+    assert_eq!(nv.max_x[0], 0.0);
 }
 
 #[test]
@@ -239,22 +240,39 @@ fn arrow_keys_scroll_horizontally_to_keep_the_cell_visible() {
         frame(&ctx, &mut v, vec![]);
     }
     v.selected = (1, 0);
-    v.scroll.x = 0.0;
+    v.scroll_x = [0.0; 4];
     for _ in 0..8 {
         frame(&ctx, &mut v, vec![key(egui::Key::ArrowRight, false, false)]);
     }
     assert_eq!(v.selected.1, 8);
-    let width = v
-        .pane_rects
-        .iter()
-        .map(egui::Rect::width)
-        .fold(f32::INFINITY, f32::min);
-    let view_width = width - GUTTER;
+    let view_width = v.pane_rects[0].width() - GUTTER;
     let left = 8.0 * COLUMN_WIDTH;
-    assert!(v.scroll.x > 0.0);
-    assert!(left + COLUMN_WIDTH <= v.scroll.x + view_width + 0.5);
+    assert!(v.scroll_x[0] > 0.0);
+    assert!(left + COLUMN_WIDTH <= v.scroll_x[0] + view_width + 0.5);
     // 滚轮横向滚动不会把选中格吸回视野（手动查看自由）。
-    let before = v.scroll.x;
+    let before = v.scroll_x;
     frame(&ctx, &mut v, vec![]);
-    assert_eq!(v.scroll.x, before);
+    assert_eq!(v.scroll_x, before);
+}
+
+#[test]
+fn details_follows_the_active_panes_cell() {
+    let f = wide("details");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    for _ in 0..2 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    // 打开落在 right 的改动格 X；活动窗格默认是输出格（自动合并已取 right）。
+    assert_eq!(v.selected, (2, 9));
+    assert_eq!(v.details_text(), "X");
+    // 点 BASE 窗格的同格：详情条换成 base 的 a。
+    let pos = cell_pos(&v, 1, 0, 0);
+    click(&ctx, &mut v, egui::pos2(pos.x, pos.y));
+    v.selected = (2, 9);
+    v.active = 1;
+    assert_eq!(v.details_text(), "a");
+    // 输出窗格：自动合并的内容（right 的 X）。
+    v.active = OUT;
+    assert_eq!(v.details_text(), "X");
 }

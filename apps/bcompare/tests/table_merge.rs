@@ -1,4 +1,4 @@
-//! 端到端：真实的 `matcha` 以 P4V 形式（`%1 %2 %b %r`）无窗口表格合并 xlsx / CSV，检查退出码与输出文件。
+//! 端到端：真实的 `matcha` 以 P4V 形式（`%b %1 %2 %r`）无窗口表格合并 xlsx / CSV，检查退出码与输出文件。
 //! `/automerge` 在发起进程内执行，不打开窗口、不转交实例。
 #![cfg(windows)]
 use bc_engine_table::{workbook::Workbook, xlsx_write, Cell, CellValue, Sheet};
@@ -81,12 +81,12 @@ fn p4v_style_xlsx_auto_merge_exit_codes() {
             (4.0, "fig", 40.0),
         ],
     );
-    // %1 %2 %b %r
+    // %b %1 %2 %r
     let args = [
         "/automerge",
+        "base.xlsx",
         "theirs.xlsx",
         "yours.xlsx",
-        "base.xlsx",
         "result.xlsx",
     ];
     assert_eq!(run(&dir.0, &args), Some(0));
@@ -123,9 +123,9 @@ fn p4v_style_xlsx_auto_merge_exit_codes() {
             &[
                 "/automerge",
                 "/force",
+                "base.xlsx",
                 "theirs.xlsx",
                 "yours.xlsx",
-                "base.xlsx",
                 "r.xlsx"
             ]
         ),
@@ -137,9 +137,9 @@ fn p4v_style_xlsx_auto_merge_exit_codes() {
             &[
                 "/automerge",
                 "/keys=9",
+                "base.xlsx",
                 "theirs.xlsx",
                 "yours.xlsx",
-                "base.xlsx",
                 "r.xlsx"
             ]
         ),
@@ -151,9 +151,9 @@ fn p4v_style_xlsx_auto_merge_exit_codes() {
             &dir.0,
             &[
                 "/automerge",
+                "base.csv",
                 "theirs.xlsx",
                 "yours.xlsx",
-                "base.csv",
                 "r.xlsx"
             ]
         ),
@@ -176,7 +176,7 @@ fn csv_merges_as_table_only_with_the_switch() {
         "id,item,qty\n1,Apple,10\n2,pear,20\n",
     )
     .unwrap();
-    let files = ["theirs.csv", "yours.csv", "base.csv", "out.csv"];
+    let files = ["base.csv", "theirs.csv", "yours.csv", "out.csv"];
     // As text both sides changed the same line: conflict.
     let text: Vec<&str> = ["/automerge"].into_iter().chain(files).collect();
     assert_eq!(run(&dir.0, &text), Some(101));

@@ -7,14 +7,14 @@
 ## ADDED Requirements
 
 ### Requirement: 合并调用的参数形式
-命令行给出 3 个文件路径时 SHALL 视为文本合并调用，依次为 left、right、center；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 一律按文本合并处理，不按文件格式改用其他视图。P4V 的调用形式 `matcha %1 %2 %b %r`（theirs、yours、base、result）MUST 直接可用。
+命令行给出 3 个文件路径时 SHALL 视为文本合并调用，依次为 center（base）、right（theirs）、left（yours，界面保存目标）（2026-11-14 改为 P4V 顺序）；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 一律按文本合并处理，不按文件格式改用其他视图。P4V 的调用形式 `matcha %b %1 %2 %r`（base、theirs、yours、result）MUST 直接可用。
 
 #### Scenario: 四参数打开合并视图
-- **WHEN** 执行 `matcha theirs.txt yours.txt base.txt result.txt`
-- **THEN** 打开文本合并视图，left 为 theirs.txt、right 为 yours.txt、center 为 base.txt，输出目标为 result.txt
+- **WHEN** 执行 `matcha base.txt theirs.txt yours.txt result.txt`
+- **THEN** 打开文本合并视图，left 为 yours.txt、right 为 theirs.txt、center 为 base.txt，保存写 yours.txt 并同步 result.txt
 
 #### Scenario: 三参数无输出目标
-- **WHEN** 执行 `matcha theirs.txt yours.txt base.txt`
+- **WHEN** 执行 `matcha base.txt theirs.txt yours.txt`
 - **THEN** 打开文本合并视图，没有输出目标
 
 #### Scenario: 以开关给出 center 与输出
@@ -82,11 +82,11 @@
 不带 `/automerge` 的合并调用打开界面时，调用进程 SHALL 阻塞到合并标签页关闭，不论它是把请求转交给了已运行的实例、自己成为常驻实例、还是以 `/solo` 独立运行，也不论是经 `matcha.exe` 还是 `matcha.com` 启动。
 
 #### Scenario: 已有实例时仍然等待
-- **WHEN** 已有一个 Matcha 窗口在运行，P4V 以 `matcha.exe %1 %2 %b %r` 调起合并
+- **WHEN** 已有一个 Matcha 窗口在运行，P4V 以 `matcha.exe %b %1 %2 %r` 调起合并
 - **THEN** 已运行的窗口打开合并标签页，P4V 启动的进程直到该标签页关闭才退出
 
 #### Scenario: 没有实例时
-- **WHEN** 没有 Matcha 在运行，P4V 以 `matcha.exe %1 %2 %b %r` 调起合并，用户保存后关闭这唯一的标签页
+- **WHEN** 没有 Matcha 在运行，P4V 以 `matcha.exe %b %1 %2 %r` 调起合并，用户保存后关闭这唯一的标签页
 - **THEN** 窗口关闭，进程退出
 
 ### Requirement: GUI 合并的退出码

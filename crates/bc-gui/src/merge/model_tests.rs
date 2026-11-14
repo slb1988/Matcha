@@ -257,11 +257,14 @@ fn save_writes_the_buffer_and_tracks_the_result_code() {
     assert!(m.is_dirty());
     assert_eq!(m.result_code(), 101);
     assert_eq!(text(&m), joined(&b));
+    // 默认保存到 LEFT 的文件，输出文件（P4V `%r`）同步一份。
     let target = m.target.clone().unwrap();
+    assert_eq!(target, dir.join("left.txt"));
     m.save(&target).unwrap();
     assert!(!m.is_dirty());
     assert_eq!(m.result_code(), 14, "saved with an unresolved conflict");
     assert_eq!(std::fs::read(&target).unwrap(), bytes(&b));
+    assert_eq!(std::fs::read(dir.join("out.txt")).unwrap(), bytes(&b));
     let rows = m.section_at(4).unwrap();
     m.take(rows, Side::Right, &mut editor);
     assert!(m.is_dirty());

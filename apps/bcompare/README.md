@@ -48,7 +48,7 @@ path instead (`/reviewconflicts` overrides `/force`, but is disabled by `/silent
 
 `matcha [<left> <right>] [--bench[=<frames>]]` opens a comparison or Home;
 `--bench` runs the scroll benchmark and prints `bench.*` lines.
-`matcha <left> <right> <center> [<output>]`, or
+`matcha <base> <theirs> <yours> [<output>]` (P4V's `%b %1 %2 %r`; yours is LEFT and is what Save writes), or
 `matcha /center=<file> [/mergeoutput=<path>] <left> <right>`, opens Text Merge;
 `/mergeoutput=` overrides the fourth positional path. Merge calls always use text merge
 (CSV/TSV are line-based), not file-format view routing. `main.rs` documents the hand-off.
@@ -69,4 +69,4 @@ path instead (`/reviewconflicts` overrides `/force`, but is disabled by `/silent
 - A first-instance or `/solo` process exits only when the whole window closes, even if its
   startup merge tab has already closed; with only that tab, closing it closes the window.
   `matcha-comp.exe` returns immediately and must not be configured as a merge tool; use
-  `matcha.exe` for P4V (`%1 %2 %b %r`, optionally prefixed by `/automerge /reviewconflicts`).
+  `matcha.exe` for P4V (`%b %1 %2 %r`, optionally prefixed by `/automerge /reviewconflicts`).

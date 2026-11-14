@@ -130,7 +130,7 @@ fn unsupported_invocations_fail_locally_without_a_hand_off() {
 fn merge_hand_off_waits_without_the_launcher_and_returns_the_tab_code() {
     let primary = fake_primary("merge");
     let cwd = work_dir("merge");
-    let args = ["theirs.txt", "yours.txt", "base.txt", "result.txt"];
+    let args = ["base.txt", "theirs.txt", "yours.txt", "result.txt"];
     let mut child = primary.spawn(&matcha(), &args, &cwd, false);
     let (request, responder) = primary.next();
     assert_eq!(request.args, args);
@@ -145,7 +145,7 @@ fn merge_hand_off_waits_without_the_launcher_and_returns_the_tab_code() {
     assert_eq!(exit_code(child), Some(101));
     // 三个路径、`/center=` 的写法同样等待。
     for args in [
-        &["theirs.txt", "yours.txt", "base.txt"][..],
+        &["base.txt", "theirs.txt", "yours.txt"][..],
         &["/center=base.txt", "/mergeoutput=result.txt", "theirs.txt", "yours.txt"],
     ] {
         let child = primary.spawn(&matcha(), args, &cwd, false);
@@ -170,7 +170,7 @@ fn automerge_never_hands_off() {
     let run = |args: &[&str]| exit_code(primary.spawn(&matcha(), args, &cwd, false));
     // 无冲突：写出，0。
     assert_eq!(
-        run(&["/silent", "/automerge", "a.txt", "b.txt", "base.txt", "out.txt"]),
+        run(&["/silent", "/automerge", "base.txt", "b.txt", "a.txt", "out.txt"]),
         Some(0)
     );
     assert_eq!(
@@ -179,7 +179,7 @@ fn automerge_never_hands_off() {
     );
     // 有冲突：不写，101；`/force`：带标记写出，14。
     assert_eq!(
-        run(&["/silent", "/automerge", "a.txt", "c.txt", "base.txt", "conflict.txt"]),
+        run(&["/silent", "/automerge", "base.txt", "c.txt", "a.txt", "conflict.txt"]),
         Some(101)
     );
     assert!(!cwd.join("conflict.txt").exists());
@@ -190,9 +190,9 @@ fn automerge_never_hands_off() {
             "/force",
             "/title1=Theirs",
             "/mergeoutput=conflict.txt",
-            "a.txt",
+            "base.txt",
             "c.txt",
-            "base.txt"
+            "a.txt"
         ]),
         Some(14)
     );
@@ -202,11 +202,11 @@ fn automerge_never_hands_off() {
     );
     // 缺输入、缺输出目标：100。
     assert_eq!(
-        run(&["/silent", "/automerge", "a.txt", "missing.txt", "base.txt", "x.txt"]),
+        run(&["/silent", "/automerge", "base.txt", "missing.txt", "a.txt", "x.txt"]),
         Some(100)
     );
     assert_eq!(
-        run(&["/silent", "/automerge", "a.txt", "b.txt", "base.txt"]),
+        run(&["/silent", "/automerge", "base.txt", "b.txt", "a.txt"]),
         Some(100)
     );
     assert!(!cwd.join("x.txt").exists());
@@ -225,7 +225,7 @@ fn review_conflicts_opens_the_merge_only_when_conflicts_remain() {
     std::fs::write(cwd.join("c.txt"), MERGE_BASE.replace("two", "2")).unwrap();
     let clean = primary.spawn(
         &matcha(),
-        &["/automerge", "/reviewconflicts", "/force", "a.txt", "b.txt", "base.txt", "out.txt"],
+        &["/automerge", "/reviewconflicts", "/force", "base.txt", "b.txt", "a.txt", "out.txt"],
         &cwd,
         false,
     );
@@ -235,14 +235,14 @@ fn review_conflicts_opens_the_merge_only_when_conflicts_remain() {
 
     let mut child = primary.spawn(
         &matcha(),
-        &["/automerge", "/reviewconflicts", "/force", "/iu", "a.txt", "c.txt", "base.txt", "out2.txt"],
+        &["/automerge", "/reviewconflicts", "/force", "/iu", "base.txt", "c.txt", "a.txt", "out2.txt"],
         &cwd,
         false,
     );
     let (request, responder) = primary.next();
     assert_eq!(
         request.args,
-        ["/reviewconflicts", "/force", "/iu", "a.txt", "c.txt", "base.txt", "out2.txt"]
+        ["/reviewconflicts", "/force", "/iu", "base.txt", "c.txt", "a.txt", "out2.txt"]
     );
     assert!(request.wait);
     assert!(!cwd.join("out2.txt").exists(), "/reviewconflicts wins over /force");
@@ -252,7 +252,7 @@ fn review_conflicts_opens_the_merge_only_when_conflicts_remain() {
 
     let silent = primary.spawn(
         &matcha(),
-        &["/silent", "/automerge", "/reviewconflicts", "a.txt", "c.txt", "base.txt", "out3.txt"],
+        &["/silent", "/automerge", "/reviewconflicts", "base.txt", "c.txt", "a.txt", "out3.txt"],
         &cwd,
         false,
     );

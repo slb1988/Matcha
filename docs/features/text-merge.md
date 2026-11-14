@@ -9,7 +9,7 @@
 - 三个文本文件以 center 为轴对齐，逐行判定改动类型：未变 / 左改 / 右改 / 同改 / 异改。
 - 能自动合并的自动合并；两侧改动重叠或相距很近的区段标为冲突，交给用户。
 - 命令行 `/automerge` 无窗口执行，以退出码报告结果；`/reviewconflicts` 让它在有冲突时转入界面。
-- 界面：上排三个只读输入窗格（LEFT / BASE / RIGHT），底部可编辑的输出窗格（OUTPUT）。
+- 界面：上排三个只读输入窗格，从左到右为 BASE / LEFT / RIGHT，底部可编辑的输出窗格（OUTPUT，标题条不显示路径）。
   四个窗格共用一张行网格与同一滚动位置，右侧一条纵向滚动条；打开即定位到第一个冲突
   （没有冲突则第一个改动），`Ctrl+N` / `Ctrl+P` 逐个走改动区段（含冲突）。
 - 各窗格标题条的路径是只读地址框（`chrome::pathbar::show_readonly`）：可选中、Ctrl+C 复制，
@@ -37,7 +37,7 @@
 
 ## 关键语义
 
-- **调用**：`matcha <left> <right> <center> [<output>]`，或
+- **调用**：`matcha <base> <theirs> <yours> [<output>]`（对应 P4V `%b %1 %2 %r`：theirs 进 RIGHT，yours 即本地文件进 LEFT），或
   `matcha /center=<file> [/mergeoutput=<path>] <left> <right>`；`/mergeoutput=` 优先于第 4 个位置参数。
   三个输入都是 xlsx/xlsm 工作簿时改走[表格合并](table-merge.md)，工作簿与非工作簿混合报错（100）；
   其余（含 CSV/TSV，除非带 `/tablemerge`）按行文本合并；文件夹、缺失、不可读或非文本输入报错。
@@ -66,8 +66,9 @@
 - 输出编辑复用文本比较编辑器（输入法、选区、剪切/复制/粘贴、`Ctrl+A`）。编辑或新增的行标为手工；
   被手工编辑的冲突区段视为已解决，再次 Take 会覆盖手工内容。新增行在输出中多占显示行，输入对应位置为空隙。
   Take、接受当前内容与编辑共用一个撤销栈。
-- 有输出目标的会话自打开起就算未保存，关闭标签页或退出时询问 Don't Save / Cancel / Save；
-  没有输出目标时保存会询问路径。仍有未解决冲突时，保存先确认 Save Anyway。
+- **保存默认写到 LEFT 的文件**（本地真实路径）；给了输出文件（第 4 个参数 / `/mergeoutput=`，即 P4V `%r`）时，
+  每次保存后再把同一内容复制过去。Save Output As 可另选路径。会话自打开起就算未保存，关闭标签页或退出时询问
+  Don't Save / Cancel / Save。仍有未解决冲突时，保存先确认 Save Anyway。
 - **合并调用总是等待**：由 `matcha.exe` 或 `matcha.com` 启动、转交已有实例、自己成为首个实例或 `/solo`
   都不会提前返回。转交请求的 wait = 启动器等待标记或这是合并调用，等待合并标签页关闭；首个实例与 `/solo`
   要等整个窗口关闭（见下方 P4V 已知限制）。无窗口 `/automerge` 等本次执行完成。
@@ -95,9 +96,9 @@
 ## 使用与验证
 
 ```bat
-matcha theirs.txt yours.txt base.txt result.txt                        :: 界面合并
-matcha /automerge theirs.txt yours.txt base.txt result.txt             :: 无窗口：0 / 14 / 101 / 100
-matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt out   :: 无冲突不开窗，有冲突进界面
+matcha base.txt theirs.txt yours.txt result.txt                        :: 界面合并（保存写 yours.txt 并同步 result.txt）
+matcha /automerge base.txt theirs.txt yours.txt result.txt             :: 无窗口：0 / 14 / 101 / 100
+matcha /automerge /reviewconflicts base.txt theirs.txt yours.txt out   :: 无冲突不开窗，有冲突进界面
 matcha /center=base.txt /mergeoutput=result.txt theirs.txt yours.txt  :: 显式祖先与输出目标
 cargo test -p bc-core -p bc-engine-text -p bc-script
 cargo test -p bcompare --test hand_off
@@ -106,9 +107,9 @@ cargo test -p bc-gui --lib merge
 
 ### P4V 配置
 
-- Application：`matcha.exe`；Arguments：`%1 %2 %b %r`。
-  theirs / yours / base / result 分别映射为 left / right / center / output。
-- 想“能自动合并就不弹窗”，Arguments 用 `/automerge /reviewconflicts %1 %2 %b %r`。
+- Application：`matcha.exe`；Arguments：`%b %1 %2 %r`。
+  base / theirs / yours / result 分别映射为 BASE / RIGHT / LEFT / output；界面保存写 LEFT（本地文件）并同步 `%r`。
+- 想“能自动合并就不弹窗”，Arguments 用 `/automerge /reviewconflicts %b %1 %2 %r`。
 - 合并调用隐式等待，已有实例也会等待合并标签页关闭并返回结果码；不需要依赖启动器等待标记。
   `matcha.com` 也能等，但从 GUI 程序启动会出现控制台；`matcha-comp.exe` 立即返回，**不能用于合并**。
 - **已知限制**：自己成为首个实例或使用 `/solo` 时，进程要到整个窗口关闭才退出；若另外打开了标签页，

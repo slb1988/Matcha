@@ -20,6 +20,8 @@ use std::path::PathBuf;
 const OUT: usize = 3;
 const SIDES: [Side; 3] = [Side::Left, Side::Center, Side::Right];
 const BADGES: [&str; 4] = ["LEFT", "BASE", "RIGHT", "OUTPUT"];
+/// 输入窗格（left、center、right）在上排的列位：BASE | LEFT | RIGHT。
+const COLUMN_OF: [usize; 3] = [1, 0, 2];
 const GUTTER: f32 = 46.0;
 const HEADER: f32 = 24.0;
 
@@ -483,7 +485,7 @@ impl MergeView {
         let column = (inputs.width() - 2.0) / 3.0;
         for pane in 0..3 {
             self.pane_rects[pane] = egui::Rect::from_min_size(
-                inputs.min + egui::vec2(pane as f32 * (column + 1.0), 0.0),
+                inputs.min + egui::vec2(COLUMN_OF[pane] as f32 * (column + 1.0), 0.0),
                 egui::vec2(column, inputs.height()),
             );
         }
@@ -524,7 +526,7 @@ impl MergeView {
                 },
             );
         }
-        for x in [self.pane_rects[1].left() - 1.0, self.pane_rects[2].left() - 1.0] {
+        for x in [self.pane_rects[0].left() - 1.0, self.pane_rects[2].left() - 1.0] {
             ui.painter().line_segment(
                 [egui::pos2(x, inputs.top()), egui::pos2(x, inputs.bottom())],
                 egui::Stroke::new(1.0, theme::LINE_STRONG),
@@ -657,24 +659,32 @@ impl MergeView {
         );
         painter.rect_filled(chip, theme::RADIUS_SM, fill);
         painter.galley(chip.min + egui::vec2(5.0, 2.0), badge, ink);
-        let path = match pane {
-            0 => Some(&self.launch.spec.left),
-            1 => Some(&self.launch.spec.center),
-            2 => Some(&self.launch.spec.right),
-            _ => self.model.target.as_ref(),
-        };
-        let mut text = self.launch.titles[pane]
-            .clone()
-            .or_else(|| path.map(|p| p.display().to_string()))
-            .unwrap_or_else(|| "(no output file – Save will ask for one)".into());
-        if pane == OUT && self.model.is_dirty() {
-            text.push_str("  •  not saved");
-        }
-        // 只读路径框：可选中/复制，右键 Copy / Select All。
         let text_rect = egui::Rect::from_min_max(
             egui::pos2(chip.right() + 8.0, rect.top()),
             egui::pos2(rect.right() - 4.0, rect.bottom()),
         );
+        if pane == OUT {
+            // 输出不显示路径（保存目标即 LEFT 的文件），只显示状态。
+            if self.model.is_dirty() {
+                ui.painter().text(
+                    text_rect.left_center(),
+                    egui::Align2::LEFT_CENTER,
+                    "not saved",
+                    egui::FontId::proportional(12.0),
+                    theme::TEXT_MUTED,
+                );
+            }
+            return;
+        }
+        let path = match pane {
+            0 => &self.launch.spec.left,
+            1 => &self.launch.spec.center,
+            _ => &self.launch.spec.right,
+        };
+        let text = self.launch.titles[pane]
+            .clone()
+            .unwrap_or_else(|| path.display().to_string());
+        // 只读路径框：可选中/复制，右键 Copy / Select All。
         chrome::pathbar::show_readonly(ui, text_rect, &text);
     }
 

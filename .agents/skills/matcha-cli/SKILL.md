@@ -31,7 +31,7 @@ description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / m
 matcha                          → Home 视图
 matcha <dir> <dir>              → 文件夹比较
 matcha <file> <file>            → 按文件格式选视图（或 /fv 强制）
-matcha <left> <right> <center> [<output>] → 三方合并（xlsx/xlsm 为表格合并，其余文本合并；可带输出文件）
+matcha <base> <theirs> <yours> [<output>] → 三方合并（P4V 顺序）（xlsx/xlsm 为表格合并，其余文本合并；可带输出文件）
 matcha <name>                   → 已保存的会话 / 工作区
 matcha @<script> [args…]        → 脚本模式（无界面执行）
 matcha <file.bcpkg>             → 导入设置包
@@ -42,11 +42,11 @@ matcha -                        → 从 stdin 读入一个文件
 ## 文本三方合并
 
 ```bat
-matcha <left> <right> <center>
-matcha <left> <right> <center> <output>
+matcha <base> <theirs> <yours>
+matcha <base> <theirs> <yours> <output>
 matcha /center=<file> [/mergeoutput=<path>] <left> <right>
-matcha /automerge theirs.txt yours.txt base.txt result.txt
-matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
+matcha /automerge base.txt theirs.txt yours.txt result.txt
+matcha /automerge /reviewconflicts base.txt theirs.txt yours.txt result.txt
 ```
 
 非工作簿按行文本合并（CSV/TSV 也是，除非加 `/tablemerge`）；三个输入都是 xlsx/xlsm 时走下方表格合并，
@@ -55,8 +55,8 @@ matcha /automerge /reviewconflicts theirs.txt yours.txt base.txt result.txt
 不读旧输出，输出可等于某个输入。结果写 stdout 一行，`/silent` 或无标准输出时不写、不为结果弹框；
 错误写 stderr（无控制台时为消息框）。界面保存按当前输出写出，**不会插入冲突标记**。
 
-P4V：Application 用 `matcha.exe`，Arguments 用 `%1 %2 %b %r`（theirs / yours / base / result）；
-要“无冲突不开窗”用 `/automerge /reviewconflicts %1 %2 %b %r`。不要配置 `matcha-comp.exe`。
+P4V：Application 用 `matcha.exe`，Arguments 用 `%b %1 %2 %r`（base / theirs / yours / result → BASE / RIGHT / LEFT / OUTPUT；
+界面三栏为 BASE | LEFT | RIGHT，保存写 LEFT 即本地文件并同步 `%r`）；要“无冲突不开窗”用 `/automerge /reviewconflicts %b %1 %2 %r`。不要配置 `matcha-comp.exe`。
 合并语义**未经参考样本确认**；界面快捷键与验收见 `docs/features/text-merge.md`。
 
 ## 表格三方合并（xlsx/xlsm 自动，CSV/TSV 加 /tablemerge）
@@ -73,7 +73,7 @@ matcha /tablemerge /automerge theirs.csv yours.csv base.csv result.csv
 一侧删行另一侧改行、两侧新增同键异内容是冲突。`/automerge` 退出码 0（已写出）/ 101（有冲突未写出）/ 100（错误）；
 **`/force` 报错 100**（单元格放不下冲突标记）。结果行带实际键列，如 `Success (keys: 1 (inferred))`。
 xlsx 输出重写工作簿：保留值、公式、数字格式与 sheet，xlsm 带回宏；**不保留**样式、列宽、图表。CSV 输出保真写回。
-P4V 参数不变（`%1 %2 %b %r`），扩展名不是 xlsx 的临时文件按 ZIP 文件头识别。详见 `docs/features/table-merge.md`。
+P4V 参数与文本合并相同（`%b %1 %2 %r`），扩展名不是 xlsx 的临时文件按 ZIP 文件头识别。详见 `docs/features/table-merge.md`。
 
 ## 三个最常用形态（均已实测）
 
