@@ -706,7 +706,7 @@ mod tests {
                 egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos.x),
                 _ => None,
             })
-            .last()
+            .next_back()
     }
     const LONG_PATH: &str = "C:/very/long/path/that/keeps/going/through/many/folders/and/subfolders/until/the/final/file_name.txt";
     #[test]

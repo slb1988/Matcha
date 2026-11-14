@@ -52,6 +52,10 @@
 - **路径框右键菜单**：选区内右击保留选区（Cut/Copy/Delete 可用）——egui 在右键按下帧就折叠
   选区，故恢复发生在按下帧而非 `secondary_clicked` 的释放帧；点在选区外则按系统惯例收拢选区。
   合并视图标题条用只读变体 `pathbar::show_readonly`（同一套选区快照机制，菜单只有 Copy / Select All）。
+- **路径框失焦保持水平滚动位置**：egui 的单行 TextEdit 失焦即把内部滚动偏移归零（私有字段无法
+  直写），`pathbar::preserve_view_offset` 在持焦帧反推并记录实际偏移、失焦帧按记录值抹掉重画文本，
+  长路径移到末尾看文件名后切换焦点/路径不再跳回开头；选区与光标不保留，点击重新聚焦的当帧回开头、
+  恢复正常落点映射。可编辑框与只读框（含合并视图标题条）统一生效。
 - **系统原生文件对话框**（`chrome::native_dialog`，`rfd`；Windows 为资源管理器同款 IFileOpenDialog /
   IFileSaveDialog / 选择文件夹）：路径栏浏览按钮、右键 Browse（Alt+B）、Open File... / Save File As... /
   Save target... / Export as CSV... / 报告导出，以及文件夹比较的 Browse for Folder 全部走它，
