@@ -8,6 +8,22 @@ description: 发布 Matcha 发行包到 GitHub Releases。版本号记录在 con
 
 > **触发前提（硬性规则）**：只有当用户在请求中**明确提及 GitHub / GitHub Releases / 远程发布**时，才允许执行本脚本的远程发布。用户只说"发布""发版""打个包""本地发布"等，一律只做本地构建打包（`cargo xtask dist`），产物在 `target/dist/` 下供本地测试，**绝不**推 tag、不创建 GitHub release。
 
+## 本地发布快速流程（最常见请求，直接照做）
+
+用户说"本地发布""打个包"等（未提 GitHub）时，**一条命令搞定，无任何前置检查**：
+
+```powershell
+cargo xtask dist
+```
+
+- **不要执行** `publish.ps1`，也不要检查 gh 登录 / git push / tag 冲突——那些只对远程发布有意义。
+- **不要犹豫是否跳过构建**：无代码变动时 cargo 增量秒过（<1s），但 xtask 仍会重新组装产物目录（README.txt 等时间戳会刷新），直接跑即可。
+- stdout 最后一行就是产物路径（形如 `target/dist/matcha-<version>-windows-x86_64`）。
+- 完成后 `ls` 产物目录，向用户报告：文件清单（`matcha.exe` / `matcha.com` / `matcha-comp.exe` / `README.txt`）、版本号，并明确声明"未打 tag、未创建 GitHub release"。
+- 需要 zip 时才现场压缩；本地测试用产物目录即可，通常无需 zip。
+
+## 远程发布（GitHub Releases）
+
 把 `target/dist/matcha-<version>-windows-x86_64/` 下的产物（`matcha.exe`、`matcha.com`、`matcha-comp.exe`、`README.txt`）连同同名 zip 发布到 GitHub Releases（默认仓库 `slb1988/Matcha`，在 config.json 中可改）。
 
 ## 版本号规则
