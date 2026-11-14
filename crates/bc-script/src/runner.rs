@@ -565,6 +565,163 @@ pub fn quick_compare_files(
     )
 }
 
+/// One `/automerge` run: three input files, where to write, and the merge switches.
+#[derive(Debug, Clone)]
+pub struct AutoMergeRequest {
+    pub left: PathBuf,
+    pub right: PathBuf,
+    pub center: PathBuf,
+    pub output: PathBuf,
+    /// `favor`, `ignore_unimportant`, `force_conflict_markers` from the switches; the
+    /// rest stays at the defaults.
+    pub rules: bc_engine_text::TextMergeRules,
+    /// Marker labels (`/title1`, `/title2`, or the file names).
+    pub labels: bc_engine_text::merge::MergeLabels,
+}
+
+impl AutoMergeRequest {
+    /// From a parsed command line. `force` is separate because `/reviewconflicts`
+    /// overrides `/force`; `labels` are the left and right marker labels. `None` when the
+    /// merge has no output target.
+    pub fn from_cli(
+        spec: &crate::cli::MergeSpec,
+        switches: crate::cli::MergeSwitches,
+        force: bool,
+        labels: [String; 2],
+    ) -> Option<Self> {
+        let [left, right] = labels;
+        Some(Self {
+            left: spec.left.clone(),
+            right: spec.right.clone(),
+            center: spec.center.clone(),
+            output: spec.output.clone()?,
+            rules: bc_engine_text::TextMergeRules {
+                favor: switches.favor,
+                ignore_unimportant: switches.ignore_unimportant,
+                force_conflict_markers: force,
+                ..Default::default()
+            },
+            labels: bc_engine_text::merge::MergeLabels { left, right },
+        })
+    }
+}
+
+/// What an `/automerge` run did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoMergeReport {
+    /// 0, 14 or 101.
+    pub code: ExitCode,
+    /// Unresolved conflict sections.
+    pub conflicts: usize,
+    /// Whether the output file was written.
+    pub written: bool,
+    pub warnings: Vec<String>,
+}
+
+impl AutoMergeReport {
+    /// The one result line `/automerge` prints (not with `/silent`).
+    pub fn summary(&self) -> String {
+        let mut line = self.code.description().to_string();
+        if self.conflicts > 0 {
+            line.push_str(&format!(": {} conflict section(s)", self.conflicts));
+        }
+        for warning in &self.warnings {
+            line.push_str(&format!(" (warning: {warning})"));
+        }
+        line
+    }
+}
+
+/// `/automerge <left> <right> <center> <output>` without a window (`TTextMergeSession`
+/// automerge). Always a text merge: the file format is picked from the center file name
+/// and the rules are the defaults, as for `/qc`.
+///
+/// * no conflicts → output written, `0`
+/// * conflicts and `force_conflict_markers` → output written with markers, `14`
+/// * conflicts otherwise → nothing written, an existing output file is left alone, `101`
+///
+/// The inputs are read completely before anything is written, and the output replaces
+/// its target through a temporary file in the same folder, so it may be one of the
+/// inputs. No backup is made and the previous content of the output is never read.
+///
+/// `Err` carries a message for unusable input (folder, missing, unreadable, not text),
+/// unrepresentable output and write failures (the caller exits with `100`).
+pub fn auto_merge_files(request: &AutoMergeRequest) -> Result<AutoMergeReport, String> {
+    use bc_engine_text::{TextContent, TextMap};
+    let formats = default_formats();
+    let format = request
+        .center
+        .file_name()
+        .and_then(|name| {
+            formats.resolve(
+                std::path::Path::new(name),
+                Some(bc_formats::FormatKind::Text),
+            )
+        })
+        .cloned();
+    let load = |path: &std::path::Path| -> Result<TextContent, String> {
+        if path.is_dir() {
+            return Err(format!(
+                "/automerge merges three files; {} is a folder",
+                path.display()
+            ));
+        }
+        if !path.is_file() {
+            return Err(format!("/automerge: {} does not exist", path.display()));
+        }
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        TextContent::from_bytes(bytes, format.clone())
+            .map_err(|_| format!("/automerge: {} is not a text file", path.display()))
+    };
+    let (left, right, center) = (
+        load(&request.left)?,
+        load(&request.right)?,
+        load(&request.center)?,
+    );
+    let map = TextMap::merge(left, right, center, request.rules.text.clone())
+        .map_err(|e| e.to_string())?;
+    let outcome = bc_engine_text::merge::auto_merge(&map, &request.rules, &request.labels)
+        .map_err(|e| format!("/automerge: {e}"))?;
+    drop(map);
+    let written = !outcome.withheld;
+    if written {
+        replace_file(&request.output, &outcome.output)?;
+    }
+    Ok(AutoMergeReport {
+        code: auto_merge_exit_code(&outcome),
+        conflicts: outcome.conflicts.len(),
+        written,
+        warnings: outcome.warnings,
+    })
+}
+
+/// Write `bytes` to a temporary file next to `path`, then rename it over `path`.
+pub fn replace_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let failed = |e: std::io::Error| format!("cannot write {}: {e}", path.display());
+    let name = path.file_name().ok_or_else(|| {
+        format!("cannot write {}: not a file path", path.display())
+    })?;
+    let mut temp_name = std::ffi::OsString::from(".matcha-merge-");
+    temp_name.push(std::process::id().to_string());
+    temp_name.push("-");
+    temp_name.push(name);
+    temp_name.push(".tmp");
+    let temp = path.with_file_name(temp_name);
+    let result = (|| {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result.map_err(failed)
+}
+
 /// `/automerge` → exit code 0/14/101 per merge outcome.
 pub fn auto_merge_exit_code(outcome: &bc_engine_text::merge::AutoMergeOutcome) -> ExitCode {
     if outcome.conflicts.is_empty() {

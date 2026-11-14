@@ -7,6 +7,8 @@
 
 /// `/qc=<type>` values (re-exported so callers need not depend on the folder engine).
 pub use bc_engine_dir::criteria::ContentCompare;
+/// `/favorleft` / `/favorright` value.
+pub use bc_engine_text::rules::Favor;
 use bc_session::SessionKind;
 use std::path::{Path, PathBuf};
 
@@ -173,6 +175,17 @@ impl CliArgs {
                 None => positional.push(arg),
             }
         }
+        // Merge paths given as switches follow the caller's working directory too.
+        for switch in &mut switches {
+            if let Switch::Center(path) | Switch::MergeOutput(path) = switch {
+                *path = resolve(cwd, &path.to_string_lossy());
+            }
+        }
+        if switches.iter().any(|s| matches!(s, Switch::FavorLeft))
+            && switches.iter().any(|s| matches!(s, Switch::FavorRight))
+        {
+            return Err(error("/favorleft and /favorright cannot be combined"));
+        }
         let report_extras = switches
             .iter()
             .any(|s| matches!(s, Switch::ReportOptions(_) | Switch::ReportFile(_)));
@@ -262,6 +275,73 @@ impl CliArgs {
         })
     }
 
+    /// The three-way merge this command line asks for, however it was spelled: three or
+    /// four paths, or two paths plus `/center=`. `/mergeoutput=` wins over a fourth path.
+    pub fn merge_spec(&self) -> Option<MergeSpec> {
+        let switch = |pick: fn(&Switch) -> Option<&PathBuf>| {
+            self.switches.iter().find_map(pick).cloned()
+        };
+        let (left, right, center, output) = match &self.invocation {
+            Invocation::Merge3 {
+                left,
+                right,
+                center,
+            } => (left, right, center.clone(), None),
+            Invocation::Merge4 {
+                left,
+                right,
+                center,
+                output,
+            } => (left, right, center.clone(), Some(output.clone())),
+            Invocation::Files(left, right) => (
+                left,
+                right,
+                switch(|s| match s {
+                    Switch::Center(path) => Some(path),
+                    _ => None,
+                })?,
+                None,
+            ),
+            _ => return None,
+        };
+        Some(MergeSpec {
+            left: left.clone(),
+            right: right.clone(),
+            center,
+            output: switch(|s| match s {
+                Switch::MergeOutput(path) => Some(path),
+                _ => None,
+            })
+            .or(output),
+        })
+    }
+
+    /// The merge switches. `/iu`, favor and `/force` belong to `/automerge` (and to the
+    /// view `/reviewconflicts` falls into); callers decide when they apply.
+    pub fn merge_switches(&self) -> MergeSwitches {
+        MergeSwitches {
+            automerge: self.has(|s| matches!(s, Switch::AutoMerge)),
+            review_conflicts: self.has(|s| matches!(s, Switch::ReviewConflicts)),
+            force: self.has(|s| matches!(s, Switch::Force)),
+            ignore_unimportant: self.has(|s| matches!(s, Switch::IgnoreUnimportant)),
+            favor: if self.has(|s| matches!(s, Switch::FavorLeft)) {
+                Favor::Left
+            } else if self.has(|s| matches!(s, Switch::FavorRight)) {
+                Favor::Right
+            } else {
+                Favor::None
+            },
+        }
+    }
+
+    /// `/title1..4` (0-based: left, right, center, output); the last one given wins.
+    pub fn title(&self, index: u8) -> Option<&str> {
+        self.switches.iter().rev().find_map(|s| match s {
+            Switch::Title(i, title) if *i == index && !title.is_empty() => Some(title.as_str()),
+            _ => None,
+        })
+    }
+
     /// `/shellmenu=on|off`.
     pub fn shell_menu(&self) -> Option<bool> {
         self.switches.iter().find_map(|s| match s {
@@ -269,6 +349,26 @@ impl CliArgs {
             _ => None,
         })
     }
+}
+
+/// A three-way merge invocation (see [`CliArgs::merge_spec`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeSpec {
+    pub left: PathBuf,
+    pub right: PathBuf,
+    pub center: PathBuf,
+    /// Fourth path or `/mergeoutput=`.
+    pub output: Option<PathBuf>,
+}
+
+/// `/automerge` and the switches that only mean something with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MergeSwitches {
+    pub automerge: bool,
+    pub review_conflicts: bool,
+    pub force: bool,
+    pub ignore_unimportant: bool,
+    pub favor: Favor,
 }
 
 /// The `/report` family of switches (Matcha extension).
@@ -316,20 +416,21 @@ pub fn usage() -> String {
         "",
         "Switches (/ or - prefix):",
         "  /? /h /help             Show this help",
-        "  /automerge              Automatically merge (with /mergeoutput)",
+        "  /automerge              Merge three files without a window; exit code 0,",
+        "                          14 (conflicts written with /force) or 101",
         "  /center=<file>          Center file for merges",
         "  /closescript            Close the script window when finished",
         "  /edit                   Open in edit mode",
         "  /expandall              Expand all folders",
-        "  /favorleft /favorright  Favor one side when merging",
+        "  /favorleft /favorright  With /automerge /iu: side taken for unimportant conflicts",
         "  /filters=<masks>        File filters for folder sessions",
-        "  /force                  Force the merge output to be written",
+        "  /force                  With /automerge: write conflicts with markers",
         "  /fv=<type>              Force the view type (e.g. \"Text Compare\")",
-        "  /iu                     Ignore unimportant differences",
+        "  /iu                     With /automerge: ignore unimportant differences",
         "  /mergeoutput=<path>     Merge output file",
         "  /nobackups              Do not create backup files",
         "  /qc[=size|crc|binary]   Quick compare (rules-based without a value)",
-        "  /reviewconflicts        Review merge conflicts",
+        "  /reviewconflicts        With /automerge: open Text Merge when conflicts remain",
         "  /ro /ro1 /ro2           Read-only (all / left / right)",
         "  /savetarget=<file>      File to save to",
         "  /silent                 Suppress all interaction",
@@ -592,6 +693,76 @@ mod tests {
             vec![Switch::Title(1, "R".into())]
         );
         assert_eq!(parse(&["/?"]).switches, vec![Switch::Help]);
+    }
+
+    #[test]
+    fn merge_invocations_normalise_to_one_spec() {
+        let w = cwd();
+        let spec = |args: &[&str]| parse(args).merge_spec();
+        let expected = MergeSpec {
+            left: w.join("a"),
+            right: w.join("b"),
+            center: w.join("c"),
+            output: None,
+        };
+        assert_eq!(spec(&["a", "b", "c"]), Some(expected.clone()));
+        assert_eq!(spec(&["/center=c", "a", "b"]), Some(expected.clone()));
+        let with_output = MergeSpec {
+            output: Some(w.join("d")),
+            ..expected.clone()
+        };
+        assert_eq!(spec(&["a", "b", "c", "d"]), Some(with_output.clone()));
+        assert_eq!(spec(&["/mergeoutput=d", "a", "b", "c"]), Some(with_output.clone()));
+        assert_eq!(
+            spec(&["-center=c", "-mergeoutput=d", "a", "b"]),
+            Some(with_output)
+        );
+        // `/mergeoutput=` wins over the fourth path.
+        assert_eq!(
+            spec(&["/mergeoutput=x/out", "a", "b", "c", "d"]).unwrap().output,
+            Some(w.join("x/out"))
+        );
+        // Two paths without a center, folders and single paths are not merges.
+        assert_eq!(spec(&["a", "b"]), None);
+        assert_eq!(spec(&["a"]), None);
+        assert_eq!(spec(&[]), None);
+    }
+
+    #[test]
+    fn merge_switches_and_titles() {
+        let cli = parse(&[
+            "/automerge",
+            "/reviewconflicts",
+            "/iu",
+            "/favorright",
+            "/title1=Theirs",
+            "/title3=Base",
+            "/title1=Theirs 2",
+            "a",
+            "b",
+            "c",
+            "d",
+        ]);
+        assert_eq!(
+            cli.merge_switches(),
+            MergeSwitches {
+                automerge: true,
+                review_conflicts: true,
+                force: false,
+                ignore_unimportant: true,
+                favor: Favor::Right,
+            }
+        );
+        assert_eq!(cli.title(0), Some("Theirs 2"));
+        assert_eq!(cli.title(1), None);
+        assert_eq!(cli.title(2), Some("Base"));
+        let plain = parse(&["/force", "/favorleft", "a", "b", "c"]).merge_switches();
+        assert!(!plain.automerge && plain.force && plain.favor == Favor::Left);
+        assert!(CliArgs::parse_in(["/favorleft", "/favorright", "a", "b", "c"], &cwd()).is_err());
+        let usage = usage();
+        for needle in ["/automerge", "/reviewconflicts", "/mergeoutput=<path>", "/center=<file>"] {
+            assert!(usage.contains(needle), "{needle}");
+        }
     }
 
     #[test]

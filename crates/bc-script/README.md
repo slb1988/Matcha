@@ -46,8 +46,21 @@ A syntax error anywhere wins over an unsupported command. Each rejection names t
   /expandall /favorleft /favorright /filters= /force /fv= /iu /mergeoutput= /nobackups
   /qc[=] /reviewconflicts /ro /ro1 /ro2 (/readonly /lro /rro) /savetarget= /silent /solo
   /sync /title1..4= (/lefttitle…) /vcs1..4=`; `cli::Invocation` – positional inference.
-- `runner::ScriptRunner` – sequential interpreter; `quick_compare` (`/qc`) and
-  `auto_merge_exit_code` (`/automerge` → 0/14/101, implemented).
+- `cli::{MergeSpec, MergeSwitches}` – normalized merge paths and switches;
+  `CliArgs::merge_spec` accepts three/four positional paths or two paths plus `/center=`
+  (`/mergeoutput=` overrides the fourth path), `CliArgs::merge_switches` collects the merge
+  options, and `CliArgs::title` resolves the left/right/center/output pane titles.
+- `runner::ScriptRunner` – sequential interpreter; `quick_compare` implements `/qc`.
+- `runner::{AutoMergeRequest, AutoMergeReport, auto_merge_files}` – headless text merge;
+  `AutoMergeRequest::from_cli` builds the request, `replace_file` writes through a temporary
+  file, and `auto_merge_exit_code` maps the engine outcome to 0/14/101.
+
+`/automerge` requires an output target and returns 0 when conflict-free output was written,
+14 when conflicts were written with `/force`, 101 when conflicts prevented writing, or 100
+for argument, input or write errors (including folders, missing/unreadable/non-text input).
+A 101 result leaves an existing output file unchanged.
+Writes use a temporary file in the target directory before replacement, allow the output
+path to equal an input, never read the previous output content and make no backup.
 
 ## Dependency boundary
 
