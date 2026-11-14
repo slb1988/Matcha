@@ -48,7 +48,7 @@ cargo test -p bc-gui --lib
 
 18 个 GUI 回归使用真实 egui RawInput（鼠标、键盘、拖放、IME）与 tessellation，并覆盖保存/撤销/对齐/过滤；正式原生程序另跑 110 MB 基准与 GPU 截图。原生 Windows 中文输入法候选窗因锁定桌面待负责人手验，不能以提交事件测试冒称已完成原生候选窗验收。
 
-原生文件选择器、持久化会话、打印/报告、词内差异导航、Word Wrap、书签、外部工具及独立详细面板后置。路径文本框和最近列表是本期正式打开/保存入口；Compare Parent Folders 在两侧均为已保存磁盘文件时启用，打开两侧父目录的文件夹比较。逐命令取舍见 [对照清单](../../docs/reference-parity/text-compare.md)。
+持久化会话、打印/报告、词内差异导航、Word Wrap、书签、外部工具及独立详细面板后置。路径文本框、最近列表与系统原生文件对话框（`chrome::native_dialog`）是打开/保存入口；Compare Parent Folders 在两侧均为已保存磁盘文件时启用，打开两侧父目录的文件夹比较。逐命令取舍见 [对照清单](../../docs/reference-parity/text-compare.md)。
 
 ## 外观基础与快照（Wave 1B）
 

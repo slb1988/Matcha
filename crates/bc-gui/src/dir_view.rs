@@ -2207,6 +2207,17 @@ impl DirCompareView {
         let side = drop::side_at(pos, drop::panes(&halves), self.focus_side.unwrap_or(0));
         self.drop_path(side, path);
     }
+    /// 系统原生「浏览文件夹」对话框：从该侧当前文件夹起步，选定后替换该侧根目录。
+    fn browse_folder(&mut self, side: usize) {
+        use crate::chrome::native_dialog::{side_title, Kind, Request};
+        let current = self.path_texts()[side].clone();
+        if let Some(path) = Request::new(Kind::PickFolder, side_title("Browse for Folder", side))
+            .initial(current.trim())
+            .show()
+        {
+            self.drop_path(side, &path);
+        }
+    }
     /// Replace one side's base folder with a dropped folder.
     pub(crate) fn drop_path(&mut self, side: usize, path: &Path) {
         if !path.is_dir() {
@@ -4166,7 +4177,8 @@ impl DirCompareView {
                     self.reload(self.history[self.history_at].clone(), false);
                 }
             }
-            "browse-left" | "browse-right" => self.paths.open = true,
+            "browse-left" => self.browse_folder(0),
+            "browse-right" => self.browse_folder(1),
             "up-left" => self.up(Target::Left),
             "up-right" => self.up(Target::Right),
             "up-both" => self.up(Target::All),
@@ -4889,7 +4901,7 @@ impl DirCompareView {
                                 reload = Some(self.history[self.history_at].clone());
                             }
                         }
-                        "browse" => self.paths.open = true,
+                        "browse" => self.browse_folder(side),
                         "up" => self.up(if side == 0 {
                             Target::Left
                         } else {

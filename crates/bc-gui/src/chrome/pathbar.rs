@@ -65,6 +65,15 @@ pub fn show_with_history(
             state.store(ui.ctx(), edit.id);
             ui.memory_mut(|m| m.request_focus(edit.id));
         }
+        // 失焦/切换路径也保住水平滚动位置（末尾的文件名），详见函数注释。
+        preserve_view_offset(
+            ui,
+            &edit,
+            &output,
+            ui.visuals().text_edit_bg_color(),
+            super::theme::TEXT,
+            output.text_clip_rect.expand(1.0),
+        );
         // 右键编辑菜单（参考系统编辑控件）。
         if let Some(action) = edit_menu(ui, &edit, &output.galley, output.galley_pos, path) {
             result.action = Some(action);
@@ -182,6 +191,45 @@ pub fn clean_paste_events(ctx: &egui::Context, id: egui::Id) {
             }
         });
     }
+}
+/// egui 的单行 TextEdit 一失焦就把水平滚动归零（其 `text_offset` 是 crate 私有字段，
+/// 无法从外面保住），长路径一失焦/切换就跳回开头，看不见末尾的文件名。这里在帧末
+/// 补一层覆盖绘制：持焦帧记录 egui 的实际偏移，失焦帧按记录值抹掉重画文本。
+/// 选区与光标不在保留之列（失焦时本就不绘制）；点击重新聚焦的当帧 egui 已把内部
+/// 偏移归零，落点映射与显示一起回到开头，之后恢复正常的光标跟随滚动。
+/// `clip` 是擦除/剪裁范围：可编辑框有边框内边距可四向外扩；只读框紧贴标题条
+/// 分隔线，只能横向外扩且要避开底线。
+fn preserve_view_offset(
+    ui: &egui::Ui,
+    edit: &egui::Response,
+    output: &egui::widgets::text_edit::TextEditOutput,
+    bg: egui::Color32,
+    text_color: egui::Color32,
+    clip: egui::Rect,
+) {
+    let ctx = ui.ctx().clone();
+    let inner = output.text_clip_rect;
+    let max_offset = (output.galley.size().x - inner.width()).max(0.0);
+    // 从 egui 绘制位置反推实时偏移：galley_pos.x = inner.left - offset
+    // （egui 自己的落点公式里另有 galley.rect.left() 项，在此差值中抵消）。
+    let live = (inner.left() - output.galley_pos.x).max(0.0);
+    let offset_id = edit.id.with("view-offset");
+    if edit.has_focus() {
+        ctx.data_mut(|d| d.insert_temp(offset_id, live.min(max_offset)));
+        return;
+    }
+    let saved: f32 = ctx.data(|d| d.get_temp(offset_id)).unwrap_or(0.0);
+    let offset = saved.clamp(0.0, max_offset);
+    if offset <= 0.5 || !ui.is_rect_visible(inner) {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(clip);
+    painter.rect_filled(clip, 0.0, bg);
+    painter.add(egui::Shape::galley(
+        output.galley_pos - egui::vec2(offset + output.galley.rect.left(), 0.0),
+        output.galley.clone(),
+        text_color,
+    ));
 }
 /// 系统剪贴板文本；空内容与读取失败都视为不可粘贴（对齐参考菜单的禁用态）。
 #[cfg(not(test))]
@@ -434,6 +482,17 @@ pub fn show_readonly(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::R
             )
             .inner;
         let edit = output.response.response.clone();
+        // 失焦也保住水平滚动位置；标题条底色擦除，纵向收缩以避开底部分隔线。
+        let mut clip = output.text_clip_rect.expand2(egui::vec2(1.0, 0.0));
+        clip.max.y -= 1.0;
+        preserve_view_offset(
+            ui,
+            &edit,
+            &output,
+            super::theme::HEADER_FILL,
+            super::theme::TEXT,
+            clip,
+        );
         readonly_menu(ui, &edit, &output.galley, output.galley_pos, text);
         edit
     })
@@ -638,6 +697,80 @@ mod tests {
         open_menu(&ctx, &mut path);
         menu_frame(&ctx, &mut path, click(DELETE, egui::PointerButton::Primary), false);
         assert_eq!(path, "");
+    }
+    /// 从帧输出里找指定文本的最后一个 TextShape（覆盖绘制在后，是最上层的显示）。
+    fn painted_text_x(out: &egui::FullOutput, text: &str) -> Option<f32> {
+        out.shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos.x),
+                _ => None,
+            })
+            .last()
+    }
+    const LONG_PATH: &str = "C:/very/long/path/that/keeps/going/through/many/folders/and/subfolders/until/the/final/file_name.txt";
+    #[test]
+    fn view_offset_survives_focus_loss_and_path_switch() {
+        let ctx = egui::Context::default();
+        let mut path = LONG_PATH.to_string();
+        // 首帧偏移为 0（egui 原生行为：文本从开头显示）。
+        let start = menu_frame(&ctx, &mut path, vec![], true);
+        let start_x = painted_text_x(&start, LONG_PATH).unwrap();
+        // 全选后主光标在末尾，egui 滚动到末尾，偏移被记下。
+        let focused = menu_frame(&ctx, &mut path, vec![], false);
+        let focused_x = painted_text_x(&focused, LONG_PATH).unwrap();
+        assert!(focused_x < start_x - 40.0, "长路径应滚出开头: {focused_x} vs {start_x}");
+        // 点击空白处失焦，再等一帧：显示不能跳回开头。
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(egui::pos2(250.0, 200.0), egui::PointerButton::Primary),
+            false,
+        );
+        let out = menu_frame(&ctx, &mut path, vec![], false);
+        let unfocused_x = painted_text_x(&out, LONG_PATH).unwrap();
+        assert!(
+            (unfocused_x - focused_x).abs() < 2.0,
+            "失焦后应保持滚动位置: {unfocused_x} vs {focused_x}（开头在 {start_x}）"
+        );
+        // 切换路径（同样足够长）：可视偏移保留，而不是回开头。
+        path = "D:/another/equally/long/path/going/through/quite/a/few/folders/down/into/the/depths/other_target.txt".into();
+        let out = menu_frame(&ctx, &mut path, vec![], false);
+        let switched_x = painted_text_x(&out, &path).unwrap();
+        assert!(
+            (switched_x - unfocused_x).abs() < 2.0,
+            "切换路径后应保持可视位置: {switched_x} vs {unfocused_x}"
+        );
+        // 短路径：偏移被钳到 0，从头显示。
+        path = "x.txt".into();
+        let out = menu_frame(&ctx, &mut path, vec![], false);
+        let short_x = painted_text_x(&out, "x.txt").unwrap();
+        assert!(
+            (short_x - start_x).abs() < 1.0,
+            "短路径应从头显示: {short_x} vs {start_x}"
+        );
+    }
+    #[test]
+    fn readonly_view_offset_survives_focus_loss() {
+        let ctx = egui::Context::default();
+        let text = LONG_PATH;
+        let start = readonly_frame(&ctx, text, vec![]);
+        let start_x = painted_text_x(&start, text).unwrap();
+        readonly_select_all(&ctx, text);
+        let focused = readonly_frame(&ctx, text, vec![]);
+        let focused_x = painted_text_x(&focused, text).unwrap();
+        assert!(focused_x < start_x - 40.0);
+        readonly_frame(
+            &ctx,
+            text,
+            click(egui::pos2(250.0, 200.0), egui::PointerButton::Primary),
+        );
+        let out = readonly_frame(&ctx, text, vec![]);
+        let unfocused_x = painted_text_x(&out, text).unwrap();
+        assert!(
+            (unfocused_x - focused_x).abs() < 2.0,
+            "只读框失焦后应保持滚动位置: {unfocused_x} vs {focused_x}（开头在 {start_x}）"
+        );
     }
     #[test]
     fn pasted_path_drops_surrounding_quotes_and_whitespace() {

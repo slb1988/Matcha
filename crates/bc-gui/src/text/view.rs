@@ -2283,29 +2283,23 @@ impl TextCompareView {
         }
     }
     fn dialogs(&mut self, ctx: &egui::Context, prefs: &Prefs) {
-        if let Some(mut dialog) = self.file_dialog.take() {
-            let mut accept = false;
-            let mut cancel = false;
-            egui::Window::new("File path")
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.label("Local path (native file picker is deferred)");
-                    ui.text_edit_singleline(&mut dialog.path);
-                    for p in &self.recent {
-                        if ui
-                            .selectable_label(false, p.display().to_string())
-                            .clicked()
-                        {
-                            dialog.path = p.display().to_string();
-                        }
-                    }
-                    ui.horizontal(|ui| {
-                        accept = ui.button("OK").clicked();
-                        cancel = ui.button("Cancel").clicked();
-                    });
-                });
-            if accept && !dialog.path.trim().is_empty() {
-                let path = PathBuf::from(dialog.path.trim());
+        if let Some(dialog) = self.file_dialog.take() {
+            use crate::chrome::native_dialog::{side_title, Kind, Request};
+            let (kind, action) = match dialog.mode {
+                FileMode::Open => (Kind::OpenFile, "Open File on File System"),
+                FileMode::SaveAs => (Kind::SaveFile, "Save File As"),
+                FileMode::Target => (Kind::SaveFile, "Save Target"),
+            };
+            let initial = match dialog.mode {
+                FileMode::Target => self.files[dialog.side].target.clone(),
+                _ => None,
+            }
+            .or_else(|| self.files[dialog.side].path.clone())
+            .unwrap_or_else(|| PathBuf::from(dialog.path.trim()));
+            let picked = Request::new(kind, side_title(action, dialog.side))
+                .initial(&initial)
+                .show();
+            if let Some(path) = picked {
                 match dialog.mode {
                     FileMode::Open => self.request(Pending::Open(dialog.side, path)),
                     FileMode::SaveAs | FileMode::Target => {
@@ -2316,15 +2310,10 @@ impl TextCompareView {
                                     self.files[dialog.side].target = Some(path);
                                 }
                             }
-                            Err(e) => {
-                                self.message = e.to_string();
-                                self.file_dialog = Some(dialog);
-                            }
+                            Err(e) => self.message = e.to_string(),
                         }
                     }
                 }
-            } else if !cancel {
-                self.file_dialog = Some(dialog);
             }
         }
         if let Some(pending) = self.pending.clone() {

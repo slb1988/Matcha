@@ -35,7 +35,7 @@
 | 编号 | 原帮助段落 | 状态 | 入口 / 差异 / 证据边界 |
 |---|---|---|---|
 | C13 | `Open File` | 已回归 | 单侧 staged 替换：成功才提交、失败保留整会话；新来源按掩码重路由格式选项；对侧（含缓存 sheet）编辑/历史按源索引重新挂接保留；孤儿 tab 不冒认。RawInput 确认框 + 控制器回归（wave7）。 |
-| C14 | `Open File on File System *` | 能力合并 | 本地能力与 Open File 合并；路径框代替原生文件选择器，无单独隐藏别名按钮。 |
+| C14 | `Open File on File System *` | 能力合并 | 本地能力与 Open File 合并；Open File 弹系统原生文件对话框（标题同参考 `Open File on File System - Left Side`），无单独隐藏别名按钮。 |
 | C15 | `Open File Using Profile *` | 范围外 | 远端/VFS profile 选择与写入不在当前本地来源适配中，未连接。 |
 | C16 | `Open Clipboard` | 已回归 | 外科单侧替换：对侧 sheet 对象/编辑/Undo 保留，缓存 sheet 重新挂接；workbook 侧剪贴板强制分隔符探测；替换侧历史清空。回归见 wave7。 |
 | C17 | `Open With` | 按 D9 后置 | 按 D9 留 session-and-cli/外部工具处理；未调用关联程序或系统文件管理器。 |

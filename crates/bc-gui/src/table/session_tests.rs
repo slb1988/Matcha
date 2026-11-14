@@ -2,6 +2,7 @@
 //! 的提交与失败恢复、保存与导出。Swap 的 Undo 验收使用不对称映射，
 //! 使交换前朝向的快照在旧代码上产生可观察的错误。
 use super::*;
+use crate::chrome::native_dialog;
 use bc_core::edit::EditStack;
 use bc_engine_table::columns::{ColumnMapping, ComparisonColumn, Side};
 use bc_engine_table::compare::Importance;
@@ -427,13 +428,12 @@ fn summary_export_writes_keyed_rows_and_stale_results_are_rejected() {
     // 编辑后结果陈旧：导出必须被拒绝且不写文件。
     v.begin_edit(0, Cursor { row: 0, column: 1 }, Some("changed".into()));
     v.commit_edit().unwrap();
+    native_dialog::mock::respond(Some(path.clone()));
     v.dialog = Some(PathDialog {
         mode: FileMode::Summary(false),
-        path: path.display().to_string(),
+        path: String::new(),
     });
     frame(&ctx, &mut v, vec![]);
-    let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "OK"));
     assert!(
         !v.message.is_empty(),
         "stale summary is rejected with a message"
@@ -441,25 +441,23 @@ fn summary_export_writes_keyed_rows_and_stale_results_are_rejected() {
     assert!(std::fs::read_to_string(&path).unwrap().is_empty());
     ready(&mut v);
     // 就绪后导出：按键列出变化行与列结构。
+    native_dialog::mock::respond(Some(path.clone()));
     v.dialog = Some(PathDialog {
         mode: FileMode::Summary(false),
-        path: path.display().to_string(),
+        path: String::new(),
     });
     frame(&ctx, &mut v, vec![]);
-    let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "OK"));
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("MATCHA-TABLE-DIFF"));
     assert!(text.contains("ROW\t7\tChanged"));
     assert!(text.contains("price") && text.contains("1.0") && text.contains("1.2"));
     // CSV 变体
+    native_dialog::mock::respond(Some(path.clone()));
     v.dialog = Some(PathDialog {
         mode: FileMode::Summary(true),
-        path: path.display().to_string(),
+        path: String::new(),
     });
     frame(&ctx, &mut v, vec![]);
-    let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "OK"));
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("record,key,status,column,layer,old,new"));
     assert!(text.contains("7,Changed,price,value"));
@@ -581,19 +579,15 @@ fn save_as_updates_only_that_side_target_and_marks_it_clean() {
     v.files[1].target = None;
     v.grid.active = 1;
     let ctx = egui::Context::default();
-    frame(&ctx, &mut v, vec![key(egui::Key::S, true)]);
-    assert!(matches!(
-        v.dialog.as_ref().map(|d| d.mode),
-        Some(FileMode::Save(1))
-    ));
     let right_out = temp_file("save-as-right.csv", "");
     std::fs::remove_file(&right_out).unwrap();
-    if let Some(d) = &mut v.dialog {
-        d.path = right_out.display().to_string();
-    }
-    frame(&ctx, &mut v, vec![]);
-    let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "OK"));
+    // 无路径侧 Ctrl+S 弹系统「另存为」对话框（测试替身返回 right_out）。
+    native_dialog::mock::respond(Some(right_out.clone()));
+    frame(&ctx, &mut v, vec![key(egui::Key::S, true)]);
+    let request = native_dialog::mock::last().expect("save dialog shown");
+    assert_eq!(request.kind, native_dialog::Kind::SaveFile);
+    assert_eq!(request.title, "Save File As - Right Side");
+    assert!(v.dialog.is_none());
     ready(&mut v);
     assert!(!v.pair.as_ref().unwrap().history[1].is_dirty());
     assert!(std::fs::read_to_string(&right_out).unwrap().contains("9.9"));

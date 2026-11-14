@@ -1667,27 +1667,41 @@ impl TableCompareView {
                 self.key_focus = true;
             }
         }
-        let mut execute = None;
-        let mut cancel = false;
-        if let Some(dialog) = &mut self.dialog {
-            egui::Window::new("Table file path")
-                .default_width(650.0)
-                .show(ctx, |ui| {
-                    ui.text_edit_singleline(&mut dialog.path);
-                    ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() {
-                            execute = Some((dialog.mode, dialog.path.clone()));
-                        }
-                        cancel = ui.button("Cancel path").clicked();
-                    });
-                });
-        }
-        if cancel {
-            self.dialog = None;
-        }
+        let execute = self.dialog.take().and_then(|dialog| {
+            use crate::chrome::native_dialog::{side_title, Kind, Request};
+            let request = match dialog.mode {
+                FileMode::Open(s) => Request::new(
+                    Kind::OpenFile,
+                    side_title("Open File on File System", s),
+                ),
+                FileMode::Save(s) => Request::new(Kind::SaveFile, side_title("Save File As", s)),
+                FileMode::Export(s) => {
+                    Request::new(Kind::SaveFile, side_title("Export as CSV", s))
+                        .filter("CSV files (*.csv)", &["csv"])
+                }
+                FileMode::Summary(false) => Request::new(Kind::SaveFile, "Table Compare Report")
+                    .filter("Text files (*.txt)", &["txt"]),
+                FileMode::Summary(true) => Request::new(Kind::SaveFile, "Export Summary as CSV")
+                    .filter("CSV files (*.csv)", &["csv"]),
+            };
+            let initial = match dialog.mode {
+                FileMode::Open(s) | FileMode::Save(s) | FileMode::Export(s) => self.files[s]
+                    .target
+                    .clone()
+                    .or_else(|| self.files[s].path.clone()),
+                FileMode::Summary(_) => None,
+            };
+            let initial = if dialog.path.trim().is_empty() {
+                initial
+            } else {
+                Some(std::path::PathBuf::from(dialog.path.trim()))
+            };
+            request
+                .initial_opt(initial.as_deref())
+                .show()
+                .map(|path| (dialog.mode, path))
+        });
         if let Some((mode, path)) = execute {
-            self.dialog = None;
-            let path = std::path::PathBuf::from(path);
             let result = match mode {
                 FileMode::Open(s) => {
                     self.request(Pending::Open(s, path));

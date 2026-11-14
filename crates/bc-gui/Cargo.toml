@@ -22,6 +22,8 @@ eframe = { workspace = true }
 
 # 路径框右键菜单读取系统剪贴板（egui 只提供写入）。
 arboard = { version = "3", default-features = false }
+# 系统原生文件/文件夹选择对话框（Windows: IFileOpenDialog）。
+rfd = "0.16"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 [dev-dependencies]

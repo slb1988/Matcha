@@ -6,6 +6,7 @@ pub mod fonts;
 pub mod icons;
 pub mod menubar;
 pub mod modal;
+pub mod native_dialog;
 pub mod pathbar;
 pub mod popup;
 pub mod scrollbar;

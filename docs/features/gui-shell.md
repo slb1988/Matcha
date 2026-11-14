@@ -43,7 +43,7 @@
 
 - **线程模型**：live 编辑目标（含 Rc/RefCell）只在 UI 线程；worker 用快照，
   结果带修订号、过期丢弃（文本 350ms 防抖重对齐）。
-- GUI 没有自己的 mmap/unsafe；只读锁与编码下沉到 `bc-core`/引擎，系统光标读取在 `bc-shell`。
+- GUI 没有自己的 mmap/unsafe；只读锁与编码下沉到 `bc-core`/引擎，系统光标读取与原生对话框属主窗口在 `bc-shell`。
 - **剪贴板**：eframe 必须启用 `clipboard` feature，否则 egui-winit 退化为进程内假剪贴板，
   Ctrl+C/V、`copy_text`、`RequestPaste` 都不经过系统剪贴板。
 - **路径框粘贴**：所有路径编辑框（`chrome::pathbar` 与文件夹/同步视图路径框）粘贴时去掉
@@ -52,6 +52,13 @@
 - **路径框右键菜单**：选区内右击保留选区（Cut/Copy/Delete 可用）——egui 在右键按下帧就折叠
   选区，故恢复发生在按下帧而非 `secondary_clicked` 的释放帧；点在选区外则按系统惯例收拢选区。
   合并视图标题条用只读变体 `pathbar::show_readonly`（同一套选区快照机制，菜单只有 Copy / Select All）。
+- **系统原生文件对话框**（`chrome::native_dialog`，`rfd`；Windows 为资源管理器同款 IFileOpenDialog /
+  IFileSaveDialog / 选择文件夹）：路径栏浏览按钮、右键 Browse（Alt+B）、Open File... / Save File As... /
+  Save target... / Export as CSV... / 报告导出，以及文件夹比较的 Browse for Folder 全部走它，
+  不再有应用内路径输入窗。标题统一 `<动作> - Left Side / Right Side`（如
+  `Open File on File System - Left Side`），起始目录与预填文件名取该侧当前路径（不存在则退到最近的
+  存在上级）；文件过滤器末项恒为 `All files (*.*)`。对话框在帧内同步弹出，属主为本进程前台窗口
+  （`bc_shell::dialog_owner`），故对主窗口模态。测试构建不弹窗：`native_dialog::mock` 预置返回值并记录请求。
 - **系统文件拖放落点**（`chrome::drop`）：winit 投递拖放事件时不带坐标，且系统拖动期间窗口
   收不到鼠标移动（Windows OLE 拖动、macOS 拖拽会话皆然），egui 指针位置在落下时是旧值或空
   （曾因此回落到活动侧：拖到右栏却换了左栏）。落点改取系统光标（`bc_shell::cursor_screen_pos`

@@ -1281,3 +1281,32 @@ fn clicking_a_gap_row_moves_focus_so_paste_reaches_that_pane() {
     assert_eq!(v.active, 0);
     assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(0)));
 }
+#[test]
+fn open_file_uses_native_dialog_seeded_with_current_path() {
+    use crate::chrome::native_dialog::{self, Kind};
+    let dir = std::env::temp_dir().join(format!("matcha-native-open-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let current = dir.join("current.txt");
+    let picked = dir.join("picked.txt");
+    std::fs::write(&current, "a\n").unwrap();
+    std::fs::write(&picked, "picked\n").unwrap();
+    let mut v = view("a\n", "b\n");
+    v.files[0].path = Some(current.clone());
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    native_dialog::mock::respond(Some(picked.clone()));
+    frame(&ctx, &mut v, vec![key(egui::Key::O, true)]);
+    let request = native_dialog::mock::last().expect("native open dialog shown");
+    assert_eq!(request.kind, Kind::OpenFile);
+    assert_eq!(request.title, "Open File on File System - Left Side");
+    assert_eq!(request.initial.as_deref(), Some(current.as_path()));
+    assert!(v.file_dialog.is_none(), "no in-app path window left behind");
+    ready(&mut v);
+    assert_eq!(v.files[0].path.as_deref(), Some(picked.as_path()));
+    // 取消：不改路径。
+    frame(&ctx, &mut v, vec![key(egui::Key::O, true)]);
+    assert!(native_dialog::mock::last().is_some());
+    ready(&mut v);
+    assert_eq!(v.files[0].path.as_deref(), Some(picked.as_path()));
+    let _ = std::fs::remove_dir_all(dir);
+}

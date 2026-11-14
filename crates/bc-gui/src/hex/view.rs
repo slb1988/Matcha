@@ -38,7 +38,7 @@ pub enum ExitConfirm {
     Exit,
 }
 
-/// 打开/另存路径对话框（应用内实现，与 text 视图同款）。
+/// 待弹出的打开/另存对话框请求（本帧末弹系统原生对话框，见 chrome::native_dialog）。
 #[derive(Debug, Clone)]
 pub struct HexFileDialog {
     pub side: usize,
@@ -1389,40 +1389,24 @@ impl HexCompareView {
                 self.reload_guarded(true);
             }
         }
-        if let Some(dialog) = self.file_dialog.clone() {
-            let mut open = true;
-            let mut apply = false;
-            let mut cancel = false;
-            let mut path = dialog.path.clone();
-            egui::Window::new(if dialog.save_as { "另存为" } else { "打开文件" })
-                .open(&mut open)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("路径:");
-                        ui.add(egui::TextEdit::singleline(&mut path).desired_width(360.0));
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.button("确定").clicked() {
-                            apply = true;
-                        }
-                        if ui.button("取消").clicked() {
-                            cancel = true;
-                        }
-                    });
-                });
-            if apply {
-                let p = PathBuf::from(path.trim());
+        if let Some(dialog) = self.file_dialog.take() {
+            use crate::chrome::native_dialog::{side_title, Kind, Request};
+            let (kind, action) = if dialog.save_as {
+                (Kind::SaveFile, "Save File As")
+            } else {
+                (Kind::OpenFile, "Open File on File System")
+            };
+            let current = self.paths()[dialog.side].clone();
+            let initial = current.unwrap_or_else(|| PathBuf::from(dialog.path.trim()));
+            if let Some(p) = Request::new(kind, side_title(action, dialog.side))
+                .initial(&initial)
+                .show()
+            {
                 if dialog.save_as {
                     self.save_side_as(dialog.side, &p);
                 } else if let Err(e) = self.open_path(dialog.side, &p) {
                     self.message = e.to_string();
                 }
-                self.file_dialog = None;
-            } else if !open || cancel {
-                self.file_dialog = None;
-            } else {
-                self.file_dialog = Some(HexFileDialog { path, ..dialog });
             }
         }
     }

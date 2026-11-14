@@ -65,6 +65,8 @@
 #[cfg(any(windows, target_os = "macos"))]
 mod cursor;
 pub mod layout;
+#[cfg(windows)]
+mod owner;
 pub mod registry;
 pub mod state;
 #[cfg(windows)]
@@ -89,6 +91,10 @@ pub fn cursor_screen_pos(pixels_per_point: f64) -> Option<(i32, i32)> {
         None
     }
 }
+/// Owner window for a native file dialog (Windows): this process's foreground
+/// window, so the dialog is modal to the window the user clicked Browse in.
+#[cfg(windows)]
+pub use owner::{foreground as dialog_owner, DialogOwner};
 pub use registry::{MemRegistry, Registry};
 pub use state::{Pairing, StateDir};
 

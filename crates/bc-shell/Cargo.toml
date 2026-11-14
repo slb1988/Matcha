@@ -11,6 +11,8 @@ bc-formats = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
+# 原生文件对话框的属主窗口句柄（owner.rs）。
+raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"

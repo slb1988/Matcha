@@ -28,7 +28,7 @@ foldercomp 没有状态属性，只比较其结构。参见 [KNOWN_DIFFS](../../
 | Swap Sides | 已实现 | 交换两个基准路径并重载；原路径进入 Back/Forward 历史。 |
 | Back | 已实现 | 回到前一基准目录对。 |
 | Forward | 已实现 | 前进到后一基准目录对。 |
-| Browse for Folder | 已实现 | Left Side / Right Side 均可输入并选择最近路径；不用新依赖的原生对话框。 |
+| Browse for Folder | 已实现 | Left Side / Right Side 弹系统原生「选择文件夹」对话框（`chrome::native_dialog`），起始于该侧当前文件夹。 |
 | Up One Level | 已实现 | Left Side / Right Side / Both Sides 三种选择。 |
 | Folder Compare Report | 后置 | 后置 hex-and-reports；黄金报告由外部参考程序产生，非本应用报告器。 |
 | Folder Compare Info | 后置 | 状态栏有文件/目录/可见/选中数；独立统计详情窗口后置。 |
