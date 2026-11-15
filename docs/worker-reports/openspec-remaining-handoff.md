@@ -4,7 +4,8 @@
 
 - **5 个已完成的 change 已于 2026-11-15 归档**：`text-compare-core`、`folder-compare-sync`、`table-compare-xlsx`、`text-patch-reports`、`hex-compare` → `openspec/changes/archive/2026-11-15-*`；22 个 capability 主 spec 已建立在 `openspec/specs/`（全部纯 ADDED 合并，无 MODIFIED/REMOVED）。
 - **table-merge 已于 2026-11-15 归档**（`openspec/changes/archive/2026-11-15-table-merge`，新建主 spec `table-merge-cli`/`-engine`/`-view`，共 25 个主 spec）。
-- **剩 2 个活跃 change**：`text-merge`（30/34）、`visual-parity`（15/23）。
+- **text-merge 已于 2026-11-15 带 4 项未完成归档**（用户决定暂不推进；`openspec/changes/archive/2026-11-15-text-merge`，新建主 spec `text-merge-cli`/`-engine`/`-view`、`three-way-alignment`，共 29 个主 spec）。
+- **剩 1 个活跃 change**：`visual-parity`（15/23）；外观方向已定为现代风设计系统（非经典 Windows 复刻），剩余范围待定。
 - table-merge 已收口（见 §1）；text-merge 剩的全是验证类（2 项被参考工具阻塞）；visual-parity 剩的全是用户明确后置的范围。
 - 工作目录 `D:\Github\Matcha`，分支 `master`。归档操作本身未单独提交（openspec 文件移动 + 本文档 + CHANGELOGS 一条），随下一次代码提交或用户指示处理。
 
@@ -16,7 +17,9 @@ app 层/真实 exe 转交/路由/快照测试；spec 与已落地行为对齐（
 text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为按格式分派——**archive 顺序问题已消除**。
 5.4 全量门禁见 tasks.md 验证记录。已归档，无后续。
 
-## 2. text-merge（30/34，代码全绿，剩验证）
+## 2. text-merge（30/34，已归档，剩余验证项搁置）
+
+**2026-11-15**：用户决定暂不推进，带下表 4 项未完成归档（见归档目录 tasks.md「归档说明」）。下表保留作日后重启参考。
 
 引擎、CLI、GUI、等待/退出码全部完成且测试通过，7.1 全量门禁已过。剩 4 项全是验证类：
 
@@ -37,7 +40,7 @@ text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为
 - **5.1–5.3**（2026-11-10 用户收窄"抓大放小"后置）：Home 页（会话树/新会话网格/工具栏菜单）、表格比较全套外观、对照达标且 `--bench-table` 不退化。
 - **6.1–6.3**：对话框（文本/文件夹/表格会话设置、Options、Find/Replace、File Formats、Go To 的尺寸/页签/控件布局/按钮行）、右键菜单（条目与顺序、阴影/边框/高亮色）、对照达标。注意：参考工具 Find/Replace 实为停靠查找条而非对话框（tokens 场景 `text-find-bar`）。
 
-**注意（2026-11-15 实况核对）**：归档前 master 上刚完成"界面风格统一（组件库重构）"（见 CHANGELOGS 2026-11-15 条目）——工具栏下拉、浮窗、按钮/勾选框/输入框已统一为设计系统控件（抹茶绿强调色，`theme::Palette` 见 ADR 402），Hex 对话框文案英文化。这与 visual-parity 第 6 组"经典 Windows 1:1 复刻"方向存在偏差，重启该组任务前需与用户确认以哪套外观为准。
+**注意（2026-11-15 实况核对）**：归档前 master 上刚完成"界面风格统一（组件库重构）"（见 CHANGELOGS 2026-11-15 条目）——工具栏下拉、浮窗、按钮/勾选框/输入框已统一为设计系统控件（抹茶绿强调色，`theme::Palette` 见 ADR 402），Hex 对话框文案英文化。**2026-11-15 用户已决定：以现代风设计系统为准（抹茶绿是其强调色），不做经典 Windows 1:1 复刻**；重启各组时只对照参考工具的信息结构（页签、控件、条目顺序、按钮行），视觉样式走设计系统。已写入 visual-parity tasks.md。
 
 ## 归档后续
 

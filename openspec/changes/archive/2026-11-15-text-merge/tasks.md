@@ -62,3 +62,12 @@
   - **待人工（2026-11-14）**：需要 P4V 与真人操作窗口，本次实施无法完成。已有的自动化证据：`apps/bcompare/tests/hand_off.rs` 用真实的 `matcha.exe` 验证了"已有实例时合并调用等待并返回标签页结果码"、`/automerge` 的 0 / 14 / 101 / 100、`/automerge /reviewconflicts` 的两条分支；`crates/bc-gui/src/app_tests.rs` 验证了首个实例路径的结果码。未验证：P4V 自身以什么判定合并完成、`%r` 是否预先存在、参考工具的 P7。
 - [ ] 7.3 端到端冒烟：base/theirs/yours 三份样例验证无冲突自动合并、冲突 GUI 解决、CSV 按文本合并；验证：手工检查输出与退出码
   - **部分完成（2026-11-14）**：无冲突自动合并与 CSV 按文本合并已由真实可执行文件 / runner 测试覆盖；冲突的界面解决只有无头测试与快照渲染（`merge-basic`、`merge-conflict` 两张 PNG 已人工看过），没有在真实窗口里手工走一遍。
+
+## 归档说明（2026-11-15）
+
+- 用户决定暂不推进剩余 4 项、直接归档：1.3 / 3.5（本机参考工具 BC 5.0.6 打不开 Text Merge，样本无法采集）、
+  7.2（P4V 人工端到端）、7.3（真实窗口手工走冲突解决）均保持未勾，**带 4 项未完成归档**。
+- 后果：合并语义仍是暂定语义、未经参考样本确认（`docs/features/text-merge.md` 已如此标注）；`golden_merge.rs` 的
+  20 用例 × 4 组合固定的是暂定行为。日后换到能打开 Text Merge 的环境，重跑 `tools/golden/gen_merge_expected.ps1`
+  并以新 change 补参考对齐。注意 7.2 原文的 `%1 %2 %b %r` 已于 2026-11-14 改为 P4V 顺序 `%b %1 %2 %r`。
+- `text-merge-cli` 的"按格式分派"已在本 delta 内写实（table-merge 先行归档，主 spec `table-merge-cli` 已存在）。

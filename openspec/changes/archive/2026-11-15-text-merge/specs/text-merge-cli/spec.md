@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: 合并调用的参数形式
-命令行给出 3 个文件路径时 SHALL 视为合并调用，依次为 center（base）、right（theirs）、left（yours，界面保存目标）（2026-11-14 改为 P4V 顺序）；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 按输入格式分派：三个输入都是工作簿（xlsx/xlsm，或扩展名不认识而文件头为 ZIP）时走表格合并（行为见 `table-merge-cli`），其余（含 CSV/TSV，除非带 `/tablemerge`）按文本合并处理；工作簿与非工作簿混合 MUST 报错并以退出码 100 结束（2026-11-15 随 table-merge 修订，原为"一律按文本合并"）。P4V 的调用形式 `matcha %b %1 %2 %r`（base、theirs、yours、result）MUST 直接可用。
+命令行给出 3 个文件路径时 SHALL 视为合并调用，依次为 center（base）、right（theirs）、left（yours，界面保存目标）（2026-11-14 改为 P4V 顺序）；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 按输入格式分派：三个输入都是工作簿时走表格合并（分派规则见 `table-merge-cli`「表格合并的路由」），其余按文本合并处理。P4V 的调用形式 `matcha %b %1 %2 %r`（base、theirs、yours、result）MUST 直接可用。
 
 #### Scenario: 四参数打开合并视图
 - **WHEN** 执行 `matcha base.txt theirs.txt yours.txt result.txt`

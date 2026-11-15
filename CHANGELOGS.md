@@ -5,7 +5,9 @@
 ## 2026-11-15
 
 - **OpenSpec 归档（仓库管理，无功能变化）**：table-merge 归档至 `openspec/changes/archive/2026-11-15-table-merge`，
-  新建主 spec `table-merge-cli`、`table-merge-engine`、`table-merge-view`。剩余活跃 change：text-merge、visual-parity。
+  新建主 spec `table-merge-cli`、`table-merge-engine`、`table-merge-view`；text-merge 带 4 项未完成的验证任务（参考样本采集、
+  P4V 人工端到端）归档至 `2026-11-15-text-merge`，新建主 spec `text-merge-cli`、`text-merge-engine`、`text-merge-view`、
+  `three-way-alignment`，合并语义仍为未经参考样本确认的暂定语义。剩余活跃 change：visual-parity（外观方向定为现代风设计系统）。
 
 - **表格合并：删除输出行**：输出网格里 `Ctrl+Delete`（Edit ▸ Delete Output Row）把选中行从合并结果中去掉，
   该行上的冲突计为已解决，可撤销；之后对该行 Take 任一侧会把它带回。双增冲突行不可删除（用 Take Center 表示两行都不要）。
