@@ -52,6 +52,17 @@ pub struct GridState {
     /// placed it (click/keyboard/select-all); a freshly loaded comparison shows
     /// just the focus frame, like the reference.
     pub selection_visible: bool,
+    /// Text Details strip: per comparison column width overrides (columns
+    /// without one follow `widths`), its own prefix offsets in display
+    /// order, horizontal offset, the cursor column it last scrolled to, and
+    /// the display column whose boundary is being dragged.
+    pub details_widths: std::collections::HashMap<usize, f32>,
+    pub details_offsets: Vec<f32>,
+    pub details_scroll_x: f32,
+    pub details_follow: Option<usize>,
+    pub details_resizing: Option<usize>,
+    /// Last painted Text Details strip rect (NOTHING while hidden).
+    pub details_rect: egui::Rect,
 }
 impl Default for GridState {
     fn default() -> Self {
@@ -74,6 +85,12 @@ impl Default for GridState {
             edit_rect: None,
             resizing: None,
             selection_visible: false,
+            details_widths: std::collections::HashMap::new(),
+            details_offsets: vec![0.0],
+            details_scroll_x: 0.0,
+            details_follow: None,
+            details_resizing: None,
+            details_rect: egui::Rect::NOTHING,
         }
     }
 }
@@ -295,6 +312,84 @@ impl GridState {
         for o in &mut self.offsets[d + 1..] {
             *o += delta;
         }
+    }
+    /// Text Details offsets: override width when present, else the grid width.
+    pub fn rebuild_details_offsets(&mut self) {
+        self.details_offsets.clear();
+        self.details_offsets.push(0.0);
+        for &c in &self.columns {
+            let w = self
+                .details_widths
+                .get(&c)
+                .or_else(|| self.widths.get(c))
+                .copied()
+                .unwrap_or(68.0);
+            self.details_offsets
+                .push(self.details_offsets.last().unwrap() + w);
+        }
+    }
+    /// Text Details header boundary hit test (`left` is the strip's content
+    /// origin before scrolling); same ±`RESIZE_GRAB` rule as the grid.
+    pub fn details_resize_target(&self, left: f32, x: f32) -> Option<usize> {
+        let origin = left - self.details_scroll_x;
+        (0..self.details_offsets.len().saturating_sub(1)).find(|&d| {
+            let boundary = origin + self.details_offsets[d + 1];
+            (boundary - x).abs() <= RESIZE_GRAB && boundary > left + RESIZE_GRAB
+        })
+    }
+    /// Drag-resize Text Details display column `d` so its right edge sits at
+    /// strip content-space `right` (override only; the grid keeps its width).
+    pub fn details_resize_column(&mut self, d: usize, right: f32) {
+        if d + 1 >= self.details_offsets.len() {
+            return;
+        }
+        let width = right - self.details_offsets[d];
+        self.details_set_width(d, width);
+    }
+    /// Set the Text Details width of display column `d` (clamped 20–1000 px)
+    /// and shift the later offsets.
+    pub fn details_set_width(&mut self, d: usize, width: f32) {
+        let Some(&c) = self.columns.get(d) else {
+            return;
+        };
+        if d + 1 >= self.details_offsets.len() {
+            return;
+        }
+        let width = width.clamp(MIN_COLUMN_WIDTH, 1000.0);
+        let delta = width - (self.details_offsets[d + 1] - self.details_offsets[d]);
+        self.details_widths.insert(c, width);
+        if delta != 0.0 {
+            for o in &mut self.details_offsets[d + 1..] {
+                *o += delta;
+            }
+        }
+    }
+    /// Drop every Text Details width override (Resize Columns to Fit,
+    /// reload, column count change); the strip follows the grid again.
+    pub fn clear_details_widths(&mut self) {
+        self.details_widths.clear();
+        self.details_resizing = None;
+        self.rebuild_details_offsets();
+    }
+    /// Scroll the Text Details strip once per cursor column change so the
+    /// cursor column is visible (minimal scroll; a column wider than the view
+    /// aligns its left edge), then clamp to the content.
+    pub fn details_follow_cursor(&mut self, view: f32) {
+        let column = self.cursor.column;
+        if self.details_follow != Some(column) {
+            self.details_follow = Some(column);
+            if let Some(d) = self.columns.iter().position(|&c| c == column) {
+                let left = self.details_offsets[d];
+                let right = self.details_offsets[d + 1];
+                if left < self.details_scroll_x || right - left > view {
+                    self.details_scroll_x = left;
+                } else if right > self.details_scroll_x + view {
+                    self.details_scroll_x = right - view;
+                }
+            }
+        }
+        let max = (self.details_offsets.last().copied().unwrap_or(0.0) - view).max(0.0);
+        self.details_scroll_x = self.details_scroll_x.clamp(0.0, max);
     }
     pub fn selected(&self, row: usize, col: usize) -> bool {
         let a = self.anchor.unwrap_or(self.cursor);

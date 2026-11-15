@@ -14,6 +14,17 @@
   （名称供按名对齐/报告使用，列头仍显示字母）。表头自动检测继续服务于 CLI 报告路径。
 - 列宽：初始按内容适配（7 px/字符 + 12 px，`Resize Columns to Fit` 全量重算）；
   拖拽任一侧表头的列边界可手动调宽（两侧共享，最小 20 px，悬停出现水平调整光标）。
+- Text Details 对照条（网格下方，当前行两侧各一行）：
+  - 列宽为**独立覆盖值**：拖拽对照条列头边界只改对照条（±3 px 命中、最小 20 px），
+    双击边界按当前行两侧内容 + 列头适配（≤1000 px）；未调整的列跟随上方网格列宽。
+    `Resize Columns to Fit`、切换 sheet、重新加载、列数变化时清除全部覆盖。
+  - 独立水平滚动：内容超宽时底部显示横向滚动条（像素级，否则保留原面板色带），鼠标在对照条上滚轮只滚对照条；
+    光标列变化时以最小滚动量使其可见（超宽列左对齐），手动滚开后不会被吸回。
+  - 单击某侧单元格 = 在上方网格点击该侧当前行该列（切活动侧、键盘焦点交给该侧网格、
+    网格横向滚到该格）；Shift+单击在当前行扩展选区；单击列头移到活动侧该列；
+    双击 = Modify；右键先按网格规则选中再弹出同一表格上下文菜单；Align With 待选时同样生效。
+    上方选区覆盖当前行的格子在对照条活动侧以选中色显示。
+  - 悬停被截断或含换行的单元格时提示完整原文（保留换行，最多 4000 字符）。
 - xlsx/xlsm：calamine 0.38 只读打开（元数据/共享字符串），按需 `load_sheet`；
   内存可编辑，原格式保存返回只读错误，`export_csv` 为显式替代。
 - 保存保真：逐记录 lexical spans，未改字段、分隔符、行尾原样保留；同目录暂存后 rename。
@@ -31,7 +42,7 @@
 |---|---|---|
 | 引擎 | `crates/bc-engine-table` | `Sheet`/`Cell`、`source`（读入）、`workbook`（xlsx）、`KeyAlign`、`TableRules`、写回/导出 |
 | CLI 报告 | `crates/bc-script/src/table_report.rs`、`crates/bc-report/src/table.rs` | 无窗口读取/按 sheet 比较 + 文本渲染 |
-| GUI | `crates/bc-gui/src/table/` | `view.rs`、`grid.rs`、`worker.rs`、`sorting.rs`、`find.rs`、`sheet_tabs.rs`、`settings_panel.rs` 等（含大量 `*_tests.rs`） |
+| GUI | `crates/bc-gui/src/table/` | `details.rs`（Text Details 对照条绘制+交互，产出 `GridAction`；缩略图）、`view.rs`、`grid.rs`、`worker.rs`、`sorting.rs`、`find.rs`、`sheet_tabs.rs`、`settings_panel.rs` 等（含大量 `*_tests.rs`） |
 
 ## 关键语义
 

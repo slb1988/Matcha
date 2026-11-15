@@ -21,6 +21,8 @@ use std::{
 mod command_matrix;
 #[path = "copy_tests.rs"]
 mod copying;
+#[path = "details_tests.rs"]
+mod details_strip;
 #[path = "edit_tests.rs"]
 mod editing;
 #[path = "eval_tests.rs"]

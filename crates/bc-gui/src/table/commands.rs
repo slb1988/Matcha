@@ -217,6 +217,9 @@ impl TableCompareView {
         }
         self.grid.active = s;
         self.grid.cursor = cursor;
+        // A user-placed cursor/selection paints in the selection color (a
+        // freshly loaded comparison shows only the focus frame).
+        self.grid.selection_visible = true;
         self.key_focus = true;
         if edit {
             self.begin_edit(s, cursor, None);

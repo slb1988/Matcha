@@ -1,7 +1,7 @@
 use super::{
     cache::{Cache, Filter},
     find::FindPanel,
-    grid::{self, Cursor, GridState, ROW_HEIGHT},
+    grid::{self, Cursor, GridAction, GridState, ROW_HEIGHT},
     settings_panel::{Draft, SettingsPanel},
     worker::{AlignJob, LoadJob, Output, Prepared, ProjectJob, ScanJob, Worker},
 };
@@ -504,6 +504,8 @@ impl TableCompareView {
                         self.summaries = vec![None; self.pairs.0.len()];
                         self.cached.clear();
                         self.grid.scroll = egui::Vec2::ZERO;
+                        self.grid.details_scroll_x = 0.0;
+                        self.grid.clear_details_widths();
                     }
                     match staged {
                         Some(Staged::PairSide(s)) => {
@@ -602,6 +604,7 @@ impl TableCompareView {
                             p.cache = *cache;
                             if fit_all {
                                 self.grid.widths = p.cache.widths.clone();
+                                self.grid.details_widths.clear();
                             }
                             p.projection = p.cache.project(self.filter);
                         }
@@ -791,6 +794,7 @@ impl TableCompareView {
         if let Some(p) = &mut self.pair {
             if self.grid.widths.len() != p.cache.widths.len() {
                 self.grid.widths = p.cache.widths.clone();
+                self.grid.details_widths.clear();
             }
             self.grid.rebuild_columns(
                 p.map.rules().columns.0.len(),
@@ -1155,16 +1159,21 @@ impl TableCompareView {
             }
             self.pane_status(ui, pane_status, s);
         }
+        let mut details_action = None;
         if details_height > 0.0 {
             if let Some(p) = &self.pair {
-                super::details::paint(
+                let (action, rows) = super::details::ui(
                     ui,
                     details,
                     &p.map,
-                    &self.grid,
+                    &mut self.grid,
                     &p.cache.different_columns,
                     &prefs.colors,
                 );
+                details_action = action;
+                let [left, right] = rows;
+                menu_owners.push((0, left));
+                menu_owners.push((1, right));
             }
         }
         self.status_bar(ui, status);
@@ -1177,6 +1186,16 @@ impl TableCompareView {
         }
         if let Some(action) = grid_action {
             self.grid_action(action);
+        }
+        // Text Details clicks act like the same click in the pane above: the
+        // keyboard goes to that side's grid, which scrolls the cell into view.
+        if let Some(action) = details_action {
+            let side = match action {
+                GridAction::Select(s, ..) | GridAction::Edit(s, _) | GridAction::Context(s, _) => s,
+            };
+            self.grid_action(action);
+            self.focus_grid = Some(side);
+            self.ensure_cursor_visible();
         }
         // 网格右键菜单（参考 table-context）：作用于被点击的窗格与选区。
         for (s, owner) in menu_owners {

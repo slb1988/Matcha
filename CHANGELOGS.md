@@ -4,6 +4,13 @@
 
 ## 2026-11-15
 
+- **表格 Text Details 对照条可交互**（openspec `table-details-interaction`）：网格下方的当前行对照条原来只显示、不响应鼠标，现在：
+  拖拽列头边界调整列宽、双击边界按当前行内容自动适配（只改对照条，未调整的列仍跟随上方网格；Resize Columns to Fit、
+  重新加载、切换 sheet 时恢复）；内容超宽时底部出现横向滚动条，鼠标滚轮在对照条上只滚对照条，光标列变化时自动滚到可见；
+  单击某侧单元格切换到该侧并选中该格（键盘焦点交给上方该侧网格、网格横向滚到该格），Shift+单击行内扩选，单击列头换列，
+  双击编辑，右键弹出同一表格菜单，Align With 待选时也可点对照条；悬停被截断或含换行的单元格显示完整内容。
+- **修复：表格网格点击后的选中色**：点击 / Shift+单击单元格后，选中格（含多格选区）现在以选中色显示；此前只有焦点框，
+  多格选区不可见。
 - **右键菜单补齐**：表格网格新增右键菜单（Align With、Copy to Left/Right、Copy Cell to…、Cut/Copy/Paste/Delete、
   插删行列、Modify…、Open File / Open Clipboard / Open With / Save / Explorer），右键先选中所点的格；文件夹树右键菜单
   从 3 项扩充为完整清单（Open Folder / Open、Open/Close Subfolders、Set as Base…、Open in New View、Open With、Compare To…、

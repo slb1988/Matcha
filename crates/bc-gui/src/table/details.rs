@@ -1,6 +1,11 @@
 //! Text Details strip (current row of both sides as a two-row mini grid) and
 //! the 52 px thumbnail column.
-use super::grid::{self, Cursor, GridState};
+//!
+//! The strip keeps its own column width overrides and horizontal offset
+//! (`GridState::details_*`) but routes every click through the grid's
+//! [`GridAction`] channel, so selection, Modify, Align With and the context
+//! menu behave exactly as in the panes above.
+use super::grid::{self, Cursor, GridAction, GridState};
 use bc_engine_table::{compare::Importance, TableMap};
 use bc_session::prefs::DiffColors;
 use eframe::egui;
@@ -8,9 +13,259 @@ use eframe::egui;
 /// horizontal-scroll band (81 px total with the edge lines).
 pub const HEIGHT: f32 = 81.0;
 const HEADER: f32 = 27.0;
-pub fn paint(
+/// Cell text inset on each side (left/right aligned text).
+const PAD: f32 = 6.0;
+/// Hover tooltip text cap (characters).
+const TOOLTIP_CHARS: usize = 4000;
+/// Hit regions of the strip for a given rect (shared by painting, input and
+/// tests): header, the two side rows, the scroll band, and the content left.
+pub struct Layout {
+    pub header: egui::Rect,
+    pub rows: [egui::Rect; 2],
+    pub band: egui::Rect,
+    pub left: f32,
+}
+pub fn layout(rect: egui::Rect) -> Layout {
+    let header = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), rect.top() + HEADER));
+    let row = |side: usize| {
+        egui::Rect::from_min_size(
+            egui::pos2(
+                rect.left(),
+                header.bottom() + side as f32 * grid::ROW_HEIGHT,
+            ),
+            egui::vec2(rect.width(), grid::ROW_HEIGHT),
+        )
+    };
+    Layout {
+        header,
+        rows: [row(0), row(1)],
+        band: egui::Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - 17.0),
+            egui::pos2(rect.right(), rect.bottom() - 1.0),
+        ),
+        left: rect.left() + 1.0,
+    }
+}
+/// Display column under strip x (None past the last column).
+fn column_at(state: &GridState, left: f32, x: f32) -> Option<usize> {
+    let content = x - left + state.details_scroll_x;
+    if content < 0.0 || content >= state.details_offsets.last().copied().unwrap_or(0.0) {
+        return None;
+    }
+    Some(
+        state
+            .details_offsets
+            .partition_point(|&v| v <= content)
+            .saturating_sub(1)
+            .min(state.columns.len().saturating_sub(1)),
+    )
+}
+/// Raw text of one side's cell of comparison column `c` in comparison row
+/// `row` (empty for a gap).
+fn cell_text(map: &TableMap, row: usize, side: usize, c: usize) -> String {
+    let pair = grid::mapped(map, row);
+    let source = if side == 0 { pair.left } else { pair.right };
+    let col = map
+        .rules()
+        .columns
+        .0
+        .get(c)
+        .and_then(|c| if side == 0 { c.left } else { c.right });
+    let sheet = if side == 0 {
+        map.left.borrow()
+    } else {
+        map.right.borrow()
+    };
+    source
+        .zip(col)
+        .and_then(|(r, c)| sheet.display_at(r, c))
+        .unwrap_or_default()
+}
+/// Line breaks folded for the single-line strip.
+fn folded(text: &str) -> String {
+    text.replace(['\n', '\r'], " ↵ ")
+}
+fn text_width(ui: &egui::Ui, text: String, font: &egui::FontId) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text, font.clone(), egui::Color32::BLACK)
+        .size()
+        .x
+}
+/// Double-click autofit: widest of both sides' current-row text and the
+/// column letter, plus padding (clamped by `details_set_width`).
+fn fit_width(ui: &egui::Ui, map: &TableMap, row: usize, c: usize) -> f32 {
+    let mono = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
+    let label = egui::FontId::proportional(crate::chrome::theme::UI_SIZE);
+    let cells = (0..2)
+        .map(|side| text_width(ui, folded(&cell_text(map, row, side, c)), &mono))
+        .fold(0.0, f32::max);
+    // The header letter sits after the 15 px change marker.
+    let header = text_width(ui, grid::column_letter(c), &label) + 15.0;
+    cells.max(header) + 2.0 * PAD
+}
+/// Truncated (text wider than the cell minus padding) or multi-line text.
+fn needs_tooltip(ui: &egui::Ui, text: &str, width: f32, font: &egui::FontId) -> bool {
+    !text.is_empty()
+        && (text.contains(['\n', '\r']) || text_width(ui, folded(text), font) > width - 2.0 * PAD)
+}
+/// Full text for the hover tooltip, capped at `TOOLTIP_CHARS` with "…".
+pub fn tooltip_text(text: &str) -> String {
+    match text.char_indices().nth(TOOLTIP_CHARS) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None => text.to_owned(),
+    }
+}
+/// The Text Details strip: paints the cursor row of both sides and handles
+/// its mouse input. Returns the grid action to route (select / edit /
+/// context) and the two side-row responses (context-menu owners).
+pub fn ui(
     ui: &mut egui::Ui,
     rect: egui::Rect,
+    map: &TableMap,
+    state: &mut GridState,
+    different: &[bool],
+    colors: &DiffColors,
+) -> (Option<GridAction>, [egui::Response; 2]) {
+    let lay = layout(rect);
+    state.details_rect = rect;
+    let view = (rect.right() - lay.left).max(0.0);
+    state.rebuild_details_offsets();
+    // Wheel over the strip scrolls it horizontally (either axis); the grid
+    // wheel only hits the pane rects, so the panes never move.
+    let delta = crate::chrome::wheel::delta(ui.ctx(), &[rect]);
+    state.details_scroll_x -= delta.x + delta.y;
+    state.details_follow_cursor(view);
+    let mut action = None;
+    let cursor = state.cursor;
+    // Header: boundary drag/double-click resizes; elsewhere a click moves the
+    // cursor to that column on the active side.
+    let header = ui.interact(
+        lay.header,
+        egui::Id::unique("table_details_header"),
+        egui::Sense::click_and_drag(),
+    );
+    if header.drag_started() {
+        // Hit-test the press origin (interact_pointer_pos is already past it).
+        state.details_resizing = ui
+            .ctx()
+            .input(|i| i.pointer.press_origin())
+            .and_then(|p| state.details_resize_target(lay.left, p.x));
+    }
+    let boundary = ui
+        .ctx()
+        .pointer_hover_pos()
+        .or_else(|| header.interact_pointer_pos())
+        .filter(|p| lay.header.contains(*p))
+        .and_then(|p| state.details_resize_target(lay.left, p.x));
+    if header.dragged() {
+        if let Some(d) = state.details_resizing {
+            if let Some(pos) = header.interact_pointer_pos() {
+                state.details_resize_column(d, pos.x - lay.left + state.details_scroll_x);
+            }
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+    } else if header.drag_stopped() {
+        state.details_resizing = None;
+    } else if header.hovered() && boundary.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if header.double_clicked() {
+        if let Some(d) = boundary {
+            let width = fit_width(ui, map, cursor.row, state.columns[d]);
+            state.details_set_width(d, width);
+        }
+    } else if header.clicked() && boundary.is_none() {
+        if let Some(d) = header
+            .interact_pointer_pos()
+            .and_then(|p| column_at(state, lay.left, p.x))
+        {
+            action = Some(GridAction::Select(
+                state.active,
+                Cursor {
+                    row: cursor.row,
+                    column: state.columns[d],
+                },
+                false,
+            ));
+        }
+    }
+    // Side rows: click / Shift+click / double-click / right click, as in the
+    // panes; hover shows the full text of a truncated or multi-line cell.
+    let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
+    let rows = [0, 1].map(|side| {
+        let response = ui.interact(
+            lay.rows[side],
+            egui::Id::unique(("table_details_row", side)),
+            egui::Sense::click(),
+        );
+        let hit = |p: Option<egui::Pos2>| {
+            p.and_then(|p| column_at(state, lay.left, p.x))
+                .map(|d| Cursor {
+                    row: cursor.row,
+                    column: state.columns[d],
+                })
+        };
+        if response.secondary_clicked() {
+            if let Some(c) = hit(response.interact_pointer_pos()) {
+                action = Some(GridAction::Context(side, c));
+            }
+        } else if response.double_clicked() {
+            if let Some(c) = hit(response.interact_pointer_pos()) {
+                action = Some(GridAction::Edit(side, c));
+            }
+        } else if response.clicked() {
+            if let Some(c) = hit(response.interact_pointer_pos()) {
+                action = Some(GridAction::Select(side, c, ui.input(|i| i.modifiers.shift)));
+            }
+        }
+        if response.hovered() {
+            if let Some(d) = ui
+                .ctx()
+                .pointer_hover_pos()
+                .and_then(|p| column_at(state, lay.left, p.x))
+            {
+                let text = cell_text(map, cursor.row, side, state.columns[d]);
+                let width = state.details_offsets[d + 1] - state.details_offsets[d];
+                if needs_tooltip(ui, &text, width, &font) {
+                    response.clone().on_hover_ui_at_pointer(|ui| {
+                        ui.set_max_width(600.0);
+                        ui.label(egui::RichText::new(tooltip_text(&text)).monospace());
+                    });
+                }
+            }
+        }
+        response
+    });
+    paint(ui, rect, &lay, map, state, different, colors);
+    // Scroll band: a real (pixel) scrollbar while the content overflows,
+    // otherwise the reference's plain band with its dash.
+    let content = state.details_offsets.last().copied().unwrap_or(0.0);
+    if content > view {
+        crate::chrome::scrollbar::show_horizontal_px(
+            ui,
+            lay.band,
+            egui::Id::unique("table_details_hscroll"),
+            content,
+            view,
+            &mut state.details_scroll_x,
+        );
+    } else {
+        let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+        painter.rect_filled(lay.band, 0.0, crate::chrome::theme::PANEL_BG);
+        painter.text(
+            egui::pos2(lay.band.left() + 18.0, lay.band.center().y),
+            egui::Align2::LEFT_CENTER,
+            "\u{2014}",
+            egui::FontId::proportional(crate::chrome::theme::UI_SIZE),
+            egui::Color32::from_gray(0x85),
+        );
+    }
+    (action, rows)
+}
+fn paint(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    lay: &Layout,
     map: &TableMap,
     state: &GridState,
     different: &[bool],
@@ -19,22 +274,10 @@ pub fn paint(
     let cursor: Cursor = state.cursor;
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     crate::chrome::theme::paint_canvas(&painter, rect);
-    // Bottom band: white edge, 16 px panel band (scroll placeholder), white edge.
-    let band = egui::Rect::from_min_max(
-        egui::pos2(rect.left(), rect.bottom() - 17.0),
-        egui::pos2(rect.right(), rect.bottom() - 1.0),
-    );
-    painter.rect_filled(band, 0.0, crate::chrome::theme::PANEL_BG);
-    painter.text(
-        egui::pos2(band.left() + 18.0, band.center().y),
-        egui::Align2::LEFT_CENTER,
-        "\u{2014}",
-        egui::FontId::proportional(crate::chrome::theme::UI_SIZE),
-        egui::Color32::from_gray(0x85),
-    );
-    let left = rect.left() + 1.0;
-    let width = state.offsets.last().copied().unwrap_or(0.0);
-    let right_edge = (left + width - state.scroll.x).clamp(left, rect.right());
+    let band = lay.band;
+    let left = lay.left;
+    let width = state.details_offsets.last().copied().unwrap_or(0.0);
+    let right_edge = (left + width - state.details_scroll_x).clamp(left, rect.right());
     let header = egui::Rect::from_min_max(
         egui::pos2(rect.left(), rect.top()),
         egui::pos2(right_edge, rect.top() + HEADER),
@@ -62,8 +305,8 @@ pub fn paint(
     let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
     let mut notes = Vec::new();
     for (display, &c) in state.columns.iter().enumerate() {
-        let x = left + state.offsets[display] - state.scroll.x;
-        let w = state.offsets[display + 1] - state.offsets[display];
+        let x = left + state.details_offsets[display] - state.details_scroll_x;
+        let w = state.details_offsets[display + 1] - state.details_offsets[display];
         if x + w < left || x > rect.right() {
             continue;
         }
@@ -115,7 +358,10 @@ pub fn paint(
                 .0
                 .get(c)
                 .and_then(|c| if side == 0 { c.left } else { c.right });
-            let fill = if imp != Importance::Same {
+            let selected = active && state.selection_visible && state.selected(cursor.row, c);
+            let fill = if selected {
+                grid::SELECTION
+            } else if imp != Importance::Same {
                 grid::cell_fill(colors, imp, source.is_none(), active)
             } else if active {
                 egui::Color32::WHITE

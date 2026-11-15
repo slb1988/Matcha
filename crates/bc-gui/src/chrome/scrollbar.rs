@@ -90,10 +90,74 @@ pub fn show_horizontal(
     let max = (*range.end()).max(min);
     let before = *value;
     *value = (*value).clamp(min, max);
-    let (rect, mut response) = ui.allocate_exact_size(
+    let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width().max(64.0), 16.0),
         Sense::hover(),
     );
+    let thumb = |track: f32| (track / ((max - min + 1) as f32).sqrt()).clamp(16.0, track);
+    let position = (*value - min) as f32 / (max - min).max(1) as f32;
+    let (step, ratio, mut response) =
+        horizontal_frame(ui, rect, response.id, response, thumb, position);
+    if step < 0 {
+        *value = value.saturating_sub(1).max(min);
+    } else if step > 0 {
+        *value = value.saturating_add(1).min(max);
+    }
+    if let Some(ratio) = ratio {
+        *value = min + (ratio * (max - min) as f32).round() as usize;
+    }
+    if *value != before {
+        response.mark_changed();
+    }
+    response
+}
+/// 像素版横向滚动条：`content` 为内容总宽、`view` 为可见宽，`offset` 为像素偏移
+/// （夹在 `0..=content-view`）。绘制在给定 16 px 高的 `rect` 中；按钮步进 40 px；
+/// 内容不超宽时滑块填满轨道。返回合并的响应，偏移变化时标记 changed。
+pub fn show_horizontal_px(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: egui::Id,
+    content: f32,
+    view: f32,
+    offset: &mut f32,
+) -> egui::Response {
+    const STEP: f32 = 40.0;
+    let max = (content - view).max(0.0);
+    let before = *offset;
+    *offset = offset.clamp(0.0, max);
+    let response = ui.interact(rect, id, Sense::hover());
+    let thumb = |track: f32| {
+        if content <= view || content <= 0.0 {
+            track
+        } else {
+            (track * view / content).clamp(16.0, track)
+        }
+    };
+    let position = if max > 0.0 { *offset / max } else { 0.0 };
+    let (step, ratio, mut response) = horizontal_frame(ui, rect, id, response, thumb, position);
+    if step != 0 {
+        *offset = (*offset + step as f32 * STEP).clamp(0.0, max);
+    }
+    if let Some(ratio) = ratio {
+        *offset = ratio * max;
+    }
+    if *offset != before {
+        response.mark_changed();
+    }
+    response
+}
+/// 横向滚动条共享绘制与命中：左右按钮（返回 -1/+1 步进）、轨道点击/拖动
+/// （返回滑块中心对应的 0..=1 比例）。`thumb` 由轨道宽算滑块宽，`position`
+/// 为当前 0..=1 位置。
+fn horizontal_frame(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: egui::Id,
+    mut response: egui::Response,
+    thumb: impl Fn(f32) -> f32,
+    position: f32,
+) -> (i8, Option<f32>, egui::Response) {
     let left = Rect::from_min_size(rect.min, egui::vec2(16.0, 16.0));
     let right = Rect::from_min_size(
         rect.right_top() - egui::vec2(16.0, 0.0),
@@ -101,14 +165,11 @@ pub fn show_horizontal(
     );
     let track = Rect::from_min_max(left.right_top(), right.left_bottom());
     ui.painter().rect_filled(rect, 0.0, super::theme::PANEL_BG);
+    let mut step = 0;
     for (button, is_left) in [(left, true), (right, false)] {
-        let r = ui.interact(button, response.id.with(is_left), Sense::click());
+        let r = ui.interact(button, id.with(is_left), Sense::click());
         if r.clicked() {
-            *value = if is_left {
-                value.saturating_sub(1).max(min)
-            } else {
-                value.saturating_add(1).min(max)
-            };
+            step = if is_left { -1 } else { 1 };
         }
         if r.hovered() {
             ui.painter().rect_filled(
@@ -130,16 +191,15 @@ pub fn show_horizontal(
         ));
         response = response.union(r);
     }
-    let thumb_width =
-        (track.width() / ((max - min + 1) as f32).sqrt()).clamp(16.0, track.width());
+    let thumb_width = thumb(track.width().max(0.0));
     let travel = track.width() - thumb_width;
-    let x = track.left() + travel * ((*value - min) as f32 / (max - min).max(1) as f32);
+    let x = track.left() + travel * position.clamp(0.0, 1.0);
     let thumb = Rect::from_min_size(egui::pos2(x, track.top()), egui::vec2(thumb_width, 16.0));
-    let r = ui.interact(track, response.id.with("track"), Sense::click_and_drag());
+    let r = ui.interact(track, id.with("track"), Sense::click_and_drag());
+    let mut ratio = None;
     if (r.clicked() || r.dragged()) && travel > 0.0 {
         if let Some(pos) = r.interact_pointer_pos() {
-            let ratio = ((pos.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0);
-            *value = min + (ratio * (max - min) as f32).round() as usize;
+            ratio = Some(((pos.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0));
         }
     }
     ui.painter().rect_filled(
@@ -151,11 +211,7 @@ pub fn show_horizontal(
             Color32::from_rgb(0xC6, 0xCB, 0xD1)
         },
     );
-    response = response.union(r);
-    if *value != before {
-        response.mark_changed();
-    }
-    response
+    (step, ratio, response.union(r))
 }
 #[cfg(test)]
 mod tests {
@@ -167,5 +223,57 @@ mod tests {
             super::show(ui, 0..=0, &mut value);
         });
         assert_eq!(value, 0);
+    }
+    #[test]
+    fn pixel_scrollbar_clamps_steps_and_tracks_to_the_end() {
+        use eframe::egui;
+        let ctx = egui::Context::default();
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(216.0, 16.0));
+        let run = |offset: &mut f32, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 100.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let _ = crate::chrome::test_frame(&ctx, input, |ui| {
+                super::show_horizontal_px(ui, rect, egui::Id::unique("px"), 1000.0, 200.0, offset);
+            });
+        };
+        let press = |p: egui::Pos2, pressed: bool| {
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ]
+        };
+        // Out-of-range offsets clamp to content - view.
+        let mut offset = 5000.0;
+        run(&mut offset, vec![]);
+        assert_eq!(offset, 800.0);
+        // Left button steps 40 px.
+        let left = rect.min + egui::vec2(8.0, 8.0);
+        run(&mut offset, press(left, true));
+        run(&mut offset, press(left, false));
+        assert_eq!(offset, 760.0);
+        // Track click at the far right end jumps to the end.
+        offset = 0.0;
+        let end = egui::pos2(rect.right() - 17.0, rect.center().y);
+        run(&mut offset, vec![]);
+        run(&mut offset, press(end, true));
+        run(&mut offset, press(end, false));
+        assert_eq!(offset, 800.0);
+        // Content that fits: offset stays 0.
+        let mut fits = 30.0;
+        let _ = crate::chrome::test_frame(&ctx, Default::default(), |ui| {
+            super::show_horizontal_px(ui, rect, egui::Id::unique("fits"), 100.0, 200.0, &mut fits);
+        });
+        assert_eq!(fits, 0.0);
     }
 }
