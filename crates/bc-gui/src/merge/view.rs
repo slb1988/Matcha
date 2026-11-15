@@ -22,6 +22,13 @@ const SIDES: [Side; 3] = [Side::Left, Side::Center, Side::Right];
 const BADGES: [&str; 4] = ["LEFT", "BASE", "RIGHT", "OUTPUT"];
 /// 输入窗格（left、center、right）在上排的列位：BASE | LEFT | RIGHT。
 const COLUMN_OF: [usize; 3] = [1, 0, 2];
+/// Input columns (two dividers) and inputs / output split, persisted.
+const SPLIT_COLUMNS: [chrome::splitter::Split; 2] = [
+    chrome::splitter::Split::ratio("merge.col.a", 1.0 / 3.0),
+    chrome::splitter::Split::ratio("merge.col.b", 2.0 / 3.0),
+];
+const SPLIT_Y: chrome::splitter::Split =
+    chrome::splitter::Split::ratio("merge.split.y", 0.55).min(80.0, 40.0);
 const GUTTER: f32 = 46.0;
 const HEADER: f32 = 24.0;
 
@@ -479,16 +486,20 @@ impl MergeView {
             available.min,
             egui::pos2(available.right() - 16.0, status.top()),
         );
-        let top_height = ((body.height() - HEADER) * 0.55).max(80.0);
+        // 输入区 / 输出区与三列之间的分隔线可拖动（持久化，双击复位）。
+        let top_height = SPLIT_Y.first(body.height() - HEADER);
         let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
         let output = egui::Rect::from_min_max(egui::pos2(body.left(), inputs.bottom()), body.max);
-        let column = (inputs.width() - 2.0) / 3.0;
+        let columns = chrome::splitter::Columns3::new(inputs, SPLIT_COLUMNS);
         for pane in 0..3 {
-            self.pane_rects[pane] = egui::Rect::from_min_size(
-                inputs.min + egui::vec2(COLUMN_OF[pane] as f32 * (column + 1.0), 0.0),
-                egui::vec2(column, inputs.height()),
-            );
+            self.pane_rects[pane] = columns.rects[COLUMN_OF[pane]];
         }
+        // 横向滚动共用一个偏移：按最窄的输入列算上限，保证每列都能滚到行尾。
+        let column = columns
+            .rects
+            .iter()
+            .map(|r| r.width())
+            .fold(f32::INFINITY, f32::min);
         self.pane_rects[OUT] = output;
 
         // 滚动：滚轮原样作用于四个窗格共用的位置；纵向上限取最矮的窗格。
@@ -532,6 +543,15 @@ impl MergeView {
                 egui::Stroke::new(1.0, theme::LINE_STRONG),
             );
         }
+        columns.handles(ui, "merge-columns");
+        chrome::splitter::horizontal_line(
+            ui,
+            &SPLIT_Y,
+            "merge-output",
+            inputs.bottom(),
+            body.x_range(),
+            egui::Rangef::new(body.top(), body.bottom() - HEADER),
+        );
 
         // 整个视图一条纵向滚动条。
         let bar = egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), status.right_top());

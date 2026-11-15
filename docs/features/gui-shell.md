@@ -1,7 +1,7 @@
 # GUI 外壳与视图架构（GUI Shell）
 
 > eframe/egui 桌面外壳：Home、文本比较/文本合并/文件夹/同步/表格视图、单实例与资源管理器集成。
-> 状态：**已实现**（视图群落地；外框为 Matcha 现代设计系统，见 ADR 401；组件库与可替换配色见 ADR 402）（2026-11-15 更新）。对应 FR-G1。
+> 状态：**已实现**（视图群落地；外框为 Matcha 现代设计系统，见 ADR 401；组件库与可替换配色见 ADR 402；分隔线可拖动并记忆）（2026-11-15 更新）。对应 FR-G1。
 
 ## 功能简介
 
@@ -32,6 +32,8 @@
 - **Session Settings**（visual-parity 6.1）：文本、表格、文件夹/同步、Hex 统一为 `chrome::dialog` 框架——标题、
   下划线页签、页面卡片、底部 OK / Cancel（表格与文件夹另有 Apply）；均编辑草稿，OK/Apply 才生效，Cancel / × / Esc 丢弃。
   快照场景：`dlg-text-session-settings`、`dlg-table-session-settings`、`dlg-folder-session-settings`。
+- **可拖动分隔线**：各视图窗格之间、文件夹/同步日志面板、合并视图输入/输出区、Home 会话树均可拖动调整，
+  位置存 `%APPDATA%\Matcha\layout.txt`、重启保持，双击复位，见 [resizable-splitters.md](resizable-splitters.md)。
 - **sheet 标签**：`chrome::sheet_tabs` 下划线页签 + 状态圆点，表格比较（网格与状态栏之间）与表格合并共用。
 - **换肤预留**：`theme::Palette` + `theme::palette(ctx)`；组件经它取色，`Theme::with_palette(..).apply(ctx)`
   即可整体换色（目前只有默认浅色 `Palette::LIGHT`，无换肤 UI）。

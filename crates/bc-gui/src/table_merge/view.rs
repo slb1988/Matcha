@@ -22,6 +22,13 @@ const SIDES: [Side; 3] = [Side::Left, Side::Center, Side::Right];
 const BADGES: [&str; 4] = ["LEFT", "BASE", "RIGHT", "OUTPUT"];
 /// 输入窗格（left、center、right）在上排的列位：BASE | LEFT | RIGHT。
 const COLUMN_OF: [usize; 3] = [1, 0, 2];
+/// Input columns (two dividers) and inputs / output split, persisted.
+const SPLIT_COLUMNS: [chrome::splitter::Split; 2] = [
+    chrome::splitter::Split::ratio("table-merge.col.a", 1.0 / 3.0),
+    chrome::splitter::Split::ratio("table-merge.col.b", 2.0 / 3.0),
+];
+const SPLIT_Y: chrome::splitter::Split =
+    chrome::splitter::Split::ratio("table-merge.split.y", 0.55).min(80.0, 40.0);
 pub(crate) const GUTTER: f32 = 46.0;
 /// 窗格标题条。
 pub(crate) const HEADER: f32 = 24.0;
@@ -617,15 +624,13 @@ impl TableMergeView {
             available.min,
             egui::pos2(available.right() - 16.0, details.top()),
         );
-        let top_height = ((body.height() - HEADER) * 0.55).max(80.0);
+        // 输入区 / 输出区与三列之间的分隔线可拖动（持久化，双击复位）。
+        let top_height = SPLIT_Y.first(body.height() - HEADER);
         let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
         let output = egui::Rect::from_min_max(egui::pos2(body.left(), inputs.bottom()), body.max);
-        let width = (inputs.width() - 2.0) / 3.0;
+        let input_columns = chrome::splitter::Columns3::new(inputs, SPLIT_COLUMNS);
         for pane in 0..3 {
-            self.pane_rects[pane] = egui::Rect::from_min_size(
-                inputs.min + egui::vec2(COLUMN_OF[pane] as f32 * (width + 1.0), 0.0),
-                egui::vec2(width, inputs.height()),
-            );
+            self.pane_rects[pane] = input_columns.rects[COLUMN_OF[pane]];
         }
         self.pane_rects[OUT] = output;
         self.path_edit_focused = false;
@@ -692,6 +697,15 @@ impl TableMergeView {
                 egui::Stroke::new(1.0, theme::LINE_STRONG),
             );
         }
+        input_columns.handles(ui, "table-merge-columns");
+        chrome::splitter::horizontal_line(
+            ui,
+            &SPLIT_Y,
+            "table-merge-output",
+            inputs.bottom(),
+            body.x_range(),
+            egui::Rangef::new(body.top(), body.bottom() - HEADER),
+        );
         self.edit_box(ui);
 
         let bar =

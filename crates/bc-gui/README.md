@@ -52,7 +52,7 @@ cargo test -p bc-gui --lib
 
 ## 外观基础与快照（Wave 1B）
 
-`chrome/` 提供数据驱动菜单、工具栏、路径/状态栏、分割条和简单滚动条；视图拿返回的 action_id 调用已有业务动作。控件与浮窗一律用 `chrome::widgets` / `chrome::window::Window`，下拉一律用 `chrome::popup` 共享菜单，颜色经 `theme::palette(ctx)` 取（ADR 402）。实际文本/文件夹布局本波不重排，完整接线在 Wave 2/3。
+`chrome/` 提供数据驱动菜单、工具栏、路径/状态栏、分割条（`chrome::splitter`：`Split` 键/默认值/最小尺寸 + `handle()`，位置经 `layout` 模块写入 `layout.txt`，见 `docs/features/resizable-splitters.md`）和简单滚动条；视图拿返回的 action_id 调用已有业务动作。控件与浮窗一律用 `chrome::widgets` / `chrome::window::Window`，下拉一律用 `chrome::popup` 共享菜单，颜色经 `theme::palette(ctx)` 取（ADR 402）。实际文本/文件夹布局本波不重排，完整接线在 Wave 2/3。
 
 ```powershell
 cargo run --release -p bcompare -- --snapshot=text-basic

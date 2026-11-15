@@ -989,3 +989,46 @@ fn path_bar_supports_mouse_selection_and_copy() {
     assert_eq!(v.map.left.bytes(), b"aaaa");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Over-Under: both panes start at the same row (the lower pane follows its own top edge),
+/// and the stored split moves the boundary (docs/features/resizable-splitters.md).
+#[test]
+fn over_under_panes_show_the_same_rows_and_follow_the_split() {
+    super::HEX_SPLIT_Y.reset();
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("l2.bin"), corpus("r2.bin"));
+    ready(&mut v);
+    v.side_by_side = false;
+    let top_texts = |out: &egui::FullOutput, band: egui::Rangef| {
+        let mut texts: Vec<(f32, f32, String)> = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => {
+                    let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
+                    (band.contains(rect.center().y) && s.clip_rect.contains(rect.center()))
+                        .then(|| (rect.top(), rect.left(), t.galley.text().to_string()))
+                }
+                _ => None,
+            })
+            .collect();
+        texts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // First text and its offset below the pane's top edge.
+        texts.first().map(|t| (t.2.clone(), (t.0 - band.min).round()))
+    };
+    frame(&ctx, &mut v);
+    let out = frame_with(&ctx, &mut v, vec![]);
+    let bars = v.last_layout.bars;
+    let upper = top_texts(&out, bars[0].y_range());
+    let lower = top_texts(&out, bars[1].y_range());
+    assert!(upper.is_some(), "upper pane drew nothing");
+    assert_eq!(upper, lower, "{bars:?}");
+    let even = bars[0].height();
+    super::HEX_SPLIT_Y.store(even - 100.0, bars[0].height() + bars[1].height());
+    frame(&ctx, &mut v);
+    let out = frame_with(&ctx, &mut v, vec![]);
+    let bars = v.last_layout.bars;
+    assert!((bars[0].height() - (even - 100.0)).abs() < 1.0, "{bars:?}");
+    assert_eq!(top_texts(&out, bars[0].y_range()), top_texts(&out, bars[1].y_range()));
+    super::HEX_SPLIT_Y.reset();
+}

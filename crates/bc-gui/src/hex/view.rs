@@ -85,6 +85,12 @@ impl Default for LastLayout {
 }
 
 /// Hex Compare 双栏视图。
+/// Side-by-side (left / right) and Over-Under (top / bottom) pane splits, persisted.
+const HEX_SPLIT_X: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("hex.split.x", 0.5);
+const HEX_SPLIT_Y: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("hex.split.y", 0.5).min(60.0, 60.0);
+
 pub struct HexCompareView {
     pub map: HexMap,
     worker: Option<Worker>,
@@ -1468,10 +1474,27 @@ impl HexCompareView {
                 egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().right(), ui.cursor().top()));
         };
         if self.side_by_side {
-            ui.columns(2, |cols| {
-                header(self, &mut cols[0], 0);
-                header(self, &mut cols[1], 1);
-            });
+            // 两条地址栏跟随窗格分隔线：左栏 = 缩略图列 + 左窗格 + 其滚动条。
+            let full = ui.available_rect_before_wrap();
+            let thumb_w = if self.show_thumbnail { render::THUMB_COL_W } else { 0.0 };
+            let sb = render::SCROLLBAR_W;
+            let panes_w = (full.width() - thumb_w - 2.0 * sb).max(80.0);
+            let split_x = full.left() + thumb_w + HEX_SPLIT_X.first(panes_w) + sb;
+            let row_top = ui.cursor().min.y;
+            let mut bottom = row_top;
+            for side in 0..2 {
+                let (left, right) = if side == 0 { (full.left(), split_x) } else { (split_x, full.right()) };
+                let rect = egui::Rect::from_x_y_ranges(left..=right, row_top..=full.bottom());
+                let mut column = ui.new_child(
+                    egui::UiBuilder::new().max_rect(rect).id_salt(("hex-path-column", side)),
+                );
+                header(self, &mut column, side);
+                bottom = bottom.max(column.min_rect().bottom());
+            }
+            ui.advance_cursor_after_rect(egui::Rect::from_x_y_ranges(
+                full.left()..=full.right(),
+                row_top..=bottom,
+            ));
         } else {
             for side in 0..2 {
                 header(self, ui, side);
@@ -1500,15 +1523,18 @@ impl HexCompareView {
         let content = egui::Rect::from_min_max(body.min + egui::vec2(thumb_w, 0.0), body.max);
         let sb = render::SCROLLBAR_W;
         // 每窗格内容矩形与右缘滚动条矩形（side-by-side：中缝一条 + 最右一条；over-under：上下各一条）。
+        // 两窗格的分配比例可拖动（HEX_SPLIT_X / HEX_SPLIT_Y，持久化）。
+        let panes_w = (content.width() - 2.0 * sb).max(80.0);
         let (panes, bars) = if self.side_by_side {
-            let w = ((content.width() - 2.0 * sb) / 2.0).max(40.0);
-            let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w, content.height()));
+            let w0 = HEX_SPLIT_X.first(panes_w);
+            let w1 = panes_w - w0;
+            let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w0, content.height()));
             let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, content.height()));
-            let pane1 = egui::Rect::from_min_size(bar0.right_top(), egui::vec2(w, content.height()));
+            let pane1 = egui::Rect::from_min_size(bar0.right_top(), egui::vec2(w1, content.height()));
             let bar1 = egui::Rect::from_min_size(pane1.right_top(), egui::vec2(sb, content.height()));
             ([pane0, pane1], [bar0, bar1])
         } else {
-            let h = (content.height() / 2.0).max(30.0);
+            let h = HEX_SPLIT_Y.first(content.height());
             let w = (content.width() - sb).max(40.0);
             let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w, h));
             let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, h));
@@ -1517,7 +1543,8 @@ impl HexCompareView {
             ([pane0, pane1], [bar0, bar1])
         };
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
-        let row_count = self.grid_rows(panes[0].width(), ui).len();
+        // 两侧每行字节数相同（行对齐）：取较窄窗格可容纳的数目。
+        let row_count = self.grid_rows(panes[0].width().min(panes[1].width()), ui).len();
         // 待滚动目标换算为像素（需在取出 cache 前完成借用）。
         let pending_row = self.pending_scroll.take();
         if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
@@ -1531,7 +1558,9 @@ impl HexCompareView {
         let cache = self.cache.take().unwrap();
         let rows_ref = &cache.rows;
         let pane_h = row_count as f32 * style.row_height;
-        let max_scroll = (pane_h - body.height()).max(0.0);
+        // 可滚动范围按最矮窗格算（上下布局时两窗格各占一部分高度）。
+        let view_h = panes[0].height().min(panes[1].height());
+        let max_scroll = (pane_h - view_h).max(0.0);
         let delta = crate::chrome::wheel::delta(ui.ctx(), &[body]);
         self.scroll = (self.scroll - delta.y).clamp(0.0, max_scroll);
         ui.advance_cursor_after_rect(body);
@@ -1544,12 +1573,12 @@ impl HexCompareView {
         // 缩略图列：点击/拖动迷你图定位页面（“图形框拖动页面”）。
         let thumb_geom = if self.show_thumbnail {
             let column = egui::Rect::from_min_max(region.min, egui::pos2(region.left() + thumb_w, region.bottom()));
-            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, body.height(), cursor_frac);
+            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, view_h, cursor_frac);
             let r = overlay.interact(geom.hit, overlay.scope_id().with("thumbnail"), egui::Sense::click_and_drag());
             if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let f = ((pos.y - geom.inner.top()) / geom.inner.height()).clamp(0.0, 1.0);
-                    self.scroll = render::thumbnail_scroll_at(f, pane_h, body.height());
+                    self.scroll = render::thumbnail_scroll_at(f, pane_h, view_h);
                 }
             }
             Some(geom)
@@ -1560,7 +1589,7 @@ impl HexCompareView {
         let mut bar_resp = Vec::with_capacity(2);
         for (side, bar) in bars.iter().enumerate() {
             let bar = *bar;
-            let thumb = render::scrollbar_thumb(bar, pane_h, body.height(), self.scroll);
+            let thumb = render::scrollbar_thumb(bar, pane_h, view_h, self.scroll);
             let r = overlay.interact(
                 bar,
                 overlay.scope_id().with(("scrollbar", side)),
@@ -1569,7 +1598,7 @@ impl HexCompareView {
             if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let thumb_h = thumb.map(|t| t.height()).unwrap_or(20.0);
-                    self.scroll = render::scrollbar_scroll_at(pos.y, bar, thumb_h, pane_h, body.height());
+                    self.scroll = render::scrollbar_scroll_at(pos.y, bar, thumb_h, pane_h, view_h);
                 }
             }
             bar_resp.push(r);
@@ -1580,7 +1609,8 @@ impl HexCompareView {
         let origins = if self.side_by_side {
             [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y)]
         } else {
-            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y + pane_h / 2.0 + style.row_height)]
+            // 上下布局：两窗格显示同一段行，下窗格原点随其顶边下移。
+            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y + panes[1].top() - panes[0].top())]
         };
         for side in 0..2 {
             let mut pane_ui = ui.new_child(
@@ -1597,13 +1627,13 @@ impl HexCompareView {
             render::paint_thumbnail(overlay.painter(), &geom, &cache.thumb_bins, cache.per_line, dark);
         }
         for side in 0..2 {
-            let thumb = render::scrollbar_thumb(bars[side], pane_h, body.height(), self.scroll);
+            let thumb = render::scrollbar_thumb(bars[side], pane_h, view_h, self.scroll);
             let hot = bar_resp[side].hovered() || bar_resp[side].dragged();
             render::paint_scrollbar(overlay.painter(), bars[side], thumb, dark, hot);
         }
         #[cfg(test)]
         {
-            self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h: body.height() };
+            self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h };
         }
         self.cache = Some(cache);
         // 系统文件拖放：单文件按落点（窗格/滚动条/地址栏）替换对应一侧；同时拖入
@@ -1623,6 +1653,26 @@ impl HexCompareView {
             }
         }
 
+        // 窗格分隔线：并排在左窗格滚动条右缘，上下布局在上窗格下缘（持久化，双击复位）。
+        if self.side_by_side {
+            crate::chrome::splitter::vertical_line(
+                ui,
+                &HEX_SPLIT_X,
+                "hex",
+                bars[0].right(),
+                body.y_range(),
+                egui::Rangef::new(content.left(), content.left() + panes_w),
+            );
+        } else {
+            crate::chrome::splitter::horizontal_line(
+                ui,
+                &HEX_SPLIT_Y,
+                "hex",
+                panes[0].bottom(),
+                content.x_range(),
+                content.y_range(),
+            );
+        }
         statusbar::show(ui, &self.status_fields());
         self.layout_dialog(ui.ctx());
         self.goto_dialog(ui.ctx());

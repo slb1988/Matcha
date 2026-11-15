@@ -21,6 +21,12 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+/// Left / right (side-by-side) and top / bottom (stacked) pane splits, persisted.
+const TABLE_SPLIT_X: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("table.split.x", 0.5);
+const TABLE_SPLIT_Y: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("table.split.y", 0.5).min(100.0, 100.0);
+
 #[derive(Debug, Clone)]
 pub enum TableAction {
     /// 切到 Home 标签页（不关闭本会话）。
@@ -1092,14 +1098,15 @@ impl TableCompareView {
                 );
             }
         }
-        let width = (panes.width() - 4.0) / 2.0 + 2.0;
-        let half = (panes.height() - 4.0) / 2.0;
+        let width = TABLE_SPLIT_X.first(panes.width());
+        let half = TABLE_SPLIT_Y.first(panes.height() - 4.0);
         for s in 0..2 {
             let rect = if self.grid.stacked {
-                egui::Rect::from_min_size(
-                    panes.min + egui::vec2(0.0, s as f32 * (half + 4.0)),
-                    egui::vec2(panes.width(), half),
-                )
+                if s == 0 {
+                    egui::Rect::from_min_size(panes.min, egui::vec2(panes.width(), half))
+                } else {
+                    egui::Rect::from_min_max(panes.min + egui::vec2(0.0, half + 4.0), panes.max)
+                }
             } else if s == 0 {
                 egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
             } else {
@@ -1178,6 +1185,26 @@ impl TableCompareView {
         }
         self.status_bar(ui, status);
         ui.allocate_rect(available, egui::Sense::hover());
+        // 窗格分隔线（4 px 缝中央）：并排左右拖、上下布局上下拖；位置持久化，双击复位。
+        if self.grid.stacked {
+            crate::chrome::splitter::horizontal_line(
+                ui,
+                &TABLE_SPLIT_Y,
+                "table",
+                panes.top() + half + 2.0,
+                panes.x_range(),
+                egui::Rangef::new(panes.top(), panes.bottom() - 4.0),
+            );
+        } else {
+            crate::chrome::splitter::vertical_line(
+                ui,
+                &TABLE_SPLIT_X,
+                "table",
+                panes.left() + width + 2.0,
+                panes.y_range(),
+                panes.x_range(),
+            );
+        }
         if let Some(row) = nav_target {
             self.goto_cell(Cursor {
                 row,

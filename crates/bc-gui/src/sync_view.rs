@@ -22,6 +22,9 @@ use std::path::Path;
 const PATHS_HEIGHT: f32 = 40.0;
 const OPERATIONS_HEIGHT: f32 = 191.0;
 const LOG_HEIGHT: f32 = 106.0;
+/// Height of the bottom log panel, persisted.
+const SYNC_LOG: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::pixels_from_end("sync.log.h", LOG_HEIGHT).min(80.0, 40.0);
 const COMBO_EDGE: egui::Color32 = theme::LINE_STRONG;
 const DISABLED_FILL: egui::Color32 = theme::SURFACE_SUBTLE;
 const DISABLED_TEXT: egui::Color32 = theme::TEXT_FAINT;
@@ -491,7 +494,7 @@ impl SyncView {
         self.operations_area(ui, operations, busy);
         let rest = egui::Rect::from_min_max(egui::pos2(full.left(), y), full.max);
         let log_h = if self.folder.log_visible() {
-            LOG_HEIGHT
+            SYNC_LOG.last(rest.height() - theme::STATUS_HEIGHT)
         } else {
             0.0
         };
@@ -516,6 +519,17 @@ impl SyncView {
             busy,
         );
         ui.allocate_rect(full, egui::Sense::hover());
+        if log_h > 0.0 {
+            // 日志面板上沿可上下拖动调整高度（持久化，双击复位）。
+            crate::chrome::splitter::horizontal_line(
+                ui,
+                &SYNC_LOG,
+                "sync-log",
+                grid.bottom(),
+                rest.x_range(),
+                egui::Rangef::new(rest.top(), rest.bottom() - theme::STATUS_HEIGHT),
+            );
+        }
         self.info_window(&ctx);
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::I)) {
             self.show_info = true;
@@ -651,9 +665,18 @@ impl SyncView {
         }
         let top = rect.top() + 11.0;
         let mut submit = false;
-        for (side, (x0, x1, browse)) in [(10.0, 627.0, 638.0), (717.0, 1334.0, 1345.0)]
-            .into_iter()
-            .enumerate()
+        // 路径框随双树分隔线移动（默认窗口下即参考的 10–627 / 717–1334 像素位置）。
+        let (tree_w, _) =
+            crate::dir_view::DirCompareView::chrome_split(rect.width(), crate::dir_view::SYNC_GAP);
+        let width = rect.width();
+        let split = |x: f32| x + tree_w - 625.0;
+        let swap_x = split(678.0);
+        for (side, (x0, x1, browse)) in [
+            (10.0, split(627.0), split(638.0)),
+            (split(717.0), width - 50.0, width - 39.0),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let edit = egui::Rect::from_min_max(
                 egui::pos2(rect.left() + x0, top),
@@ -681,7 +704,7 @@ impl SyncView {
             }
         }
         let swap = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + 678.0, top + 1.0),
+            egui::pos2(rect.left() + swap_x, top + 1.0),
             egui::vec2(28.0, 27.0),
         );
         if push_button(ui, swap, "sync-swap", true, |p, r| {

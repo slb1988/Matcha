@@ -22,6 +22,7 @@ pub mod dir_view;
 pub mod filters_bar;
 pub mod hex;
 pub mod home;
+pub mod layout;
 pub mod legend;
 pub mod log_panel;
 pub mod merge;
@@ -75,6 +76,10 @@ pub fn run_with_remote(
     let options =
         snapshot::prepare_options(options).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
     let snapshot_mode = options.snapshot.is_some();
+    // 快照与基准要求确定的布局：不读不写用户的分隔线位置。
+    if snapshot_mode || options.bench.is_some() || options.bench_table || options.bench_dir {
+        layout::disable_persistence();
+    }
     let result: snapshot::CaptureResult = Default::default();
     let capture_result = result.clone();
     let launch_result: remote::ResultSlot = Default::default();

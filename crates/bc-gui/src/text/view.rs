@@ -35,6 +35,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Left / right pane split (side-by-side) and top / bottom split (stacked), persisted.
+const TEXT_SPLIT_X: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("text.split.x", 0.5);
+const TEXT_SPLIT_Y: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("text.split.y", 0.5).min(60.0, 60.0);
+
 #[derive(Default, Debug, Clone, Copy)]
 pub struct PaneStats {
     pub rows_drawn: usize,
@@ -1191,13 +1197,16 @@ impl TextCompareView {
             }
         });
         let panes = egui::Rect::from_min_max(body.min + egui::vec2(52.0, 0.0), body.max);
-        let width = (panes.width() - 4.0) / 2.0 + 2.0;
+        use crate::chrome::splitter;
+        let width = TEXT_SPLIT_X.first(panes.width());
+        let height = TEXT_SPLIT_Y.first(panes.height());
         for s in 0..2 {
             let rect = if self.stacked {
-                egui::Rect::from_min_size(
-                    panes.min + egui::vec2(0.0, s as f32 * (panes.height() / 2.0)),
-                    egui::vec2(panes.width(), panes.height() / 2.0),
-                )
+                if s == 0 {
+                    egui::Rect::from_min_size(panes.min, egui::vec2(panes.width(), height))
+                } else {
+                    egui::Rect::from_min_max(panes.min + egui::vec2(0.0, height), panes.max)
+                }
             } else if s == 0 {
                 egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
             } else {
@@ -1211,6 +1220,26 @@ impl TextCompareView {
                     ui.set_clip_rect(rect.intersect(ui.clip_rect()));
                     self.pane(ui, s, rect.height(), prefs);
                 },
+            );
+        }
+        // 窗格分隔线：并排时左右拖、上下布局时上下拖（位置持久化，双击复位）。
+        if self.stacked {
+            splitter::horizontal_line(
+                ui,
+                &TEXT_SPLIT_Y,
+                "text",
+                panes.top() + height,
+                panes.x_range(),
+                panes.y_range(),
+            );
+        } else {
+            splitter::vertical_line(
+                ui,
+                &TEXT_SPLIT_X,
+                "text",
+                panes.left() + width + 2.0,
+                panes.y_range(),
+                panes.x_range(),
             );
         }
         let details = egui::Rect::from_min_size(

@@ -1310,3 +1310,51 @@ fn open_file_uses_native_dialog_seeded_with_current_path() {
     assert_eq!(v.files[0].path.as_deref(), Some(picked.as_path()));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Dragging the gap between the panes resizes them; the split is remembered and a
+/// double-click restores the even split (docs/features/resizable-splitters.md).
+#[test]
+fn pane_divider_drag_resizes_and_double_click_restores() {
+    TEXT_SPLIT_X.reset();
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb\n", "a\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    let before = v.pane_rects;
+    let line = egui::pos2(before[0].right() + 2.0, before[0].center().y);
+    let to = line + egui::vec2(-200.0, 0.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(line)]);
+    frame(&ctx, &mut v, vec![pointer(line, true)]);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(line + egui::vec2(-100.0, 0.0))]);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(to)]);
+    frame(&ctx, &mut v, vec![pointer(to, false)]);
+    frame(&ctx, &mut v, vec![]);
+    let after = v.pane_rects;
+    assert!(
+        (after[0].width() - (before[0].width() - 200.0)).abs() < 1.0,
+        "{before:?} -> {after:?}"
+    );
+    assert!((after[1].left() - (before[1].left() - 200.0)).abs() < 1.0);
+    assert!(crate::layout::get("text.split.x").is_some());
+    // A new view of the same kind starts from the remembered split.
+    let mut other = view("x\n", "y\n");
+    frame(&ctx, &mut other, vec![]);
+    assert!((other.pane_rects[0].width() - after[0].width()).abs() < 1.0);
+    // Double-click the divider: back to the even split.
+    let line = egui::pos2(after[0].right() + 2.0, after[0].center().y);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(line)]);
+    for _ in 0..2 {
+        frame(&ctx, &mut v, vec![pointer(line, true)]);
+        frame(&ctx, &mut v, vec![pointer(line, false)]);
+    }
+    frame(&ctx, &mut v, vec![]);
+    assert!((v.pane_rects[0].width() - before[0].width()).abs() < 1.0);
+    assert_eq!(crate::layout::get("text.split.x"), None);
+}
+fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    }
+}

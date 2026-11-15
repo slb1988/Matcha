@@ -171,6 +171,9 @@ fn per_page(canvas_width: f32) -> usize {
 }
 // Reference geometry (client pixels, 1384x961 window).
 const TREE_WIDTH: f32 = 275.0;
+/// Sessions tree width (pixels), persisted.
+const HOME_TREE: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::pixels("home.tree.w", TREE_WIDTH).min(160.0, 320.0);
 const HEADER_BOTTOM: f32 = 60.0;
 const TREE_ROW: f32 = 20.0;
 /// Session toolbar height below the tree's bottom rule (y785..828).
@@ -469,11 +472,13 @@ impl HomeView {
         );
         let body_bottom = if self.hide_panel { h } else { h - PANEL_HEIGHT };
         let content_bottom = body_bottom - BODY_GAP;
+        // 会话树宽度可拖动（右边缘，持久化，双击复位）。
+        let tree_w = HOME_TREE.first(w);
         let canvas_left = if self.hide_tree {
             0.0
         } else {
-            self.tree_panel(ui, &painter, o, content_bottom, &mut action);
-            TREE_WIDTH + 1.0
+            self.tree_panel(ui, &painter, o, tree_w, content_bottom, &mut action);
+            tree_w + 1.0
         };
         self.canvas(
             ui,
@@ -483,6 +488,16 @@ impl HomeView {
         );
         if !self.hide_panel {
             self.help_panel(ui, &painter, span(0.0, body_bottom, w, h));
+        }
+        if !self.hide_tree {
+            crate::chrome::splitter::vertical_line(
+                ui,
+                &HOME_TREE,
+                "home-tree",
+                full.left() + tree_w + 0.5,
+                egui::Rangef::new(full.top() + theme::MENU_HEIGHT, full.top() + content_bottom),
+                full.x_range(),
+            );
         }
         if self.about {
             use crate::chrome::{
@@ -511,6 +526,7 @@ impl HomeView {
         ui: &mut egui::Ui,
         painter: &egui::Painter,
         o: Vec2,
+        tree_w: f32,
         content_bottom: f32,
         action: &mut Option<HomeAction>,
     ) {
@@ -520,7 +536,7 @@ impl HomeView {
         // Flat sidebar: small-caps section label, no gradient or rules.
         let toolbar_top = content_bottom - TOOLBAR_HEIGHT - 1.0;
         painter.rect_filled(
-            span(0.0, theme::MENU_HEIGHT, TREE_WIDTH, content_bottom),
+            span(0.0, theme::MENU_HEIGHT, tree_w, content_bottom),
             0.0,
             TREE_BG,
         );
@@ -532,17 +548,12 @@ impl HomeView {
             theme::TEXT_FAINT,
         );
         painter.rect_filled(
-            span(12.0, toolbar_top, TREE_WIDTH - 12.0, toolbar_top + 1.0),
+            span(12.0, toolbar_top, tree_w - 12.0, toolbar_top + 1.0),
             0.0,
             theme::LINE,
         );
         painter.rect_filled(
-            span(
-                TREE_WIDTH,
-                theme::MENU_HEIGHT,
-                TREE_WIDTH + 1.0,
-                content_bottom,
-            ),
+            span(tree_w, theme::MENU_HEIGHT, tree_w + 1.0, content_bottom),
             0.0,
             theme::LINE,
         );
@@ -585,7 +596,7 @@ impl HomeView {
                 }
             }
         }
-        let clip = painter.with_clip_rect(span(0.0, HEADER_BOTTOM + 1.0, TREE_WIDTH, toolbar_top));
+        let clip = painter.with_clip_rect(span(0.0, HEADER_BOTTOM + 1.0, tree_w, toolbar_top));
         let glyph = |node: Node, indent: f32, cy: f32| match node {
             Node::New | Node::AutoSaved | Node::Day(_) => {
                 let (fill, handle) = if node == Node::New {
@@ -616,7 +627,7 @@ impl HomeView {
             let indent = depth as f32 * 19.0;
             let cy = top + TREE_ROW / 2.0;
             let response = ui.interact(
-                span(0.0, top, TREE_WIDTH, top + TREE_ROW),
+                span(0.0, top, tree_w, top + TREE_ROW),
                 egui::Id::unique(("home-tree", index)),
                 Sense::click(),
             );
@@ -652,7 +663,7 @@ impl HomeView {
             };
             let galley = ui.painter().layout_no_wrap(label, font.clone(), ink);
             let text_left = 43.0 + indent;
-            let row = span(6.0, top + 1.0, TREE_WIDTH - 6.0, top + TREE_ROW - 1.0);
+            let row = span(6.0, top + 1.0, tree_w - 6.0, top + TREE_ROW - 1.0);
             if self.selected == node {
                 clip.rect_filled(row, theme::RADIUS_MD, SELECT_FILL);
             } else if response.hovered() {

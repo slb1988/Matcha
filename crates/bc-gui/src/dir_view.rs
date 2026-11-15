@@ -3050,9 +3050,17 @@ const CHROME_LOG: f32 = 106.0;
 const CHROME_GAP: f32 = 37.0;
 /// Sync view arrow column (tokens `folder-sync` region `arrows`: 117 px) with
 /// three sub-columns split at +38 / +77 / +116.
-const SYNC_GAP: f32 = 117.0;
+pub(crate) const SYNC_GAP: f32 = 117.0;
 const SYNC_ARROW_LINES: [f32; 4] = [0.0, 38.0, 77.0, 116.0];
 const CHROME_SCROLLBAR: f32 = 18.0;
+/// Left / right tree split (fraction of the width left for both trees), persisted.
+pub(crate) const FOLDER_SPLIT_X: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::ratio("folder.split.x", 0.5).min(120.0, 120.0);
+/// Height of the bottom log panel (pixels above the status bar), persisted.
+const FOLDER_LOG: crate::chrome::splitter::Split =
+    crate::chrome::splitter::Split::pixels_from_end("folder.log.h", CHROME_LOG).min(80.0, 40.0);
+/// Path-bar space right of each combo box (buttons), so combos follow the split.
+const PATH_BUTTONS: [f32; 2] = [109.0, 139.0];
 
 const TREE_STRIPE: egui::Color32 = egui::Color32::from_rgb(248, 250, 249);
 const TREE_SELECTED: egui::Color32 = crate::chrome::theme::SELECTION;
@@ -4798,8 +4806,12 @@ impl DirCompareView {
         self.path_bar(ui, bar);
         // 剩余：双树 + 日志 + 状态栏。
         let avail = egui::Rect::from_min_max(egui::pos2(full.left(), y), full.max);
-        let log_h = if self.log_panel.open { CHROME_LOG } else { 0.0 };
         let status_h = theme::STATUS_HEIGHT;
+        let log_h = if self.log_panel.open {
+            FOLDER_LOG.last(avail.height() - status_h)
+        } else {
+            0.0
+        };
         let grid_h = (avail.height() - log_h - status_h).max(80.0);
         let grid = egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), grid_h));
         let log_rect = egui::Rect::from_min_size(
@@ -4819,12 +4831,23 @@ impl DirCompareView {
         }
         self.draw_status(ui, status, busy);
         ui.allocate_rect(full, egui::Sense::hover());
+        if log_h > 0.0 {
+            // 日志面板上沿可上下拖动调整高度（持久化，双击复位）。
+            crate::chrome::splitter::horizontal_line(
+                ui,
+                &FOLDER_LOG,
+                ("folder-log", self.window_id),
+                log_rect.top(),
+                log_rect.x_range(),
+                egui::Rangef::new(avail.top(), status.top()),
+            );
+        }
         switch
     }
-    /// 窗口总宽 → (左树宽, 右树宽)；中缝与右侧滚动条固定。
-    fn chrome_split(width: f32, gap: f32) -> (f32, f32) {
+    /// 窗口总宽 → (左树宽, 右树宽)；中缝与右侧滚动条固定，分隔位置按 [`FOLDER_SPLIT_X`]。
+    pub(crate) fn chrome_split(width: f32, gap: f32) -> (f32, f32) {
         let content = (width - gap - CHROME_SCROLLBAR).max(2.0);
-        let left = (content / 2.0).ceil();
+        let left = FOLDER_SPLIT_X.first(content).ceil().min(content);
         (left, content - left)
     }
     /// 参考路径栏（26 px）：可编辑组合框 + 内嵌历史下拉 + 小图标按钮。
@@ -4843,7 +4866,13 @@ impl DirCompareView {
         let mut reload: Option<[String; 2]> = None;
         for side in 0..2 {
             let origin = if side == 0 { bar.left() } else { split_x };
-            let combo_w = if side == 0 { 592.0 } else { 542.0 };
+            // 组合框宽度跟随分隔线（默认窗口下即参考的 592 / 542 px），右侧留给按钮。
+            let region = if side == 0 {
+                split_x - bar.left()
+            } else {
+                bar.right() - split_x
+            };
+            let combo_w = (region - 1.0 - PATH_BUTTONS[side]).max(80.0);
             let combo = egui::Rect::from_min_size(
                 egui::pos2(origin + 1.0, bar.top() + 1.0),
                 egui::vec2(combo_w, 25.0),
@@ -5592,6 +5621,18 @@ impl DirCompareView {
             0.0,
             crate::chrome::theme::LINE,
         );
+        // 中缝两侧边缘都可左右拖动，移动左右树的分界（中缝宽度不变）。
+        let span = egui::Rangef::new(rect.left(), rect.left() + left_w + right_w);
+        for (edge, x) in [left.right(), right.left()].into_iter().enumerate() {
+            crate::chrome::splitter::vertical_line(
+                ui,
+                &FOLDER_SPLIT_X,
+                ("folder-tree", self.window_id, edge),
+                x,
+                rect.y_range(),
+                span,
+            );
+        }
     }
     /// 日志区（106 px）：左侧齿轮/保存图标，#E3E7ED 文本框，右侧面板灰条。
     pub(crate) fn draw_log(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
@@ -7067,6 +7108,22 @@ mod tests {
         view.menus.iter().find_map(|m| walk(&m.items, id))
     }
 
+    #[test]
+    fn tree_split_follows_the_persisted_splitter() {
+        FOLDER_SPLIT_X.reset();
+        // Default: even split (ceil), identical to the reference layout.
+        assert_eq!(DirCompareView::chrome_split(1384.0, CHROME_GAP), (665.0, 664.0));
+        FOLDER_SPLIT_X.store(400.0, 1329.0);
+        let (left, right) = DirCompareView::chrome_split(1384.0, CHROME_GAP);
+        assert_eq!((left, left + right), (400.0, 1329.0));
+        // Same fraction in sync mode (wider centre column).
+        let (left, right) = DirCompareView::chrome_split(1384.0, SYNC_GAP);
+        assert!((left - (400.0_f32 / 1329.0 * 1249.0).ceil()).abs() < 0.5, "{left} {right}");
+        // Each tree keeps its minimum width.
+        FOLDER_SPLIT_X.store(5.0, 1329.0);
+        assert_eq!(DirCompareView::chrome_split(1384.0, CHROME_GAP).0, 120.0);
+        FOLDER_SPLIT_X.reset();
+    }
     #[test]
     fn chrome_layout_menu_inventory_toolbar_states_and_reference_geometry() {
         let temp = Temp::new();
