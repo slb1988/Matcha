@@ -49,12 +49,26 @@ pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
         .iter()
         .any(|path| crate::table::formats::table_path(path, &registry))
 }
-/// 内置 hex 格式掩码（初版 `*.bin`；其余未知扩展仍走 Text）。
+/// Hex 路由：内置 `*.bin` 掩码，或内容嗅探（前 8 KiB 经 `encoding::detect`，
+/// 与文本引擎加载时的判定同一条规则）判为二进制。
 pub fn hex_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
     [left, right].iter().any(|path| {
         path.extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+            || sniffs_binary(path)
     })
+}
+/// 读前 8 KiB 判二进制。读不了的文件不算二进制——目标会话会自己报 IO 错误。
+fn sniffs_binary(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let mut prefix = Vec::new();
+    if std::fs::File::open(path)
+        .and_then(|f| f.take(8192).read_to_end(&mut prefix))
+        .is_err()
+    {
+        return false;
+    }
+    bc_core::encoding::detect(&prefix, 1252).encoding == bc_core::encoding::Encoding::Binary
 }
 pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
     if left.is_dir() && right.is_dir() {
@@ -1216,6 +1230,34 @@ mod tests {
                 left: None
             })
         );
+    }
+
+    #[test]
+    fn binary_content_routes_to_hex_without_the_bin_extension() {
+        let dir = std::env::temp_dir().join(format!("matcha-route-bin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // exe/dll 等二进制内容（含 NUL），即使扩展名不在掩码内也路由到 Hex。
+        let (a, b) = (dir.join("a.exe"), dir.join("b.exe"));
+        std::fs::write(&a, b"MZ\x90\x00\x03\x00\x00\x00").unwrap();
+        std::fs::write(&b, b"MZ\x90\x00\x04\x00\x00\x00").unwrap();
+        assert!(matches!(
+            routed(a.clone(), b.clone()),
+            HomeAction::OpenHexCompare { .. }
+        ));
+        // 无扩展名的二进制同样被内容嗅探捕获。
+        let bare = dir.join("firmware");
+        std::fs::write(&bare, b"\x7fELF\x00\x00\x00\x00").unwrap();
+        assert!(hex_paths(&bare, &bare));
+        // 纯文本内容的未知扩展仍走 Text；读不到的路径不算二进制。
+        let (c, d) = (dir.join("c.data"), dir.join("d.data"));
+        std::fs::write(&c, b"hello\n").unwrap();
+        std::fs::write(&d, b"world\n").unwrap();
+        assert!(matches!(routed(c, d), HomeAction::OpenTextCompare { .. }));
+        assert!(!hex_paths(
+            &dir.join("missing.exe"),
+            &dir.join("missing.exe")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

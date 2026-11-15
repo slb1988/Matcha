@@ -823,7 +823,16 @@ impl TextCompareView {
     }
     fn open_side(&mut self, s: usize, path: &Path) -> Result<(), CoreError> {
         // Load transactionally before dropping the old editable content.
-        let (content, file) = load(path, &self.registry)?;
+        // 二进制输入给出可操作的指引（引擎只报 "use Hex comparison"）。
+        let (content, file) = load(path, &self.registry).map_err(|e| {
+            if e.to_string().contains("binary input") {
+                CoreError::Invalid(
+                    "binary file: use Session > Compare Files Using > Hex Compare".into(),
+                )
+            } else {
+                e
+            }
+        })?;
         self.cancel_join();
         *self.content_mut(s) = content;
         self.files[s] = file;

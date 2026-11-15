@@ -27,8 +27,10 @@
   参考 16..40）；过滤模式下缩略图映射当前显示行（参考映射全文件坐标）——均为已知偏离。
 - 状态栏：结论（Binary same/differences）｜Insert/Overwrite｜Load time: x.xx seconds｜每侧光标地址。
 - 加载分层：< 2 MB（可配）整载不加锁可编辑；≥ 阈值 mmap 只读（初版禁编辑/保存）。
-- 入口：Home 会话卡、`*.bin` 掩码路由、`/fv="Hex Compare"`、Text/Table 的 Compare Files Using 互切、
-  空会话逐侧打开。
+- 入口：Home 会话卡、二进制路由（`*.bin` 掩码或前 8 KiB 内容嗅探判为二进制，同文本引擎的
+  `encoding::detect` 规则；exe / dll / 无扩展名二进制均覆盖）、`/fv="Hex Compare"`、Text/Table 的
+  Compare Files Using 互切、空会话逐侧打开。文件夹比较中双击二进制文件对不打开内嵌文本窗口，
+  提示改用 Hex Compare 会话。
 
 ## 代码地图
 

@@ -2127,6 +2127,13 @@ impl DirCompareView {
                 }
                 Notice::Clipboard(text) => ctx.copy_text(text),
                 Notice::Quick(text) => self.quick = Some(text),
+                // 二进制文件对打不开文本视图（内嵌窗口不支持 hex），给出可操作提示。
+                Notice::Text(paths) if crate::home::hex_paths(&paths[0], &paths[1]) => {
+                    self.message = format!(
+                        "Cannot open text: {} is binary — open the pair in a Hex Compare session",
+                        paths[0].display()
+                    );
+                }
                 Notice::Text(paths) => match TextCompareView::open(&paths[0], &paths[1]) {
                     Ok(view) => self.text = Some(Box::new(view)),
                     Err(e) => self.message = format!("Cannot open text: {e}"),

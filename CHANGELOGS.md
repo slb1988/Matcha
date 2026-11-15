@@ -4,6 +4,12 @@
 
 ## 2026-11-15
 
+- **修复：比较 exe 等二进制文件不再报错**（`docs/features/hex-compare.md`）：此前路由只看 `*.bin` 扩展名，
+  exe / dll / 无扩展名的二进制被送进文本比较，打开时报 “Cannot open: invalid input: binary input: use Hex comparison”。
+  现在路由加入内容嗅探（读前 8 KiB，与文本引擎相同的二进制判定规则），命令行 `matcha a.exe b.exe`、Home 拖入 / 最近记录、
+  单实例转交等入口都会直接打开 Hex 比较。文件夹比较中双击二进制文件对不再尝试内嵌文本窗口，提示改用 Hex Compare 会话；
+  文本会话路径栏输入二进制路径时的报错改为指向 Session > Compare Files Using > Hex Compare。
+
 - **窗格分隔线可拖动并记住位置**（`docs/features/resizable-splitters.md`）：文本 / 表格 / Hex 比较的左右窗格（上下布局时为上下窗格）、
   文件夹与同步视图的左右两棵树（中缝两侧边缘都可拖）和底部日志面板、文本合并与表格合并上排三列之间的两条分隔线及输入区 / 输出区分界、
   Home 会话树宽度，现在都可以用鼠标拖动调整；悬停时光标变为调整形状，双击分隔线恢复默认。松开鼠标即写入
