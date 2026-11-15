@@ -11,7 +11,7 @@ use bc_core::CoreError;
 use bc_jobs::{Job, JobContext, JobResult, Priority, Progress};
 
 use super::content::HexContent;
-use super::{HexMap, HexRules};
+use super::{HexMap, HexRules, HexSummary};
 
 /// 一侧内容的可发送快照：小文件克隆字节、大文件共享只读映射。
 #[derive(Debug, Clone)]
@@ -40,6 +40,8 @@ impl HexSnapshot {
 #[derive(Debug)]
 pub struct HexAlignOutput {
     pub map: AlignMap,
+    /// 统计与差异游程（在后台线程随对齐算出，视图不必逐帧扫描对齐行）。
+    pub summary: HexSummary,
     pub rules: HexRules,
     /// 快照时的两侧 revision；与当前内容不一致即过期。
     pub revisions: (u64, u64),
@@ -72,8 +74,11 @@ impl HexAlignJob {
             self.rules.alignment,
             cancel,
         )?;
+        cancel.check()?;
+        let summary = HexSummary::of(&aligned);
         Ok(HexAlignOutput {
             map: aligned,
+            summary,
             rules: self.rules.clone(),
             revisions: self.revisions,
         })

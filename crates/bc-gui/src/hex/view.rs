@@ -6,8 +6,8 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
-use bc_core::{CoreError, DiffKind};
-use bc_engine_bin::hex::{DisplayFilter, HexAlignJob, HexContent, HexMap, HexStats};
+use bc_core::CoreError;
+use bc_engine_bin::hex::{DisplayFilter, HexAlignJob, HexContent, HexMap, HexStats, HexSummary};
 use eframe::egui;
 
 use crate::chrome::icons::Icon;
@@ -17,7 +17,9 @@ use crate::chrome::toolbar::{self, ToolItem, ToolItemKind};
 use crate::chrome::{controls::Role, widgets, window::Window};
 
 use super::menu;
-use super::render::{self, GridRowModel, GridStyle};
+use super::render::{self, GridLayout, GridStyle};
+#[cfg(test)]
+use super::render::GridRowModel;
 use super::worker::Worker;
 
 /// 视图上报给应用外壳的动作。
@@ -47,15 +49,18 @@ pub struct HexFileDialog {
     pub path: String,
 }
 
-/// 网格行模型缓存：revision + 行宽 + 过滤变化时重算。
+/// 网格布局缓存：revision + 行宽 + 过滤 + 对齐代次变化时重算
+///（布局只含显示区间索引，重算是 O(差异游程)，行模型只为可见行生成）。
 #[derive(Debug)]
 struct GridCache {
     revisions: (u64, u64),
     per_line: usize,
     filter: DisplayFilter,
     context: usize,
-    rows: Vec<GridRowModel>,
-    /// 缩略图列 bins（与 rows 同批重算；差异行红色像素横线的水平区间）。
+    /// 对齐代次（每次回填/丢弃对齐 +1；对齐前布局与对齐后布局由此区分）。
+    generation: u64,
+    layout: GridLayout,
+    /// 缩略图列 bins（与布局同批重算；差异行红色像素横线的水平区间）。
     thumb_bins: Vec<u32>,
 }
 
@@ -94,6 +99,10 @@ const HEX_SPLIT_Y: crate::chrome::splitter::Split =
 pub struct HexCompareView {
     pub map: HexMap,
     worker: Option<Worker>,
+    /// 当前对齐的统计与差异游程（后台随对齐算出；逐帧复用，不扫描对齐行）。
+    summary: HexSummary,
+    /// 对齐代次：每次回填/丢弃对齐 +1（网格布局缓存键）。
+    generation: u64,
     /// 状态栏消息（加载/对齐/错误提示）。
     pub message: String,
     /// Fit to window（默认开）：按窗格宽度自动确定每行格数。
@@ -190,9 +199,12 @@ impl HexCompareView {
             map.align();
             None
         } else {
+            // 对齐在后台进行；期间网格以对齐前布局（两侧按偏移并排）立即可浏览。
             Some(Worker::spawn(HexAlignJob::from_map(&map)))
         };
         let mut view = Self {
+            summary: HexSummary::of(&map.align),
+            generation: 0,
             map,
             worker,
             message: "Comparing…".into(),
@@ -273,6 +285,7 @@ impl HexCompareView {
         }
         // 旧内容（含其编辑）已被替换，该侧不再有未保存修改。
         self.dirty[side] = false;
+        self.reset_alignment();
         self.recompare();
         self.remember(path);
         Ok(())
@@ -319,12 +332,22 @@ impl HexCompareView {
         self.dirty = [false, false];
         self.remember(left);
         self.remember(right);
+        self.reset_alignment();
         self.recompare();
     }
 
     /// 统计（四分类）。
     pub fn stats(&self) -> HexStats {
-        self.map.stats()
+        self.summary.stats
+    }
+
+    /// 内容被整体替换（换文件/互换/重载/剪贴板）：旧对齐与新内容无关，丢弃它，
+    /// 让网格在新对齐到达前回到对齐前布局，而不是把旧对齐套在新字节上。
+    fn reset_alignment(&mut self) {
+        self.map.align = bc_core::align::AlignMap::default();
+        self.summary = HexSummary::default();
+        self.generation += 1;
+        self.cache = None;
     }
 
     pub fn is_ready(&self) -> bool {
@@ -349,11 +372,24 @@ impl HexCompareView {
         if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
             self.worker = None;
             match result {
-                Ok(output) => {
+                Ok(mut output) => {
+                    let summary = std::mem::take(&mut output.summary);
+                    // 对齐前布局下已滚动浏览：记住首可见行左侧偏移，对齐到达后滚回同一字节。
+                    let keep = self
+                        .cache
+                        .as_ref()
+                        .filter(|c| c.layout.is_provisional() && self.scroll > 0.0)
+                        .map(|c| self.visible_first_row * c.layout.per_line);
                     if self.map.set_alignment(output).is_ok() {
+                        self.summary = summary;
+                        self.generation += 1;
                         self.cache = None;
+                        if let Some(offset) = keep {
+                            self.pending_scroll =
+                                self.map.align.row_of_left(offset).or_else(|| self.map.align.row_of_right(offset));
+                        }
                         // 状态栏常态显示四分类结论（参考工具：`Binary same`/`Binary differences`）。
-                        self.message = self.map.stats().summary().to_owned();
+                        self.message = self.summary.stats.summary().to_owned();
                     }
                 }
                 Err(bc_jobs::JobError::Cancelled) => {}
@@ -374,35 +410,39 @@ impl HexCompareView {
         std::mem::swap(&mut self.map.left, &mut self.map.right);
         self.cursor.swap(0, 1);
         self.active_side = 1 - self.active_side;
+        self.reset_alignment();
         self.recompare();
     }
 
-    /// 当前网格行模型（Fit to window 时按窗格宽度重算每行格数；过滤模式按区域起点重打包）。
-    pub fn grid_rows(&mut self, pane_width: f32, ui: &egui::Ui) -> &[GridRowModel] {
+    /// 当前网格布局（Fit to window 时按窗格宽度重算每行格数；过滤模式按显示区间拼接打包）。
+    pub fn grid_layout(&mut self, pane_width: f32, ui: &egui::Ui) -> &GridLayout {
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
         let per_line = self.per_line(&style, pane_width);
         let revisions = (self.map.left.revision(), self.map.right.revision());
-        let (filter, context) = (self.filter, self.map.rules.context_count);
+        let (filter, context, generation) = (self.filter, self.map.rules.context_count, self.generation);
         let stale = self.cache.as_ref().is_none_or(|c| {
-            c.revisions != revisions || c.per_line != per_line || c.filter != filter || c.context != context
+            c.revisions != revisions
+                || c.per_line != per_line
+                || c.filter != filter
+                || c.context != context
+                || c.generation != generation
         });
         if stale {
-            let rows = self.build_grid_rows(per_line);
-            let thumb_bins = render::thumb_bins(&rows, per_line, render::THUMB_BIN_MAX);
-            self.cache = Some(GridCache { revisions, per_line, filter, context, rows, thumb_bins });
+            let layout = self.build_layout(per_line);
+            let thumb_bins = layout.thumb_bins(&self.summary, render::THUMB_BIN_MAX);
+            self.cache = Some(GridCache { revisions, per_line, filter, context, generation, layout, thumb_bins });
         }
-        &self.cache.as_ref().unwrap().rows
+        &self.cache.as_ref().unwrap().layout
     }
 
-    /// 按过滤模式构建网格行模型（Diffs 带 context_count 上下文；区域连续流入同一打包序列）。
-    fn build_grid_rows(&self, per_line: usize) -> Vec<GridRowModel> {
-        let per_line = per_line as u16;
-        if self.filter == DisplayFilter::All {
-            return render::grid_rows(&self.map, usize::from(per_line));
+    /// 按过滤模式构建网格布局：对齐未到达时为对齐前布局；Diffs 带 context_count 上下文，
+    /// 区域连续流入同一打包序列。
+    fn build_layout(&self, per_line: usize) -> GridLayout {
+        let (left, right) = (self.map.left.len(), self.map.right.len());
+        if self.map.align.is_empty() && left.max(right) > 0 {
+            return GridLayout::provisional(left, right, per_line);
         }
-        let rows = bc_engine_bin::hex::filtered_rows(&self.map.align, self.filter, self.map.rules.context_count);
-        let packed = bc_engine_bin::hex::pack_slice(&rows, per_line);
-        render::models_from_packed(&self.map.left, &self.map.right, &packed)
+        GridLayout::aligned(self.summary.regions(self.filter, self.map.rules.context_count), per_line)
     }
 
     /// 每行格数：Fit 开启时按宽度算；否则 bytes_per_group × groups_per_item。
@@ -465,6 +505,7 @@ impl HexCompareView {
     pub fn open_clipboard(&mut self, side: usize, bytes: Vec<u8>) {
         *self.content_mut(side) = HexContent::from_bytes(bytes);
         self.dirty[side] = false;
+        self.reset_alignment();
         self.recompare();
     }
 
@@ -1050,7 +1091,10 @@ impl HexCompareView {
         self.map.left = l;
         self.map.right = r;
         match result {
-            Ok(()) => self.recompare(),
+            Ok(()) => {
+                self.reset_alignment();
+                self.recompare();
+            }
             Err(e) => self.message = e.to_string(),
         }
     }
@@ -1094,15 +1138,8 @@ impl HexCompareView {
 
     /// 缩略图条标刻：差异行在全文件中的纵向位置（0.0–1.0）。
     pub fn thumbnail_marks(&self) -> Vec<f32> {
-        let total = self.map.align.len().max(1) as f32;
-        self.map
-            .align
-            .rows()
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| r.kind != DiffKind::Same)
-            .map(|(i, _)| i as f32 / total)
-            .collect()
+        let total = self.summary.rows.max(1) as f32;
+        self.summary.runs.iter().map(|run| run.rows.start as f32 / total).collect()
     }
 
     // ---- 任务 4.3：布局对话框与显示开关 ----
@@ -1148,7 +1185,14 @@ impl HexCompareView {
         self.map.rules.bytes_per_group = 8;
         self.groups_per_item = per_line / 8;
         self.cache = None;
-        self.build_grid_rows(usize::from(per_line))
+        let layout = self.build_layout(usize::from(per_line));
+        layout.rows(&self.map, 0..layout.len())
+    }
+
+    /// 测试口：按指定行宽与分辨率取缩略图 bins。
+    #[cfg(test)]
+    pub fn thumb_bins_for_test(&self, per_line: u16, resolution: usize) -> Vec<u32> {
+        self.build_layout(usize::from(per_line)).thumb_bins(&self.summary, resolution)
     }
 
     /// 键盘命令（模态打开时让位）。修饰键沿用 text 视图的 `command`（macOS Cmd / 其它 Ctrl）。
@@ -1218,17 +1262,8 @@ impl HexCompareView {
 
     /// 对齐行号 → 当前网格行纵向位置（滚入视野用）。
     fn grid_y_of_align_row(&self, align_row: usize, row_height: f32) -> Option<f32> {
-        let rows = &self.cache.as_ref()?.rows;
-        let row = self.map.align.row(align_row)?;
-        let off = row.left.or(row.right)?;
-        let mut target = 0usize;
-        for (i, r) in rows.iter().enumerate() {
-            match r.left_off.or(r.right_off) {
-                Some(o) if o <= off => target = i,
-                _ => break,
-            }
-        }
-        Some(target as f32 * row_height)
+        let row = self.cache.as_ref()?.layout.row_of_align(align_row)?;
+        Some(row as f32 * row_height)
     }
 
     /// 内联查找栏（H25）：hex/文本模式、大小写、Prev/Next；Replace 展开替换行。
@@ -1544,7 +1579,7 @@ impl HexCompareView {
         };
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
         // 两侧每行字节数相同（行对齐）：取较窄窗格可容纳的数目。
-        let row_count = self.grid_rows(panes[0].width().min(panes[1].width()), ui).len();
+        let row_count = self.grid_layout(panes[0].width().min(panes[1].width()), ui).len();
         // 待滚动目标换算为像素（需在取出 cache 前完成借用）。
         let pending_row = self.pending_scroll.take();
         if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
@@ -1552,11 +1587,11 @@ impl HexCompareView {
         }
         // 缩略图当前位置指针：活动侧光标所在网格行的内容比例（需在取出 cache 前换算）。
         let cursor_frac = self
-            .align_row_of(self.active_side, self.cursor[self.active_side])
-            .and_then(|row| self.grid_y_of_align_row(row, style.row_height))
-            .map(|y| y / (row_count as f32 * style.row_height).max(1.0));
+            .cache
+            .as_ref()
+            .and_then(|c| c.layout.row_of_offset(&self.map, self.active_side, self.cursor[self.active_side]))
+            .map(|row| row as f32 / (row_count as f32).max(1.0));
         let cache = self.cache.take().unwrap();
-        let rows_ref = &cache.rows;
         let pane_h = row_count as f32 * style.row_height;
         // 可滚动范围按最矮窗格算（上下布局时两窗格各占一部分高度）。
         let view_h = panes[0].height().min(panes[1].height());
@@ -1617,7 +1652,16 @@ impl HexCompareView {
                 egui::UiBuilder::new().max_rect(body).id_salt(("hex-pane", side)),
             );
             pane_ui.set_clip_rect(panes[side].intersect(ui.clip_rect()));
-            let first = render::paint_pane(&mut pane_ui, rows_ref, side, &style, origins[side], dark, self.show_byte_addresses);
+            let first = render::paint_pane(
+                &mut pane_ui,
+                &cache.layout,
+                &self.map,
+                side,
+                &style,
+                origins[side],
+                dark,
+                self.show_byte_addresses,
+            );
             if side == 0 {
                 self.visible_first_row = first;
             }

@@ -1,9 +1,10 @@
 //! 网格渲染：地址列、分组 hex 格、ASCII 列、斜纹占位格、差异着色；只画可见行。
 //!
-//! 可测模型：`grid_rows` 把引擎的 cell packing 行（`HexRow`）展开成带字节值与着色的
-//! 渲染模型，RawInput 回归直接断言它；`paint_pane` 只负责按模型落笔。
+//! 可测模型：[`GridLayout`] 按 cell packing 规则把显示的对齐行按需展开成带字节值与着色的
+//! 渲染模型（只为可见行生成），RawInput 回归直接断言它；`paint_pane` 只负责按模型落笔。
 
-use bc_engine_bin::hex::{HexCell, HexContent, HexMap, HexRow};
+use bc_engine_bin::hex::{HexMap, HexSummary};
+use std::ops::Range;
 use bc_core::DiffKind;
 use eframe::egui;
 
@@ -27,47 +28,175 @@ pub struct GridRowModel {
     pub cells: Vec<CellModel>,
 }
 
-/// 由对齐图 + 每行格数派生渲染模型（标签与相位规则由打包层保证）。
-pub fn grid_rows(map: &HexMap, per_line: usize) -> Vec<GridRowModel> {
-    let packed = bc_engine_bin::hex::pack_rows(&map.align, per_line as u16);
-    models_from_packed(&map.left, &map.right, &packed)
+/// 网格布局：只保存显示区间索引，行模型按需（只为可见行）生成。
+///
+/// 打包规则（cell packing）本质是把"显示的对齐行"连续拼接后每 `per_line` 格切一行，
+/// 因此第 i 行就是拼接序列的第 `i*per_line..` 格——无需物化千万级的行模型。
+/// 对齐尚未完成时用 [`GridLayout::provisional`]：两侧按偏移并排、不着色，首屏立即可滚动浏览。
+#[derive(Debug, Clone)]
+pub struct GridLayout {
+    pub per_line: usize,
+    kind: LayoutKind,
 }
 
-/// 打包行 → 渲染模型（字节值从两侧内容取）。
-pub fn models_from_packed(left: &HexContent, right: &HexContent, packed: &[HexRow]) -> Vec<GridRowModel> {
-    packed
-        .iter()
-        .map(|row| GridRowModel {
-            left_label: row.left_label.map(|v| format!("{v:08X}")),
-            right_label: row.right_label.map(|v| format!("{v:08X}")),
-            left_off: row.left_label,
-            right_off: row.right_label,
-            cells: row
-                .cells
-                .iter()
-                .map(|cell| match *cell {
-                    HexCell::Pair { left: l, right: r, kind } => CellModel {
-                        kind,
-                        left: left.bytes().get(l).copied(),
-                        right: right.bytes().get(r).copied(),
-                    },
-                    HexCell::LeftOrphan(i) => CellModel {
-                        kind: DiffKind::LeftOnly,
-                        left: left.bytes().get(i).copied(),
-                        right: None,
-                    },
-                    HexCell::RightOrphan(i) => CellModel {
-                        kind: DiffKind::RightOnly,
-                        left: None,
-                        right: right.bytes().get(i).copied(),
-                    },
-                })
-                .collect(),
-        })
-        .collect()
+#[derive(Debug, Clone)]
+enum LayoutKind {
+    /// 对齐前的首屏：第 p 格 = 两侧第 p 字节（较短一侧尾部为占位格），不做差异着色。
+    Provisional { left: usize, right: usize },
+    /// 对齐后：显示的对齐行区间（All 为整段）；`starts[k]` = 区间 k 之前的格数。
+    Aligned { regions: Vec<Range<usize>>, starts: Vec<usize>, total: usize },
 }
 
-/// ASCII 预览字符：不可打印字节显示为 `.`。
+impl GridLayout {
+    pub fn provisional(left_len: usize, right_len: usize, per_line: usize) -> Self {
+        Self { per_line: per_line.max(1), kind: LayoutKind::Provisional { left: left_len, right: right_len } }
+    }
+
+    pub fn aligned(regions: Vec<Range<usize>>, per_line: usize) -> Self {
+        let mut starts = Vec::with_capacity(regions.len());
+        let mut total = 0usize;
+        for region in &regions {
+            starts.push(total);
+            total += region.len();
+        }
+        Self { per_line: per_line.max(1), kind: LayoutKind::Aligned { regions, starts, total } }
+    }
+
+    pub fn is_provisional(&self) -> bool {
+        matches!(self.kind, LayoutKind::Provisional { .. })
+    }
+
+    /// 显示的格数。
+    pub fn cells(&self) -> usize {
+        match &self.kind {
+            LayoutKind::Provisional { left, right } => (*left).max(*right),
+            LayoutKind::Aligned { total, .. } => *total,
+        }
+    }
+
+    /// 网格行数。
+    pub fn len(&self) -> usize {
+        self.cells().div_ceil(self.per_line)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells() == 0
+    }
+
+    /// 第 `index` 行的渲染模型（越界返回空行）。
+    pub fn row(&self, map: &HexMap, index: usize) -> GridRowModel {
+        let (lb, rb) = (map.left.bytes(), map.right.bytes());
+        let start = index.saturating_mul(self.per_line).min(self.cells());
+        let end = (start + self.per_line).min(self.cells());
+        let mut cells = Vec::with_capacity(end - start);
+        let (mut left_off, mut right_off) = (None, None);
+        let mut push = |kind: DiffKind, l: Option<usize>, r: Option<usize>| {
+            left_off = left_off.or(l);
+            right_off = right_off.or(r);
+            cells.push(CellModel { kind, left: l.and_then(|i| lb.get(i).copied()), right: r.and_then(|i| rb.get(i).copied()) });
+        };
+        match &self.kind {
+            LayoutKind::Provisional { left, right } => {
+                for p in start..end {
+                    push(DiffKind::Same, (p < *left).then_some(p), (p < *right).then_some(p));
+                }
+            }
+            LayoutKind::Aligned { regions, starts, .. } => {
+                let rows = map.align.rows();
+                let mut k = starts.partition_point(|&s| s <= start).saturating_sub(1);
+                for p in start..end {
+                    while k + 1 < starts.len() && starts[k + 1] <= p {
+                        k += 1;
+                    }
+                    let Some(row) = rows.get(regions[k].start + (p - starts[k])) else { break };
+                    match row.kind {
+                        DiffKind::Same | DiffKind::Changed => push(row.kind, row.left, row.right),
+                        DiffKind::LeftOnly => push(row.kind, row.left, None),
+                        DiffKind::RightOnly => push(row.kind, None, row.right),
+                    }
+                }
+            }
+        }
+        GridRowModel {
+            left_label: left_off.map(|v| format!("{v:08X}")),
+            right_label: right_off.map(|v| format!("{v:08X}")),
+            left_off,
+            right_off,
+            cells,
+        }
+    }
+
+    /// 物化一段行（测试与小范围读取用）。
+    pub fn rows(&self, map: &HexMap, range: Range<usize>) -> Vec<GridRowModel> {
+        range.map(|i| self.row(map, i)).collect()
+    }
+
+    /// 对齐行 → 网格行：落在显示区间内取其所在行；被过滤隐藏时取其后第一个显示区间的首行。
+    pub fn row_of_align(&self, align_row: usize) -> Option<usize> {
+        let LayoutKind::Aligned { regions, starts, .. } = &self.kind else {
+            return None;
+        };
+        if self.is_empty() {
+            return None;
+        }
+        let k = regions.partition_point(|r| r.end <= align_row);
+        let pos = match regions.get(k) {
+            Some(region) => starts[k] + align_row.saturating_sub(region.start),
+            None => self.cells() - 1,
+        };
+        Some(pos / self.per_line)
+    }
+
+    /// 某侧字节偏移 → 网格行（对齐前按偏移直接换算）。
+    pub fn row_of_offset(&self, map: &HexMap, side: usize, offset: usize) -> Option<usize> {
+        if let LayoutKind::Provisional { .. } = self.kind {
+            return (!self.is_empty()).then(|| offset.min(self.cells() - 1) / self.per_line);
+        }
+        let align_row = if side == 0 { map.align.row_of_left(offset) } else { map.align.row_of_right(offset) };
+        self.row_of_align(align_row?)
+    }
+
+    /// 缩略图 bins：由差异游程直接映射（不逐行扫描）；对齐前无标刻。
+    /// 每 bin 打包为 u32，0 = 无差异，否则 (lo+1)<<16 | (hi+1)。
+    pub fn thumb_bins(&self, summary: &HexSummary, resolution: usize) -> Vec<u32> {
+        let LayoutKind::Aligned { regions, starts, .. } = &self.kind else {
+            return Vec::new();
+        };
+        let total = self.len();
+        if total == 0 {
+            return Vec::new();
+        }
+        let per_line = self.per_line.min(usize::from(u16::MAX)) as u16;
+        let half = per_line / 2;
+        let n = total.min(resolution.max(1));
+        let mut bins = vec![0u32; n];
+        for run in &summary.runs {
+            let k = regions.partition_point(|r| r.end <= run.rows.start);
+            let Some(region) = regions.get(k) else { break };
+            if region.start > run.rows.start {
+                continue; // 该游程未显示（Same 过滤）
+            }
+            let first = starts[k] + (run.rows.start - region.start);
+            let last = starts[k] + (run.rows.end.min(region.end) - 1 - region.start);
+            let (lo, hi) = match run.kind {
+                DiffKind::Same => continue,
+                DiffKind::Changed => (0, per_line - 1),
+                DiffKind::LeftOnly => (0, half.saturating_sub(1)),
+                DiffKind::RightOnly => (half.min(per_line - 1), per_line - 1),
+            };
+            for row in first / self.per_line..=last / self.per_line {
+                let bin = &mut bins[row * n / total];
+                let (plo, phi) = match thumb_bin_range(*bin) {
+                    Some((l, h)) => (l.min(lo), h.max(hi)),
+                    None => (lo, hi),
+                };
+                *bin = ((plo as u32 + 1) << 16) | (phi as u32 + 1);
+            }
+        }
+        bins
+    }
+}
+// ASCII 预览字符：不可打印字节显示为 `.`。
 pub fn ascii_char(byte: u8) -> char {
     if (0x20..=0x7E).contains(&byte) {
         byte as char
@@ -227,50 +356,6 @@ pub fn thumbnail_geometry(
     let hit = inner.union(viewport).expand(1.0);
     let pointer_y = current.map(|f| inner.top() + f.clamp(0.0, 1.0) * inner.height());
     ThumbnailGeometry { column, inner, viewport, hit, pointer_y }
-}
-
-/// 缩略图 bins：把网格行的差异标记压缩到固定分辨率。
-/// 每 bin 打包为 u32：0 = 无差异；否则 (lo+1)<<16 | (hi+1)（红色横线的水平格号区间）。
-/// 水平区间规则对齐参考工具：Changed 行满宽、LeftOnly 行左半、RightOnly 行右半（混合取并集）。
-pub fn thumb_bins(rows: &[GridRowModel], per_line: usize, resolution: usize) -> Vec<u32> {
-    let total = rows.len();
-    if total == 0 {
-        return Vec::new();
-    }
-    let per_line = per_line.max(1) as u16;
-    let n = total.min(resolution.max(1));
-    let mut bins = vec![0u32; n];
-    for (i, row) in rows.iter().enumerate() {
-        let mut changed = false;
-        let mut left = false;
-        let mut right = false;
-        for cell in &row.cells {
-            match cell.kind {
-                DiffKind::Same => {}
-                DiffKind::Changed => changed = true,
-                DiffKind::LeftOnly => left = true,
-                DiffKind::RightOnly => right = true,
-            }
-        }
-        let range = if changed {
-            Some((0, per_line - 1))
-        } else if left || right {
-            let lo = if left { 0 } else { per_line / 2 };
-            let hi = if right { per_line - 1 } else { per_line / 2 - 1 };
-            Some((lo, hi))
-        } else {
-            None
-        };
-        if let Some((lo, hi)) = range {
-            let bin = &mut bins[i * n / total];
-            let (plo, phi) = match thumb_bin_range(*bin) {
-                Some((l, h)) => (l.min(lo), h.max(hi)),
-                None => (lo, hi),
-            };
-            *bin = ((plo as u32 + 1) << 16) | (phi as u32 + 1);
-        }
-    }
-    bins
 }
 
 /// bin 解包为差异格列号区间（None = 该 bin 无差异）。
@@ -441,7 +526,8 @@ pub fn paint_scrollbar(
 #[allow(clippy::too_many_arguments)]
 pub fn paint_pane(
     ui: &mut egui::Ui,
-    rows: &[GridRowModel],
+    layout: &GridLayout,
+    map: &HexMap,
     side: usize, // 0 = left, 1 = right
     style: &GridStyle,
     origin: egui::Pos2,
@@ -458,9 +544,9 @@ pub fn paint_pane(
     };
     let clip = ui.clip_rect();
     let first = ((clip.top() - origin.y) / style.row_height).floor().max(0.0) as usize;
-    let last = (((clip.bottom() - origin.y) / style.row_height).ceil() as usize).min(rows.len());
-    let _ = last;
-    for (row_ix, row) in rows.iter().enumerate().take(last).skip(first) {
+    let last = (((clip.bottom() - origin.y) / style.row_height).ceil().max(0.0) as usize).min(layout.len());
+    for row_ix in first..last {
+        let row = layout.row(map, row_ix);
         let y = origin.y + row_ix as f32 * style.row_height;
         let mut x = origin.x;
         // 地址列

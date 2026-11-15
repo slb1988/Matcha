@@ -335,3 +335,43 @@ fn open_clipboard_has_no_source_and_saves_via_save_as() {
     clip.save_as(&target).unwrap();
     assert_eq!(std::fs::read(&target).unwrap(), b"clipboard bytes");
 }
+
+/// 摘要（后台随对齐算出）与逐行扫描等价：统计同 `HexMap::stats`，过滤区间同 `filtered_regions`。
+#[test]
+fn summary_matches_row_scans() {
+    let mut seed = 0x9E37_79B9u64;
+    let mut rand = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let left: Vec<u8> = (0..20_000).map(|_| rand() as u8).collect();
+    let mut right = left.clone();
+    for k in 0..40 {
+        let at = (rand() as usize) % (right.len() - 64);
+        match k % 3 {
+            0 => right[at] ^= 0xFF,
+            1 => drop(right.splice(at..at, (0..(k % 7 + 1)).map(|b| b as u8))),
+            _ => drop(right.drain(at..at + (k % 5 + 1))),
+        }
+    }
+    let mut map = HexMap {
+        left: HexContent::from_bytes(left),
+        right: HexContent::from_bytes(right),
+        ..Default::default()
+    };
+    map.align();
+    let summary = super::HexSummary::of(&map.align);
+    assert_eq!(summary.stats, map.stats());
+    assert!(!summary.runs.is_empty());
+    for filter in [DisplayFilter::All, DisplayFilter::Differences, DisplayFilter::Same] {
+        for context in [0, 3, 16] {
+            assert_eq!(
+                summary.regions(filter, context),
+                super::filtered_regions(&map.align, filter, context),
+                "{filter:?} context {context}"
+            );
+        }
+    }
+}

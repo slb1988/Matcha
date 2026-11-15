@@ -627,7 +627,7 @@ fn thumbnail_bins_match_reference_marks() {
     let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
     ready(&mut v);
     let rows = v.grid_rows_for_test(16);
-    let bins = render::thumb_bins(&rows, 16, render::THUMB_BIN_MAX);
+    let bins = v.thumb_bins_for_test(16, render::THUMB_BIN_MAX);
     // 语料行数未超分辨率上限：bin 与行一一对应。
     assert_eq!(bins.len(), rows.len());
     let red: std::collections::BTreeMap<usize, (u16, u16)> = bins
@@ -650,8 +650,8 @@ fn thumbnail_bins_match_reference_marks() {
 fn thumbnail_bins_compress_when_rows_exceed_resolution() {
     let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
     ready(&mut v);
-    let rows = v.grid_rows_for_test(16);
-    let bins = render::thumb_bins(&rows, 16, 8);
+    let _ = v.grid_rows_for_test(16); // 固定 16 格行宽
+    let bins = v.thumb_bins_for_test(16, 8);
     assert_eq!(bins.len(), 8);
     // bin 0 聚合行 0–32（含满宽行 16/32），bin 1 聚合行 33–65（满宽行 48 ∪ 右半行 64 = 满宽），
     // bin 2 聚合行 66–98（左半行 96/97），其余 bin 无差异。
@@ -1031,4 +1031,74 @@ fn over_under_panes_show_the_same_rows_and_follow_the_split() {
     assert!((bars[0].height() - (even - 100.0)).abs() < 1.0, "{bars:?}");
     assert_eq!(top_texts(&out, bars[0].y_range()), top_texts(&out, bars[1].y_range()));
     super::HEX_SPLIT_Y.reset();
+}
+
+/// 按需生成的网格布局与引擎 cell packing（`filtered_rows` + `pack_slice`）逐格一致。
+#[test]
+fn lazy_layout_matches_engine_packing() {
+    use bc_engine_bin::hex::{filtered_rows, pack_slice, DisplayFilter, HexCell};
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    for filter in [DisplayFilter::All, DisplayFilter::Differences, DisplayFilter::Same] {
+        for per_line in [8u16, 16, 24] {
+            v.filter = filter;
+            let ours = v.grid_rows_for_test(per_line);
+            let rows = filtered_rows(&v.map.align, filter, v.map.rules.context_count);
+            let packed = pack_slice(&rows, per_line);
+            assert_eq!(ours.len(), packed.len(), "{filter:?}/{per_line}");
+            for (a, b) in ours.iter().zip(&packed) {
+                assert_eq!((a.left_off, a.right_off), (b.left_label, b.right_label), "{filter:?}/{per_line}");
+                assert_eq!(a.cells.len(), b.cells.len());
+                for (cell, packed_cell) in a.cells.iter().zip(&b.cells) {
+                    let (kind, l, r) = match *packed_cell {
+                        HexCell::Pair { left, right, kind } => (kind, Some(left), Some(right)),
+                        HexCell::LeftOrphan(i) => (DiffKind::LeftOnly, Some(i), None),
+                        HexCell::RightOrphan(i) => (DiffKind::RightOnly, None, Some(i)),
+                    };
+                    assert_eq!(cell.kind, kind);
+                    assert_eq!(cell.left, l.map(|i| v.map.left.bytes()[i]));
+                    assert_eq!(cell.right, r.map(|i| v.map.right.bytes()[i]));
+                }
+            }
+        }
+    }
+}
+
+/// 首屏不等对齐：后台对齐未回填前，网格是两侧按偏移并排的对齐前布局（不着色、可浏览），
+/// 状态栏显示 Comparing…；对齐到达后切换为真实对齐布局。
+#[test]
+fn first_screen_shows_bytes_before_alignment_lands() {
+    let left = corpus("l2.bin");
+    let right = corpus("r2.bin");
+    let mut v = HexCompareView::from_bytes(left.clone(), right.clone());
+    // 未 poll：对齐结果尚未回填。
+    assert!(v.map.align.is_empty());
+    let rows = v.grid_rows_for_test(16);
+    assert_eq!(rows.len(), right.len().div_ceil(16));
+    assert!(rows.iter().flat_map(|r| &r.cells).all(|c| c.kind == DiffKind::Same), "对齐前不做差异着色");
+    assert_eq!(rows[1].cells[0].left, Some(left[16]));
+    assert_eq!(rows[1].cells[0].right, Some(right[16]));
+    // 较短一侧尾部为占位格。
+    let last = rows.last().unwrap();
+    assert_eq!(last.left_off, None);
+    assert!(last.cells.iter().all(|c| c.left.is_none() && c.right.is_some()));
+    assert!(v.thumb_bins_for_test(16, render::THUMB_BIN_MAX).is_empty());
+    assert!(v.status_fields()[0].text.starts_with("Comparing"));
+    ready(&mut v);
+    let rows = v.grid_rows_for_test(16);
+    assert!(rows.iter().flat_map(|r| &r.cells).any(|c| c.kind == DiffKind::RightOnly));
+    assert_eq!(v.stats().right_orphan, 5);
+}
+
+/// 内容整体替换（Swap）后旧对齐立即作废，网格回到对齐前布局，不把旧对齐套在新字节上。
+#[test]
+fn swap_discards_the_stale_alignment_until_the_new_one_lands() {
+    let mut v = HexCompareView::from_bytes(corpus("l2.bin"), corpus("r2.bin"));
+    ready(&mut v);
+    assert_eq!(v.stats().right_orphan, 5);
+    v.swap();
+    assert!(v.map.align.is_empty());
+    assert_eq!(v.stats(), bc_engine_bin::hex::HexStats::default());
+    ready(&mut v);
+    assert_eq!(v.stats().left_orphan, 5);
 }

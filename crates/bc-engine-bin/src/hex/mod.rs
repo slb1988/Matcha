@@ -11,6 +11,8 @@ pub mod jobs;
 pub use content::HexContent;
 pub use jobs::{HexAlignJob, HexAlignOutput};
 
+use std::ops::Range;
+
 use bc_core::align::{AlignMap, AlignRow, ByteAlign, ByteAlignStrategy};
 use bc_core::cancel::CancelCheck;
 use bc_core::{CoreError, DiffKind};
@@ -71,6 +73,83 @@ impl HexStats {
         } else {
             "Binary differences"
         }
+    }
+}
+
+/// 连续同种非 Same 对齐行（差异游程）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffRun {
+    pub rows: Range<usize>,
+    pub kind: DiffKind,
+}
+
+/// 对齐图摘要：四分类统计 + 差异游程。
+///
+/// 后台对齐时一并算出（[`HexAlignOutput::summary`]），视图逐帧复用而不再扫描每个对齐行
+///（大文件对齐行数以千万计，逐帧扫描会把界面拖到个位数帧率）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HexSummary {
+    pub stats: HexStats,
+    pub runs: Vec<DiffRun>,
+    /// 对齐行总数。
+    pub rows: usize,
+}
+
+impl HexSummary {
+    pub fn of(map: &AlignMap) -> Self {
+        let mut summary = Self { rows: map.len(), ..Default::default() };
+        for (i, row) in map.rows().iter().enumerate() {
+            match row.kind {
+                DiffKind::Same => {
+                    summary.stats.same += 1;
+                    continue;
+                }
+                DiffKind::Changed => summary.stats.difference += 1,
+                DiffKind::LeftOnly => summary.stats.left_orphan += 1,
+                DiffKind::RightOnly => summary.stats.right_orphan += 1,
+            }
+            match summary.runs.last_mut() {
+                Some(run) if run.rows.end == i && run.kind == row.kind => run.rows.end = i + 1,
+                _ => summary.runs.push(DiffRun { rows: i..i + 1, kind: row.kind }),
+            }
+        }
+        summary
+    }
+
+    /// 与 [`filtered_regions`] 等价的过滤区间，但只遍历差异游程（O(游程数)）。
+    pub fn regions(&self, filter: DisplayFilter, context: usize) -> Vec<Range<usize>> {
+        let total = self.rows;
+        let mut regions: Vec<Range<usize>> = Vec::new();
+        match filter {
+            DisplayFilter::All => {
+                if total > 0 {
+                    regions.push(0..total);
+                }
+            }
+            DisplayFilter::Differences => {
+                for run in &self.runs {
+                    let start = run.rows.start.saturating_sub(context);
+                    let end = (run.rows.end + context).min(total);
+                    match regions.last_mut() {
+                        Some(last) if start <= last.end => last.end = last.end.max(end),
+                        _ => regions.push(start..end),
+                    }
+                }
+            }
+            DisplayFilter::Same => {
+                let mut at = 0usize;
+                for run in &self.runs {
+                    if run.rows.start > at {
+                        regions.push(at..run.rows.start);
+                    }
+                    at = run.rows.end;
+                }
+                if at < total {
+                    regions.push(at..total);
+                }
+            }
+        }
+        regions
     }
 }
 

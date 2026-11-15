@@ -27,6 +27,12 @@
   参考 16..40）；过滤模式下缩略图映射当前显示行（参考映射全文件坐标）——均为已知偏离。
 - 状态栏：结论（Binary same/differences）｜Insert/Overwrite｜Load time: x.xx seconds｜每侧光标地址。
 - 加载分层：< 2 MB（可配）整载不加锁可编辑；≥ 阈值 mmap 只读（初版禁编辑/保存）。
+- 首屏异步：对齐在后台线程进行，打开即显示**对齐前布局**（两侧第 p 字节同格并排、不做差异着色、
+  缩略图无标刻，状态栏 Comparing…），可立即滚动浏览；对齐回填后切换为对齐布局并滚回原先首可见行的左侧字节。
+  换文件 / Swap / Reload / Open Clipboard 会丢弃旧对齐回到对齐前布局（字节编辑后的重对齐保留旧对齐直至新结果到达）。
+- 大文件性能：网格不物化行模型——布局只存显示区间索引，行模型只为可见行生成；四分类统计与差异游程在后台随对齐算出，
+  缩略图 bins 与 Diffs/Same 过滤区间都由游程直接得出（O(游程数)），逐帧开销与文件大小无关。
+  实测两个约 18 MB 的 exe：首屏 16 ms、Complete 对齐约 1.4 s、每帧约 5 ms。
 - 入口：Home 会话卡、二进制路由（`*.bin` 掩码或前 8 KiB 内容嗅探判为二进制，同文本引擎的
   `encoding::detect` 规则；exe / dll / 无扩展名二进制均覆盖）、`/fv="Hex Compare"`、Text/Table 的
   Compare Files Using 互切、空会话逐侧打开。文件夹比较中双击二进制文件对不打开内嵌文本窗口，
@@ -37,8 +43,8 @@
 | 层 | 位置 | 内容 |
 |---|---|---|
 | 对齐原语 | `crates/bc-core/src/align.rs` | `ByteAlign` 三档 + 锚窗/细化上限常量（REA 校准） |
-| 引擎 | `crates/bc-engine-bin/src/hex/` | `mod.rs`（HexRules/HexStats/HexMap/pack_rows/filtered_rows）、`content.rs`（加载/保存/写入门禁）、`jobs.rs`（后台对齐 + revision） |
-| 视图 | `crates/bc-gui/src/hex/` | `view.rs`（控制器/命令/编辑/导航）、`render.rs`（网格模型+绘制、缩略图列与滚动条几何/绘制）、`menu.rs`（五菜单）、`settings.rs`（三页设置）、`worker.rs`（后台 worker） |
+| 引擎 | `crates/bc-engine-bin/src/hex/` | `mod.rs`（HexRules/HexStats/HexSummary/HexMap/pack_rows/filtered_rows）、`content.rs`（加载/保存/写入门禁）、`jobs.rs`（后台对齐 + revision） |
+| 视图 | `crates/bc-gui/src/hex/` | `view.rs`（控制器/命令/编辑/导航）、`render.rs`（`GridLayout` 按需行模型+绘制、缩略图列与滚动条几何/绘制）、`menu.rs`（五菜单）、`settings.rs`（三页设置）、`worker.rs`（后台 worker） |
 | 黄金语料 | `crates/bc-core/tests/golden/hex/` | `corpus.rs` 确定性生成器（与 docs 语料逐字节一致） |
 
 ## 关键语义
@@ -46,6 +52,10 @@
 - 参考行为真源：`docs/reference-parity/hex-compare.md`（含 REA 校准的对齐常量与实现对照补记）。
 - Fast 档与参考工具的有意分叉：参考工具区间逐位对齐，Matcha 区间降级孤儿段（杜绝跨位移假 same；
   见 worker-report.md）。
+- 锚块骨架（Fast/Complete 共用，`bc_core::align` 的 `byte_plan`）：先取两侧都只出现一次的 50 字节锚窗，
+  按位置保序取最长链作骨架；骨架锚点之间再走原贪心扫描（候选限定在区间内）与区间细化。纯贪心会被远处偶然重复的
+  短片段带偏、整份文件配不上（两个相近 exe 曾几乎全判为孤儿）。任一侧 > 1 MB 时锚窗按哈希 1/16 采样；
+  区间细化（Myers）按工作量切块多线程物化，结果与单线程一致。
 - 验收与性能数字：`openspec/changes/hex-compare/worker-report.md`（256 MB Fast 对齐 16.6 s、
   取消响应 ≈262 ms、快照对照、已知差异）。
 - 系统文件拖放：单文件拖到哪一侧（窗格、滚动条、地址栏）就替换哪一侧；该侧有未保存编辑时拒绝并提示。
