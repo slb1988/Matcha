@@ -4,6 +4,14 @@
 
 ## 2026-11-15
 
+- **OpenSpec 归档（仓库管理，无功能变化）**：已完成的 5 个 change（text-compare-core、
+  folder-compare-sync、table-compare-xlsx、text-patch-reports、hex-compare）归档至
+  `openspec/changes/archive/2026-11-15-*`，22 个 capability 主 spec 建立于 `openspec/specs/`。
+  剩余活跃 change：table-merge（17/25）、text-merge（30/34）、visual-parity（15/23），
+  后续事项见 `docs/worker-reports/openspec-remaining-handoff.md`。
+
+## 2026-11-15
+
 - **路径栏失焦/切换路径后保住水平滚动位置**：此前单行路径框一失焦就跳回开头（egui 内部把
   滚动偏移归零），长路径移到末尾看了文件名、一点别处或切换路径就再也看不见。现在持焦时的
   可视位置被记下，失焦与切换路径（新路径更短则钳到末尾）都按原位置显示；选区与光标不保留，
