@@ -26,6 +26,13 @@
   菜单按钮、右键菜单）= `chrome::popup` 共享菜单（勾选/单选标记当前值，点外部/Esc 关闭，
   再点属主按钮收起）。工具栏下拉贴在按钮正下方（`toolbar::dropdown_menu`）。
   路径栏的历史图标与内嵌箭头打开同一个历史菜单。仅 DragValue/Slider/多行 TextEdit/ScrollArea 保留 egui 原生。
+- **右键菜单**（visual-parity 6.2）：文本窗格、表格网格、文件夹树三处的右键菜单按参考菜单
+  （`docs/visual-parity/supplemental/*-context.tree.json`）排列条目、顺序与分隔线；已实现的条目复用菜单栏同名命令
+  与启用规则，未实现的禁用；右键点在选区外先选中所点项（表格：格；文件夹：该行所点一侧）。同步视图的行保留短菜单。
+- **Session Settings**（visual-parity 6.1）：文本、表格、文件夹/同步、Hex 统一为 `chrome::dialog` 框架——标题、
+  下划线页签、页面卡片、底部 OK / Cancel（表格与文件夹另有 Apply）；均编辑草稿，OK/Apply 才生效，Cancel / × / Esc 丢弃。
+  快照场景：`dlg-text-session-settings`、`dlg-table-session-settings`、`dlg-folder-session-settings`。
+- **sheet 标签**：`chrome::sheet_tabs` 下划线页签 + 状态圆点，表格比较（网格与状态栏之间）与表格合并共用。
 - **换肤预留**：`theme::Palette` + `theme::palette(ctx)`；组件经它取色，`Theme::with_palette(..).apply(ctx)`
   即可整体换色（目前只有默认浅色 `Palette::LIGHT`，无换肤 UI）。
 - 内容画布：表格空白区/行详情区与文本末行以下为灰色画布 + 点阵底纹，数据区白底；

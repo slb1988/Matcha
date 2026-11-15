@@ -171,36 +171,44 @@ impl TableCompareView {
             }
         })
     }
-    fn update_menus(&mut self) {
-        fn update(view: &TableCompareView, items: &mut [MenuItem]) {
-            for item in items {
-                if let MenuItemKind::Submenu(children) = &mut item.kind {
-                    update(view, children);
-                    item.enabled = children
-                        .iter()
-                        .any(|c| c.enabled && !matches!(c.kind, MenuItemKind::Separator));
-                    continue;
+    /// Enable / label menu items for the active side (menu bar and context menu
+    /// share these rules).
+    fn refresh_items(&self, items: &mut [MenuItem]) {
+        for item in items {
+            if let MenuItemKind::Submenu(children) = &mut item.kind {
+                self.refresh_items(children);
+                item.enabled = children
+                    .iter()
+                    .any(|c| c.enabled && !matches!(c.kind, MenuItemKind::Separator));
+                continue;
+            }
+            item.enabled = ENABLED.contains(&item.action_id.as_str());
+            let s = self.grid.active;
+            let to = if s == 0 { "Right" } else { "Left" };
+            match item.action_id.as_str() {
+                "Copy to Right" => item.label = format!("Copy to {to}"),
+                "Copy Cell to Right" => item.label = format!("Copy Cell to {to}"),
+                "Save File" | "Save File As..." => item.enabled = !self.workbook(s),
+                "Associated Application" | "Explorer" => {
+                    item.enabled = self.files[s].path.is_some()
                 }
-                item.enabled = ENABLED.contains(&item.action_id.as_str());
-                let to = if view.grid.active == 0 {
-                    "Right"
-                } else {
-                    "Left"
-                };
-                match item.action_id.as_str() {
-                    "Copy to Right" => item.label = format!("Copy to {to}"),
-                    "Copy Cell to Right" => item.label = format!("Copy Cell to {to}"),
-                    "Save File" | "Save File As..." => {
-                        item.enabled = !view.workbook(view.grid.active)
-                    }
-                    _ => {}
-                }
-                if let Some(checked) = view.checked(&item.action_id) {
-                    item.kind = MenuItemKind::Check { checked };
-                    item.enabled = true;
-                }
+                _ => {}
+            }
+            if let Some(checked) = self.checked(&item.action_id) {
+                item.kind = MenuItemKind::Check { checked };
+                item.enabled = true;
             }
         }
+    }
+    /// Right-click menu of pane `s` (reference `table-context`), refreshed with
+    /// the menu-bar rules for that side.
+    pub(super) fn context_items(&mut self, s: usize) -> Vec<MenuItem> {
+        self.grid.active = s;
+        let mut items = super::menu::context();
+        self.refresh_items(&mut items);
+        items
+    }
+    fn update_menus(&mut self) {
         if self.menus.is_empty() {
             let mut menus = super::menu::inventory();
             // Session › Compare Files Using › Text Compare shares its label
@@ -231,7 +239,7 @@ impl TableCompareView {
         }
         let mut menus = std::mem::take(&mut self.menus);
         for menu in &mut menus {
-            update(self, &mut menu.items);
+            self.refresh_items(&mut menu.items);
         }
         self.menus = menus;
     }
@@ -320,6 +328,14 @@ impl TableCompareView {
                 ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
             }
             "Delete" => self.clear_selected(),
+            "Associated Application" | "Explorer" => match self.files[s].path.clone() {
+                Some(path) => {
+                    if let Err(e) = crate::text::view::shell_open(&path, id == "Explorer") {
+                        self.message = format!("Cannot open {}: {e}", path.display());
+                    }
+                }
+                None => self.message = "This side has no file on disk".into(),
+            },
             "Modify..." => self.begin_edit(s, self.grid.cursor, None),
             "Select All" => self.select_all(),
             "Insert Row Before"
@@ -647,7 +663,9 @@ impl TableCompareView {
                 },
             }
         };
+        // Workbooks have no delimiter (their read options keep the CSV defaults).
         let delimiter = match options.format.table_type {
+            _ if self.workbook(s) => "",
             TableType::Fixed => "Fixed",
             _ => match options.format.delimiters.first() {
                 Some('\t') => "Tab",
@@ -690,11 +708,7 @@ impl TableCompareView {
             painter.galley(egui::pos2(x, y - galley.size().y / 2.0), galley, ink);
             let mut end = x + width;
             if dropdown {
-                crate::chrome::icons::dropdown_triangle(
-                    &painter,
-                    egui::pos2(end + 9.0, y),
-                    ink,
-                );
+                crate::chrome::icons::dropdown_triangle(&painter, egui::pos2(end + 9.0, y), ink);
                 end += 16.0;
                 switches.push((x - 4.0, end - x + 8.0));
             }
@@ -705,10 +719,8 @@ impl TableCompareView {
             "Change format (Session Settings)",
             "Change encoding (Session Settings)",
         ]) {
-            let r = egui::Rect::from_min_size(
-                egui::pos2(x, info.top() + 3.0),
-                egui::vec2(width, 21.0),
-            );
+            let r =
+                egui::Rect::from_min_size(egui::pos2(x, info.top() + 3.0), egui::vec2(width, 21.0));
             let response = ui
                 .interact(
                     r,

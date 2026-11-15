@@ -18,6 +18,35 @@ pub enum Kind {
     NewFolder,
     Delete,
 }
+impl Kind {
+    /// Dialog title (the Actions menu wording).
+    pub fn title(self) -> &'static str {
+        match self {
+            Kind::CopyTo => "Copy to Folder",
+            Kind::MoveTo => "Move to Folder",
+            Kind::Rename => "Rename",
+            Kind::Attributes => "Attributes",
+            Kind::Touch => "Touch",
+            Kind::NewFolder => "New Folder",
+            Kind::Delete => "Delete",
+        }
+    }
+}
+pub fn target_label(target: Target) -> &'static str {
+    match target {
+        Target::Left => "Left side",
+        Target::Right => "Right side",
+        Target::All => "Both sides",
+    }
+}
+/// Path options as worded in the reference help (Copy to Folder).
+pub fn path_mode_label(mode: PathMode) -> &'static str {
+    match mode {
+        PathMode::None => "Don't keep folder structure",
+        PathMode::Relative => "Keep relative folder structure",
+        PathMode::Base => "Keep base folder structure",
+    }
+}
 pub struct OperationDialog {
     pub kind: Kind,
     pub text: String,
@@ -114,23 +143,25 @@ impl OperationDialog {
     ) -> Option<Result<(DirOp, bool), ()>> {
         let mut result = None;
         let mut open = true;
-        Window::new(format!("{:?}", self.kind))
+        Window::new(self.kind.title())
             .open(&mut open)
             .min_width(360.0)
             .show(ctx, |ui| {
                 if self.kind != Kind::Rename {
                     ui.horizontal(|ui| {
                         ui.label("Target");
-                        widgets::Combo::new("operation_target", format!("{:?}", self.target))
-                            .show(ui, |list| {
+                        widgets::Combo::new("operation_target", target_label(self.target)).show(
+                            ui,
+                            |list| {
                                 for value in [Target::Left, Target::Right, Target::All] {
                                     list.selectable_value(
                                         &mut self.target,
                                         value,
-                                        format!("{value:?}"),
+                                        target_label(value),
                                     );
                                 }
-                            });
+                            },
+                        );
                     });
                 }
                 match self.kind {
@@ -159,14 +190,15 @@ impl OperationDialog {
                             ui.label("Path mode");
                             widgets::Combo::new(
                                 "operation_path_mode",
-                                format!("{:?}", self.path_mode),
+                                path_mode_label(self.path_mode),
                             )
+                            .width(240.0)
                             .show(ui, |list| {
-                                for mode in [PathMode::None, PathMode::Relative, PathMode::Base] {
+                                for mode in [PathMode::Relative, PathMode::Base, PathMode::None] {
                                     list.selectable_value(
                                         &mut self.path_mode,
                                         mode,
-                                        format!("{mode:?}"),
+                                        path_mode_label(mode),
                                     );
                                 }
                             });

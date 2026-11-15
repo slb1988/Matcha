@@ -29,6 +29,55 @@ fn sep() -> MenuItem {
         action_id: String::new(),
     }
 }
+/// 网格右键菜单库存（参考 `supplemental/table-context.tree.json`）。动作 id 与菜单栏同名，
+/// 启用状态与标签（Copy to Left/Right）由视图按菜单栏同一套规则填写。
+pub(super) fn context() -> Vec<MenuItem> {
+    vec![
+        item("Align With...", Some('w'), Some("F7"), vec![]),
+        item("Copy to Right", Some('y'), Some("Ctrl+R"), vec![]),
+        item(
+            "Copy Cell to Right",
+            Some('y'),
+            Some("Shift+Ctrl+R"),
+            vec![],
+        ),
+        sep(),
+        item("Cut", Some('t'), Some("Ctrl+X"), vec![]),
+        item("Copy", Some('c'), Some("Ctrl+C"), vec![]),
+        item("Paste", Some('p'), Some("Ctrl+V"), vec![]),
+        item("Delete", Some('d'), None, vec![]),
+        item("Delete Row", Some('d'), None, vec![]),
+        item("Delete Column", Some('d'), None, vec![]),
+        item(
+            "Insert Row Before",
+            Some('b'),
+            Some("Shift+Ctrl+Enter"),
+            vec![],
+        ),
+        item("Insert Row After", Some('i'), Some("Ctrl+Enter"), vec![]),
+        item("Insert Column Before", Some('e'), None, vec![]),
+        item("Insert Column After", Some('n'), None, vec![]),
+        item("Modify...", Some('m'), Some("F2"), vec![]),
+        item("Sort...", Some('s'), None, vec![]),
+        sep(),
+        item("Open File...", Some('o'), Some("Ctrl+O"), vec![]),
+        item("Open Clipboard", Some('c'), Some("Shift+Ctrl+V"), vec![]),
+        item(
+            "Open With",
+            Some('w'),
+            None,
+            vec![
+                item("Associated Application", None, None, vec![]),
+                sep(),
+                item("Text Edit", Some('d'), None, vec![]),
+            ],
+        ),
+        item("Save File", Some('s'), Some("Ctrl+S"), vec![]),
+        item("Save File As...", Some('a'), Some("F12"), vec![]),
+        item("Explorer", Some('x'), None, vec![]),
+    ]
+}
+
 pub(super) fn inventory() -> Vec<MenuSpec> {
     vec![
         MenuSpec {

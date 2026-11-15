@@ -478,7 +478,10 @@ fn column_resize_hit_test_and_offset_updates() {
     scrolled.widths = vec![33.0, 47.0];
     scrolled.rebuild_columns(2, &[], false);
     scrolled.scroll.x = 30.0;
-    assert_eq!(scrolled.resize_target(pane_left, pane_left + GUTTER + 3.0), None);
+    assert_eq!(
+        scrolled.resize_target(pane_left, pane_left + GUTTER + 3.0),
+        None
+    );
     assert_eq!(
         scrolled.resize_target(pane_left, pane_left + GUTTER + 50.0),
         Some(1)
@@ -530,7 +533,11 @@ fn dragging_a_header_boundary_resizes_the_shared_column() {
     assert!(v.grid.resizing.is_none(), "resize ends with the drag");
     // A click without drag keeps the width.
     let stable = v.grid.offsets[1];
-    click(&ctx, &mut v, egui::pos2(pane.left() + GUTTER + stable, header_y));
+    click(
+        &ctx,
+        &mut v,
+        egui::pos2(pane.left() + GUTTER + stable, header_y),
+    );
     frame(&ctx, &mut v, vec![]);
     assert_eq!(v.grid.offsets[1], stable);
 }
@@ -579,7 +586,10 @@ fn header_paints_excel_style_letters_even_with_a_header_row() {
     // 表头行保留为第 1 行数据。
     let first_row = egui::Rect::from_min_max(
         egui::pos2(pane.left(), pane.top()),
-        egui::pos2(pane.left() + 200.0, pane.top() + super::super::grid::ROW_HEIGHT),
+        egui::pos2(
+            pane.left() + 200.0,
+            pane.top() + super::super::grid::ROW_HEIGHT,
+        ),
     );
     let row_texts: Vec<&str> = out
         .shapes
@@ -602,4 +612,93 @@ fn header_paints_excel_style_letters_even_with_a_header_row() {
     }
     let _ = std::fs::remove_file(left);
     let _ = std::fs::remove_file(right);
+}
+
+/// Reference-order labels of a context menu tree (`----` for separators).
+fn tree_labels(items: &[crate::chrome::menubar::MenuItem]) -> Vec<String> {
+    use crate::chrome::menubar::MenuItemKind;
+    let mut out = Vec::new();
+    for item in items {
+        match &item.kind {
+            MenuItemKind::Separator => out.push("----".into()),
+            MenuItemKind::Submenu(children) => {
+                out.push(item.label.clone());
+                out.extend(tree_labels(children).into_iter().map(|l| format!("  {l}")));
+            }
+            _ => out.push(item.label.clone()),
+        }
+    }
+    out
+}
+fn reference_labels(items: &[serde_json::Value]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        if item["separator"].as_bool() == Some(true) || item["type"] == "separator" {
+            out.push("----".into());
+            continue;
+        }
+        out.push(item["name"].as_str().unwrap_or_default().to_string());
+        if let Some(children) = item["children"].as_array() {
+            out.extend(
+                reference_labels(children)
+                    .into_iter()
+                    .map(|l| format!("  {l}")),
+            );
+        }
+    }
+    out
+}
+
+#[test]
+fn grid_context_menu_follows_the_reference_and_acts_on_the_clicked_side() {
+    // Inventory: same entries, order and separators as the captured reference menu.
+    let tree: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/visual-parity/supplemental/table-context.tree.json"),
+        )
+        .unwrap()
+        .trim_start_matches('\u{feff}'),
+    )
+    .unwrap();
+    assert_eq!(
+        tree_labels(&super::super::menu::context()),
+        reference_labels(tree["items"].as_array().unwrap())
+    );
+
+    let mut v = view();
+    let ctx = egui::Context::default();
+    crate::chrome::theme::apply(&ctx);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    // Right click on the right pane, second data row, second column.
+    let rect = v.grid.pane_rects[1];
+    let x = rect.left() + GUTTER + v.grid.offsets[1] + 5.0;
+    let y = rect.top() + super::super::grid::ROW_HEIGHT * 1.5;
+    let p = egui::pos2(x, y);
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut v,
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    assert_eq!(v.grid.active, 1);
+    assert_eq!(v.grid.cursor.column, v.grid.columns[1]);
+    frame(&ctx, &mut v, vec![]);
+    let out = frame(&ctx, &mut v, vec![]);
+    // Right side: the copy entries point left; workbook-only rules keep CSV saves on.
+    assert!(has(&out, "Copy to Left"), "menu not open");
+    assert!(has(&out, "Copy Cell to Left"));
+    click(&ctx, &mut v, button(&out, "Modify..."));
+    assert!(v.editor.is_some(), "Modify... opens the cell editor");
+    assert_eq!(v.grid.active, 1);
 }

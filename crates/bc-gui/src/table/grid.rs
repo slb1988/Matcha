@@ -81,6 +81,9 @@ impl Default for GridState {
 pub enum GridAction {
     Select(usize, Cursor, bool),
     Edit(usize, Cursor),
+    /// Right click on a cell: select it (unless it is inside the selection)
+    /// before the context menu opens.
+    Context(usize, Cursor),
 }
 pub fn color(
     colors: &DiffColors,
@@ -332,6 +335,7 @@ pub fn wheel(ctx: &egui::Context, state: &mut GridState, enabled: bool) {
 }
 /// One comparison pane: 28 px column header plus the virtualized rows.
 /// `rect` starts at the pane's left border and the header's top line.
+/// Also returns the rows area response (the owner of the context menu).
 #[allow(clippy::too_many_arguments)]
 pub fn pane(
     ui: &mut egui::Ui,
@@ -342,7 +346,7 @@ pub fn pane(
     side: usize,
     different: &[bool],
     colors: &DiffColors,
-) -> Option<GridAction> {
+) -> (Option<GridAction>, egui::Response) {
     let active = state.active == side;
     let line = if active {
         GRID_LINE
@@ -482,7 +486,10 @@ pub fn pane(
     if offset != scroll {
         state.scroll = offset;
     }
-    if (pane_response.clicked() || pane_response.dragged()) && !state.columns.is_empty() {
+    let secondary = pane_response.secondary_clicked();
+    if (pane_response.clicked() || pane_response.dragged() || secondary)
+        && !state.columns.is_empty()
+    {
         if let Some(pos) = pane_response
             .interact_pointer_pos()
             .filter(|p| state.pane_rects[side].contains(*p))
@@ -501,7 +508,9 @@ pub fn pane(
                     row,
                     column: state.columns[c],
                 };
-                action = Some(if pane_response.double_clicked() {
+                action = Some(if secondary {
+                    GridAction::Context(side, cursor)
+                } else if pane_response.double_clicked() {
                     GridAction::Edit(side, cursor)
                 } else {
                     GridAction::Select(
@@ -514,7 +523,7 @@ pub fn pane(
             }
         }
     }
-    action
+    (action, pane_response)
 }
 struct RowStyle<'a> {
     side: usize,
@@ -589,10 +598,12 @@ fn rows(
                 continue;
             }
             // Sheet under the cell (canvas shows outside the data).
-            let sheet_rect = cell_rect.intersect(clip).intersect(egui::Rect::from_min_max(
-                egui::pos2(gutter.right(), clip.top()),
-                clip.max,
-            ));
+            let sheet_rect = cell_rect
+                .intersect(clip)
+                .intersect(egui::Rect::from_min_max(
+                    egui::pos2(gutter.right(), clip.top()),
+                    clip.max,
+                ));
             if sheet_rect.is_positive() {
                 painter.rect_filled(
                     sheet_rect,

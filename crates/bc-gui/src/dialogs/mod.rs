@@ -1,4 +1,5 @@
 pub mod find;
+pub mod folder_settings;
 pub mod operation;
 pub mod options;
 pub mod paths;

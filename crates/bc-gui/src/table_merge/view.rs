@@ -29,7 +29,7 @@ pub(crate) const HEADER: f32 = 24.0;
 pub(crate) const COLUMNS: f32 = 20.0;
 pub(crate) const COLUMN_WIDTH: f32 = 110.0;
 pub(crate) const ROW_HEIGHT: f32 = 20.0;
-const SHEET_TABS: f32 = 32.0;
+const SHEET_TABS: f32 = crate::chrome::sheet_tabs::HEIGHT;
 /// 选中格详情条的高度（状态条之上）。
 const DETAILS: f32 = 62.0;
 
@@ -646,10 +646,7 @@ impl TableMergeView {
             .iter()
             .enumerate()
             .map(|(pane, r)| {
-                r.height()
-                    - HEADER
-                    - COLUMNS
-                    - if self.max_x[pane] > 0.0 { 16.0 } else { 0.0 }
+                r.height() - HEADER - COLUMNS - if self.max_x[pane] > 0.0 { 16.0 } else { 0.0 }
             })
             .fold(f32::INFINITY, f32::min)
             .max(ROW_HEIGHT);
@@ -663,8 +660,7 @@ impl TableMergeView {
             self.scroll_y -= delta.y;
             if delta.x != 0.0 {
                 if let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) {
-                    if let Some(pane) = self.pane_rects.iter().position(|r| r.contains(pointer))
-                    {
+                    if let Some(pane) = self.pane_rects.iter().position(|r| r.contains(pointer)) {
                         self.scroll_x[pane] -= delta.x;
                     }
                 }
@@ -798,9 +794,7 @@ impl TableMergeView {
                             .background_color(fill)
                             .small(),
                     );
-                    ui.label(
-                        egui::RichText::new(self.describe_cell()).color(theme::TEXT_MUTED),
-                    );
+                    ui.label(egui::RichText::new(self.describe_cell()).color(theme::TEXT_MUTED));
                 });
                 let text = self.details_text();
                 let edit = ui.add_sized(
@@ -818,46 +812,37 @@ impl TableMergeView {
     }
 
     fn sheet_tabs(&mut self, ui: &mut egui::Ui) {
-        let mut clicked = None;
+        use chrome::sheet_tabs::{self, SheetTab};
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), SHEET_TABS),
             egui::Sense::hover(),
         );
-        ui.painter().rect_filled(rect, 0.0, theme::PANEL_BG);
-        ui.scope_builder(
-            egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(6.0, 2.0))),
-            |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    for (i, sheet) in self.model.sheets().iter().enumerate() {
-                        let mut label = sheet.name.clone();
-                        let count = self.model.unresolved_in(i);
-                        if count > 0 {
-                            label.push_str(&format!(" ({count})"));
-                        }
-                        if sheet.is_dropped() {
-                            label.push_str(" — not in output");
-                        } else if let Some(by) = sheet.sheet_deleted_by() {
-                            label.push_str(&format!(" — deleted on {}", side_name(by)));
-                        }
-                        let text = if count > 0 {
-                            egui::RichText::new(label).color(theme::MERGE_CONFLICT)
-                        } else if sheet.is_dropped() {
-                            egui::RichText::new(label).strikethrough()
-                        } else {
-                            egui::RichText::new(label)
-                        };
-                        if ui
-                            .add(chrome::widgets::Button::new(text).selected(i == self.model.sheet))
-                            .clicked()
-                        {
-                            clicked = Some(i);
-                        }
-                    }
-                });
-            },
-        );
-        if let Some(i) = clicked {
+        let tabs: Vec<SheetTab> = self
+            .model
+            .sheets()
+            .iter()
+            .enumerate()
+            .map(|(i, sheet)| {
+                let mut label = sheet.name.clone();
+                let count = self.model.unresolved_in(i);
+                if count > 0 {
+                    label.push_str(&format!(" ({count})"));
+                }
+                if sheet.is_dropped() {
+                    label.push_str(" — not in output");
+                } else if let Some(by) = sheet.sheet_deleted_by() {
+                    label.push_str(&format!(" — deleted on {}", side_name(by)));
+                }
+                SheetTab {
+                    // Unresolved conflicts: conflict-colored dot and text.
+                    dot: (count > 0).then_some(theme::MERGE_CONFLICT),
+                    color: (count > 0).then_some(theme::MERGE_CONFLICT),
+                    strike: sheet.is_dropped(),
+                    ..SheetTab::new(label)
+                }
+            })
+            .collect();
+        if let Some(i) = sheet_tabs::show(ui, rect, &tabs, self.model.sheet) {
             self.switch_sheet(i);
         }
     }
@@ -1363,22 +1348,21 @@ impl TableMergeView {
                 confirmed,
             }) => {
                 let (mut accept, mut cancel) = (false, false);
-                chrome::window::Window::new("Save merge output as")
-                    .show(ctx, |ui| {
-                        ui.label("Output file path");
-                        chrome::widgets::text_field_width(ui, &mut path, 420.0);
-                        match chrome::widgets::dialog_buttons(
-                            ui,
-                            &[
-                                ("Cancel", chrome::controls::Role::Secondary),
-                                ("Save", chrome::controls::Role::Primary),
-                            ],
-                        ) {
-                            Some(0) => cancel = true,
-                            Some(_) => accept = true,
-                            None => {}
-                        }
-                    });
+                chrome::window::Window::new("Save merge output as").show(ctx, |ui| {
+                    ui.label("Output file path");
+                    chrome::widgets::text_field_width(ui, &mut path, 420.0);
+                    match chrome::widgets::dialog_buttons(
+                        ui,
+                        &[
+                            ("Cancel", chrome::controls::Role::Secondary),
+                            ("Save", chrome::controls::Role::Primary),
+                        ],
+                    ) {
+                        Some(0) => cancel = true,
+                        Some(_) => accept = true,
+                        None => {}
+                    }
+                });
                 if accept && !path.trim().is_empty() {
                     self.save_as(path, then, confirmed);
                 } else if !cancel {

@@ -151,7 +151,7 @@ fn cached_sheet_switch_keeps_selected_layers_ignore_and_filter_consistent() {
         [Some(Importance::Important), Some(Importance::Unimportant)]
     );
     choose(&ctx, &mut v, "Ignore Unimportant");
-    choose(&ctx, &mut v, "● Other");
+    choose(&ctx, &mut v, "Other");
     assert_eq!(v.active_pair, 1);
     assert_eq!(v.row_count(), 0);
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.same, 1);
@@ -159,11 +159,11 @@ fn cached_sheet_switch_keeps_selected_layers_ignore_and_filter_consistent() {
     choose(&ctx, &mut v, "Ignore Unimportant");
     assert_eq!(v.row_count(), 1);
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.unimportant, 1);
-    choose(&ctx, &mut v, "● Data");
+    choose(&ctx, &mut v, "Data");
     assert_eq!(v.active_pair, 0);
     assert_eq!(v.pair.as_ref().unwrap().cache.statistics.important, 1);
     choose(&ctx, &mut v, "Values");
-    choose(&ctx, &mut v, "● Other");
+    choose(&ctx, &mut v, "Other");
     assert_eq!(v.row_count(), 0);
     assert_eq!(v.states, [Some(Importance::Same), Some(Importance::Same)]);
 }

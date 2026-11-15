@@ -11,6 +11,12 @@
 - 过滤器：名称/属性/时间/大小，预设持久化在 `Matcha/folder-filters.xml`。
 - 文件操作：复制/移动/删除/重命名，回收站策略（ADR 102），显式范围+分类双重确认（ADR 103）。
 - 同步：五种预设 + 自定义、预览动作、逐项覆盖与冲突导航；成功后维护同步基线。
+- 界面：文件夹树右键菜单按参考排列（Open Folder / Open、Open/Close Subfolders、Set as Base、Open in New View、Open With、
+  Compare To…、Compare Contents、Copy/Move to Right|Left、Copy/Move to Folder、Delete、Rename、Attributes、Touch、Exclude、
+  New Folder、Copy Filename、Ignored、Refresh Selection、Synchronize、Explorer），复用 Actions 菜单命令，Synchronize 子项
+  与 Open With ▸ Folder Sync 暂为禁用；右键先选中所点一侧。Session Settings 按参考帮助分六页（Specs、Comparison、Handling、
+  Name Filters、Other Filters、Misc），编辑草稿，OK / Apply 只重发变化的部分（过滤、规则重扫、路径变更重载）。
+  文件操作与范围确认对话框以文字呈现标题与选项（Copy to Folder、Both sides、Keep relative folder structure 等）。
 
 ## 代码地图
 

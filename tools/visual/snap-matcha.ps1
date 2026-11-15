@@ -1,7 +1,7 @@
 # Matcha 确定性客户区快照；所有路径相对仓库根，与调用者当前目录无关。
 [CmdletBinding()]
 param(
-    [ValidateSet('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff','folder-sync')]
+    # Any scene in the registry (`matcha /?` prints the list); -All runs every one.
     [string]$Scene = 'text-basic',
     [switch]$All,
     [switch]$Verify,
@@ -16,7 +16,12 @@ try {
     & cargo build --release -p bcompare
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" }
     $exe = Join-Path $root 'target/release/matcha.exe'
-    $scenes = if ($All) { @('icon-catalog','chrome-demo','text-basic','folder-basic','text-diffs-filter','text-cursor-on-diff','folder-expanded','folder-diffs-filter','text-long-scrolled','home','text-menu-edit','text-find-bar','dlg-text-session-settings','dlg-options','table-basic','table-cursor-on-diff','folder-sync') } else { @($Scene) }
+    # The scene registry is the single source: `matcha /?` ends with "scenes: a, b, ...".
+    $line = (& $exe '/?' | Select-String -Pattern '^scenes: ' | Select-Object -First 1).Line
+    if (-not $line) { throw 'matcha /? printed no scene list' }
+    $registry = $line.Substring('scenes: '.Length).Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    if (-not $All -and $registry -notcontains $Scene) { throw "unknown scene '$Scene'; known: $($registry -join ', ')" }
+    $scenes = if ($All) { $registry } else { @($Scene) }
     $outDir = Join-Path $root 'target/visual/matcha'
     New-Item -ItemType Directory -Force $outDir | Out-Null
     $results = @()
@@ -26,7 +31,7 @@ try {
         & $exe "--snapshot=$name" "--snapshot-out=$path" "--window-size=$WindowSize" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "$name snapshot failed: $LASTEXITCODE" }
         $bytes = [IO.File]::ReadAllBytes($path)
-        if ([Convert]::ToHexString($bytes[0..7]) -ne '89504E470D0A1A0A') { throw "$path is not PNG" }
+        if (([BitConverter]::ToString($bytes[0..7]) -replace '-', '') -ne '89504E470D0A1A0A') { throw "$path is not PNG" }
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
         $repeatHash = $null
         if ($Verify) {

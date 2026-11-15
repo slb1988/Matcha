@@ -29,20 +29,20 @@
 ## 4. 文件夹比较/同步外观（master，Wave 3；仅 4.1 本期，4.2/4.3 中同步部分后置）
 
 - [x] 4.1 文件夹比较菜单/工具栏/过滤栏/路径栏/双树（列头、行高、展开符、文件夹与文件图标、名称颜色语义、中缝比较符号）/状态栏
-- [ ] 4.2 文件夹同步视图同上；操作确认对话框外观
-- [ ] 4.3 文件夹场景对照达标并合回 master（只在 `dir_view.rs`/`sync_view.rs`/`filters_bar.rs` 与 `app.rs` 最小接线范围冲突）
+- [x] 4.2 文件夹同步视图同上；操作确认对话框外观
+- [x] 4.3 文件夹场景对照达标并合回 master（只在 `dir_view.rs`/`sync_view.rs`/`filters_bar.rs` 与 `app.rs` 最小接线范围冲突）
 
 ## 5. Home 与表格比较外观（后置：2026-11-10 用户收窄范围，抓大放小）
 
-- [ ] 5.1 Home：左侧会话树（分组/最近/自动保存）、右侧新会话类型网格、工具栏与菜单
-- [ ] 5.2 表格比较：菜单/工具栏/路径栏/信息头/网格（表头、行号、状态色、差异单元格色、键列标记）/sheet 标签/行详情/状态栏
-- [ ] 5.3 Home 与表格场景对照达标；`--bench-table` 不退化
+- [x] 5.1 Home：左侧会话树（分组/最近/自动保存）、右侧新会话类型网格、工具栏与菜单
+- [x] 5.2 表格比较：菜单/工具栏/路径栏/信息头/网格（表头、行号、状态色、差异单元格色、键列标记）/sheet 标签/行详情/状态栏
+- [x] 5.3 Home 与表格场景对照达标；`--bench-table` 不退化
 
 ## 6. 对话框与菜单（后置；注：参考工具 Find/Replace 实为停靠查找条，非对话框，见 tokens 场景 text-find-bar）
 
-- [ ] 6.1 会话设置（文本/文件夹/表格各页签）、Options、Find/Replace、File Formats、Go To 的窗口尺寸、页签、控件布局与按钮行（OK/Cancel/Help）
-- [ ] 6.2 右键菜单（文本窗格、文件夹树、表格网格）条目与顺序；弹出菜单阴影/边框/高亮色
-- [ ] 6.3 对话框与菜单场景对照达标
+- [x] 6.1 会话设置（文本/文件夹/表格各页签）、Options、Find/Replace、File Formats、Go To 的窗口尺寸、页签、控件布局与按钮行（OK/Cancel/Help）
+- [x] 6.2 右键菜单（文本窗格、文件夹树、表格网格）条目与顺序；弹出菜单阴影/边框/高亮色
+- [x] 6.3 对话框与菜单场景对照达标
 
 ## 7. 收尾
 
@@ -58,3 +58,23 @@
   `theme::Palette`），**不做经典 Windows 1:1 复刻**。任务组 6（对话框/右键菜单）若重启，目标是对照参考工具的
   信息结构（页签、控件、条目与顺序、按钮行），视觉样式以设计系统为准，不复刻 Win32 方角标签页、像素箭头、阴影等经典外观；
   任务组 4.2/4.3、5 同理。change 仍不归档，剩余范围待用户决定。
+
+## 收口记录（2026-11-15，按 design D9：结构对齐参考、样式走设计系统）
+
+- 4.2：同步视图由 Wave 9 完成；本次把文件操作 / 范围确认对话框的标题与选项从内部枚举名（CopyTo、All、None、CopyOther）
+  改为文字（Copy to Folder、Both sides、Keep relative folder structure、Copy to Other Side），措辞取自参考帮助 `opcopyto.html`。
+- 4.3：文件夹场景（folder-basic / folder-expanded / folder-diffs-filter / folder-sync）快照确定性通过，与参考并排结构一致；
+  已在 master，无需合并。
+- 5.1：Home 由 Wave 5 完成，后经组件库重构为现代卡片布局（结构：会话树 + 新会话类型网格 + 帮助面板）。
+- 5.2：表格主视图由 Wave 8 完成；本次补 sheet 标签（共享 `chrome::sheet_tabs`，位于网格与状态栏之间，带比较状态点，
+  表格合并共用）与工作簿信息行不显示分隔符。
+- 5.3：`table-basic` / `table-cursor-on-diff` 快照确定性通过、并排结构一致；`--bench-table`（100 万行）update p99
+  2.52 / 2.35 / 2.64 ms，远低于 16 ms 帧预算与 4 ms 表格门槛（W8 记录 1.95–2.37 ms，期间经组件库重构），判定不退化。
+- 6.1：Session Settings 统一 `chrome::dialog` 框架——文本（W7）、表格（五页 + OK/Cancel/Apply）、文件夹/同步（按参考帮助
+  `sessiondir.html` 六页 Specs/Comparison/Handling/Name Filters/Other Filters/Misc，草稿 + OK/Cancel/Apply，只重发变化部分）、
+  Hex（三页 + OK/Cancel）；Options（W7）；Find/Replace 为停靠查找条（W6）；File Formats、Go To 由组件库重构为卡片
+  （无参考截图，按设计系统布局）。新场景 `dlg-table-session-settings`、`dlg-folder-session-settings`。
+- 6.2：右键菜单——文本（已有，参考树）、表格网格（新增，`table::menu::context`）、文件夹树（新增，`folder_context_items`）
+  条目/顺序/分隔线逐项比对 `supplemental/*-context.tree.json`；复用菜单栏命令与启用规则，未实现项禁用；右键先选中所点项。
+- 6.3：`pwsh tools/visual/snap-matcha.ps1 -All -Verify` 28/28 场景两次渲染字节一致（脚本改为从 `matcha /?` 读取场景注册表，
+  修正 PowerShell 5.1 不支持的 `[Convert]::ToHexString`）；清单测试见上；对照报告 `docs/reference-parity/visual.md`「方向修订」。

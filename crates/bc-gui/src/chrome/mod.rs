@@ -10,14 +10,15 @@ pub mod native_dialog;
 pub mod pathbar;
 pub mod popup;
 pub mod scrollbar;
+pub mod sheet_tabs;
 pub mod splitter;
 pub mod statusbar;
 pub mod tabstrip;
 pub mod theme;
 pub mod toolbar;
+pub mod wheel;
 pub mod widgets;
 pub mod window;
-pub mod wheel;
 
 /// 无渲染器输入注入测试必须显式消费纹理增量（egui 0.37）。
 #[cfg(test)]

@@ -11,6 +11,7 @@ use super::{
     status_bar,
     worker::Worker,
 };
+use crate::chrome::{widgets, window::Window};
 use bc_core::{
     encoding::{BomPolicy, Encoding},
     line::{LineEdit, MaterializeContext},
@@ -26,7 +27,6 @@ use bc_engine_text::{
 };
 use bc_formats::{registry::FormatRegistry, FormatKind};
 use bc_session::prefs::Prefs;
-use crate::chrome::{widgets, window::Window};
 use eframe::egui;
 use std::{
     collections::HashMap,
@@ -1389,10 +1389,7 @@ impl TextCompareView {
         if let Some(action) = response.clicked.clone() {
             self.command(&action, ui.ctx(), prefs);
         }
-        let current_format = self
-            .content(self.active)
-            .format()
-            .map(|f| f.name.clone());
+        let current_format = self.content(self.active).format().map(|f| f.name.clone());
         let formats: Vec<String> = self
             .registry
             .formats()
@@ -1475,32 +1472,29 @@ impl TextCompareView {
         }
         if self.show_goto {
             let mut open = true;
-            Window::new("Go To")
-                .open(&mut open)
-                .show(ui.ctx(), |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Line:");
-                        ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));
-                        ui.label("Column:");
-                        ui.add(egui::DragValue::new(&mut self.goto_column).range(1..=usize::MAX));
-                        if widgets::primary_button(ui, "Go").clicked() {
-                            let content = self.content(self.active);
-                            let lines = content.lines.borrow();
-                            let line = (self.goto_line - 1).min(lines.len().saturating_sub(1));
-                            let text =
-                                std::str::from_utf8(lines.line_bytes(line).unwrap_or_default())
-                                    .unwrap();
-                            let byte = super::editor::byte_at_char(text, self.goto_column - 1);
-                            drop(lines);
-                            self.current_row = self.row_for_line(self.active, line);
-                            self.editors[self.active].place(Caret { line, byte }, false);
-                            self.filter = DisplayFilter::All;
-                            self.rebuild_projection();
-                            self.scroll_to_row(self.current_row);
-                            self.show_goto = false;
-                        }
-                    });
+            Window::new("Go To").open(&mut open).show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Line:");
+                    ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));
+                    ui.label("Column:");
+                    ui.add(egui::DragValue::new(&mut self.goto_column).range(1..=usize::MAX));
+                    if widgets::primary_button(ui, "Go").clicked() {
+                        let content = self.content(self.active);
+                        let lines = content.lines.borrow();
+                        let line = (self.goto_line - 1).min(lines.len().saturating_sub(1));
+                        let text = std::str::from_utf8(lines.line_bytes(line).unwrap_or_default())
+                            .unwrap();
+                        let byte = super::editor::byte_at_char(text, self.goto_column - 1);
+                        drop(lines);
+                        self.current_row = self.row_for_line(self.active, line);
+                        self.editors[self.active].place(Caret { line, byte }, false);
+                        self.filter = DisplayFilter::All;
+                        self.rebuild_projection();
+                        self.scroll_to_row(self.current_row);
+                        self.show_goto = false;
+                    }
                 });
+            });
             self.show_goto &= open;
         }
         if self.show_view_options {
@@ -2023,9 +2017,7 @@ impl TextCompareView {
                     ui.visuals_mut().override_text_color = Some(crate::chrome::theme::TEXT_MUTED);
                     // Flowing items (no fixed slots): long dates or sizes never overlap.
                     ui.add(egui::Label::new(self.files[s].modified_label.text()).extend());
-                    ui.add(
-                        egui::Label::new(format!("{} bytes", self.files[s].byte_len)).extend(),
-                    );
+                    ui.add(egui::Label::new(format!("{} bytes", self.files[s].byte_len)).extend());
                     let selected = self
                         .content(s)
                         .format()
@@ -2167,7 +2159,10 @@ impl TextCompareView {
                 })
                 .collect()
         });
-        if let Some(e) = chosen.and_then(|i| i.parse::<usize>().ok()).map(|i| endings[i]) {
+        if let Some(e) = chosen
+            .and_then(|i| i.parse::<usize>().ok())
+            .map(|i| endings[i])
+        {
             match self.content_mut(s).convert_endings(e) {
                 Ok(()) => self.recompare(),
                 Err(e) => self.message = e.to_string(),
@@ -2424,7 +2419,7 @@ pub(crate) fn index(row: TextMapRow, s: usize) -> Option<usize> {
     }
 }
 /// Open With > Associated Application（系统默认程序）或 Explorer（在文件管理器中定位）。
-fn shell_open(path: &Path, reveal: bool) -> std::io::Result<()> {
+pub(crate) fn shell_open(path: &Path, reveal: bool) -> std::io::Result<()> {
     let path = std::path::absolute(path)?;
     #[cfg(windows)]
     {

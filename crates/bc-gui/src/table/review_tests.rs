@@ -500,7 +500,7 @@ fn format_importance_checkbox_in_settings_toggles_the_format_layer() {
         click(ctx, v, button(&out, "Format differences are important"));
         if apply {
             let out = frame(ctx, v, vec![]);
-            click(ctx, v, button(&out, "Apply to current comparison"));
+            click(ctx, v, button(&out, "Apply"));
         }
     };
     // 取消路径：勾选但不 Apply → 关闭窗口 → 不变。
@@ -778,19 +778,13 @@ fn settings_with_changed_paths_publish_the_loaded_active_pair() {
     assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "aR");
     assert_eq!(p.cache.statistics.important, 1);
     // 标签栏第一项与内容一致。
-    let ctx = egui::Context::default();
-    let out = frame(&ctx, &mut v, vec![]);
-    let first_tab = out
-        .shapes
-        .iter()
-        .filter_map(|s| match &s.shape {
-            egui::Shape::Text(t) if t.galley.text().starts_with('●') => {
-                Some(t.galley.text().to_string())
-            }
-            _ => None,
-        })
-        .next();
-    assert_eq!(first_tab.as_deref(), Some("● Alpha"));
+    let tabs = super::super::sheet_tabs::tabs(
+        &v.names,
+        &v.pairs,
+        &v.states,
+        &bc_session::prefs::Prefs::default().colors,
+    );
+    assert_eq!(tabs[0].label, "Alpha");
     let _ = std::fs::remove_file(l0);
     let _ = std::fs::remove_file(r0);
     let _ = std::fs::remove_file(l1);

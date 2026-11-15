@@ -701,7 +701,7 @@ fn settings_apply_through_the_real_window_takes_effect_and_accept_structure_clea
     let out = frame(&ctx, &mut v, vec![]);
     click(&ctx, &mut v, button(&out, "Unimportant"));
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "Apply to current comparison"));
+    click(&ctx, &mut v, button(&out, "Apply"));
     ready(&mut v);
     let p = v.pair.as_ref().unwrap();
     assert_eq!(

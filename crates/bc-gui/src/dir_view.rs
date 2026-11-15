@@ -172,7 +172,7 @@ pub struct DirFrameStats {
     pub rows_drawn: usize,
     pub top_row: usize,
 }
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScanOptions {
     pub automatic: bool,
     pub scan_orphans: bool,
@@ -1914,14 +1914,11 @@ pub struct DirCompareView {
     pending_scroll: Option<usize>,
     pending_focus: Option<NodeId>,
     sort: (Column, usize, bool),
-    rules_open: bool,
+    /// Session Settings dialog (tabs per the reference help).
+    settings: dialogs::folder_settings::FolderSettings,
     criteria_text: String,
     pairing: PairingOptions,
     scan: ScanOptions,
-    align_left: String,
-    align_right: String,
-    align_folder: String,
-    align_regex: bool,
     /// 参考 chrome 布局状态（仅比较视图；同步视图保持旧布局）。
     menus: Vec<crate::chrome::menubar::MenuSpec>,
     home_requested: bool,
@@ -1930,8 +1927,11 @@ pub struct DirCompareView {
     chrome_log_logged: bool,
     log_save_open: bool,
     grid_lines: Option<(usize, Arc<Vec<RowLine>>)>,
-    /// Row the right-click menu was opened on.
+    /// Row the right-click menu was opened on, and the side under the pointer.
     context_row: Option<usize>,
+    context_side: Option<usize>,
+    /// Folder-compare context menu choice, run by `chrome_ui` after the grid.
+    context_action: Option<String>,
     /// Status-bar selection totals keyed by snapshot and selection fingerprint.
     selection_totals: Option<(usize, (usize, u64), SelectionTotals)>,
     /// Last-frame rects of the floating text / child-folder windows: an OS
@@ -2017,7 +2017,7 @@ impl DirCompareView {
             pending_scroll: None,
             pending_focus: None,
             sort: (Column::Name, 0, false),
-            rules_open: false,
+            settings: Default::default(),
             criteria_text: Criteria::default().to_script(),
             pairing: PairingOptions::default(),
             scan: ScanOptions {
@@ -2025,10 +2025,6 @@ impl DirCompareView {
                 expand_on_load: bench || sync_mode,
                 ..Default::default()
             },
-            align_left: String::new(),
-            align_right: String::new(),
-            align_folder: String::new(),
-            align_regex: false,
             menus: folder_menu_inventory(),
             home_requested: false,
             show_files: true,
@@ -2037,6 +2033,8 @@ impl DirCompareView {
             log_save_open: false,
             grid_lines: None,
             context_row: None,
+            context_side: None,
+            context_action: None,
             selection_totals: None,
             floating: [None; 2],
         };
@@ -2187,7 +2185,7 @@ impl DirCompareView {
         ctx.input_mut(|i| i.raw.dropped_files.clear());
         let dialog = self.paths.open
             || self.find.open
-            || self.rules_open
+            || self.settings.open
             || self.log_save_open
             || self.operation.is_some()
             || self.scope.is_some()
@@ -2364,7 +2362,7 @@ impl DirCompareView {
         std::mem::take(&mut self.exit_requested) || child
     }
     fn new_folder_view(&mut self, paths: [PathBuf; 2]) {
-        self.rules_open = false;
+        self.settings.close();
         self.legend_open = false;
         self.find.open = false;
         self.operation = None;
@@ -2595,99 +2593,66 @@ impl DirCompareView {
             recursive,
         });
     }
-    fn rules_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.rules_open;
-        let mut apply = false;
-        let mut align = false;
-        let mut apply_filters = false;
-        let mut save_presets = false;
-        use crate::chrome::{widgets, window::Window};
-        Window::new("Folder comparison rules")
-            .open(&mut open)
-            .default_size([620.0, 640.0])
-            .scroll(true)
-            .show(ctx, |ui| {
-                // 旧过滤行的附加字段迁到这里（名称掩码在过滤栏组合框）。
-                widgets::section(ui, "Filters");
-                widgets::hint(
-                    ui,
-                    "Name filters are edited in the toolbar filter box; additional script filters:",
-                );
-                widgets::text_field_width(ui, &mut self.filters.other, 550.0);
-                ui.label("UTF-8 content text (empty disables)");
-                widgets::text_field_width(ui, &mut self.filters.content, 550.0);
-                widgets::checkbox(
-                    ui,
-                    &mut self.filters.exclude_containing,
-                    "Exclude containing (otherwise exclude not containing)",
-                );
-                ui.horizontal(|ui| {
-                    if widgets::button(ui, "Apply filters").clicked() {
-                        apply_filters = true;
-                    }
-                    widgets::text_field_width(ui, &mut self.filters.preset_name, 200.0);
-                    if widgets::button(ui, "Save named preset").clicked() {
-                        match self
-                            .filters
-                            .presets
-                            .upsert(&self.filters.preset_name, &self.filters.names)
-                        {
-                            Ok(()) => {
-                                self.filters.error = None;
-                                save_presets = true;
-                            }
-                            Err(e) => self.filters.error = Some(e),
-                        }
-                    }
-                });
-                ui.separator();
-                widgets::section(ui, "Comparison");
-                ui.label("criteria arguments");
-                widgets::text_field_width(ui, &mut self.criteria_text, 550.0);
-                widgets::hint(ui, "Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / skip-quick-same. Rules-based uses the default text rules; add comments-unimportant to ignore comment edits.");
-                widgets::checkbox(ui, &mut self.pairing.case_sensitive, "Case-sensitive pairing");
-                widgets::checkbox(ui, &mut self.pairing.ignore_extension, "Align different extensions");
-                widgets::checkbox(ui, &mut self.pairing.normalize_nfc, "Align Unicode normalization forms");
-                widgets::checkbox(ui, &mut self.scan.automatic, "Automatic recursive scan");
-                widgets::checkbox(ui, &mut self.scan.scan_orphans, "Scan top-level orphan folders");
-                widgets::checkbox(ui, &mut self.scan.expand_on_load, "Expand folders on load");
-                widgets::checkbox(ui, &mut self.scan.differences_only, "Expand differences only");
-                widgets::checkbox(ui, &mut self.scan.auto_refresh, "Automatic filesystem refresh");
-                ui.separator();
-                widgets::section(ui, "Handling");
-                widgets::checkbox(ui, &mut self.handling.copy_timestamps, "Preserve timestamps");
-                widgets::checkbox(ui, &mut self.handling.copy_attributes, "Preserve attributes");
-                widgets::checkbox(ui, &mut self.handling.copy_creation_time, "Preserve creation time");
-                widgets::checkbox(ui, &mut self.handling.include_hidden, "Include hidden items by default");
-                ui.add_enabled(
-                    false,
-                    widgets::Checkbox::new(
-                        &mut self.handling.copy_ntfs_permissions,
-                        "NTFS permissions (deferred)",
-                    ),
-                );
-                if ui.add(widgets::Button::new("Apply and reload").primary()).clicked() {
-                    apply = true;
-                }
-                ui.separator();
-                widgets::section(ui, "Alignment override");
-                widgets::hint(ui, "Left pattern / right pattern / optional relative folder");
-                widgets::text_field_width(ui, &mut self.align_left, 550.0);
-                widgets::text_field_width(ui, &mut self.align_right, 550.0);
-                widgets::text_field_width(ui, &mut self.align_folder, 550.0);
-                widgets::checkbox(ui, &mut self.align_regex, "Regex captures");
-                if widgets::button(ui, "Add alignment override").clicked() {
-                    align = true;
-                }
-            });
-        self.rules_open = open;
-        if apply_filters {
+    /// The Session Settings draft from the current view state.
+    fn settings_draft(&self) -> dialogs::folder_settings::Draft {
+        dialogs::folder_settings::Draft {
+            paths: [self.paths.left.clone(), self.paths.right.clone()],
+            names: self.filters.names.clone(),
+            other: self.filters.other.clone(),
+            content: self.filters.content.clone(),
+            exclude_containing: self.filters.exclude_containing,
+            criteria: self.criteria_text.clone(),
+            pairing: self.pairing.clone(),
+            scan: self.scan.clone(),
+            handling: self.handling.clone(),
+        }
+    }
+    pub(crate) fn open_settings(&mut self) {
+        let draft = self.settings_draft();
+        self.settings
+            .show(draft, crate::chrome::dialog::Placement::Window);
+    }
+    /// Apply a Session Settings draft: only what changed is re-sent (filters re-filter,
+    /// rules rescan, new folders reload).
+    fn apply_settings(&mut self, draft: dialogs::folder_settings::Draft) {
+        let before = self.settings_draft();
+        if draft == before {
+            return;
+        }
+        self.filters.names = draft.names.clone();
+        self.filters.other = draft.other.clone();
+        self.filters.content = draft.content.clone();
+        self.filters.exclude_containing = draft.exclude_containing;
+        self.criteria_text = draft.criteria.clone();
+        self.pairing = draft.pairing.clone();
+        self.scan = draft.scan.clone();
+        self.handling = draft.handling.clone();
+        let filters = (
+            &draft.names,
+            &draft.other,
+            &draft.content,
+            draft.exclude_containing,
+        ) != (
+            &before.names,
+            &before.other,
+            &before.content,
+            before.exclude_containing,
+        );
+        let rules = (
+            &draft.criteria,
+            &draft.pairing,
+            &draft.scan,
+            &draft.handling,
+        ) != (
+            &before.criteria,
+            &before.pairing,
+            &before.scan,
+            &before.handling,
+        );
+        if filters {
             self.apply_view_options();
         }
-        if save_presets {
-            self.send(Command::SavePresets(self.filters.presets.to_xml()));
-        }
-        if apply {
+        if rules {
             match Criteria::parse_script(&self.criteria_text) {
                 Ok(criteria) => self.send(Command::Rules {
                     criteria,
@@ -2698,13 +2663,41 @@ impl DirCompareView {
                 Err(e) => self.message = e,
             }
         }
-        if align {
-            self.send(Command::AlignPattern {
-                left: self.align_left.clone(),
-                right: self.align_right.clone(),
-                regex: self.align_regex,
-                folder: (!self.align_folder.is_empty()).then(|| self.align_folder.clone()),
-            });
+        if draft.paths != before.paths {
+            self.reload(draft.paths, true);
+        }
+    }
+    fn settings_dialog(&mut self, ctx: &egui::Context) {
+        use dialogs::folder_settings::Outcome;
+        let title = if self.sync_mode {
+            "Folder Sync"
+        } else {
+            "Folder Compare"
+        };
+        for outcome in self.settings.ui(ctx, title) {
+            match outcome {
+                Outcome::Apply(draft) => self.apply_settings(draft),
+                Outcome::SavePreset { name, names } => {
+                    match self.filters.presets.upsert(&name, &names) {
+                        Ok(()) => {
+                            self.settings.error = None;
+                            self.send(Command::SavePresets(self.filters.presets.to_xml()));
+                        }
+                        Err(e) => self.settings.error = Some(e),
+                    }
+                }
+                Outcome::AddAlignment {
+                    left,
+                    right,
+                    folder,
+                    regex,
+                } => self.send(Command::AlignPattern {
+                    left,
+                    right,
+                    regex,
+                    folder,
+                }),
+            }
         }
     }
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
@@ -2724,7 +2717,7 @@ impl DirCompareView {
         if self.find.show(&ctx) {
             self.find_next(self.find.backwards);
         }
-        self.rules_dialog(&ctx);
+        self.settings_dialog(&ctx);
         legend::show(&ctx, &mut self.legend_open, self.palette);
         if let Some(dialog) = &mut self.operation {
             if let Some(result) = dialog.show(&ctx, self.snapshot.clock) {
@@ -3253,7 +3246,120 @@ fn paint_file_icon(painter: &egui::Painter, left: f32, row_top: f32, color: egui
 }
 
 /// 点线（1 px 点隔 1 px 空），用于树线与焦点虚框。
-/// Row right-click menu (same entries as before the re-skin).
+impl DirCompareView {
+    /// Folder-compare right-click menu (reference `folder-context`): entries, order and
+    /// separators follow the captured menu; actions reuse the menu-bar command ids. Items
+    /// without an implementation (Synchronize, Open With > Folder Sync) are disabled.
+    fn folder_context_items(&self, directory: bool) -> Vec<crate::chrome::menubar::MenuItem> {
+        use crate::chrome::menubar::{MenuItem, MenuItemKind};
+        let any = !self.selection.items.is_empty();
+        let to = if self.context_side == Some(1) {
+            "Left"
+        } else {
+            "Right"
+        };
+        let item = |label: &str, shortcut: Option<&str>, id: &str, enabled: bool| MenuItem {
+            shortcut: shortcut.map(str::to_owned),
+            enabled,
+            ..MenuItem::action(label, id)
+        };
+        let sub = |label: &str, children: Vec<MenuItem>| {
+            let enabled = children
+                .iter()
+                .any(|c| c.enabled && !matches!(c.kind, MenuItemKind::Separator));
+            MenuItem {
+                kind: MenuItemKind::Submenu(children),
+                enabled,
+                ..MenuItem::action(label, label)
+            }
+        };
+        let sep = crate::chrome::popup::item::separator;
+        vec![
+            if directory {
+                item("Open Folder", None, "Open Folder", true)
+            } else {
+                item("Open", None, "Open Pair", true)
+            },
+            item("Open Subfolders", None, "Open Subfolders", directory),
+            item("Close Subfolders", None, "Close Subfolders", directory),
+            item("Set as Base Folder", None, "Set as Base Folder", directory),
+            item(
+                "Set as Base on Other Side",
+                None,
+                "Set as Base on Other Side",
+                directory,
+            ),
+            item("Open in New View", None, "Open in New View", directory),
+            sub(
+                "Open With",
+                vec![
+                    item("Associated Application", None, "open-with-app", any),
+                    sep(),
+                    item("Folder Compare", None, "Open in New View", directory),
+                    item("Folder Sync", None, "open-with-sync", false),
+                ],
+            ),
+            item("Compare To...", Some("F7"), "Compare To", any),
+            sep(),
+            sub(
+                "Compare Contents",
+                vec![
+                    item("CRC", None, "compare-crc", any),
+                    item("Binary", None, "compare-binary", any),
+                    item("Rules-based", None, "compare-rules", any),
+                ],
+            ),
+            item(
+                &format!("Copy to {to}"),
+                Some("Ctrl+R"),
+                "Copy to Side",
+                any,
+            ),
+            item(&format!("Move to {to}..."), None, "Move to Side", any),
+            item("Copy to Folder...", None, "Copy to Folder", any),
+            item("Move to Folder...", None, "Move to Folder", any),
+            item("Delete...", None, "Delete", any),
+            item("Rename", Some("F2"), "Rename", any),
+            item("Attributes...", None, "Attributes", any),
+            item("Touch...", None, "Touch", any),
+            item("Exclude", None, "Exclude", any),
+            item("New Folder...", Some("Ins"), "New Folder", true),
+            item("Copy Filename", None, "Copy Filename", any),
+            item("Ignored", None, "Ignored", any),
+            item(
+                "Refresh Selection",
+                Some("Shift+F5"),
+                "Refresh Selection",
+                any,
+            ),
+            sep(),
+            sub(
+                "Synchronize",
+                vec![
+                    item("Update Right...", None, "sync-update-right", false),
+                    item("Update Left...", None, "sync-update-left", false),
+                    item("Update Both...", None, "sync-update-both", false),
+                    item(
+                        "Mirror to Right...",
+                        Some("Shift+Ctrl+R"),
+                        "sync-mirror-right",
+                        false,
+                    ),
+                    item(
+                        "Mirror to Left...",
+                        Some("Shift+Ctrl+L"),
+                        "sync-mirror-left",
+                        false,
+                    ),
+                ],
+            ),
+            sep(),
+            item("Explorer", None, "Explorer", any),
+        ]
+    }
+}
+
+/// Sync-layout row right-click menu (same entries as before the re-skin).
 fn row_menu(directory: bool) -> Vec<crate::chrome::menubar::MenuItem> {
     use crate::chrome::menubar::MenuItem;
     let mut items = vec![
@@ -4115,6 +4221,11 @@ impl DirCompareView {
                     self.focus_row(0, None);
                 }
             }
+            "dlg-folder-session-settings" => {
+                let draft = self.settings_draft();
+                self.settings
+                    .show(draft, crate::chrome::dialog::Placement::ClientOnly);
+            }
             _ => {
                 if self.row_count() > 0 {
                     self.focus_row(0, None);
@@ -4213,7 +4324,7 @@ impl DirCompareView {
             "Home" => self.home_requested = true,
             "Close Tab" => self.request_tab_close(),
             "New Tab" => self.new_tab_requested = true,
-            "Session Settings" => self.rules_open = true,
+            "Session Settings" => self.open_settings(),
             "Swap Sides" => self.reload([self.paths.right.clone(), self.paths.left.clone()], true),
             "Back" => {
                 if self.history_at > 0 {
@@ -4371,6 +4482,14 @@ impl DirCompareView {
             "Exclude" => self.open_scope(DirOp::Exclude),
             "New Folder" => self.open_operation(Kind::NewFolder),
             "Copy Filename" => self.operate(DirOp::CopyFilename, false),
+            "open-with-app" | "Explorer" => match self.selected_sides().first() {
+                Some((_, item)) => {
+                    if let Err(e) = crate::text::view::shell_open(&item.path, id == "Explorer") {
+                        self.message = format!("Cannot open {}: {e}", item.path.display());
+                    }
+                }
+                None => self.message = "Select an item first".into(),
+            },
             "Ignored" => self.toggle_ignored(),
             "Stop" => self.cancel(),
             "Show Files" => {
@@ -4591,11 +4710,17 @@ impl DirCompareView {
             .map(|(label, mode)| item::radio(label, label, display == mode))
             .collect(),
             "Show Files" => {
-                let mut items = vec![item::check("Show Files", "Show Files", show_files), item::separator()];
+                let mut items = vec![
+                    item::check("Show Files", "Show Files", show_files),
+                    item::separator(),
+                ];
                 items.extend(
                     [
                         ("Always Show Folders", FolderDisplay::AlwaysShow),
-                        ("Compare Files and Folder Structure", FolderDisplay::FilesAndStructure),
+                        (
+                            "Compare Files and Folder Structure",
+                            FolderDisplay::FilesAndStructure,
+                        ),
                         ("Only Compare Files", FolderDisplay::FilesOnly),
                         ("Ignore Folder Structure", FolderDisplay::Flatten),
                     ]
@@ -4686,6 +4811,9 @@ impl DirCompareView {
             egui::vec2(avail.width(), status_h),
         );
         self.draw_grid(ui, grid);
+        if let Some(action) = self.context_action.take() {
+            switch = self.folder_command(&action).or(switch);
+        }
         if log_h > 0.0 {
             self.draw_log(ui, log_rect);
         }
@@ -5334,19 +5462,50 @@ impl DirCompareView {
         let mut context_command = None;
         // The row under the pointer when the menu opened.
         if response.secondary_clicked() {
-            self.context_row = response.interact_pointer_pos().and_then(|pos| {
+            let pos = response.interact_pointer_pos();
+            self.context_row = pos.and_then(|pos| {
                 let index =
                     ((pos.y - rows_area.top() + self.scroll_y) / CHROME_ROW).floor() as usize;
                 (index < total).then_some(index)
             });
+            self.context_side = pos.and_then(|pos| {
+                if pos.x < left.right() {
+                    Some(0)
+                } else if pos.x >= right.left() {
+                    Some(1)
+                } else {
+                    None
+                }
+            });
+            // Folder compare: right click outside the selection selects the row (the
+            // clicked side only) first, like a file manager; inside it keeps it.
+            if let (Some(index), false) = (self.context_row, self.sync_mode) {
+                let row = &self.snapshot.rows[index];
+                let selected = row.sides.iter().enumerate().any(|(s, item)| {
+                    item.as_ref()
+                        .is_some_and(|i| self.selection.items.contains(&(i.node, s)))
+                });
+                if !selected {
+                    let side = self
+                        .context_side
+                        .filter(|&s| self.snapshot.rows[index].sides[s].is_some());
+                    self.focus_row(index, side);
+                }
+            }
         }
         if let Some(index) = self.context_row.filter(|i| *i < total) {
             let directory = self.snapshot.rows[index].directory;
-            if let Some(kind) =
-                crate::chrome::popup::context_menu(&response, || row_menu(directory))
-                    .and_then(|a| row_command(&a))
-            {
-                context_command = Some((index, kind));
+            if self.sync_mode {
+                if let Some(kind) =
+                    crate::chrome::popup::context_menu(&response, || row_menu(directory))
+                        .and_then(|a| row_command(&a))
+                {
+                    context_command = Some((index, kind));
+                }
+            } else if let Some(action) = crate::chrome::popup::context_menu(&response, || {
+                self.folder_context_items(directory)
+            }) {
+                self.context_action = Some(action);
             }
         }
         if let Some((index, side, double, modifiers)) = click {
@@ -5921,12 +6080,55 @@ mod tests {
         .drop_without_applying_deltas();
     }
     #[test]
-    fn row_context_menu_uses_the_classic_popup_and_keeps_commands() {
+    fn row_context_menu_follows_the_reference_and_runs_menu_commands() {
+        // Inventory: the captured reference menu (folder row), with our CRC/Binary/
+        // Rules-based submenu standing in for the reference "Compare Contents..." dialog.
+        let tree: serde_json::Value = serde_json::from_str(
+            std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../docs/visual-parity/supplemental/folder-context.tree.json"),
+            )
+            .unwrap()
+            .trim_start_matches('\u{feff}'),
+        )
+        .unwrap();
+        let reference: Vec<String> = tree["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| {
+                if i["separator"].as_bool() == Some(true) || i["type"] == "separator" {
+                    "----".to_string()
+                } else {
+                    i["name"]
+                        .as_str()
+                        .unwrap()
+                        .replace("Compare Contents...", "Compare Contents")
+                }
+            })
+            .collect();
         let temp = Temp::new();
         let ctx = egui::Context::default();
         let mut view = temp.view(&ctx, false);
         wait(&mut view, &ctx);
         frame(&mut view, &ctx);
+        let labels = |items: Vec<crate::chrome::menubar::MenuItem>| -> Vec<String> {
+            items
+                .into_iter()
+                .map(|i| match i.kind {
+                    crate::chrome::menubar::MenuItemKind::Separator => "----".to_string(),
+                    _ => i.label,
+                })
+                .collect()
+        };
+        assert_eq!(labels(view.folder_context_items(true)), reference);
+        // Files open the pair instead of a folder; unimplemented entries are disabled.
+        let file_items = view.folder_context_items(false);
+        assert_eq!(file_items[0].label, "Open");
+        assert!(file_items
+            .iter()
+            .any(|i| i.label == "Synchronize" && !i.enabled));
+
         let press = |pos, button, pressed| egui::Event::PointerButton {
             pos,
             button,
@@ -5934,6 +6136,7 @@ mod tests {
             modifiers: Default::default(),
         };
         let pos = egui::pos2(300.0, 200.0);
+        view.selection.items.clear();
         frame_with(
             &mut view,
             &ctx,
@@ -5946,31 +6149,166 @@ mod tests {
         let index = view
             .context_row
             .expect("right-click picks the row under the pointer");
-        view.selection.items.clear();
+        // Right click outside the selection selects the clicked side of that row.
+        assert_eq!(view.context_side, Some(0));
+        let row = &view.snapshot.rows[index];
+        let left = row.sides[0]
+            .as_ref()
+            .expect("left item under the pointer")
+            .node;
+        assert_eq!(view.selection.items, BTreeSet::from([(left, 0)]));
         // egui lays a new popup area out once before it takes input.
         frame(&mut view, &ctx);
-        // First item "Select row": popup border at the pointer, 1 px pad.
-        let item = pos + egui::vec2(40.0, 2.0 + 10.0);
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    view.ui(ui);
+                });
+            },
+        );
+        out.textures_delta.clear();
+        let target = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == "Compare To..." => {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
+                }
+                _ => None,
+            })
+            .next_back()
+            .expect("menu shows Compare To...");
+        assert!(out.shapes.iter().any(
+            |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Copy to Right")
+        ));
         frame_with(
             &mut view,
             &ctx,
             vec![
-                egui::Event::PointerMoved(item),
-                press(item, egui::PointerButton::Primary, true),
-                press(item, egui::PointerButton::Primary, false),
+                egui::Event::PointerMoved(target),
+                press(target, egui::PointerButton::Primary, true),
+                press(target, egui::PointerButton::Primary, false),
             ],
         );
-        let row = &view.snapshot.rows[index];
-        let expected = row
-            .sides
-            .iter()
-            .enumerate()
-            .filter_map(|(s, item)| item.as_ref().map(|i| (i.node, s)))
-            .collect::<BTreeSet<_>>();
-        assert_eq!(view.selection.items, expected);
+        assert!(view.compare_to, "the menu runs the menu-bar command");
+        // The sync layout keeps its own short row menu.
         assert_eq!(row_menu(false).len(), 2);
         assert_eq!(row_menu(true).len(), 3);
         assert_eq!(row_command("row:expand"), Some(2));
+    }
+    #[test]
+    fn session_settings_draft_applies_only_on_ok_and_only_what_changed() {
+        let temp = Temp::new();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        view.folder_command("Session Settings");
+        assert!(view.settings.open);
+        assert_eq!(view.settings.draft, Some(view.settings_draft()));
+        // Cancel-like close discards the draft; the view is untouched.
+        view.settings.draft.as_mut().unwrap().names = "*.txt".into();
+        view.settings.close();
+        assert_eq!(view.filters.names, view.settings_draft().names);
+        assert_ne!(view.filters.names, "*.txt");
+        // Apply a changed name mask and handling option: both land in the view;
+        // the folders did not change, so nothing reloads.
+        view.open_settings();
+        let mut draft = view.settings.draft.clone().unwrap();
+        draft.names = "*.txt".into();
+        draft.handling.copy_attributes = !draft.handling.copy_attributes;
+        let paths = view.paths();
+        view.apply_settings(draft.clone());
+        assert_eq!(view.filters.names, "*.txt");
+        assert_eq!(
+            view.handling.copy_attributes,
+            draft.handling.copy_attributes
+        );
+        assert_eq!(view.paths(), paths);
+        assert_eq!(view.settings_draft(), draft);
+    }
+    #[test]
+    fn session_settings_dialog_validates_on_ok_and_reports_actions() {
+        use dialogs::folder_settings::{Draft, FolderSettings, Outcome};
+        let draft = Draft {
+            paths: ["a".into(), "b".into()],
+            names: String::new(),
+            other: String::new(),
+            content: String::new(),
+            exclude_containing: false,
+            criteria: "size crc".into(),
+            pairing: Default::default(),
+            scan: ScanOptions::default(),
+            handling: Default::default(),
+        };
+        let mut dialog = FolderSettings::default();
+        dialog.show(draft, crate::chrome::dialog::Placement::ClientOnly);
+        let ctx = egui::Context::default();
+        let run = |dialog: &mut FolderSettings, events: Vec<egui::Event>| {
+            let mut out = Vec::new();
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(583.0, 563.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| out = dialog.ui(ui.ctx(), "Folder Compare"),
+            )
+            .drop_without_applying_deltas();
+            out
+        };
+        let click = |pos: egui::Pos2| {
+            [true, false].map(|pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            })
+        };
+        // A new Area takes input only after two layout frames.
+        run(&mut dialog, vec![]);
+        run(&mut dialog, vec![]);
+        // OK (268..362 x 523..552): invalid criteria keep the dialog open with an error.
+        let ok = egui::pos2(315.0, 537.0);
+        let mut events = vec![egui::Event::PointerMoved(ok)];
+        events.extend(click(ok));
+        assert!(run(&mut dialog, events).is_empty());
+        assert!(dialog.open);
+        assert!(dialog
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("Comparison"));
+        // Fixed criteria: Apply hands the draft over and keeps the dialog open.
+        dialog.draft.as_mut().unwrap().criteria = "size".into();
+        let apply = egui::pos2(525.0, 537.0);
+        let mut events = vec![egui::Event::PointerMoved(apply)];
+        events.extend(click(apply));
+        let out = run(&mut dialog, events);
+        assert!(matches!(out.as_slice(), [Outcome::Apply(d)] if d.criteria == "size"));
+        assert!(dialog.open && dialog.error.is_none());
+        // Esc discards.
+        run(
+            &mut dialog,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert!(!dialog.open && dialog.draft.is_none());
+        assert_eq!(dialogs::folder_settings::TABS.len(), 6);
     }
     #[test]
     fn wheel_scroll_tracks_input_immediately() {

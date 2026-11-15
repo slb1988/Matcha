@@ -1011,25 +1011,6 @@ impl TableCompareView {
             }
         }
         self.goto_window(&ctx);
-        // Sheet tabs are not re-skinned yet (deferred); single-sheet sources
-        // (CSV/TSV) show none, like the reference.
-        if self.pairs.0.len() > 1 {
-            let tab_states = self
-                .states
-                .iter()
-                .map(|s| s.map(|s| s.projected(self.default_rules.ignore_unimportant)))
-                .collect::<Vec<_>>();
-            if let Some(index) = super::sheet_tabs::ui(
-                ui,
-                &self.names,
-                &self.pairs,
-                &tab_states,
-                self.active_pair,
-                &prefs.colors,
-            ) {
-                self.select_sheet(index);
-            }
-        }
         self.grid.rows_drawn = 0;
         self.grid.cells_drawn = 0;
         self.grid.edit_target = self.editor.as_ref().map(|e| (e.side, e.display));
@@ -1050,6 +1031,17 @@ impl TableCompareView {
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
+        // Workbooks with several sheets: a tab strip between the grids and the
+        // status bar (single-sheet sources such as CSV show none).
+        let sheet_strip = if self.pairs.0.len() > 1 {
+            crate::chrome::sheet_tabs::HEIGHT
+        } else {
+            0.0
+        };
+        let tabs_rect = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - sheet_strip),
+            egui::pos2(available.right(), status.top()),
+        );
         let thumb = if self.show_thumbnail { 52.0 } else { 0.0 };
         let details_height = if self.show_details && self.pair.is_some() {
             super::details::HEIGHT
@@ -1057,13 +1049,32 @@ impl TableCompareView {
             0.0
         };
         let details = egui::Rect::from_min_max(
-            egui::pos2(available.left() + thumb, status.top() - details_height),
-            egui::pos2(available.right(), status.top()),
+            egui::pos2(available.left() + thumb, tabs_rect.top() - details_height),
+            egui::pos2(available.right(), tabs_rect.top()),
         );
+        if sheet_strip > 0.0 {
+            let tab_states = self
+                .states
+                .iter()
+                .map(|s| s.map(|s| s.projected(self.default_rules.ignore_unimportant)))
+                .collect::<Vec<_>>();
+            if let Some(index) = super::sheet_tabs::ui(
+                ui,
+                tabs_rect,
+                &self.names,
+                &self.pairs,
+                &tab_states,
+                self.active_pair,
+                &prefs.colors,
+            ) {
+                self.select_sheet(index);
+            }
+        }
         let body =
             egui::Rect::from_min_max(available.min, egui::pos2(available.right(), details.top()));
         let panes = egui::Rect::from_min_max(body.min + egui::vec2(thumb, 0.0), body.max);
         let mut grid_action = None;
+        let mut menu_owners: Vec<(usize, egui::Response)> = Vec::with_capacity(2);
         let mut nav_target = None;
         if let Some(p) = &self.pair {
             if self.show_thumbnail {
@@ -1107,7 +1118,7 @@ impl TableCompareView {
                         .max_rect(grid_rect),
                     |ui| {
                         ui.set_clip_rect(grid_rect.intersect(ui.clip_rect()));
-                        if let Some(a) = grid::pane(
+                        let (a, response) = grid::pane(
                             ui,
                             grid_rect,
                             &p.map,
@@ -1116,9 +1127,11 @@ impl TableCompareView {
                             s,
                             &p.cache.different_columns,
                             &prefs.colors,
-                        ) {
-                            grid_action = Some(a);
+                        );
+                        if a.is_some() {
+                            grid_action = a;
                         }
+                        menu_owners.push((s, response));
                     },
                 );
             } else if s == 0 && (self.worker.is_some() || self.paths() != [None, None]) {
@@ -1165,6 +1178,16 @@ impl TableCompareView {
         if let Some(action) = grid_action {
             self.grid_action(action);
         }
+        // 网格右键菜单（参考 table-context）：作用于被点击的窗格与选区。
+        for (s, owner) in menu_owners {
+            if let Some(action) =
+                crate::chrome::popup::context_menu(&owner, || self.context_items(s))
+            {
+                self.grid.active = s;
+                self.focus_grid = Some(s);
+                self.command(&action, &ctx, prefs);
+            }
+        }
         self.dialogs(&ctx, prefs);
         self.restore_grid_focus(&ctx);
         // A drop while a confirmation, dialog, cell editor or the settings
@@ -1206,6 +1229,10 @@ impl TableCompareView {
         } else {
             self.grid.cursor = Cursor::default();
             self.snapshot_select_paths = true;
+        }
+        if scene == "dlg-table-session-settings" {
+            self.settings_open();
+            self.settings.placement = Some(crate::chrome::dialog::Placement::ClientOnly);
         }
     }
     fn restore_grid_focus(&mut self, ctx: &egui::Context) {

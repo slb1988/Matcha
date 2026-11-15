@@ -34,6 +34,8 @@ pub const SCENES: &[&str] = &[
     "text-find-bar",
     "dlg-text-session-settings",
     "dlg-options",
+    "dlg-table-session-settings",
+    "dlg-folder-session-settings",
     "table-basic",
     "table-cursor-on-diff",
     "folder-sync",
@@ -88,7 +90,7 @@ pub const MERGE_BASE: &str = "tools/visual/corpus/merge-base.txt";
 pub const TABLE_MERGE_LEFT: &str = "tools/visual/corpus/table-merge-left.csv";
 pub const TABLE_MERGE_RIGHT: &str = "tools/visual/corpus/table-merge-right.csv";
 pub const TABLE_MERGE_BASE: &str = "tools/visual/corpus/table-merge-base.csv";
-pub const REGISTRY: [Scene; 26] = [
+pub const REGISTRY: [Scene; 28] = [
     // table-merge：打开即定位到第一个冲突 / 第一个冲突取右侧之后停在下一个改动。
     Scene {
         name: "table-merge-basic",
@@ -209,6 +211,16 @@ pub const REGISTRY: [Scene; 26] = [
         view: SceneView::Text,
         preset: Preset::FirstRow,
     },
+    Scene {
+        name: "dlg-table-session-settings",
+        view: SceneView::Table,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "dlg-folder-session-settings",
+        view: SceneView::Folder,
+        preset: Preset::FirstRow,
+    },
     // Reference: table pair opened, no operation.
     Scene {
         name: "table-basic",
@@ -238,6 +250,7 @@ pub fn scene_window_size(scene: &str) -> Option<[f32; 2]> {
     match scene {
         "dlg-text-session-settings" => Some([583.0, 563.0]),
         "dlg-options" => Some([859.0, 655.0]),
+        "dlg-table-session-settings" | "dlg-folder-session-settings" => Some([583.0, 563.0]),
         _ => None,
     }
 }
@@ -758,19 +771,25 @@ impl ChromeDemo {
                 widgets::section(ui, "Fields");
                 ui.horizontal(|ui| {
                     widgets::text_field_width(ui, &mut g.text, 220.0);
-                    widgets::Combo::new("gallery-combo", ["UTF-8", "UTF-16 LE", "GBK (936)"][g.combo as usize])
-                        .width(140.0)
-                        .show(ui, |list| {
-                            list.selectable_value(&mut g.combo, 0, "UTF-8");
-                            list.selectable_value(&mut g.combo, 1, "UTF-16 LE");
-                            list.selectable_value(&mut g.combo, 2, "GBK (936)");
-                        });
+                    widgets::Combo::new(
+                        "gallery-combo",
+                        ["UTF-8", "UTF-16 LE", "GBK (936)"][g.combo as usize],
+                    )
+                    .width(140.0)
+                    .show(ui, |list| {
+                        list.selectable_value(&mut g.combo, 0, "UTF-8");
+                        list.selectable_value(&mut g.combo, 1, "UTF-16 LE");
+                        list.selectable_value(&mut g.combo, 2, "GBK (936)");
+                    });
                 });
                 widgets::section(ui, "List");
                 for (i, row) in ["C/C++", "Rust", "XML"].iter().enumerate() {
                     widgets::list_value(ui, &mut g.row, i, *row);
                 }
-                widgets::hint(ui, "Hint text explains a setting in a muted color and wraps.");
+                widgets::hint(
+                    ui,
+                    "Hint text explains a setting in a muted color and wraps.",
+                );
                 widgets::dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]);
             });
     }

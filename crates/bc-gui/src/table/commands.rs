@@ -161,6 +161,21 @@ impl TableCompareView {
         let (s, cursor, extend, edit) = match action {
             GridAction::Select(s, c, e) => (s, c, e, false),
             GridAction::Edit(s, c) => (s, c, false, true),
+            GridAction::Context(s, c) => {
+                // Right click inside the selection keeps it (the menu acts on
+                // it); elsewhere it selects the clicked cell first.
+                let a = self.grid.anchor.unwrap_or(self.grid.cursor);
+                let b = self.grid.cursor;
+                let inside = self.grid.active == s
+                    && (a.row.min(b.row)..=a.row.max(b.row)).contains(&c.row)
+                    && (a.column.min(b.column)..=a.column.max(b.column)).contains(&c.column);
+                if inside {
+                    self.grid.active = s;
+                    self.focus_grid = Some(s);
+                    return;
+                }
+                (s, c, false, false)
+            }
         };
         if self.align_with.is_some() && !self.is_ready() {
             self.align_with = None;
@@ -1641,27 +1656,28 @@ impl TableCompareView {
                             .shadow(crate::chrome::theme::shadow_popup())
                             .inner_margin(8)
                             .show(ui, |ui| {
-                            commit |= ui.input_mut(|i| {
-                                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                                commit |= ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                                });
+                                let width = rect.width().max(260.0);
+                                let response = ui.add(
+                                    egui::TextEdit::multiline(&mut editor.text)
+                                        .id_salt("table_cell_text")
+                                        .desired_width(width)
+                                        .desired_rows(1),
+                                );
+                                if editor.focus {
+                                    response.request_focus();
+                                    editor.focus = false;
+                                }
+                                ui.horizontal(|ui| {
+                                    use crate::chrome::widgets;
+                                    commit |= widgets::primary_button(ui, "Commit (Ctrl+Enter)")
+                                        .clicked();
+                                    cancel = widgets::button(ui, "Cancel edit").clicked();
+                                });
+                                cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
                             });
-                            let width = rect.width().max(260.0);
-                            let response = ui.add(
-                                egui::TextEdit::multiline(&mut editor.text)
-                                    .id_salt("table_cell_text")
-                                    .desired_width(width)
-                                    .desired_rows(1),
-                            );
-                            if editor.focus {
-                                response.request_focus();
-                                editor.focus = false;
-                            }
-                            ui.horizontal(|ui| {
-                                use crate::chrome::widgets;
-                                commit |= widgets::primary_button(ui, "Commit (Ctrl+Enter)").clicked();
-                                cancel = widgets::button(ui, "Cancel edit").clicked();
-                            });
-                            cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
-                        });
                     });
             }
         }
@@ -1678,15 +1694,12 @@ impl TableCompareView {
         let execute = self.dialog.take().and_then(|dialog| {
             use crate::chrome::native_dialog::{side_title, Kind, Request};
             let request = match dialog.mode {
-                FileMode::Open(s) => Request::new(
-                    Kind::OpenFile,
-                    side_title("Open File on File System", s),
-                ),
-                FileMode::Save(s) => Request::new(Kind::SaveFile, side_title("Save File As", s)),
-                FileMode::Export(s) => {
-                    Request::new(Kind::SaveFile, side_title("Export as CSV", s))
-                        .filter("CSV files (*.csv)", &["csv"])
+                FileMode::Open(s) => {
+                    Request::new(Kind::OpenFile, side_title("Open File on File System", s))
                 }
+                FileMode::Save(s) => Request::new(Kind::SaveFile, side_title("Save File As", s)),
+                FileMode::Export(s) => Request::new(Kind::SaveFile, side_title("Export as CSV", s))
+                    .filter("CSV files (*.csv)", &["csv"]),
                 FileMode::Summary(false) => Request::new(Kind::SaveFile, "Table Compare Report")
                     .filter("Text files (*.txt)", &["txt"]),
                 FileMode::Summary(true) => Request::new(Kind::SaveFile, "Export Summary as CSV")
@@ -1777,7 +1790,10 @@ impl TableCompareView {
                 })
                 .filter_map(|s| {
                     let badge = if s == 0 { "LEFT" } else { "RIGHT" };
-                    self.files[s].path.as_deref().map(|p| modal::file_item(badge, p))
+                    self.files[s]
+                        .path
+                        .as_deref()
+                        .map(|p| modal::file_item(badge, p))
                 })
                 .collect();
             decision = match Modal::new("table-unsaved", Tone::Warning, title)

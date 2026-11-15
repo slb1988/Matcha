@@ -60,6 +60,16 @@
 - 文本 `--bench` update p99、表格 `--bench-table` update p99 相对换肤前不退化超过 10%（同轮 A/B）。
 - `cargo clippy --workspace --all-targets -- -D warnings` 零警告，`cargo test --workspace` 全绿。
 
+### D9. 2026-11-15 方向修订：结构对齐参考，外观走现代设计系统
+
+- 用户决定：**不做经典 Windows 1:1 复刻**，外观以现代设计系统为准（ADR 402：`chrome::widgets` / `window` / 下拉菜单，
+  抹茶绿强调色，`theme::Palette`）。核心版（2026-11-11）的 ±2 px 区域对照是旧方向的验收证据，保留在
+  `docs/reference-parity/visual.md`；组件库重构后外框增高 6 px、圆角卡片与下划线页签取代 Win32 外观，几何不再逐像素对齐。
+- 新口径：**信息结构对齐参考**——区域顺序与内容、菜单/工具栏/右键菜单的条目、顺序与分隔、对话框的页签与控件、按钮行；
+  参考有而未实现的项显示为禁用而非省略。**视觉样式**（颜色、圆角、阴影、控件形态、尺寸）以设计系统为准。
+- 验收手段改为：清单测试（菜单、右键菜单库存逐项比对 `tokens.json` / `supplemental/*.tree.json`）+ 快照场景确定性
+  （`snap-matcha.ps1 -All -Verify`）+ 并排图人工评审结构；`compare.ps1` 仍可用于测量，但不再作为通过门槛。
+
 ## Risks / Trade-offs
 
 - egui 不是原生控件：组合框、滚动条、菜单阴影只能近似；以区域几何与颜色为准，交互细节以参考行为为准。

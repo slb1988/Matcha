@@ -18,6 +18,10 @@
   内存可编辑，原格式保存返回只读错误，`export_csv` 为显式替代。
 - 保存保真：逐记录 lexical spans，未改字段、分隔符、行尾原样保留；同目录暂存后 rename。
 - 键对齐比较（`KeyAlign`）、表格规则（`TableRules`）、混合类型列提示。
+- 界面：多 sheet 工作簿在网格与状态栏之间显示 sheet 标签（状态点：灰 = 尚未比较、弱化色 = 相同、差异色 = 有差异）；
+  网格右键菜单按参考排列（Align With、Copy to Left/Right、Cut/Copy/Paste、插删行列、Modify…、Open/Save、Explorer），
+  右键先选中所点格；Session Settings 为 Specs / Format / Columns / Alignment / Sheets 五页，OK / Cancel / Apply。
+  工作簿一侧的信息行不显示分隔符。
 - 命令行：`matcha /report=summary a.xlsx b.xlsx`（xlsx 用 `/report=patch…` 也会自动改走）输出
   按 sheet / 行 / 单元格列出的文本差异报告，格式见 [reports.md](reports.md#表格差异报告table-report-layoutsummary)。
 

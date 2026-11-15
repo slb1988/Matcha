@@ -1,3 +1,7 @@
+use crate::chrome::{
+    dialog::{self, ButtonKind, Placement},
+    widgets::{self, Combo},
+};
 use bc_core::{align::AlignStrategy, encoding::Encoding};
 use bc_engine_table::{
     columns::Side,
@@ -7,10 +11,6 @@ use bc_engine_table::{
     TableRules,
 };
 use bc_formats::model::{DateOrder, HeaderMode, TableType};
-use crate::chrome::{
-    widgets::{self, Combo},
-    window::Window,
-};
 use eframe::egui;
 #[derive(Clone)]
 pub struct Draft {
@@ -21,9 +21,15 @@ pub struct Draft {
     pub readonly: [bool; 2],
     pub left_source: bool,
 }
+/// Client size, shared with the text view's Session Settings dialog.
+pub const CLIENT: egui::Vec2 = egui::vec2(583.0, 563.0);
+pub const TABS: [&str; 5] = ["Specs", "Format", "Columns", "Alignment", "Sheets"];
+
 #[derive(Default)]
 pub struct SettingsPanel {
     pub open: bool,
+    /// `None` = framed window; snapshots of the dialog alone use `ClientOnly`.
+    pub placement: Option<Placement>,
     pub draft: Option<Draft>,
     pub(crate) tab: usize,
     pub(crate) selected: usize,
@@ -109,14 +115,15 @@ pub fn format_options(ui: &mut egui::Ui, options: &mut ReadOptions, error: &mut 
         });
         ui.horizontal(|ui| {
             ui.label("Text qualifier");
-            Combo::new("qualifier", f.qualifier.map_or("None".into(), |c| c.to_string())).show(
-                ui,
-                |list| {
-                    list.selectable_value(&mut f.qualifier, Some('"'), "Double quote");
-                    list.selectable_value(&mut f.qualifier, Some('\''), "Single quote");
-                    list.selectable_value(&mut f.qualifier, None, "None");
-                },
-            );
+            Combo::new(
+                "qualifier",
+                f.qualifier.map_or("None".into(), |c| c.to_string()),
+            )
+            .show(ui, |list| {
+                list.selectable_value(&mut f.qualifier, Some('"'), "Double quote");
+                list.selectable_value(&mut f.qualifier, Some('\''), "Single quote");
+                list.selectable_value(&mut f.qualifier, None, "None");
+            });
         });
         widgets::checkbox(
             ui,
@@ -222,97 +229,318 @@ pub fn format_options(ui: &mut egui::Ui, options: &mut ReadOptions, error: &mut 
     });
 }
 impl SettingsPanel {
+    /// Session Settings dialog (same frame as the text view's): underline tabs over
+    /// the page, OK / Cancel / Apply. OK and Apply return the draft for the view to
+    /// apply (OK also closes); Cancel / × / Esc discard it.
     pub fn ui(
         &mut self,
         ctx: &egui::Context,
         names: &[Vec<String>; 2],
         key_hint: &str,
     ) -> Option<Draft> {
-        if !self.open {
+        if !self.open || self.draft.is_none() {
             return None;
         }
-        let draft = self.draft.as_mut()?;
-        let mut result = None;
-        Window::new("Table Session Settings")
-            .open(&mut self.open)
-            .default_size([720.0, 620.0])
-            .show(ctx, |ui| {
-            ui.horizontal(|ui|{for (i,name) in ["Specs","Format","Columns","Alignment","Sheets"].iter().enumerate(){if ui.add(widgets::Button::new(*name).selected(self.tab==i)).clicked(){self.tab=i;}}});
-            ui.separator();
-            // Page scrolls; the Apply footer stays visible below it.
-            let page_height=(ui.available_height()-56.0).max(120.0);
-            egui::ScrollArea::vertical().id_salt("table_settings_page").max_height(page_height).auto_shrink([false,false]).show(ui,|ui|{
-            match self.tab{
-                0=>{
-                    for s in 0..2{ui.push_id(s,|ui|{ui.label(if s==0{"Left file"}else{"Right file"});let w=ui.available_width();widgets::text_field_width(ui,&mut draft.paths[s],w);widgets::checkbox(ui,&mut draft.readonly[s],"Disable editing");});}
-                    ui.label("Description (current session)");ui.text_edit_multiline(&mut self.description);
+        let placement = self.placement.unwrap_or(Placement::Window);
+        let (mut ok, mut cancel, mut apply) = (false, false, false);
+        let (closed, ()) = dialog::window(
+            ctx,
+            egui::Id::unique("table-session-settings"),
+            "Session Settings - Table Compare",
+            CLIENT,
+            placement,
+            |ui, client| {
+                let o = client.min;
+                let at = |x0: f32, y0: f32, x1: f32, y1: f32| {
+                    egui::Rect::from_min_max(o + egui::vec2(x0, y0), o + egui::vec2(x1, y1))
+                };
+                let page = at(8.0, 32.0, 575.0, 511.0);
+                if let Some(tab) = dialog::tabs(ui, page, &TABS, self.tab) {
+                    self.tab = tab;
                 }
-                1=>{
-                    ui.horizontal(|ui|{widgets::radio_value(ui,&mut self.format_side,0,"Left");widgets::radio_value(ui,&mut self.format_side,1,"Right");});
-                    Combo::new("table_builtin_format","Choose table format preset").width(260.0).show(ui,|list|{
-                        for f in bc_formats::builtin_formats().iter().filter(|f|f.table.is_some()){
-                            if list.selectable_label(false,f.name.as_str()){draft.options[self.format_side].format=f.table.clone().unwrap();}
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(page.shrink2(egui::vec2(14.0, 12.0))),
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("table_settings_page")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.page(ui, names, key_hint));
+                    },
+                );
+                if !self.error.is_empty() {
+                    ui.painter().text(
+                        o + egui::vec2(12.0, 537.0),
+                        egui::Align2::LEFT_CENTER,
+                        &self.error,
+                        dialog::font(),
+                        crate::chrome::theme::palette(ui.ctx()).danger,
+                    );
+                }
+                ok = dialog::button(
+                    ui,
+                    at(268.0, 523.0, 362.0, 552.0),
+                    "OK",
+                    ButtonKind::Default,
+                    true,
+                );
+                cancel = dialog::button(
+                    ui,
+                    at(373.0, 523.0, 467.0, 552.0),
+                    "Cancel",
+                    ButtonKind::Normal,
+                    true,
+                );
+                apply = dialog::button(
+                    ui,
+                    at(478.0, 523.0, 572.0, 552.0),
+                    "Apply",
+                    ButtonKind::Normal,
+                    true,
+                );
+            },
+        );
+        if closed || cancel || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.open = false;
+            self.error.clear();
+            return None;
+        }
+        if ok {
+            self.open = false;
+        }
+        (ok || apply).then(|| self.draft.clone()).flatten()
+    }
+    fn page(&mut self, ui: &mut egui::Ui, names: &[Vec<String>; 2], key_hint: &str) {
+        let Some(draft) = self.draft.as_mut() else {
+            return;
+        };
+        match self.tab {
+            0 => {
+                for s in 0..2 {
+                    ui.push_id(s, |ui| {
+                        ui.label(if s == 0 { "Left file" } else { "Right file" });
+                        let w = ui.available_width();
+                        widgets::text_field_width(ui, &mut draft.paths[s], w);
+                        widgets::checkbox(ui, &mut draft.readonly[s], "Disable editing");
+                    });
+                }
+                ui.label("Description (current session)");
+                ui.text_edit_multiline(&mut self.description);
+            }
+            1 => {
+                ui.horizontal(|ui| {
+                    widgets::radio_value(ui, &mut self.format_side, 0, "Left");
+                    widgets::radio_value(ui, &mut self.format_side, 1, "Right");
+                });
+                Combo::new("table_builtin_format", "Choose table format preset")
+                    .width(260.0)
+                    .show(ui, |list| {
+                        for f in bc_formats::builtin_formats()
+                            .iter()
+                            .filter(|f| f.table.is_some())
+                        {
+                            if list.selectable_label(false, f.name.as_str()) {
+                                draft.options[self.format_side].format = f.table.clone().unwrap();
+                            }
                         }
                     });
-                    format_options(ui,&mut draft.options[self.format_side],&mut self.error);
-                }
-                2=>{
-                    ui.label(format!("Keys: {} ({}) — comparison-column order defines priority",draft.rules.keys.label(),key_hint));
-                    ui.horizontal(|ui|{
-                        if widgets::button(ui,"Auto infer keys").clicked(){for c in &mut draft.rules.columns.0{c.handling.is_key=false;}draft.rules.keys=KeySelection::Automatic{columns:Vec::new(),score:0.0};}
-                        if widgets::button(ui,"All columns").clicked(){for c in &mut draft.rules.columns.0{c.handling.is_key=false;}draft.rules.keys=KeySelection::AllColumns;}
-                        if widgets::button(ui,"By column number").clicked(){draft.rules.keys=KeySelection::ByColumnNumber;draft.rules.column_mode=ColumnMode::ByNumber;draft.rules.columns.0.clear();}
-                        if widgets::button(ui,"Detect column structure").clicked(){draft.rules.column_mode=ColumnMode::Automatic;draft.rules.columns.0.clear();}
-                    });
-                    egui::ScrollArea::vertical().id_salt("table_columns").max_height(180.0).show(ui,|ui|{
-                        for (i,c) in draft.rules.columns.0.iter().enumerate(){if widgets::list_row(ui,i==self.selected,format!("{}: L {} ↔ R {}  {:?}",i+1,c.left.map_or("—".into(),|i|(i+1).to_string()),c.right.map_or("—".into(),|i|(i+1).to_string()),c.changes)).clicked(){self.selected=i;}}
-                    });
-                    ui.horizontal(|ui|{
-                        for (i,n) in ["Whole comparison column","Left","Right"].iter().enumerate(){widgets::radio_value(ui,&mut self.move_side,i,*n);}
-                    });
-                    ui.horizontal(|ui|{
-                        let side=match self.move_side{1=>Some(Side::Left),2=>Some(Side::Right),_=>None};
-                        if widgets::button(ui,"Move Up").clicked()&&self.selected>0{let _=draft.rules.columns.move_to(self.selected,self.selected-1,side);self.selected-=1;}
-                        if widgets::button(ui,"Move Down").clicked()&&self.selected+1<draft.rules.columns.0.len(){let _=draft.rules.columns.move_to(self.selected,self.selected+1,side);self.selected+=1;}
-                        if widgets::button(ui,"Tidy").clicked(){draft.rules.columns.tidy();}
-                        if widgets::button(ui,"Accept structure").clicked(){for c in &mut draft.rules.columns.0{c.changes.clear();}}
-                    });
-                    let mut key=draft.rules.key_columns().contains(&self.selected);
-                    if widgets::checkbox(ui,&mut key,"Key").changed(){
-                        let mut keys=draft.rules.key_columns();keys.retain(|&c|c!=self.selected);if key{keys.push(self.selected);keys.sort_unstable();}let _=draft.rules.set_manual_keys(keys);
+                format_options(ui, &mut draft.options[self.format_side], &mut self.error);
+            }
+            2 => {
+                ui.label(format!(
+                    "Keys: {} ({}) — comparison-column order defines priority",
+                    draft.rules.keys.label(),
+                    key_hint
+                ));
+                ui.horizontal(|ui| {
+                    if widgets::button(ui, "Auto infer keys").clicked() {
+                        for c in &mut draft.rules.columns.0 {
+                            c.handling.is_key = false;
+                        }
+                        draft.rules.keys = KeySelection::Automatic {
+                            columns: Vec::new(),
+                            score: 0.0,
+                        };
                     }
-                    if let Some(c)=draft.rules.columns.0.get_mut(self.selected){
-                        ui.horizontal(|ui|{for (name,index) in [("Left column (0 = gap)",&mut c.left),("Right column (0 = gap)",&mut c.right)]{
-                            let mut i=index.map_or(0,|i|i+1);ui.label(name);if ui.add(egui::DragValue::new(&mut i).range(0..=10000)).changed(){*index=i.checked_sub(1);}
-                        }});
-                        handling(ui,&mut c.handling,false);
+                    if widgets::button(ui, "All columns").clicked() {
+                        for c in &mut draft.rules.columns.0 {
+                            c.handling.is_key = false;
+                        }
+                        draft.rules.keys = KeySelection::AllColumns;
                     }
-                    ui.collapsing("Default Handling",|ui|handling(ui,&mut draft.rules.default_handling,true));
-                    widgets::checkbox(ui,&mut draft.rules.format_important,"Format differences are important")
-                        .on_hover_text("Applies to the + Number formats layer; values/formulas layers are unaffected");
-                }
-                3=>{
-                    widgets::checkbox(ui,&mut draft.rules.sort_by_key,"Sort rows before alignment");
-                    for (strategy,name) in [(AlignStrategy::Smart,"Standard"),(AlignStrategy::Quick,"Myers O(ND)"),(AlignStrategy::Patience,"Patience"),(AlignStrategy::None,"Unaligned")]{widgets::radio_value(ui,&mut draft.rules.strategy,strategy,name);}
-                    widgets::checkbox(ui,&mut draft.rules.use_closeness,"Use closeness matching");
-                    if widgets::checkbox(ui,&mut draft.left_source,"Left file is source").changed(){draft.rules.left_is_source=draft.left_source;draft.pairs=SheetPairs::by_name(&names[0],&names[1],draft.left_source);}
-                }
-                _=>{
-                    ui.label("Move one side to compare different sheets, including the same file twice.");
-                    for (i,p) in draft.pairs.0.iter().enumerate(){
-                        if widgets::list_row(ui,i==self.sheet,format!("{} ↔ {}",p.left.and_then(|i|names[0].get(i)).map_or("—",String::as_str),p.right.and_then(|i|names[1].get(i)).map_or("—",String::as_str))).clicked(){self.sheet=i;}
+                    if widgets::button(ui, "By column number").clicked() {
+                        draft.rules.keys = KeySelection::ByColumnNumber;
+                        draft.rules.column_mode = ColumnMode::ByNumber;
+                        draft.rules.columns.0.clear();
                     }
-                    ui.horizontal(|ui|{widgets::radio_value(ui,&mut self.move_side,1,"Left");widgets::radio_value(ui,&mut self.move_side,2,"Right");
-                        let side=if self.move_side==1{Side::Left}else{Side::Right};
-                        if widgets::button(ui,"Move Up").clicked()&&self.sheet>0{let _=draft.pairs.move_to(self.sheet,self.sheet-1,side);self.sheet-=1;}
-                        if widgets::button(ui,"Move Down").clicked()&&self.sheet+1<draft.pairs.0.len(){let _=draft.pairs.move_to(self.sheet,self.sheet+1,side);self.sheet+=1;}
+                    if widgets::button(ui, "Detect column structure").clicked() {
+                        draft.rules.column_mode = ColumnMode::Automatic;
+                        draft.rules.columns.0.clear();
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .id_salt("table_columns")
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for (i, c) in draft.rules.columns.0.iter().enumerate() {
+                            if widgets::list_row(
+                                ui,
+                                i == self.selected,
+                                format!(
+                                    "{}: L {} ↔ R {}  {:?}",
+                                    i + 1,
+                                    c.left.map_or("—".into(), |i| (i + 1).to_string()),
+                                    c.right.map_or("—".into(), |i| (i + 1).to_string()),
+                                    c.changes
+                                ),
+                            )
+                            .clicked()
+                            {
+                                self.selected = i;
+                            }
+                        }
                     });
+                ui.horizontal(|ui| {
+                    for (i, n) in ["Whole comparison column", "Left", "Right"]
+                        .iter()
+                        .enumerate()
+                    {
+                        widgets::radio_value(ui, &mut self.move_side, i, *n);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let side = match self.move_side {
+                        1 => Some(Side::Left),
+                        2 => Some(Side::Right),
+                        _ => None,
+                    };
+                    if widgets::button(ui, "Move Up").clicked() && self.selected > 0 {
+                        let _ = draft
+                            .rules
+                            .columns
+                            .move_to(self.selected, self.selected - 1, side);
+                        self.selected -= 1;
+                    }
+                    if widgets::button(ui, "Move Down").clicked()
+                        && self.selected + 1 < draft.rules.columns.0.len()
+                    {
+                        let _ = draft
+                            .rules
+                            .columns
+                            .move_to(self.selected, self.selected + 1, side);
+                        self.selected += 1;
+                    }
+                    if widgets::button(ui, "Tidy").clicked() {
+                        draft.rules.columns.tidy();
+                    }
+                    if widgets::button(ui, "Accept structure").clicked() {
+                        for c in &mut draft.rules.columns.0 {
+                            c.changes.clear();
+                        }
+                    }
+                });
+                let mut key = draft.rules.key_columns().contains(&self.selected);
+                if widgets::checkbox(ui, &mut key, "Key").changed() {
+                    let mut keys = draft.rules.key_columns();
+                    keys.retain(|&c| c != self.selected);
+                    if key {
+                        keys.push(self.selected);
+                        keys.sort_unstable();
+                    }
+                    let _ = draft.rules.set_manual_keys(keys);
+                }
+                if let Some(c) = draft.rules.columns.0.get_mut(self.selected) {
+                    ui.horizontal(|ui| {
+                        for (name, index) in [
+                            ("Left column (0 = gap)", &mut c.left),
+                            ("Right column (0 = gap)", &mut c.right),
+                        ] {
+                            let mut i = index.map_or(0, |i| i + 1);
+                            ui.label(name);
+                            if ui
+                                .add(egui::DragValue::new(&mut i).range(0..=10000))
+                                .changed()
+                            {
+                                *index = i.checked_sub(1);
+                            }
+                        }
+                    });
+                    handling(ui, &mut c.handling, false);
+                }
+                ui.collapsing("Default Handling", |ui| {
+                    handling(ui, &mut draft.rules.default_handling, true)
+                });
+                widgets::checkbox(
+                    ui,
+                    &mut draft.rules.format_important,
+                    "Format differences are important",
+                )
+                .on_hover_text(
+                    "Applies to the + Number formats layer; values/formulas layers are unaffected",
+                );
+            }
+            3 => {
+                widgets::checkbox(
+                    ui,
+                    &mut draft.rules.sort_by_key,
+                    "Sort rows before alignment",
+                );
+                for (strategy, name) in [
+                    (AlignStrategy::Smart, "Standard"),
+                    (AlignStrategy::Quick, "Myers O(ND)"),
+                    (AlignStrategy::Patience, "Patience"),
+                    (AlignStrategy::None, "Unaligned"),
+                ] {
+                    widgets::radio_value(ui, &mut draft.rules.strategy, strategy, name);
+                }
+                widgets::checkbox(ui, &mut draft.rules.use_closeness, "Use closeness matching");
+                if widgets::checkbox(ui, &mut draft.left_source, "Left file is source").changed() {
+                    draft.rules.left_is_source = draft.left_source;
+                    draft.pairs = SheetPairs::by_name(&names[0], &names[1], draft.left_source);
                 }
             }
-            });
-            ui.separator();if widgets::primary_button(ui,"Apply to current comparison").clicked(){result=Some(draft.clone());}
-            if !self.error.is_empty(){ui.colored_label(crate::chrome::theme::palette(ui.ctx()).danger,&self.error);}
-        });
-        result
+            _ => {
+                ui.label(
+                    "Move one side to compare different sheets, including the same file twice.",
+                );
+                for (i, p) in draft.pairs.0.iter().enumerate() {
+                    if widgets::list_row(
+                        ui,
+                        i == self.sheet,
+                        format!(
+                            "{} ↔ {}",
+                            p.left
+                                .and_then(|i| names[0].get(i))
+                                .map_or("—", String::as_str),
+                            p.right
+                                .and_then(|i| names[1].get(i))
+                                .map_or("—", String::as_str)
+                        ),
+                    )
+                    .clicked()
+                    {
+                        self.sheet = i;
+                    }
+                }
+                ui.horizontal(|ui| {
+                    widgets::radio_value(ui, &mut self.move_side, 1, "Left");
+                    widgets::radio_value(ui, &mut self.move_side, 2, "Right");
+                    let side = if self.move_side == 1 {
+                        Side::Left
+                    } else {
+                        Side::Right
+                    };
+                    if widgets::button(ui, "Move Up").clicked() && self.sheet > 0 {
+                        let _ = draft.pairs.move_to(self.sheet, self.sheet - 1, side);
+                        self.sheet -= 1;
+                    }
+                    if widgets::button(ui, "Move Down").clicked()
+                        && self.sheet + 1 < draft.pairs.0.len()
+                    {
+                        let _ = draft.pairs.move_to(self.sheet, self.sheet + 1, side);
+                        self.sheet += 1;
+                    }
+                });
+            }
+        }
     }
 }

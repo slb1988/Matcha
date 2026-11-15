@@ -4,6 +4,27 @@
 
 ## 2026-11-15
 
+- **右键菜单补齐**：表格网格新增右键菜单（Align With、Copy to Left/Right、Copy Cell to…、Cut/Copy/Paste/Delete、
+  插删行列、Modify…、Open File / Open Clipboard / Open With / Save / Explorer），右键先选中所点的格；文件夹树右键菜单
+  从 3 项扩充为完整清单（Open Folder / Open、Open/Close Subfolders、Set as Base…、Open in New View、Open With、Compare To…、
+  Compare Contents、Copy/Move to Right|Left、Copy/Move to Folder、Delete、Rename、Attributes、Touch、Exclude、New Folder、
+  Copy Filename、Ignored、Refresh Selection、Synchronize、Explorer），右键点在选区外时先选中所点一侧。条目与顺序按参考菜单，
+  未实现的（Synchronize ▸、Open With ▸ Folder Sync）显示为禁用。表格 File 菜单的 Open With ▸ Associated Application 与 Explorer 现可用。
+- **Session Settings 统一**：表格、文件夹/同步、Hex 的会话设置改用与文本相同的对话框（下划线页签、页面卡片、底部按钮行）。
+  文件夹会话设置原来是一张可滚动的长表，各段各有一个应用按钮；现在按参考分为 Specs / Comparison / Handling / Name Filters /
+  Other Filters / Misc 六页，改动先存草稿，OK / Apply 才生效（只重发变化的部分：过滤、规则重扫、换文件夹重载），Cancel / Esc 丢弃。
+  表格会话设置为 OK / Cancel / Apply（原 "Apply to current comparison" 按钮）。
+- **sheet 标签换新**：表格比较的 sheet 标签从状态栏下方移到网格与状态栏之间，改为下划线页签加比较状态点；表格合并共用同一组件。
+  工作簿一侧的文件信息行不再显示分隔符（原来总显示 "Tab"）。
+- **文件操作对话框文字化**：标题与选项不再显示内部名称（CopyTo、All、None、CopyOther），改为 Copy to Folder、Both sides、
+  Keep relative folder structure、Copy to Other Side 等。
+- **开发工具**：`tools/visual/snap-matcha.ps1 -All` 改为从 `matcha /?` 读取全部快照场景（原写死 17 个，现 28 个），并兼容
+  Windows PowerShell 5.1；新增快照场景 `dlg-table-session-settings`、`dlg-folder-session-settings`。
+- **visual-parity 收口（仓库管理）**：按用户 11-15 的决定（现代设计系统、非经典 Windows 复刻）修订规格为“结构对齐参考、样式走设计系统”，
+  tasks 23/23。
+
+## 2026-11-15
+
 - **OpenSpec 归档（仓库管理，无功能变化）**：table-merge 归档至 `openspec/changes/archive/2026-11-15-table-merge`，
   新建主 spec `table-merge-cli`、`table-merge-engine`、`table-merge-view`；text-merge 带 4 项未完成的验证任务（参考样本采集、
   P4V 人工端到端）归档至 `2026-11-15-text-merge`，新建主 spec `text-merge-cli`、`text-merge-engine`、`text-merge-view`、

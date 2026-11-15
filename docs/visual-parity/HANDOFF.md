@@ -2,6 +2,13 @@
 
 更新：2026-11-11（第二次交接），协调者：pi k3.1-pro（ObsidianVault 会话）总控+review，实施 worker：Orca 编排 **claude opus high**。上一棒：Codex → pi k3.1-pro（2026-11-11 首次交接）。本文件是后续协调者与 worker 的唯一入口。
 
+## 0. 2026-11-15 收口
+
+用户决定外观走现代设计系统、不做经典 Windows 1:1（design D9）。剩余任务组按“结构对齐参考、样式走设计系统”收口：
+三类右键菜单按参考清单落地、文本/表格/文件夹/Hex Session Settings 统一对话框框架（文件夹按参考帮助六页）、
+sheet 标签共享组件、文件操作对话框文字化。tasks 23/23，详见 tasks.md 与 `docs/reference-parity/visual.md`「方向修订」。
+下文第 1–7 节是旧方向（1:1 复刻）时期的交接记录，保留作历史。
+
 ## 1. 目标与范围
 
 - 需求：Matcha 外观尽量一比一复刻参考工具（默认英文、浅色、100% 缩放、默认偏好）。真源：`openspec/changes/visual-parity/`（proposal、design D1–D8、tasks）。
@@ -59,7 +66,7 @@
 
 - 规格：`openspec/changes/visual-parity/{proposal,design,tasks}.md`、`specs/*/spec.md`
 - 外观真源：`docs/visual-parity/tokens.json`、`tokens.md`、`reference/*.png`、`supplemental/`
-- 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`snap-matcha.ps1 [-Scene|-All] [-Verify]`（17 场景）、`manual-verify-*.py`（元素级测量）
+- 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`snap-matcha.ps1 [-Scene|-All] [-Verify]`（场景列表取自 `matcha /?` 的注册表，2026-11-15 起 28 个；用 `pwsh` 运行——从 Git Bash 启动的 Windows PowerShell 5.1 会因 PSModulePath 继承自 PS7 而找不到 `Get-FileHash`）、`manual-verify-*.py`（元素级测量）
 - 代码：`crates/bc-gui/src/chrome/`（含 wave4 `wheel.rs`、wave6 `popup.rs`、wave7 `dialog.rs`）、`snapshot.rs`、`text/`、`table/`、`dir_view.rs`、`sync_view.rs`、`home.rs`、`dialogs/`、`app.rs`
 - 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2,2b,3,4,5,6,7,8,9}.md` + `assets/` + `evidence/`
 - 性能设施：`MATCHA_FRAME_PERF=1`（帧直方图）、`MATCHA_PERF=1`（启动打点）、`cargo test --release -p bc-gui --lib interaction_latency -- --ignored --nocapture`

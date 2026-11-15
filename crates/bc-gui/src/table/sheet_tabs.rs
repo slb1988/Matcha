@@ -1,58 +1,55 @@
+//! Sheet tabs of a workbook comparison: one tab per sheet pair, with a status dot
+//! (gray = not compared yet, text color = same, difference color = differs).
+use crate::chrome::sheet_tabs::{self, SheetTab};
 use bc_engine_table::{compare::Importance, sheets::SheetPairs};
 use bc_session::prefs::DiffColors;
 use eframe::egui;
+
+pub fn tabs(
+    names: &[Vec<String>; 2],
+    pairs: &SheetPairs,
+    states: &[Option<Importance>],
+    colors: &DiffColors,
+) -> Vec<SheetTab> {
+    pairs
+        .0
+        .iter()
+        .enumerate()
+        .map(|(i, pair)| {
+            let left = pair
+                .left
+                .and_then(|n| names[0].get(n))
+                .map_or("—", String::as_str);
+            let right = pair
+                .right
+                .and_then(|n| names[1].get(n))
+                .map_or("—", String::as_str);
+            let label = if left == right {
+                left.into()
+            } else {
+                format!("{left} ↔ {right}")
+            };
+            let dot = match states.get(i).copied().flatten() {
+                None => crate::chrome::theme::TEXT_FAINT,
+                Some(Importance::Same) => crate::chrome::theme::TEXT_MUTED,
+                Some(s) => super::grid::color(colors, s, false, 255),
+            };
+            SheetTab {
+                dot: Some(dot),
+                ..SheetTab::new(label)
+            }
+        })
+        .collect()
+}
+
 pub fn ui(
     ui: &mut egui::Ui,
+    rect: egui::Rect,
     names: &[Vec<String>; 2],
     pairs: &SheetPairs,
     states: &[Option<Importance>],
     active: usize,
     colors: &DiffColors,
 ) -> Option<usize> {
-    let mut target = None;
-    egui::Panel::bottom("table_sheet_tabs").show(ui, |ui| {
-        ui.add_space(3.0);
-        egui::ScrollArea::horizontal().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for (i, pair) in pairs.0.iter().enumerate() {
-                    let left = pair
-                        .left
-                        .and_then(|n| names[0].get(n))
-                        .map_or("—", String::as_str);
-                    let right = pair
-                        .right
-                        .and_then(|n| names[1].get(n))
-                        .map_or("—", String::as_str);
-                    let name = if left == right {
-                        left.into()
-                    } else {
-                        format!("{left} ↔ {right}")
-                    };
-                    let color = states
-                        .get(i)
-                        .copied()
-                        .flatten()
-                        .map_or(egui::Color32::GRAY, |s| {
-                            if s == Importance::Same {
-                                ui.visuals().text_color()
-                            } else {
-                                super::grid::color(colors, s, false, 255)
-                            }
-                        });
-                    if ui
-                        .add(
-                            crate::chrome::widgets::Button::new(
-                                egui::RichText::new(format!("● {name}")).color(color),
-                            )
-                            .selected(i == active),
-                        )
-                        .clicked()
-                    {
-                        target = Some(i);
-                    }
-                }
-            });
-        });
-    });
-    target
+    sheet_tabs::show(ui, rect, &tabs(names, pairs, states, colors), active)
 }

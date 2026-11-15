@@ -31,6 +31,22 @@
 - 默认比较规则对齐参考（大小写默认不重要等）；文件夹孤儿排序对齐参考。
 - 后置外观：同步视图、Home、表格、对话框、右键菜单、标签类、缩略图。
 
+## 方向修订（2026-11-15，design D9）
+
+用户决定外观以现代设计系统为准（ADR 402，抹茶绿强调色），不做经典 Windows 1:1。上面的 ±2 px 结果是旧方向的核心版证据，
+组件库重构后外框增高 6 px、控件改为圆角卡片与下划线页签，几何不再逐像素对齐，也不再作为验收门槛。新口径与证据：
+
+| 范围 | 结构对齐的依据 | 证据 |
+|---|---|---|
+| 右键菜单（文本 / 表格 / 文件夹） | 条目、顺序、分隔线逐项比对 `supplemental/*-context.tree.json` | `text::view` 既有测试；`table::…::grid_context_menu_follows_the_reference_and_acts_on_the_clicked_side`；`dir_view::…::row_context_menu_follows_the_reference_and_runs_menu_commands` |
+| 菜单栏 | 顶层与叶子条目比对 `tokens.json` inventories | `reference_layout_geometry_title_and_menu_inventory` 等既有清单测试 |
+| Session Settings | 文本四页（参考截图）、表格五页、文件夹六页（参考帮助 `sessiondir.html`）、Hex 三页；统一 `chrome::dialog` 框架 | 场景 `dlg-text-session-settings`、`dlg-table-session-settings`、`dlg-folder-session-settings`；`session_settings_*` 测试 |
+| sheet 标签 | 多 sheet 工作簿位于网格与状态栏之间、带状态点 | `chrome::sheet_tabs` 测试、`sheet_tabs_show_state_dots_and_switching_preserves_cached_edits` |
+| 全部快照场景 | 两次渲染字节一致 | `pwsh tools/visual/snap-matcha.ps1 -All -Verify`（场景取自注册表） |
+
+已知差异（新口径下）：Synchronize ▸ 与 Open With ▸ Folder Sync 右键子项未实现（禁用）；参考的 Compare Contents… 为对话框，
+Matcha 为 CRC / Binary / Rules-based 子菜单；File Formats、Go To 无参考截图，按设计系统卡片布局。
+
 ## 证据索引
 
 报告：`docs/worker-reports/visual-parity-wave{1A,1B,2,2b,3}.md`；token 真源：`docs/visual-parity/tokens.{json,md}`；交接：`docs/visual-parity/HANDOFF.md`。

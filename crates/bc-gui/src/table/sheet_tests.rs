@@ -166,11 +166,19 @@ fn sheet_tabs_show_state_dots_and_switching_preserves_cached_edits() {
     wait_scanned(&mut v);
     assert_eq!(v.states[0], Some(Importance::Same));
     assert_eq!(v.states[1], Some(Importance::Important));
-    // 标签带状态色点：Summary 标签可点击切换。
+    // 标签带状态色点（相同 = 弱化文字色，有差异 = 差异色），Summary 标签可点击切换。
+    let tabs = super::super::sheet_tabs::tabs(
+        &v.names,
+        &v.pairs,
+        &v.states,
+        &bc_session::prefs::Prefs::default().colors,
+    );
+    assert_eq!(tabs[0].dot, Some(crate::chrome::theme::TEXT_MUTED));
+    assert_ne!(tabs[1].dot, tabs[0].dot);
     let ctx = egui::Context::default();
     frame(&ctx, &mut v, vec![]);
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "● Summary"));
+    click(&ctx, &mut v, button(&out, "Summary"));
     ready(&mut v);
     assert_eq!(v.active_pair, 1);
     assert_eq!(
@@ -190,11 +198,11 @@ fn sheet_tabs_show_state_dots_and_switching_preserves_cached_edits() {
     v.commit_edit().unwrap();
     ready(&mut v);
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "● Data"));
+    click(&ctx, &mut v, button(&out, "Data"));
     ready(&mut v);
     assert_eq!(v.active_pair, 0);
     let out = frame(&ctx, &mut v, vec![]);
-    click(&ctx, &mut v, button(&out, "● Summary"));
+    click(&ctx, &mut v, button(&out, "Summary"));
     ready(&mut v);
     let p = v.pair.as_ref().unwrap();
     assert_eq!(p.map.right.borrow().display_at(1, 1).unwrap(), "10");
