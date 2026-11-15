@@ -3,17 +3,18 @@
 ## 先读这段
 
 - **5 个已完成的 change 已于 2026-11-15 归档**：`text-compare-core`、`folder-compare-sync`、`table-compare-xlsx`、`text-patch-reports`、`hex-compare` → `openspec/changes/archive/2026-11-15-*`；22 个 capability 主 spec 已建立在 `openspec/specs/`（全部纯 ADDED 合并，无 MODIFIED/REMOVED）。
-- **剩 3 个活跃 change**：`table-merge`（25/25，待归档）、`text-merge`（30/34）、`visual-parity`（15/23）。
+- **table-merge 已于 2026-11-15 归档**（`openspec/changes/archive/2026-11-15-table-merge`，新建主 spec `table-merge-cli`/`-engine`/`-view`，共 25 个主 spec）。
+- **剩 2 个活跃 change**：`text-merge`（30/34）、`visual-parity`（15/23）。
 - table-merge 已收口（见 §1）；text-merge 剩的全是验证类（2 项被参考工具阻塞）；visual-parity 剩的全是用户明确后置的范围。
 - 工作目录 `D:\Github\Matcha`，分支 `master`。归档操作本身未单独提交（openspec 文件移动 + 本文档 + CHANGELOGS 一条），随下一次代码提交或用户指示处理。
 
-## 1. table-merge（25/25，可归档）
+## 1. table-merge（25/25，已归档）
 
 **2026-11-15 更新**：原交接表里的 4.1–4.5、3.4、3.5 其实已随 `0bdc1e3`/`dde6cec`/`c0a2863` 落地（tasks 当时未勾）。
 本轮核对 spec 后补齐：删除输出行（spec「输出编辑」，引擎 `SheetMerge::remove_row` + `Ctrl+Delete`）、横向滚动整列对齐、
 app 层/真实 exe 转交/路由/快照测试；spec 与已落地行为对齐（改动区段导航、模板写出、P4V 参数顺序）；
 text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为按格式分派——**archive 顺序问题已消除**。
-5.4 全量门禁见 tasks.md 验证记录。下一步：用户确认后 `openspec archive table-merge`。
+5.4 全量门禁见 tasks.md 验证记录。已归档，无后续。
 
 ## 2. text-merge（30/34，代码全绿，剩验证）
 

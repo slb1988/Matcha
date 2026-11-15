@@ -4,6 +4,9 @@
 
 ## 2026-11-15
 
+- **OpenSpec 归档（仓库管理，无功能变化）**：table-merge 归档至 `openspec/changes/archive/2026-11-15-table-merge`，
+  新建主 spec `table-merge-cli`、`table-merge-engine`、`table-merge-view`。剩余活跃 change：text-merge、visual-parity。
+
 - **表格合并：删除输出行**：输出网格里 `Ctrl+Delete`（Edit ▸ Delete Output Row）把选中行从合并结果中去掉，
   该行上的冲突计为已解决，可撤销；之后对该行 Take 任一侧会把它带回。双增冲突行不可删除（用 Take Center 表示两行都不要）。
 - **表格合并：横向滚动停在整列边界**：输入窗格较窄、跳到靠右的改动格时，左侧不再露出被截去一半的格子
