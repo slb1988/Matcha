@@ -203,7 +203,7 @@ impl HexCompareView {
             Some(Worker::spawn(HexAlignJob::from_map(&map)))
         };
         let mut view = Self {
-            summary: HexSummary::of(&map.align),
+            summary: HexSummary::of(&map.align, map.left.bytes(), map.right.bytes()),
             generation: 0,
             map,
             worker,
@@ -344,7 +344,7 @@ impl HexCompareView {
     /// 内容被整体替换（换文件/互换/重载/剪贴板）：旧对齐与新内容无关，丢弃它，
     /// 让网格在新对齐到达前回到对齐前布局，而不是把旧对齐套在新字节上。
     fn reset_alignment(&mut self) {
-        self.map.align = bc_core::align::AlignMap::default();
+        self.map.align = bc_core::align::ByteAlignMap::default();
         self.summary = HexSummary::default();
         self.generation += 1;
         self.cache = None;
@@ -717,14 +717,14 @@ impl HexCompareView {
             return;
         };
         let target = if forward {
-            self.map.align.next_difference(row)
+            self.summary.next_difference(row)
         } else {
-            self.map.align.prev_difference(row)
+            self.summary.prev_difference(row)
         };
         match target {
             Some(row) => {
                 // 块首行在任一侧可能为孤儿：两侧各自落到本行字节（无则保持）。
-                let row_ref = *self.map.align.row(row).unwrap();
+                let row_ref = self.map.align.row(row).unwrap();
                 if let Some(left) = row_ref.left {
                     self.cursor[0] = left;
                 }

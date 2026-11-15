@@ -36,18 +36,17 @@ fn fast_align_256mb_is_cancellable_and_bounded() {
 
     // 1) 完整对齐计时。
     let start = Instant::now();
-    let map = ByteAlign.align(&left, &right, ByteAlignStrategy::Fast);
+    // 紧凑结果（Hex 视图实际用法）；逐行展开 2.7 亿行会占十余 GB。
+    let map = ByteAlign
+        .align_segments(&left, &right, ByteAlignStrategy::Fast, &bc_core::cancel::NeverCancel)
+        .unwrap();
     let elapsed = start.elapsed();
-    let (mut same, mut lo, mut ro) = (0usize, 0usize, 0usize);
-    for row in map.rows() {
-        match row.kind {
-            bc_core::DiffKind::Same => same += 1,
-            bc_core::DiffKind::LeftOnly => lo += 1,
-            bc_core::DiffKind::RightOnly => ro += 1,
-            bc_core::DiffKind::Changed => {}
-        }
-    }
-    eprintln!("[7.1] Fast 256MB align: {elapsed:?}; same={same} left_orphan={lo} right_orphan={ro}");
+    let summary = bc_engine_bin::hex::HexSummary::of(&map, &left, &right);
+    let (same, lo, ro) = (summary.stats.same as usize, summary.stats.left_orphan as usize, summary.stats.right_orphan as usize);
+    eprintln!(
+        "[7.1] Fast 256MB align: {elapsed:?} ({} segments); same={same} left_orphan={lo} right_orphan={ro}",
+        map.segments().len()
+    );
     // 2) 取消响应：在对齐中置取消标志，要求及时返回（< 5s）。
     let flag = Arc::new(AtomicBool::new(false));
     struct Flag(Arc<AtomicBool>);
@@ -65,7 +64,7 @@ fn fast_align_256mb_is_cancellable_and_bounded() {
             flag.store(true, Ordering::Relaxed);
         }
     });
-    let result = ByteAlign.align_cancellable(&left, &right, ByteAlignStrategy::Fast, &cancel_flag);
+    let result = ByteAlign.align_segments(&left, &right, ByteAlignStrategy::Fast, &cancel_flag);
     let cancel_elapsed = start.elapsed();
     eprintln!("[7.1] cancel latency: {cancel_elapsed:?}");
     assert!(matches!(result, Err(bc_core::CoreError::Cancelled)));

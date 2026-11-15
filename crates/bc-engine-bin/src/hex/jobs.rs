@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use bc_core::align::{AlignMap, ByteAlign};
+use bc_core::align::{ByteAlign, ByteAlignMap};
 use bc_core::cancel::CancelCheck;
 use bc_core::CoreError;
 use bc_jobs::{Job, JobContext, JobResult, Priority, Progress};
@@ -39,7 +39,7 @@ impl HexSnapshot {
 /// 后台对齐产物。
 #[derive(Debug)]
 pub struct HexAlignOutput {
-    pub map: AlignMap,
+    pub map: ByteAlignMap,
     /// 统计与差异游程（在后台线程随对齐算出，视图不必逐帧扫描对齐行）。
     pub summary: HexSummary,
     pub rules: HexRules,
@@ -68,14 +68,14 @@ impl HexAlignJob {
 
     pub fn execute(&self, cancel: &dyn CancelCheck) -> Result<HexAlignOutput, CoreError> {
         cancel.check()?;
-        let aligned = ByteAlign.align_cancellable(
+        let aligned = ByteAlign.align_segments(
             self.left.bytes(),
             self.right.bytes(),
             self.rules.alignment,
             cancel,
         )?;
         cancel.check()?;
-        let summary = HexSummary::of(&aligned);
+        let summary = HexSummary::of(&aligned, self.left.bytes(), self.right.bytes());
         Ok(HexAlignOutput {
             map: aligned,
             summary,

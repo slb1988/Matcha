@@ -115,7 +115,7 @@ not production list evaluation.
 | `line::LineList`, `LineParser`, `LineWriter` | `TSsLineList`, `TSsLineParser`, `TSsLineWriter`, `TLineConLineList` |
 | `line::LineEdit` | `TSsLineListEditItem`, `TSsLineListInsertItem`, `TSsLineListDeleteItem`, `TSsLineListModifyEndingItem`, `TSsLineListModifyEndingStyleItem` |
 | `align::Aligner`, `QuickAlign`, `SmartAlign` | `TBcAlign`, `TBcQuickAlign`, `TBcSmartAlign`, `TBcPatienceDiffAlign` |
-| `align::ByteAlign` | `TBcByteAlign`, `TBcIntAlign`, `THexMapByteAlign` |
+| `align::ByteAlign` / `ByteAlignMap`（`align/bytes.rs`；紧凑段表结果） | `TBcByteAlign`, `TBcIntAlign`, `THexMapByteAlign` |
 | `align::AlignMap` driver | `TBcAlignLines` (→ `TTextMapAlignLines`, `TTableMapAlignLines`) |
 | `edit::EditStack`, `EditItem`, `EditGroup` | `TSsEditStack`, `TSsEditItem`, `TSsEditParentItem` |
 | `pattern::Pattern` | `TSsRegExpr`, `TREParser`, `TREStateTable`, `TRETransitionTable`, `TREPartitionTable`, `TREPositionTable` |

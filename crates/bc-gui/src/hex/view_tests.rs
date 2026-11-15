@@ -1043,7 +1043,7 @@ fn lazy_layout_matches_engine_packing() {
         for per_line in [8u16, 16, 24] {
             v.filter = filter;
             let ours = v.grid_rows_for_test(per_line);
-            let rows = filtered_rows(&v.map.align, filter, v.map.rules.context_count);
+            let rows = filtered_rows(&v.map.align_rows(), filter, v.map.rules.context_count);
             let packed = pack_slice(&rows, per_line);
             assert_eq!(ours.len(), packed.len(), "{filter:?}/{per_line}");
             for (a, b) in ours.iter().zip(&packed) {

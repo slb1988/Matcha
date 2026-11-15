@@ -362,14 +362,29 @@ fn summary_matches_row_scans() {
         ..Default::default()
     };
     map.align();
-    let summary = super::HexSummary::of(&map.align);
-    assert_eq!(summary.stats, map.stats());
+    let summary = map.summary();
+    let rows = map.align_rows();
+    let mut expect = HexStats::default();
+    for row in rows.rows() {
+        match row.kind {
+            DiffKind::Same => expect.same += 1,
+            DiffKind::Changed => expect.difference += 1,
+            DiffKind::LeftOnly => expect.left_orphan += 1,
+            DiffKind::RightOnly => expect.right_orphan += 1,
+        }
+    }
+    assert_eq!(summary.stats, expect);
+    // 差异导航与逐行对齐图一致。
+    for row in (0..rows.len()).step_by(7) {
+        assert_eq!(summary.next_difference(row), rows.next_difference(row), "next {row}");
+        assert_eq!(summary.prev_difference(row), rows.prev_difference(row), "prev {row}");
+    }
     assert!(!summary.runs.is_empty());
     for filter in [DisplayFilter::All, DisplayFilter::Differences, DisplayFilter::Same] {
         for context in [0, 3, 16] {
             assert_eq!(
                 summary.regions(filter, context),
-                super::filtered_regions(&map.align, filter, context),
+                super::filtered_regions(&rows, filter, context),
                 "{filter:?} context {context}"
             );
         }

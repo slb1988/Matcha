@@ -102,18 +102,26 @@ impl GridLayout {
                 }
             }
             LayoutKind::Aligned { regions, starts, .. } => {
-                let rows = map.align.rows();
+                let segments = map.align.segments();
                 let mut k = starts.partition_point(|&s| s <= start).saturating_sub(1);
+                let mut seg: Option<usize> = None;
                 for p in start..end {
                     while k + 1 < starts.len() && starts[k + 1] <= p {
                         k += 1;
                     }
-                    let Some(row) = rows.get(regions[k].start + (p - starts[k])) else { break };
-                    match row.kind {
-                        DiffKind::Same | DiffKind::Changed => push(row.kind, row.left, row.right),
-                        DiffKind::LeftOnly => push(row.kind, row.left, None),
-                        DiffKind::RightOnly => push(row.kind, None, row.right),
-                    }
+                    let row = regions[k].start + (p - starts[k]);
+                    // 同一行内多为同段或下一段：先就近推进，跨过滤区间时再二分。
+                    let ix = match seg {
+                        Some(i) if segments[i].rows().contains(&row) => i,
+                        Some(i) if segments.get(i + 1).is_some_and(|s| s.rows().contains(&row)) => i + 1,
+                        _ => match map.align.segment_of_row(row) {
+                            Some(i) => i,
+                            None => break,
+                        },
+                    };
+                    seg = Some(ix);
+                    let cell = segments[ix].row_at(row - segments[ix].row);
+                    push(cell.kind(lb, rb), cell.left, cell.right);
                 }
             }
         }

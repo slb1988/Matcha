@@ -13,8 +13,8 @@ pub use jobs::{HexAlignJob, HexAlignOutput};
 
 use std::ops::Range;
 
-use bc_core::align::{AlignMap, AlignRow, ByteAlign, ByteAlignStrategy};
-use bc_core::cancel::CancelCheck;
+use bc_core::align::{AlignMap, AlignRow, ByteAlign, ByteAlignMap, ByteAlignStrategy, ByteSpan};
+use bc_core::cancel::{CancelCheck, NeverCancel};
 use bc_core::{CoreError, DiffKind};
 
 /// Hex session rules – `THexRules`（设计 D6 定稿的字段集）。
@@ -91,29 +91,84 @@ pub struct DiffRun {
 pub struct HexSummary {
     pub stats: HexStats,
     pub runs: Vec<DiffRun>,
+    /// 差异块起点（相邻游程合为一块；Next/Previous Difference 的落点）。
+    pub block_starts: Vec<usize>,
     /// 对齐行总数。
     pub rows: usize,
 }
 
 impl HexSummary {
-    pub fn of(map: &AlignMap) -> Self {
+    /// 由紧凑对齐图与两侧字节汇总：配对段逐字节比较得出 difference 游程，孤儿段整段成游程。
+    pub fn of(map: &ByteAlignMap, left: &[u8], right: &[u8]) -> Self {
         let mut summary = Self { rows: map.len(), ..Default::default() };
-        for (i, row) in map.rows().iter().enumerate() {
-            match row.kind {
-                DiffKind::Same => {
-                    summary.stats.same += 1;
-                    continue;
-                }
-                DiffKind::Changed => summary.stats.difference += 1,
-                DiffKind::LeftOnly => summary.stats.left_orphan += 1,
-                DiffKind::RightOnly => summary.stats.right_orphan += 1,
+        let push = |summary: &mut Self, rows: Range<usize>, kind: DiffKind| {
+            if summary.runs.last().is_none_or(|run| run.rows.end != rows.start) {
+                summary.block_starts.push(rows.start);
             }
             match summary.runs.last_mut() {
-                Some(run) if run.rows.end == i && run.kind == row.kind => run.rows.end = i + 1,
-                _ => summary.runs.push(DiffRun { rows: i..i + 1, kind: row.kind }),
+                Some(run) if run.rows.end == rows.start && run.kind == kind => run.rows.end = rows.end,
+                _ => summary.runs.push(DiffRun { rows, kind }),
+            }
+        };
+        for seg in map.segments() {
+            match seg.span {
+                ByteSpan::LeftOnly => {
+                    summary.stats.left_orphan += seg.len as u64;
+                    push(&mut summary, seg.rows(), DiffKind::LeftOnly);
+                }
+                ByteSpan::RightOnly => {
+                    summary.stats.right_orphan += seg.len as u64;
+                    push(&mut summary, seg.rows(), DiffKind::RightOnly);
+                }
+                ByteSpan::Pair => {
+                    // 越界（对齐快照之后内容变短）按 difference 计。
+                    let l = left.get(seg.left..).unwrap_or(&[]);
+                    let r = right.get(seg.right..).unwrap_or(&[]);
+                    let mut k = 0usize;
+                    while k < seg.len {
+                        let same = l.get(k).is_some() && l.get(k) == r.get(k);
+                        let start = k;
+                        while k < seg.len && (l.get(k).is_some() && l.get(k) == r.get(k)) == same {
+                            k += 1;
+                        }
+                        if same {
+                            summary.stats.same += (k - start) as u64;
+                        } else {
+                            summary.stats.difference += (k - start) as u64;
+                            push(&mut summary, seg.row + start..seg.row + k, DiffKind::Changed);
+                        }
+                    }
+                }
             }
         }
         summary
+    }
+
+    /// 对齐行 `row` 是否在差异游程内。
+    pub fn is_difference(&self, row: usize) -> bool {
+        let k = self.runs.partition_point(|run| run.rows.end <= row);
+        self.runs.get(k).is_some_and(|run| run.rows.start <= row)
+    }
+
+    /// 下一个差异块的首行（跳过当前块；越过末尾为 None，不回卷）。语义同 `AlignMap::next_difference`。
+    pub fn next_difference(&self, from: usize) -> Option<usize> {
+        if from >= self.rows {
+            return None;
+        }
+        let index = self.block_starts.partition_point(|&row| row <= from);
+        self.block_starts.get(index).copied()
+    }
+
+    /// 上一个差异块的首行（跳过当前块）。语义同 `AlignMap::prev_difference`。
+    pub fn prev_difference(&self, from: usize) -> Option<usize> {
+        if from >= self.rows {
+            return None;
+        }
+        let mut index = self.block_starts.partition_point(|&start| start < from);
+        if self.is_difference(from) && self.block_starts.binary_search(&from).is_err() {
+            index = index.checked_sub(1)?;
+        }
+        self.block_starts.get(index.checked_sub(1)?).copied()
     }
 
     /// 与 [`filtered_regions`] 等价的过滤区间，但只遍历差异游程（O(游程数)）。
@@ -159,18 +214,19 @@ pub struct HexMap {
     pub left: HexContent,
     pub right: HexContent,
     pub rules: HexRules,
-    pub align: AlignMap,
+    /// 紧凑对齐图（连续段；每对齐字节不再占一个行结构）。
+    pub align: ByteAlignMap,
 }
 
 impl HexMap {
     /// Run `bc_core::align::ByteAlign` with the configured strategy and store the result.
     pub fn align(&mut self) {
-        self.align = ByteAlign.align(self.left.bytes(), self.right.bytes(), self.rules.alignment);
+        self.align_cancellable(&NeverCancel).expect("NeverCancel never cancels");
     }
 
     /// Cancellable variant for background workers（过期结果由调用方按 revision 丢弃）。
     pub fn align_cancellable(&mut self, cancel: &dyn CancelCheck) -> Result<(), CoreError> {
-        self.align = ByteAlign.align_cancellable(
+        self.align = ByteAlign.align_segments(
             self.left.bytes(),
             self.right.bytes(),
             self.rules.alignment,
@@ -195,23 +251,26 @@ impl HexMap {
 
     /// 从对齐图汇总四分类统计；每侧合计等于该侧字节数。
     pub fn stats(&self) -> HexStats {
-        let mut stats = HexStats::default();
-        for row in self.align.rows() {
-            match row.kind {
-                DiffKind::Same => stats.same += 1,
-                DiffKind::Changed => stats.difference += 1,
-                DiffKind::LeftOnly => stats.left_orphan += 1,
-                DiffKind::RightOnly => stats.right_orphan += 1,
-            }
-        }
-        stats
+        self.summary().stats
+    }
+
+    /// 统计 + 差异游程（逐配对字节比较，O(文件大小)；视图应在后台算好后复用）。
+    pub fn summary(&self) -> HexSummary {
+        HexSummary::of(&self.align, self.left.bytes(), self.right.bytes())
+    }
+
+    /// 展开为逐行对齐图（每行 56 字节，仅适合小数据：打包测试、黄金对拍）。
+    pub fn align_rows(&self) -> AlignMap {
+        self.align
+            .to_align_map(self.left.bytes(), self.right.bytes(), &NeverCancel)
+            .expect("NeverCancel never cancels")
     }
 
     /// 派生 cell packing 行模型（设计 D2）：对齐图按每行 N 格打包，孤儿字节占格、
     /// 对侧为斜纹占位格；行标签 = 该侧本行首个真实字节偏移（全占位行无标签）。
     /// 奇数长度孤儿段导致的行相位偏移由该模型自然产生（证据：`24-odd-insert-all.png`）。
     pub fn pack_rows(&self) -> Vec<HexRow> {
-        pack_rows(&self.align, self.rules.bytes_per_line)
+        pack_rows(&self.align_rows(), self.rules.bytes_per_line)
     }
 }
 
