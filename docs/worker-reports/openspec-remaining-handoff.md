@@ -3,31 +3,17 @@
 ## 先读这段
 
 - **5 个已完成的 change 已于 2026-11-15 归档**：`text-compare-core`、`folder-compare-sync`、`table-compare-xlsx`、`text-patch-reports`、`hex-compare` → `openspec/changes/archive/2026-11-15-*`；22 个 capability 主 spec 已建立在 `openspec/specs/`（全部纯 ADDED 合并，无 MODIFIED/REMOVED）。
-- **剩 3 个活跃 change，共 20 项未完成**：`table-merge`（17/25）、`text-merge`（30/34）、`visual-parity`（15/23）。
-- **唯一能纯代码推进的是 table-merge 的 GUI 表格合并视图**；text-merge 剩的全是验证类（2 项被参考工具阻塞）；visual-parity 剩的全是用户明确后置的范围。
+- **剩 3 个活跃 change**：`table-merge`（25/25，待归档）、`text-merge`（30/34）、`visual-parity`（15/23）。
+- table-merge 已收口（见 §1）；text-merge 剩的全是验证类（2 项被参考工具阻塞）；visual-parity 剩的全是用户明确后置的范围。
 - 工作目录 `D:\Github\Matcha`，分支 `master`。归档操作本身未单独提交（openspec 文件移动 + 本文档 + CHANGELOGS 一条），随下一次代码提交或用户指示处理。
 
-## 1. table-merge（17/25，建议主攻）
+## 1. table-merge（25/25，可归档）
 
-**已完成**：三方键对齐引擎、合并模型与 `auto_merge`、CSV 保真/xlsx 新写（含追加的 `xlsx_patch` 模板写出 + `formula_refs` 行引用重定位，见 design D3 二次修订）、CLI 大部分开关、golden 语料 24 例（5.1）、10 万行性能验证（5.2）、feature 文档（5.3）。
-
-**剩余 8 项，建议顺序**：
-
-| 序 | 任务 | 内容 |
-|---|---|---|
-| 1 | 4.1 | 新建 `crates/bc-gui/src/table_merge/model.rs`：四网格状态模型、按 sheet 懒建 MergeState、切换不丢解决进度、结果码接口 |
-| 2 | 4.2 | 视图渲染：复用 `table/` 网格（虚拟滚动/着色/sheet tabs），上排 left/center/right 只读 + 底部输出网格，空隙空白、冲突色 |
-| 3 | 4.3 | 冲突导航（下一个/上一个区段、计数）+ Take 交互（格/行/区段取 left/right/center、接受当前、删改取删除侧移除行）；输出格编辑视为解决 |
-| 4 | 4.4 | 保存与关闭：暂存+rename 写出、遗留冲突允许保存（结果码 14）、脏关闭提示、从未保存关闭结果码 101 |
-| 5 | 4.5 | 接入 `app.rs`（`View::TableMerge`、标签页标题/图标/脏状态）与 `snapshot.rs` |
-| 6 | 3.4 | `/reviewconflicts` 有冲突时转 GUI 并携带 headless 已应用状态（favor/键），无冲突不开窗；routing/main 层测试对照 text-merge 同名场景 |
-| 7 | 3.5 | GUI 合并的等待与结果码：`View::TableMerge` 接入既有转交/等待/Outcome 管道，退出码 0/14/101/100；`hand_off` 测试覆盖已有实例转交仍等待 |
-| 8 | 5.4 | 全量门禁：`cargo test` 全绿 + `tools/dev-build.ps1` 通过 |
-
-**注意**：
-- 3.4/3.5 依赖 4.x 视图就位，故排在后。
-- **Archive 顺序对齐**（tasks.md Workflow follow-up）：若 text-merge 先 archive，本变更 archive 前需补 `text-merge-cli`「一律按文本合并处理」requirement 的 MODIFIED delta（按格式分派）；反之在 text-merge archive 时处理（见 design.md D4/Risks）。两者目前都未归档，谁先收口谁带上这个 delta。
-- 参考实现：text-merge 的 GUI 视图（`crates/bc-gui/src/merge/`）是结构模板，等待/退出码管道直接复用。
+**2026-11-15 更新**：原交接表里的 4.1–4.5、3.4、3.5 其实已随 `0bdc1e3`/`dde6cec`/`c0a2863` 落地（tasks 当时未勾）。
+本轮核对 spec 后补齐：删除输出行（spec「输出编辑」，引擎 `SheetMerge::remove_row` + `Ctrl+Delete`）、横向滚动整列对齐、
+app 层/真实 exe 转交/路由/快照测试；spec 与已落地行为对齐（改动区段导航、模板写出、P4V 参数顺序）；
+text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为按格式分派——**archive 顺序问题已消除**。
+5.4 全量门禁见 tasks.md 验证记录。下一步：用户确认后 `openspec archive table-merge`。
 
 ## 2. text-merge（30/34，代码全绿，剩验证）
 
@@ -55,4 +41,4 @@
 ## 归档后续
 
 - 主 specs 与归档结果一致性已随 `openspec archive` 内建验证通过；`openspec list` 确认活跃 change 仅剩 3 个。
-- text-merge / table-merge 收口归档时，按上文"Archive 顺序对齐"处理 `text-merge-cli` 的 MODIFIED delta；visual-parity 归档与否等用户定范围。
+- `text-merge-cli` 的按格式分派已写进 text-merge delta，两者归档无顺序依赖；visual-parity 归档与否等用户定范围。

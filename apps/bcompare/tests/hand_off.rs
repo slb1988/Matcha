@@ -260,6 +260,119 @@ fn review_conflicts_opens_the_merge_only_when_conflicts_remain() {
     assert!(primary.rx.try_recv().is_err());
 }
 
+/// 单 sheet 工作簿：表头 + `(id, qty)` 行。
+fn stock_book(path: &Path, rows: &[(f64, f64)]) {
+    use bc_engine_table::{xlsx_write, Cell, Sheet};
+    let mut sheet = Sheet::new("Stock");
+    sheet.push_row(vec![Cell::text("id"), Cell::text("qty")]);
+    for (id, qty) in rows {
+        sheet.push_row(vec![Cell::number(*id), Cell::number(*qty)]);
+    }
+    std::fs::write(path, xlsx_write::workbook_bytes(&[sheet], None).unwrap()).unwrap();
+}
+
+/// 表格合并（xlsx）与文本合并走同一条转交 / 等待管道：普通合并调用转交后等待并以标签页结果码结束；
+/// `/automerge /reviewconflicts` 无冲突不开窗口，有冲突时不写输出、去掉 `/automerge` 转交
+/// （`/keys=`、favor 随参数带给界面）。
+#[test]
+fn table_merges_hand_off_and_wait_like_text_merges() {
+    let primary = fake_primary("table");
+    let cwd = work_dir("table");
+    stock_book(&cwd.join("base.xlsx"), &[(1.0, 10.0), (2.0, 20.0)]);
+    stock_book(&cwd.join("theirs.xlsx"), &[(1.0, 15.0), (2.0, 20.0)]);
+    stock_book(&cwd.join("yours.xlsx"), &[(1.0, 12.0), (2.0, 20.0)]);
+    stock_book(&cwd.join("clean.xlsx"), &[(1.0, 10.0), (2.0, 22.0)]);
+
+    // P4V 形式 `%b %1 %2 %r`：转交并等待，标签页结果码透传（未保存关闭 101、保存 0、带冲突保存 14）。
+    let args = ["base.xlsx", "theirs.xlsx", "yours.xlsx", "result.xlsx"];
+    for code in [101, 0, 14] {
+        let mut child = primary.spawn(&matcha(), &args, &cwd, false);
+        let (request, responder) = primary.next();
+        assert_eq!(request.args, args);
+        assert!(request.wait);
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "returned before the tab closed"
+        );
+        responder.reply(Reply::code(code));
+        assert_eq!(exit_code(child), Some(code));
+    }
+    assert!(!cwd.join("result.xlsx").exists());
+
+    // 无冲突：发起进程内写出，0，不转交。
+    let clean = primary.spawn(
+        &matcha(),
+        &[
+            "/automerge",
+            "/reviewconflicts",
+            "base.xlsx",
+            "clean.xlsx",
+            "yours.xlsx",
+            "out.xlsx",
+        ],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(clean), Some(0));
+    assert!(cwd.join("out.xlsx").is_file());
+    assert!(primary.rx.try_recv().is_err());
+
+    // 有冲突：不写输出，转交（带 `/keys=1`、`/favorleft`），等待标签页结果码。
+    let mut child = primary.spawn(
+        &matcha(),
+        &[
+            "/automerge",
+            "/reviewconflicts",
+            "/keys=1",
+            "/favorleft",
+            "base.xlsx",
+            "theirs.xlsx",
+            "yours.xlsx",
+            "out2.xlsx",
+        ],
+        &cwd,
+        false,
+    );
+    let (request, responder) = primary.next();
+    assert_eq!(
+        request.args,
+        [
+            "/reviewconflicts",
+            "/keys=1",
+            "/favorleft",
+            "base.xlsx",
+            "theirs.xlsx",
+            "yours.xlsx",
+            "out2.xlsx"
+        ]
+    );
+    assert!(request.wait);
+    assert!(!cwd.join("out2.xlsx").exists());
+    assert!(child.try_wait().unwrap().is_none());
+    responder.reply(Reply::code(14));
+    assert_eq!(exit_code(child), Some(14));
+
+    // `/silent` 使 `/reviewconflicts` 失效：101，不转交、不写。
+    let silent = primary.spawn(
+        &matcha(),
+        &[
+            "/silent",
+            "/automerge",
+            "/reviewconflicts",
+            "base.xlsx",
+            "theirs.xlsx",
+            "yours.xlsx",
+            "out3.xlsx",
+        ],
+        &cwd,
+        false,
+    );
+    assert_eq!(exit_code(silent), Some(101));
+    assert!(!cwd.join("out3.xlsx").exists());
+    assert!(primary.rx.try_recv().is_err());
+}
+
 /// `/qc` 在发起进程内完成：即使已有常驻实例也不转交、不开窗口。
 #[test]
 fn quick_compare_never_hands_off() {

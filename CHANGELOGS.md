@@ -4,6 +4,18 @@
 
 ## 2026-11-15
 
+- **表格合并：删除输出行**：输出网格里 `Ctrl+Delete`（Edit ▸ Delete Output Row）把选中行从合并结果中去掉，
+  该行上的冲突计为已解决，可撤销；之后对该行 Take 任一侧会把它带回。双增冲突行不可删除（用 Take Center 表示两行都不要）。
+- **表格合并：横向滚动停在整列边界**：输入窗格较窄、跳到靠右的改动格时，左侧不再露出被截去一半的格子
+  （此前只露出半截文字，紧贴行号像乱码）。
+- **文档修正**：表格合并的示例命令（feature 文档、CLI 速查）仍是旧的 `theirs yours base` 顺序，按 11-14 的 P4V 顺序
+  改为 `base theirs yours [output]`；CLI 速查里"xlsx 输出不保留样式"改为模板写出保留样式；文本合并工具栏按钮名改为 Next/Prev Change。
+- **仓库管理**：table-merge 的 GUI 视图、`/reviewconflicts` 与等待/退出码管道补齐 app 层、真实 exe 转交与快照
+  （`table-merge-basic`/`table-merge-conflict`）测试，tasks 全部勾完；text-merge / table-merge 的 spec 与已落地行为对齐
+  （改动区段导航、按格式分派、模板写出、P4V 参数顺序）。
+
+## 2026-11-15
+
 - **OpenSpec 归档（仓库管理，无功能变化）**：已完成的 5 个 change（text-compare-core、
   folder-compare-sync、table-compare-xlsx、text-patch-reports、hex-compare）归档至
   `openspec/changes/archive/2026-11-15-*`，22 个 capability 主 spec 建立于 `openspec/specs/`。

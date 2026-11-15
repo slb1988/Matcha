@@ -144,6 +144,7 @@ fn menus() -> Vec<MenuSpec> {
                 menu_item("Take Center (Cell)", Some("Ctrl+Shift+B")),
                 menu_item("Take Right (Cell)", Some("Ctrl+Shift+R")),
                 menu_item("Edit Output Cell", Some("F2")),
+                menu_item("Delete Output Row", Some("Ctrl+Delete")),
             ],
         ),
         menu(
@@ -422,6 +423,17 @@ impl TableMergeView {
                 }
             }
             "Edit Output Cell" => self.begin_edit(),
+            "Delete Output Row" => {
+                let removed = row < rows && self.model.remove_row(row);
+                if !removed {
+                    self.message = match self.sheet().rows.get(row).map(|r| r.kind) {
+                        Some(RowKind::AddConflict) => {
+                            "Both sides added this row differently; take a side instead".into()
+                        }
+                        _ => "This row is not in the output".into(),
+                    };
+                }
+            }
             _ => {}
         }
     }
@@ -496,6 +508,7 @@ impl TableMergeView {
                 (egui::Key::W, true, _) => Some("Close Tab"),
                 (egui::Key::Q, true, _) => Some("Exit"),
                 (egui::Key::F2, false, _) => Some("Edit Output Cell"),
+                (egui::Key::Delete, true, _) => Some("Delete Output Row"),
                 (egui::Key::Enter, false, _) if self.active == OUT => Some("Edit Output Cell"),
                 _ => None,
             };
@@ -546,10 +559,11 @@ impl TableMergeView {
                 continue;
             }
             let x = &mut self.scroll_x[pane];
+            // 停在整列边界：左侧不留被截去一半的格。
             if left < *x {
                 *x = left;
             } else if right > *x + view {
-                *x = right - view;
+                *x = ((right - view) / COLUMN_WIDTH).ceil() * COLUMN_WIDTH;
             }
         }
     }
@@ -616,11 +630,11 @@ impl TableMergeView {
         self.pane_rects[OUT] = output;
         self.path_edit_focused = false;
         self.details_focused = false;
-        // 每窗格的横向滚动范围（>0 显示横向滚动条）。
+        // 每窗格的横向滚动范围（>0 显示横向滚动条），取整列：滚到底时首列也对齐格边界。
         for pane in 0..4 {
-            self.max_x[pane] =
-                (columns as f32 * COLUMN_WIDTH + GUTTER - self.pane_rects[pane].width() + 20.0)
-                    .max(0.0);
+            let overflow =
+                columns as f32 * COLUMN_WIDTH + GUTTER - self.pane_rects[pane].width() + 20.0;
+            self.max_x[pane] = (overflow.max(0.0) / COLUMN_WIDTH).ceil() * COLUMN_WIDTH;
         }
         if self.pending_ensure {
             self.pending_ensure = false;

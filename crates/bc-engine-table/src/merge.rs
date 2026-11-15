@@ -187,6 +187,8 @@ pub struct Resolution {
     edits: HashMap<usize, Cell>,
     /// Rows whose conflicts were accepted as they are.
     accepted: HashSet<usize>,
+    /// Rows removed from the output by hand (never double-add conflicts).
+    removed: HashSet<usize>,
     /// Sheet-level conflict resolution.
     sheet: Option<Side>,
 }
@@ -891,6 +893,7 @@ impl SheetMerge {
         self.rows[row].kind == RowKind::Normal
             && self.choice(row, column) == CellChoice::Conflict
             && !self.resolution.accepted.contains(&row)
+            && !self.resolution.removed.contains(&row)
             && !self.resolution.cells.contains_key(&index)
             && !self.resolution.edits.contains_key(&index)
     }
@@ -900,7 +903,7 @@ impl SheetMerge {
         if self.sheet_conflict_unresolved() {
             return true;
         }
-        if self.resolution.accepted.contains(&row) {
+        if self.resolution.accepted.contains(&row) || self.resolution.removed.contains(&row) {
             return false;
         }
         match self.rows[row].kind {
@@ -987,6 +990,9 @@ impl SheetMerge {
     pub fn row_base(&self, row: usize) -> Option<Side> {
         if let Some(side) = self.sheet_verbatim() {
             return self.rows[row].index(side).map(|_| side);
+        }
+        if self.resolution.removed.contains(&row) {
+            return None;
         }
         let merge_row = &self.rows[row];
         if let Some(&side) = self.resolution.rows.get(&row) {
@@ -1087,6 +1093,7 @@ impl SheetMerge {
     }
 
     fn take_row(&mut self, row: usize, side: Side) {
+        self.resolution.removed.remove(&row);
         match self.rows[row].kind {
             RowKind::AddConflict | RowKind::DeleteConflict => {
                 self.resolution.rows.insert(row, side);
@@ -1115,9 +1122,30 @@ impl SheetMerge {
             self.take_row(row, side);
             return;
         }
+        self.resolution.removed.remove(&row);
         let index = row * self.columns + column;
         self.resolution.edits.remove(&index);
         self.resolution.cells.insert(index, side);
+    }
+
+    /// Remove an output row by hand; its conflicts count as resolved. Taking a side on
+    /// the row brings it back. Double-add conflicts are not removable (taking center
+    /// already means "no row"), nor are rows of a sheet copied whole. `false` when
+    /// nothing was removed.
+    pub fn remove_row(&mut self, row: usize) -> bool {
+        if row >= self.rows.len()
+            || self.rows[row].kind == RowKind::AddConflict
+            || self.sheet_verbatim().is_some()
+            || self.row_base(row).is_none()
+        {
+            return false;
+        }
+        self.resolution.removed.insert(row)
+    }
+
+    /// The row was removed from the output by hand.
+    pub fn row_removed(&self, row: usize) -> bool {
+        self.resolution.removed.contains(&row)
     }
 
     /// Mark the conflicts of `rows` resolved without changing the output.

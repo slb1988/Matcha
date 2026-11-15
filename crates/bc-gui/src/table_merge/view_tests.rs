@@ -218,6 +218,9 @@ fn wide_sheet_has_hbar_and_opens_on_the_changed_cell() {
     let right = left + COLUMN_WIDTH;
     assert!(left >= v.scroll_x[0] - 0.5);
     assert!(right <= v.scroll_x[0] + view_width + 0.5);
+    // 停在整列边界（左侧不出现截去一半的格）。
+    assert_eq!(v.scroll_x[0] % COLUMN_WIDTH, 0.0, "{}", v.scroll_x[0]);
+    assert_eq!(v.max_x[0] % COLUMN_WIDTH, 0.0, "{}", v.max_x[0]);
     assert_eq!(v.scroll_x[OUT], 0.0);
     // 详情条显示活动窗格选中格的完整内容。
     assert_eq!(v.details_text(), "X");
@@ -275,4 +278,24 @@ fn details_follows_the_active_panes_cell() {
     // 输出窗格：自动合并的内容（right 的 X）。
     v.active = OUT;
     assert_eq!(v.details_text(), "X");
+}
+
+#[test]
+fn ctrl_delete_removes_the_output_row() {
+    let f = conflicted("view-remove");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    frame(&ctx, &mut v, vec![]);
+    // 选中删改冲突行（2 号），Ctrl+Delete 从输出移除。
+    v.selected = (1, 0);
+    frame(&ctx, &mut v, vec![key(egui::Key::Delete, true, false)]);
+    assert!(v.model.current().row_removed(1));
+    assert!(v.model.current().output_cell(1, 0).is_none());
+    // 再按一次：行已不在输出里，只给提示。
+    frame(&ctx, &mut v, vec![key(egui::Key::Delete, true, false)]);
+    assert_eq!(v.message, "This row is not in the output");
+    // 对该行取 right 恢复。
+    v.command("Take Right (Cell)");
+    assert!(!v.model.current().row_removed(1));
+    frame(&ctx, &mut v, vec![]);
 }

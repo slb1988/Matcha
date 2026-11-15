@@ -10,15 +10,15 @@
 合并调用（3 或 4 个文件路径，或 2 个路径加 `/center=`）的输入均为 xlsx/xlsm 工作簿时 SHALL 按表格合并处理；工作簿 SHALL 按扩展名识别，扩展名不是已知表格/文本扩展名时按文件头（ZIP）识别。输入均不是工作簿时 SHALL 默认按文本合并处理，仅当带 `/tablemerge` 开关时按分隔文本表格做表格合并。工作簿与非工作簿混合、或 `/tablemerge` 遇到 xls/ods 时 MUST 报错并以退出码 100 结束。`/mergeoutput=` 与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。
 
 #### Scenario: xlsx 自动进入表格合并
-- **WHEN** 执行 `matcha theirs.xlsx yours.xlsx base.xlsx result.xlsx`
+- **WHEN** 执行 `matcha base.xlsx theirs.xlsx yours.xlsx result.xlsx`
 - **THEN** 打开表格合并视图，输出目标为 result.xlsx
 
 #### Scenario: CSV 默认仍走文本合并
-- **WHEN** 执行 `matcha a.csv b.csv base.csv out.csv`
+- **WHEN** 执行 `matcha base.csv b.csv a.csv out.csv`
 - **THEN** 按行做文本合并（既有行为不变）
 
 #### Scenario: CSV 显式走表格合并
-- **WHEN** 执行 `matcha /tablemerge a.csv b.csv base.csv out.csv`
+- **WHEN** 执行 `matcha /tablemerge base.csv b.csv a.csv out.csv`
 - **THEN** 按表格合并处理
 
 #### Scenario: 版本控制临时文件名
@@ -33,7 +33,7 @@
 带 `/automerge` 的表格合并调用 SHALL 在发起进程内无窗口执行，不转交已运行的实例。没有输出目标、任一输入不存在/不可读/不是受支持表格时 MUST 报错并以退出码 100 结束，不写任何文件。退出码 MUST 为：没有冲突且已写出为 0；有冲突未写出为 101；错误为 100。未写出时已存在的输出文件 MUST 保持原样。成功或有冲突时 SHALL 向标准输出写一行结果，`/silent` 时不写。
 
 #### Scenario: 全自动合并成功
-- **WHEN** 执行 `matcha /automerge a.xlsx b.xlsx base.xlsx out.xlsx` 且没有冲突
+- **WHEN** 执行 `matcha /automerge base.xlsx b.xlsx a.xlsx out.xlsx` 且没有冲突
 - **THEN** out.xlsx 写入合并结果，退出码为 0
 
 #### Scenario: 有冲突不写出
@@ -52,18 +52,18 @@
 `/keys=<列号,…>` SHALL 指定表格合并的键列（1-based 比较列号，按给出顺序定优先级），仅在表格合并调用中生效。列号越界、重复或全部无效时 MUST 报错并以退出码 100 结束。未给出 `/keys=` 时按引擎的键推断与退化规则。
 
 #### Scenario: 指定键后自动合并
-- **WHEN** 执行 `matcha /automerge /keys=1 a.xlsx b.xlsx base.xlsx out.xlsx`
+- **WHEN** 执行 `matcha /automerge /keys=1 base.xlsx b.xlsx a.xlsx out.xlsx`
 - **THEN** 以第 1 列为键完成三方对齐与合并
 
 #### Scenario: 键列无效
-- **WHEN** 执行 `matcha /automerge /keys=99 a.xlsx b.xlsx base.xlsx out.xlsx` 且输入没有第 99 列
+- **WHEN** 执行 `matcha /automerge /keys=99 base.xlsx b.xlsx a.xlsx out.xlsx` 且输入没有第 99 列
 - **THEN** 报错说明键列无效，退出码为 100
 
 ### Requirement: 有冲突时转入界面
 带 `/automerge /reviewconflicts` 且存在冲突时，系统 SHALL 不写输出文件并打开表格合并视图，自动合并已应用的结果（含 favor）保留在界面状态中，退出码由界面合并结果决定；没有冲突时行为与单独的 `/automerge` 相同。带 `/silent` 时 `/reviewconflicts` MUST 不生效。
 
 #### Scenario: 有冲突时打开表格合并视图
-- **WHEN** 执行 `matcha /automerge /reviewconflicts a.xlsx b.xlsx base.xlsx out.xlsx` 且存在冲突
+- **WHEN** 执行 `matcha /automerge /reviewconflicts base.xlsx b.xlsx a.xlsx out.xlsx` 且存在冲突
 - **THEN** 打开表格合并视图供用户解决，调用进程等到该标签页关闭
 
 ### Requirement: GUI 表格合并的等待与退出码
@@ -81,5 +81,5 @@
 `/favorleft`、`/favorright`、`/iu` SHALL 仅在带 `/automerge` 时生效，语义与引擎规格一致。`/title1..4` SHALL 分别作为 left、right、center、输出窗格的标题。`/ro`、`/ro1`、`/ro2`、`/nobackups`、`/savetarget=`、`/vcs1..4` 出现在表格合并调用中时 MUST 被接受且不报错。
 
 #### Scenario: favor 自动解决
-- **WHEN** 执行 `matcha /automerge /favorright a.xlsx b.xlsx base.xlsx out.xlsx` 且冲突均只含不重要差异
+- **WHEN** 执行 `matcha /automerge /favorright base.xlsx b.xlsx a.xlsx out.xlsx` 且冲突均只含不重要差异
 - **THEN** 冲突按 right 取舍写出，退出码为 0

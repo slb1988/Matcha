@@ -62,17 +62,17 @@ P4V：Application 用 `matcha.exe`，Arguments 用 `%b %1 %2 %r`（base / theirs
 ## 表格三方合并（xlsx/xlsm 自动，CSV/TSV 加 /tablemerge）
 
 ```bat
-matcha theirs.xlsx yours.xlsx base.xlsx result.xlsx
-matcha /automerge theirs.xlsx yours.xlsx base.xlsx result.xlsx
-matcha /automerge /keys=1 theirs.xlsx yours.xlsx base.xlsx result.xlsx
-matcha /automerge /reviewconflicts theirs.xlsx yours.xlsx base.xlsx result.xlsx
-matcha /tablemerge /automerge theirs.csv yours.csv base.csv result.csv
+matcha base.xlsx theirs.xlsx yours.xlsx result.xlsx
+matcha /automerge base.xlsx theirs.xlsx yours.xlsx result.xlsx
+matcha /automerge /keys=1 base.xlsx theirs.xlsx yours.xlsx result.xlsx
+matcha /automerge /reviewconflicts base.xlsx theirs.xlsx yours.xlsx result.xlsx
+matcha /tablemerge /automerge base.csv theirs.csv yours.csv result.csv
 ```
 
 行按键列对齐（`/keys=` 1 起列号 > 自动推断 > 整行作键），逐单元格合并：两侧改同行不同列不冲突，同格异值、
 一侧删行另一侧改行、两侧新增同键异内容是冲突。`/automerge` 退出码 0（已写出）/ 101（有冲突未写出）/ 100（错误）；
 **`/force` 报错 100**（单元格放不下冲突标记）。结果行带实际键列，如 `Success (keys: 1 (inferred))`。
-xlsx 输出重写工作簿：保留值、公式、数字格式与 sheet，xlsm 带回宏；**不保留**样式、列宽、图表。CSV 输出保真写回。
+xlsx 输出以 center 工作簿为模板，只重写单元格数据：样式、列宽、合并单元格、图表、批注、宏原样保留，行增删后公式等行引用随行重定位；模板写出失败才退回不带样式的新写并警告。CSV 输出保真写回。
 P4V 参数与文本合并相同（`%b %1 %2 %r`），扩展名不是 xlsx 的临时文件按 ZIP 文件头识别。详见 `docs/features/table-merge.md`。
 
 ## 三个最常用形态（均已实测）

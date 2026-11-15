@@ -151,3 +151,95 @@ fn next_change_walks_changes_even_without_conflicts() {
     assert_eq!(model.next_change(0, false), None);
     assert_eq!(model.next_change_sheet(true), None);
 }
+
+#[test]
+fn taking_the_delete_side_or_removing_the_row_drops_it() {
+    // 删改冲突取删除所在一侧（left）：该行被移除、冲突解决。
+    let f = conflicted("delete-side");
+    let mut model = TableMergeModel::load(&f.launch).unwrap();
+    assert!(model.take(1..2, Side::Left));
+    assert!(model.current().row_base(1).is_none());
+    // 1 号的异改格还在。
+    assert_eq!(model.unresolved(), 1);
+    assert!(model.undo().is_some());
+
+    // 手工移除输出行：冲突行与普通行都可移除，可撤销。
+    assert!(model.remove_row(1));
+    assert!(model.remove_row(0));
+    assert_eq!(model.unresolved(), 0);
+    assert!(!model.remove_row(0), "already removed: no undo step");
+    model.save(&f.output()).unwrap();
+    assert_eq!(model.result_code(), 0);
+    assert_eq!(
+        std::fs::read_to_string(f.output()).unwrap(),
+        "id,name,qty\r\n3,plum,30\r\n4,fig,40\r\n"
+    );
+    model.undo();
+    assert!(model.current().row_base(0).is_some());
+    assert_eq!(model.unresolved(), 1);
+}
+
+/// 两个 sheet 的 xlsx 三方输入，每个 sheet 各有一个异改格（1 号的数量）。
+pub(crate) fn two_sheet_books(tag: &str) -> Fixture {
+    use bc_engine_table::{xlsx_write, Sheet};
+    let dir = std::env::temp_dir().join(format!(
+        "matcha-gui-table-merge-{tag}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let book = |name: &str, qty: [f64; 2]| {
+        let sheets: Vec<Sheet> = ["Stock", "Prices"]
+            .into_iter()
+            .zip(qty)
+            .map(|(title, qty)| {
+                let mut sheet = Sheet::new(title);
+                sheet.push_row(vec![Cell::text("id"), Cell::text("qty")]);
+                sheet.push_row(vec![Cell::number(1.0), Cell::number(qty)]);
+                sheet.push_row(vec![Cell::number(2.0), Cell::number(20.0)]);
+                sheet
+            })
+            .collect();
+        let path = dir.join(name);
+        std::fs::write(&path, xlsx_write::workbook_bytes(&sheets, None).unwrap()).unwrap();
+        path
+    };
+    let mut launch = MergeLaunch::new(MergeSpec {
+        left: book("yours.xlsx", [11.0, 110.0]),
+        right: book("theirs.xlsx", [12.0, 120.0]),
+        center: book("base.xlsx", [10.0, 100.0]),
+        output: Some(dir.join("result.xlsx")),
+    });
+    launch.table = true;
+    Fixture { dir, launch }
+}
+
+#[test]
+fn switching_sheets_keeps_each_sheets_resolution() {
+    let f = two_sheet_books("sheets");
+    let mut model = TableMergeModel::load(&f.launch).unwrap();
+    assert_eq!(model.sheets().len(), 2);
+    assert_eq!(model.sheet, 0);
+    assert_eq!(model.unresolved(), 2);
+    let rows = model.conflicts()[0].rows.clone();
+    assert!(model.take(rows, Side::Right));
+    assert_eq!((model.unresolved_in(0), model.unresolved_in(1)), (0, 1));
+    model.set_sheet(1);
+    assert_eq!(model.current().name, "Prices");
+    assert_eq!(model.conflicts().len(), 1);
+    assert_eq!(model.next_conflict_sheet(true), None, "sheet 0 is resolved");
+    let rows = model.conflicts()[0].rows.clone();
+    assert!(model.take(rows, Side::Left));
+    // 回到第一个 sheet：先前的解决仍在。
+    model.set_sheet(0);
+    assert_eq!(model.unresolved(), 0);
+    let qty = |model: &TableMergeModel| model.current().output_cell(1, 1).unwrap().1;
+    assert_eq!(qty(&model), "12");
+    model.set_sheet(1);
+    assert_eq!(qty(&model), "110");
+    // 撤销跳回被撤销的那个 sheet。
+    model.set_sheet(0);
+    assert_eq!(model.undo(), Some(1));
+    assert_eq!(model.sheet, 1);
+    assert_eq!((model.unresolved_in(0), model.unresolved_in(1)), (0, 1));
+}

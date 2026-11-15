@@ -584,3 +584,86 @@ fn handed_off_merges_open_tabs_and_answer_with_the_merge_result() {
     ));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 表格合并（xlsx）：启动打开表格合并标签页，关页的结果码与文本合并同一条管道。
+#[test]
+fn table_merge_launch_and_hand_off_report_result_codes() {
+    use crate::remote::{channel, RemoteOpen};
+    use std::sync::{Arc, Mutex};
+    let f = crate::table_merge::model::tests::two_sheet_books("app");
+    let ctx = egui::Context::default();
+
+    // 本实例启动：标签页类型/标题；带输出目标未保存，关页先问；带冲突保存后关为 14。
+    let options = LaunchOptions {
+        merge: Some(f.launch.clone()),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&ctx, &options);
+    assert!(matches!(view, View::TableMerge(_)));
+    assert_eq!(view.kind(), "Table Merge");
+    assert_eq!(view.caption(), "yours.xlsx <--> theirs.xlsx");
+    let mut app = MatchaApp::with_view(view);
+    let slot: crate::remote::ResultSlot = Default::default();
+    app.watch_launch(slot.clone(), true);
+    run(&ctx, &mut app, vec![]);
+    app.close_tab(&ctx, 0);
+    assert_eq!(app.tab_count(), 1);
+    assert!(app.active_view().prompt_open());
+    let View::TableMerge(merge) = &mut app.tabs[0].view else {
+        unreachable!()
+    };
+    let target = merge.model.target.clone().unwrap();
+    merge.model.save(&target).unwrap();
+    drop(app);
+    assert_eq!(*slot.lock().unwrap(), Some(14));
+    assert!(f.dir.join("result.xlsx").is_file());
+    std::fs::remove_file(f.dir.join("result.xlsx")).unwrap();
+
+    // 转交给常驻实例：不保存关 → 101 且不写输出；两个 sheet 都解决、保存后关 → 0。
+    let outcomes: Arc<Mutex<Vec<Outcome>>> = Default::default();
+    let request = |launch: &crate::merge::MergeLaunch| {
+        let outcomes = outcomes.clone();
+        RemoteOpen {
+            left: None,
+            right: None,
+            merge: Some(Box::new(launch.clone())),
+            done: Some(Box::new(move |o| outcomes.lock().unwrap().push(o))),
+        }
+    };
+    let mut app = home_app();
+    let (tx, inbox) = channel();
+    app.attach_remote(&ctx, inbox);
+    run(&ctx, &mut app, vec![]);
+    assert!(tx.send(request(&f.launch)).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 2);
+    assert!(matches!(app.active_view(), View::TableMerge(_)));
+    run(&ctx, &mut app, vec![]);
+    app.remove_tab(&ctx, 1);
+    assert_eq!(*outcomes.lock().unwrap(), vec![Outcome::Closed(101)]);
+    assert!(!f.dir.join("result.xlsx").exists());
+
+    assert!(tx.send(request(&f.launch)).is_ok());
+    app.poll_remote(&ctx);
+    run(&ctx, &mut app, vec![]);
+    let View::TableMerge(merge) = &mut app.tabs[1].view else {
+        unreachable!()
+    };
+    merge.command("Take Right");
+    merge.command("Next Change Section");
+    merge.command("Take Right");
+    assert_eq!(merge.unresolved(), 0);
+    merge.command("Save Output");
+    assert!(!merge.is_dirty(), "{}", merge.message);
+    app.close_tab(&ctx, 1);
+    assert_eq!(app.tab_count(), 1);
+    assert_eq!(outcomes.lock().unwrap().last(), Some(&Outcome::Closed(0)));
+    let mut book = bc_engine_table::workbook::Workbook::open(
+        &f.dir.join("result.xlsx"),
+        std::sync::Arc::new(bc_core::cancel::NeverCancel),
+    )
+    .unwrap();
+    assert_eq!(book.sheet_names(), ["Stock", "Prices"]);
+    let prices = book.load_sheet("Prices").unwrap();
+    assert_eq!(prices.display_at(1, 1).as_deref(), Some("120"));
+}

@@ -550,6 +550,23 @@ mod tests {
         assert_eq!(launch.keys, Some(vec![1]));
         let cli = CliArgs::parse_in(["a.csv", "b.csv", "c.csv"], w).unwrap();
         assert!(!merge_launch(&cli).unwrap().table);
+        // `/automerge /reviewconflicts` 转入界面（`review_args` 去掉 `/automerge` 后）：
+        // 表格合并、键列与 favor 都带上，界面与自动合并判定一致。
+        let args = strings(&[
+            "/automerge",
+            "/reviewconflicts",
+            "/keys=2",
+            "/favorright",
+            "c.xlsx",
+            "b.xlsx",
+            "a.xlsx",
+            "d.xlsx",
+        ]);
+        let cli = CliArgs::parse_in(review_args(&args), w).unwrap();
+        let launch = merge_launch(&cli).unwrap();
+        assert!(launch.table);
+        assert_eq!(launch.keys, Some(vec![1]));
+        assert_eq!(launch.favor, bc_script::cli::Favor::Right);
     }
 
     #[test]

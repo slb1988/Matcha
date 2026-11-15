@@ -256,6 +256,66 @@ fn accept_and_edit_resolve_without_taking_a_side() {
 }
 
 #[test]
+fn removing_an_output_row_resolves_it_and_taking_a_side_restores_it() {
+    let left: &[&[&str]] = &[
+        &["1", "apple", "12"],
+        &["2", "pear", "20"],
+        &["3", "plum", "30"],
+    ];
+    let right: &[&[&str]] = &[
+        &["1", "apple", "15"],
+        &["2", "pear", "20"],
+        &["3", "plum", "30"],
+    ];
+    let mut m = merge(left, BASE, right, &keyed());
+    // A plain unchanged row and a conflicted row can both be removed.
+    assert!(m.remove_row(2));
+    assert!(m.remove_row(0));
+    assert!(!m.remove_row(0), "already removed");
+    assert!(m.row_removed(0));
+    assert!(m.conflicts().is_empty());
+    assert_eq!(
+        texts(&m.output_sheet().unwrap()),
+        rows(&[&["2", "pear", "20"]])
+    );
+    assert!(
+        !m.edit(0, 2, Cell::number(1.0)),
+        "removed rows are not editable"
+    );
+    m.take(0..1, Side::Right);
+    assert!(!m.row_removed(0));
+    assert_eq!(texts(&m.output_sheet().unwrap())[0], ["1", "apple", "15"]);
+    m.take_cell(2, 1, Side::Center);
+    assert_eq!(m.output_sheet().unwrap().row_count(), 3);
+
+    // Delete-modify: removing the row is the delete side's answer.
+    let deleted: &[&[&str]] = &[&["1", "apple", "10"], &["3", "plum", "30"]];
+    let modified: &[&[&str]] = &[
+        &["1", "apple", "10"],
+        &["2", "pear", "25"],
+        &["3", "plum", "30"],
+    ];
+    let mut m = merge(deleted, BASE, modified, &keyed());
+    assert!(m.remove_row(1));
+    assert!(m.conflicts().is_empty());
+    assert_eq!(texts(&m.output_sheet().unwrap()), rows(deleted));
+
+    // Double-add conflicts and rows not in the output are not removable.
+    let mut l = BASE.to_vec();
+    l.push(&["9", "kiwi", "90"]);
+    let mut r = BASE.to_vec();
+    r.push(&["9", "lime", "90"]);
+    let mut m = merge(&l, BASE, &r, &keyed());
+    assert!(!m.remove_row(3));
+    assert_eq!(m.conflicts().len(), 1);
+    m.take(3..4, Side::Left);
+    assert!(!m.remove_row(3), "a double add stays decided by Take");
+    let mut m = merge(deleted, BASE, BASE, &keyed());
+    assert!(!m.remove_row(1), "deleted rows are not in the output");
+    assert!(!m.remove_row(99));
+}
+
+#[test]
 fn tolerance_differences_are_not_changes() {
     let left: &[&[&str]] = &[
         &["1", "apple", "10.005"],

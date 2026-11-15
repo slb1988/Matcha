@@ -40,6 +40,8 @@ pub const SCENES: &[&str] = &[
     "text-unsaved-modal",
     "merge-basic",
     "merge-conflict",
+    "table-merge-basic",
+    "table-merge-conflict",
 ];
 pub const DEFAULT_WINDOW_SIZE: [f32; 2] = [1384.0, 961.0];
 /// Wave 2 合入正式语料后只需替换这两个常量。
@@ -58,6 +60,7 @@ pub enum SceneView {
     Table,
     Hex,
     Merge,
+    TableMerge,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
@@ -81,7 +84,22 @@ pub const HEX_RIGHT: &str = "docs/reference-parity/hex-compare/corpus/right.bin"
 pub const MERGE_LEFT: &str = "tools/visual/corpus/merge-left.txt";
 pub const MERGE_RIGHT: &str = "tools/visual/corpus/merge-right.txt";
 pub const MERGE_BASE: &str = "tools/visual/corpus/merge-base.txt";
-pub const REGISTRY: [Scene; 24] = [
+/// table-merge 快照语料（CSV 按 `/tablemerge` 打开）：异改格、删改冲突、单侧改动、右侧新增行。
+pub const TABLE_MERGE_LEFT: &str = "tools/visual/corpus/table-merge-left.csv";
+pub const TABLE_MERGE_RIGHT: &str = "tools/visual/corpus/table-merge-right.csv";
+pub const TABLE_MERGE_BASE: &str = "tools/visual/corpus/table-merge-base.csv";
+pub const REGISTRY: [Scene; 26] = [
+    // table-merge：打开即定位到第一个冲突 / 第一个冲突取右侧之后停在下一个改动。
+    Scene {
+        name: "table-merge-basic",
+        view: SceneView::TableMerge,
+        preset: Preset::FirstRow,
+    },
+    Scene {
+        name: "table-merge-conflict",
+        view: SceneView::TableMerge,
+        preset: Preset::CursorOnDifference,
+    },
     // text-merge：打开即定位到第一个冲突 / 解决第一个冲突之后。
     Scene {
         name: "merge-basic",
@@ -281,6 +299,19 @@ pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOpti
             center: PathBuf::from(MERGE_BASE),
             output: Some(PathBuf::from("target/visual/matcha/merge-output.txt")),
         }));
+    }
+    if entry.view == SceneView::TableMerge {
+        for path in [TABLE_MERGE_LEFT, TABLE_MERGE_RIGHT, TABLE_MERGE_BASE] {
+            std::fs::metadata(path)?;
+        }
+        let mut launch = crate::merge::MergeLaunch::new(bc_script::cli::MergeSpec {
+            left: PathBuf::from(TABLE_MERGE_LEFT),
+            right: PathBuf::from(TABLE_MERGE_RIGHT),
+            center: PathBuf::from(TABLE_MERGE_BASE),
+            output: Some(PathBuf::from("target/visual/matcha/table-merge-output.csv")),
+        });
+        launch.table = true;
+        options.merge = Some(launch);
     }
     if let Some((left, right)) = inputs {
         std::fs::metadata(&left)?;
@@ -993,6 +1024,14 @@ mod tests {
                 .unwrap()
                 .view,
             SceneView::Folder
+        );
+        assert_eq!(
+            REGISTRY
+                .iter()
+                .find(|r| r.name == "table-merge-conflict")
+                .unwrap()
+                .view,
+            SceneView::TableMerge
         );
         assert!(!is_scene(Some("unknown")));
     }

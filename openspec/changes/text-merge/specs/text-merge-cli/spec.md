@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: 合并调用的参数形式
-命令行给出 3 个文件路径时 SHALL 视为文本合并调用，依次为 center（base）、right（theirs）、left（yours，界面保存目标）（2026-11-14 改为 P4V 顺序）；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 一律按文本合并处理，不按文件格式改用其他视图。P4V 的调用形式 `matcha %b %1 %2 %r`（base、theirs、yours、result）MUST 直接可用。
+命令行给出 3 个文件路径时 SHALL 视为合并调用，依次为 center（base）、right（theirs）、left（yours，界面保存目标）（2026-11-14 改为 P4V 顺序）；给出 4 个时第 4 个为输出文件。两个文件路径加 `/center=<file>` SHALL 等同于 3 个路径的形式。`/mergeoutput=<path>` SHALL 指定输出文件，与第 4 个位置参数同时出现时 MUST 以 `/mergeoutput=` 为准。合并调用 SHALL 按输入格式分派：三个输入都是工作簿（xlsx/xlsm，或扩展名不认识而文件头为 ZIP）时走表格合并（行为见 `table-merge-cli`），其余（含 CSV/TSV，除非带 `/tablemerge`）按文本合并处理；工作簿与非工作簿混合 MUST 报错并以退出码 100 结束（2026-11-15 随 table-merge 修订，原为"一律按文本合并"）。P4V 的调用形式 `matcha %b %1 %2 %r`（base、theirs、yours、result）MUST 直接可用。
 
 #### Scenario: 四参数打开合并视图
 - **WHEN** 执行 `matcha base.txt theirs.txt yours.txt result.txt`
@@ -19,7 +19,7 @@
 
 #### Scenario: 以开关给出 center 与输出
 - **WHEN** 执行 `matcha /center=base.txt /mergeoutput=out.txt a.txt b.txt`
-- **THEN** 行为与 `matcha a.txt b.txt base.txt out.txt` 相同
+- **THEN** 行为与 `matcha base.txt b.txt a.txt out.txt` 相同
 
 #### Scenario: CSV 按文本合并
 - **WHEN** 以三个 `.csv` 文件发起合并调用
@@ -29,20 +29,24 @@
 带 `/automerge` 的合并调用 SHALL 在发起进程内无窗口执行三方自动合并，不转交给已运行的实例，结果写入输出文件。没有输出目标、不是三方调用、或任一输入是文件夹、不存在、不可读、不是文本文件时 MUST 报错并以退出码 100 结束，不写任何文件。`/iu`、`/favorleft`、`/favorright`、`/force` SHALL 仅在带 `/automerge` 时生效。
 
 #### Scenario: 全自动合并成功
-- **WHEN** 执行 `matcha /automerge a.txt b.txt base.txt out.txt` 且没有冲突
+- **WHEN** 执行 `matcha /automerge base.txt b.txt a.txt out.txt` 且没有冲突
 - **THEN** 合并结果写入 out.txt，退出码为 0
 
 #### Scenario: 已有窗口时自动合并
-- **WHEN** 已有一个 Matcha 窗口在运行，执行 `matcha /automerge a.txt b.txt base.txt out.txt`
+- **WHEN** 已有一个 Matcha 窗口在运行，执行 `matcha /automerge base.txt b.txt a.txt out.txt`
 - **THEN** 合并在新进程内完成并退出，已运行的窗口不打开任何新标签页
 
 #### Scenario: 缺少输出目标
-- **WHEN** 执行 `matcha /automerge a.txt b.txt base.txt`
+- **WHEN** 执行 `matcha /automerge base.txt b.txt a.txt`
 - **THEN** 标准错误说明需要输出文件，退出码为 100
 
+#### Scenario: 工作簿输入转表格合并
+- **WHEN** 执行 `matcha /automerge base.xlsx b.xlsx a.xlsx out.xlsx`
+- **THEN** 按表格合并执行（见 `table-merge-cli`），不按文本行合并
+
 #### Scenario: 输入不是文本
-- **WHEN** 执行 `matcha /automerge a.xlsx b.xlsx base.xlsx out.xlsx`
-- **THEN** 标准错误说明输入不是文本文件，退出码为 100，不写 out.xlsx
+- **WHEN** 执行 `matcha /automerge base.txt b.bin a.txt out.txt`，b.bin 是二进制文件
+- **THEN** 标准错误说明输入不是文本文件，退出码为 100，不写 out.txt
 
 ### Requirement: 自动合并的退出码与输出文件
 无窗口自动合并的退出码 MUST 为：没有冲突且已写出为 0；有冲突、带 `/force` 并已写出带标记的输出为 14；有冲突且未写出为 101；错误为 100。未写出时，已存在的输出文件 MUST 保持原样。写出 SHALL 先写同目录临时文件再替换目标，不创建备份文件；输出路径与某个输入相同时 MUST 仍能正确写出。输出文件的既有内容 SHALL 不参与合并。成功或有冲突时 SHALL 向标准输出写一行结果，`/silent` 时不写；进程没有标准输出（由 GUI 程序启动）时 MUST 不写也不弹出任何窗口。
@@ -56,7 +60,7 @@
 - **THEN** out.txt 的内容与修改时间不变，退出码为 101
 
 #### Scenario: 输出覆盖输入
-- **WHEN** 执行 `matcha /automerge a.txt b.txt base.txt b.txt` 且没有冲突
+- **WHEN** 执行 `matcha /automerge base.txt b.txt a.txt b.txt` 且没有冲突
 - **THEN** b.txt 被替换为合并结果，退出码为 0
 
 #### Scenario: 由没有控制台的程序启动
@@ -71,7 +75,7 @@
 带 `/automerge /reviewconflicts` 且存在冲突时，系统 SHALL 不写输出文件并打开文本合并视图，退出码由界面合并的结果决定；没有冲突时行为与单独的 `/automerge` 相同。`/reviewconflicts` SHALL 优先于 `/force`；带 `/silent` 时 `/reviewconflicts` MUST 不生效。
 
 #### Scenario: 能自动合并就不开窗
-- **WHEN** 执行 `matcha /automerge /reviewconflicts a.txt b.txt base.txt out.txt` 且没有冲突
+- **WHEN** 执行 `matcha /automerge /reviewconflicts base.txt b.txt a.txt out.txt` 且没有冲突
 - **THEN** 不出现窗口，out.txt 写入合并结果，退出码为 0
 
 #### Scenario: 有冲突时打开合并视图

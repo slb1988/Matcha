@@ -2,7 +2,7 @@
 
 > 三方合并 xlsx/xlsm 工作簿与 CSV/TSV 表格：left / right 相对共同祖先 center 的改动按**键对齐的行、逐单元格**合并到输出，
 > 可无窗口自动合并，也可在界面里解决冲突。
-> 状态：**已实现（引擎、命令行、界面）**（2026-11-14 更新）。BC 没有表格合并，语义以本文与
+> 状态：**已实现（引擎、命令行、界面）**（2026-11-15 更新）。BC 没有表格合并，语义以本文与
 > `openspec/changes/table-merge/design.md` 为准，`docs/reference-parity/` 无对照。
 
 ## 功能简介
@@ -16,8 +16,8 @@
 - 界面：上排从左到右 BASE / LEFT / RIGHT 三个只读网格，底部可编辑 OUTPUT 网格（标题条不显示路径），共用滚动；`Ctrl+N` / `Ctrl+P`
   逐个走改动区段（含冲突），落点是区段首行的第一个改动格（列随格水平滚动到可见），
   打开停在第一个冲突（没有冲突则第一个改动）；Take Left/Center/Right、
-  接受当前内容、编辑输出格、撤销/重做、保存（默认写 LEFT 的文件，即本地真实路径；有输出文件 `%r` 时同步复制一份）；多 sheet 工作簿有 sheet 标签，各 sheet 状态独立。
-  横向滚动**逐窗格独立**：滚轮只滚指针下的窗格，超宽的窗格底部自带横向滚动条（以列为单位）；
+  接受当前内容、编辑输出格、删除输出行（`Ctrl+Delete`）、撤销/重做、保存（默认写 LEFT 的文件，即本地真实路径；有输出文件 `%r` 时同步复制一份）；多 sheet 工作簿有 sheet 标签，各 sheet 状态独立。
+  横向滚动**逐窗格独立**：滚轮只滚指针下的窗格，超宽的窗格底部自带横向滚动条（以列为单位，自动滚动与滚到底都停在整列边界，左侧不留半个格）；
   纵向四窗格共用保持行对齐；方向键 / 改动导航 / 打开落点按各窗格宽度横向自动滚动，保证选中格处处可见。
 - 选中格详情条（输出网格之下、状态条之上）显示活动窗格选中格的完整内容：换行、内部滚动、可选中复制；
   悬停任意格显示完整内容 tooltip（长 JSON 等不再被 110 px 列宽截断）。
@@ -43,7 +43,9 @@
 | 引擎测试 | `crates/bc-engine-table/src/merge_tests.rs` | 对齐、五态、结构判定、区段、解决、favor、键推断/退化、多 sheet、CSV 保真、xlsx 往返 |
 | 宿主测试 | `crates/bc-script/src/table_merge_tests.rs` | CSV/xlsx 自动合并、扣留、键越界、分派矩阵、VCS 临时文件名 |
 | 路由测试 | `apps/bcompare/src/routing.rs`（`table_merges_route_by_format`） | 按格式分派、`/force`、混合格式 |
-| GUI 测试 | `crates/bc-gui/src/table_merge/` 下的 `*_tests.rs` | 模型与视图命令 |
+| GUI 测试 | `crates/bc-gui/src/table_merge/` 下的 `*_tests.rs`；`app_tests.rs`（`table_merge_launch_and_hand_off_report_result_codes`） | 模型与视图命令、多 sheet 状态独立、删除输出行；标签页类型/标题、关页提示、本实例与转交两条路径的结果码 101/14/0 |
+| 端到端 | `apps/bcompare/tests/table_merge.rs`、`hand_off.rs`（`table_merges_hand_off_and_wait_like_text_merges`） | 真实 exe：无窗口 0/101/100；xlsx 合并转交后等待并透传 0/14/101；`/reviewconflicts` 无冲突不开窗、有冲突带 `/keys=`/favor 转交 |
+| 快照 | `snapshot.rs` 场景 `table-merge-basic`、`table-merge-conflict`（语料 `tools/visual/corpus/table-merge-*.csv`） | `matcha --snapshot=table-merge-conflict --snapshot-out=x.png` |
 | 写出测试 | `crates/bc-engine-table/src/xlsx_patch_tests.rs`、`formula_refs.rs` | 样式/列宽/冻结/合并单元格/图表/定义名称保留与行重定位，sheet 增删 |
 | 语料 | `crates/bc-script/tests/golden/table_merge/`（24 例）+ `tests/table_merge_golden.rs` | CSV/TSV 字节级期望；xlsx 用 `case.json` 描述三方工作簿（测试时生成，不入库二进制），校验值、公式、格式与版式 |
 
@@ -67,6 +69,9 @@
 - **冲突区段** = 相邻含冲突的对齐行（间距 0，不像文本合并那样把相隔 2 行的改动并段）。
 - **解决**：对区段（或行）Take 某侧 → 结构冲突按该侧决定行去留，普通行的冲突格取该侧；对单格 Take 只替换该格；
   接受当前内容不改输出只清冲突；编辑输出格视为解决该格。
+- **删除输出行**（`Ctrl+Delete` / Edit ▸ Delete Output Row）：该行不再写出，行上的冲突计为已解决；之后对该行
+  Take 任一侧（区段或单格）把它带回。双增冲突行不可删除（Take Center 即“两行都不要”），不在输出里的行（已删除、
+  双增未解决）只给提示。可撤销。
 - **`/iu` 与 favor**：开 `/iu` 后不重要差异按相同处理；仅由不重要差异构成的冲突格（或同增行）在 `/favorleft|right`
   时取 favored 侧，否则取 center。不开 `/iu` 时 favor 不起作用。命令行不提供列规则，所以 CLI 下“不重要”只在规则
   里有不重要列时才出现。
@@ -100,11 +105,11 @@
 ## 使用与验证
 
 ```bat
-matcha theirs.xlsx yours.xlsx base.xlsx result.xlsx                          :: 界面表格合并
-matcha /automerge theirs.xlsx yours.xlsx base.xlsx result.xlsx               :: 无窗口：0 / 101 / 100
-matcha /automerge /keys=1 theirs.xlsx yours.xlsx base.xlsx result.xlsx       :: 指定键列
-matcha /automerge /reviewconflicts theirs.xlsx yours.xlsx base.xlsx out.xlsx :: 无冲突不开窗，有冲突进界面
-matcha /tablemerge /automerge theirs.csv yours.csv base.csv out.csv          :: CSV 按表格合并
+matcha base.xlsx theirs.xlsx yours.xlsx result.xlsx                          :: 界面表格合并
+matcha /automerge base.xlsx theirs.xlsx yours.xlsx result.xlsx               :: 无窗口：0 / 101 / 100
+matcha /automerge /keys=1 base.xlsx theirs.xlsx yours.xlsx result.xlsx       :: 指定键列
+matcha /automerge /reviewconflicts base.xlsx theirs.xlsx yours.xlsx out.xlsx :: 无冲突不开窗，有冲突进界面
+matcha /tablemerge /automerge base.csv theirs.csv yours.csv out.csv          :: CSV 按表格合并
 cargo test -p bc-engine-table --lib merge
 cargo test -p bc-script --lib table_merge
 cargo test -p bcompare
@@ -129,7 +134,7 @@ Take/接受/编辑与保存后的退出码。
 - 公式求值（缓存结果按来源写，打开时由 Excel 重算）；单元格内富文本分段（写成整格纯文本，单元格字体保留）；
   数组公式、共享公式分组；批注锚点、透视表、`docProps/app.xml` 的 sheet 标题不随行增删更新；
   从 left/right 加入的新 sheet 不带其图形、表格与批注；R1C1 / 外部工作簿引用不重定位。
-- 列级三方合并（插删列、列移动的冲突语义）；行的结构编辑（输出网格插删行）。
+- 列级三方合并（插删列、列移动的冲突语义）；输出网格插入新行（删除输出行已支持）。
 - 合并视图内修改键与列规则；命名会话与 Home 入口；容差键匹配。
 - 冲突区段的 `conflict_gap`（相近冲突并段）。
 

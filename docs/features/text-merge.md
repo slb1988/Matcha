@@ -117,7 +117,7 @@ cargo test -p bc-gui --lib merge
 
 ### 界面命令与快捷键
 
-菜单为 Session / File / Edit / Search；工具栏为 Home、Save、Left、Center、Right、Accept、Next Conflict、Prev Conflict。
+菜单为 Session / File / Edit / Search；工具栏为 Home、Save、Left、Center、Right、Accept、Next Change、Prev Change。
 
 | 命令 | 快捷键 | 行为 |
 |---|---|---|

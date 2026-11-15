@@ -249,6 +249,12 @@ impl TableMergeModel {
         })
     }
 
+    /// 把 `row` 从输出里移除（其冲突计为已解决；对该行取某侧可恢复）。双增冲突行、
+    /// 不在输出里的行不受影响，返回 `false`。
+    pub fn remove_row(&mut self, row: usize) -> bool {
+        self.act(|s| s.remove_row(row))
+    }
+
     /// 在输出格里输入 `text`（按 center 的区域设置解析为数字 / 日期等）。`false` = 该行不在输出里。
     pub fn edit(&mut self, row: usize, column: usize, text: &str) -> bool {
         let regional = self.current().center.regional.clone();
