@@ -15,6 +15,8 @@ pub mod statusbar;
 pub mod tabstrip;
 pub mod theme;
 pub mod toolbar;
+pub mod widgets;
+pub mod window;
 pub mod wheel;
 
 /// 无渲染器输入注入测试必须显式消费纹理增量（egui 0.37）。

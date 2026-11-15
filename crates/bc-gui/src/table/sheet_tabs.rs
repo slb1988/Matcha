@@ -11,6 +11,7 @@ pub fn ui(
 ) -> Option<usize> {
     let mut target = None;
     egui::Panel::bottom("table_sheet_tabs").show(ui, |ui| {
+        ui.add_space(3.0);
         egui::ScrollArea::horizontal().show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (i, pair) in pairs.0.iter().enumerate() {
@@ -39,9 +40,11 @@ pub fn ui(
                             }
                         });
                     if ui
-                        .selectable_label(
-                            i == active,
-                            egui::RichText::new(format!("● {name}")).color(color),
+                        .add(
+                            crate::chrome::widgets::Button::new(
+                                egui::RichText::new(format!("● {name}")).color(color),
+                            )
+                            .selected(i == active),
                         )
                         .clicked()
                     {

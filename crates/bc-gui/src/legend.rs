@@ -26,9 +26,8 @@ pub fn side_color(
     })
 }
 pub fn show(ctx: &egui::Context, open: &mut bool, palette: FolderColors) {
-    egui::Window::new("Folder legend")
+    crate::chrome::window::Window::new("Folder legend")
         .open(open)
-        .resizable(false)
         .show(ctx, |ui| {
             for (rgb, label) in [
                 (palette.unknown, "Unknown / older"),
@@ -41,7 +40,8 @@ pub fn show(ctx: &egui::Context, open: &mut bool, palette: FolderColors) {
                 ui.horizontal(|ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 2.0, color(rgb));
+                    ui.painter()
+                        .rect_filled(rect, crate::chrome::theme::RADIUS_SM, color(rgb));
                     ui.label(label);
                 });
             }

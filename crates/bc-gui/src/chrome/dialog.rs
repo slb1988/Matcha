@@ -14,9 +14,6 @@ use eframe::egui::{
 
 pub const FACE: Color32 = theme::SURFACE_CHROME;
 pub const PAGE: Color32 = theme::SURFACE;
-const PAGE_EDGE: Color32 = theme::LINE;
-const PAGE_SHADOW: Color32 = theme::SURFACE_CHROME;
-const TAB_OFF: Color32 = theme::SURFACE_CHROME;
 const BUTTON_FILL: Color32 = theme::SURFACE;
 const DISABLED_EDGE: Color32 = theme::LINE;
 const DISABLED_FILL: Color32 = theme::SURFACE_SUBTLE;
@@ -29,7 +26,8 @@ const HEADING: Color32 = theme::TEXT;
 pub const RULE: Color32 = theme::LINE;
 /// Classic push-button size (OK / Cancel / Apply).
 pub const BUTTON: Vec2 = Vec2::new(94.0, 29.0);
-pub const TITLE_HEIGHT: f32 = 31.0;
+/// Header height of framed dialogs (same as `chrome::window`).
+pub const TITLE_HEIGHT: f32 = 44.0;
 
 pub fn font() -> FontId {
     FontId::proportional(theme::UI_SIZE)
@@ -65,7 +63,7 @@ pub fn window<R>(
     let (outer, origin) = match placement {
         Placement::ClientOnly => (client, screen.min),
         Placement::Window => {
-            let outer = client + Vec2::new(2.0, TITLE_HEIGHT + 1.0);
+            let outer = client + Vec2::new(2.0, TITLE_HEIGHT + 2.0);
             let origin = (screen.center() - outer / 2.0).max(screen.min);
             (outer, Pos2::new(origin.x.round(), origin.y.round()))
         }
@@ -80,39 +78,59 @@ pub fn window<R>(
             let (rect, _) = ui.allocate_exact_size(outer, Sense::hover());
             let painter = ui.painter().clone();
             let client_rect = match placement {
-                Placement::ClientOnly => rect,
+                Placement::ClientOnly => {
+                    painter.rect_filled(rect, 0.0, FACE);
+                    rect
+                }
                 Placement::Window => {
-                    painter.rect_filled(rect, 0.0, Color32::WHITE);
-                    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, RULE), StrokeKind::Inside);
+                    // Same card as `chrome::window::Window` / `chrome::modal`.
+                    let p = theme::palette(ui.ctx());
+                    let radius = theme::RADIUS_XL;
+                    painter.add(theme::shadow_dialog().as_shape(rect, radius));
+                    painter.rect_filled(rect, radius, p.surface);
                     painter.text(
-                        rect.min + Vec2::new(11.0, TITLE_HEIGHT / 2.0),
+                        rect.min + Vec2::new(16.0, TITLE_HEIGHT / 2.0),
                         egui::Align2::LEFT_CENTER,
                         title,
-                        font(),
-                        Color32::BLACK,
+                        theme::strong(ui.ctx(), theme::UI_SIZE + 1.0),
+                        p.text,
                     );
-                    let close = Rect::from_min_max(
-                        Pos2::new(rect.right() - 47.0, rect.top() + 1.0),
-                        Pos2::new(rect.right() - 1.0, rect.top() + TITLE_HEIGHT),
+                    let close = Rect::from_center_size(
+                        Pos2::new(rect.right() - 24.0, rect.top() + TITLE_HEIGHT / 2.0),
+                        Vec2::splat(28.0),
                     );
                     let response = ui.interact(close, id.with("close"), Sense::click());
                     if response.hovered() {
-                        painter.rect_filled(close, 0.0, Color32::from_rgb(0xC4, 0x2B, 0x1C));
+                        painter.rect_filled(close, theme::RADIUS_MD, p.hover);
                     }
                     let ink = if response.hovered() {
-                        Color32::WHITE
+                        p.text
                     } else {
-                        Color32::BLACK
+                        p.text_muted
                     };
                     let c = close.center();
-                    for d in [Vec2::new(5.0, 5.0), Vec2::new(5.0, -5.0)] {
-                        painter.line_segment([c - d, c + d], Stroke::new(1.0, ink));
+                    for d in [Vec2::new(4.5, 4.5), Vec2::new(4.5, -4.5)] {
+                        painter.line_segment([c - d, c + d], Stroke::new(1.4, ink));
                     }
                     closed = response.clicked();
-                    Rect::from_min_size(rect.min + Vec2::new(1.0, TITLE_HEIGHT), client)
+                    let client_rect =
+                        Rect::from_min_size(rect.min + Vec2::new(1.0, TITLE_HEIGHT + 1.0), client);
+                    painter.hline(rect.x_range(), rect.top() + TITLE_HEIGHT, Stroke::new(1.0, p.line));
+                    let bottom = radius - 1;
+                    painter.rect_filled(
+                        client_rect,
+                        egui::CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: bottom,
+                            se: bottom,
+                        },
+                        FACE,
+                    );
+                    painter.rect_stroke(rect, radius, Stroke::new(1.0, p.line), StrokeKind::Inside);
+                    client_rect
                 }
             };
-            painter.rect_filled(client_rect, 0.0, FACE);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(client_rect));
             add(&mut child, client_rect)
         })
@@ -122,63 +140,52 @@ pub fn window<R>(
 
 /// Tab strip over a tab page (`page` is the page's outer rect; tabs sit
 /// above it, the first starting at its left edge). Returns the clicked tab.
+/// Modern underline tabs: the page is a rounded card, the selected tab's
+/// label is strong with an accent underline on the page edge, the others are
+/// muted with a hover pill. (Tab widths keep the classic label + 18 / + 10 px
+/// so hit positions are stable.)
 pub fn tabs(ui: &mut Ui, page: Rect, labels: &[&str], selected: usize) -> Option<usize> {
+    let p = theme::palette(ui.ctx());
     let painter = ui.painter().clone();
-    // Page: #F9 with a #E5 frame and a #F3 outer right/bottom line.
-    painter.rect_filled(page, 0.0, PAGE);
-    painter.rect_stroke(page, 0.0, Stroke::new(1.0, PAGE_EDGE), StrokeKind::Inside);
-    painter.rect_filled(
-        Rect::from_min_max(
-            Pos2::new(page.right(), page.top() + 1.0),
-            Pos2::new(page.right() + 1.0, page.bottom() + 1.0),
-        ),
-        0.0,
-        PAGE_SHADOW,
-    );
-    painter.rect_filled(
-        Rect::from_min_max(
-            Pos2::new(page.left() + 1.0, page.bottom()),
-            Pos2::new(page.right() + 1.0, page.bottom() + 1.0),
-        ),
-        0.0,
-        PAGE_SHADOW,
+    painter.rect_filled(page, theme::RADIUS_LG, p.surface);
+    painter.rect_stroke(
+        page,
+        theme::RADIUS_LG,
+        Stroke::new(1.0, p.line),
+        StrokeKind::Inside,
     );
     let mut clicked = None;
     let mut x = page.left();
     for (i, label) in labels.iter().enumerate() {
-        let galley = painter.layout_no_wrap(label.to_string(), font(), Color32::BLACK);
         let on = i == selected;
-        // Reference: selected tab = label + 18 px, others = label + 10 px.
+        let font = if on {
+            theme::strong(ui.ctx(), theme::UI_SIZE)
+        } else {
+            font()
+        };
+        let ink = if on { p.text } else { p.text_muted };
+        let galley = painter.layout_no_wrap(label.to_string(), font, ink);
         let width = (galley.size().x + if on { 18.0 } else { 10.0 }).round();
-        // Selected tab: 24 px tall from the page top - 24, joined to the
-        // page; others: 2 px lower, #F3, closed at the bottom.
-        let top = page.top() - if on { 24.0 } else { 22.0 };
         let rect = Rect::from_min_max(
-            Pos2::new(x, top),
-            // Unselected tabs share the page top line as their bottom edge.
-            Pos2::new(x + width + 1.0, page.top() + 1.0),
+            Pos2::new(x, page.top() - 24.0),
+            Pos2::new(x + width + 1.0, page.top()),
         );
-        painter.rect_filled(rect, 2.0, if on { PAGE } else { TAB_OFF });
-        painter.rect_stroke(rect, 2.0, Stroke::new(1.0, PAGE_EDGE), StrokeKind::Inside);
+        let response = ui.interact(rect, ui.scope_id().with(("dialog-tab", i)), Sense::click());
+        if !on && response.hovered() {
+            painter.rect_filled(rect.shrink2(Vec2::new(1.0, 2.0)), theme::RADIUS_MD, p.hover);
+        }
+        painter.galley(rect.center() - galley.size() / 2.0, galley, ink);
         if on {
             painter.rect_filled(
                 Rect::from_min_max(
-                    Pos2::new(rect.left() + 1.0, page.top()),
-                    Pos2::new(rect.right() - 1.0, page.top() + 1.0),
+                    Pos2::new(rect.left() + 4.0, page.top() - 2.0),
+                    Pos2::new(rect.right() - 4.0, page.top()),
                 ),
-                0.0,
-                PAGE,
+                1.0,
+                p.accent,
             );
         }
-        painter.galley(
-            Pos2::new(x + if on { 9.0 } else { 5.0 }, rect.top() + 6.0),
-            galley,
-            Color32::BLACK,
-        );
-        if ui
-            .interact(rect, ui.scope_id().with(("dialog-tab", i)), Sense::click())
-            .clicked()
-        {
+        if response.clicked() {
             clicked = Some(i);
         }
         x += width;
@@ -402,38 +409,28 @@ pub fn paint_glyph(painter: &egui::Painter, center: Pos2, glyph: Glyph, color: C
 /// Small push button showing a glyph; true when clicked (enabled).
 pub fn glyph_button(ui: &mut Ui, rect: Rect, glyph: Glyph, enabled: bool) -> bool {
     let clicked = button(ui, rect, "", ButtonKind::Normal, enabled);
+    let p = theme::palette(ui.ctx());
     paint_glyph(
         ui.painter(),
         rect.center(),
         glyph,
-        if enabled {
-            Color32::BLACK
-        } else {
-            DISABLED_TEXT
-        },
+        if enabled { p.text } else { p.text_faint },
     );
     clicked
 }
 
-/// Down chevron used inside combo boxes (8 px, one-pixel steps).
+/// Down chevron used inside combo boxes (same stroke chevron as
+/// `widgets::Combo`); `left_top` is the top-left of its 6 x 3 px box.
 pub fn combo_chevron(painter: &egui::Painter, left_top: Pos2, color: Color32) {
-    let mut mesh = egui::Mesh::default();
-    for (dy, x0, x1) in [
-        (0.0, 0.0, 0.0),
-        (0.0, 5.0, 5.0),
-        (1.0, 1.0, 1.0),
-        (1.0, 4.0, 4.0),
-        (2.0, 2.0, 3.0),
-    ] {
-        mesh.add_colored_rect(
-            Rect::from_min_max(
-                left_top + Vec2::new(x0, dy),
-                left_top + Vec2::new(x1 + 1.0, dy + 1.0),
-            ),
-            color,
-        );
-    }
-    painter.add(egui::Shape::mesh(mesh));
+    let c = left_top + Vec2::new(3.0, 1.5);
+    painter.add(egui::Shape::line(
+        vec![
+            c + Vec2::new(-3.5, -1.5),
+            c + Vec2::new(0.0, 2.0),
+            c + Vec2::new(3.5, -1.5),
+        ],
+        Stroke::new(1.4, color),
+    ));
 }
 
 #[derive(Clone, Debug, Default)]
@@ -475,15 +472,12 @@ fn list(
     let response = ui.interact(rect, id, Sense::click());
     if as_button {
         button_face(ui, rect, "", ButtonKind::Normal, enabled, false);
+        let p = theme::palette(ui.ctx());
         paint_glyph(
             &painter,
             rect.center() + Vec2::new(0.0, 0.5),
             Glyph::DropDown,
-            if enabled {
-                Color32::BLACK
-            } else {
-                DISABLED_TEXT
-            },
+            if enabled { p.text_muted } else { p.text_faint },
         );
     } else {
         let radius = theme::RADIUS_MD;
@@ -499,7 +493,7 @@ fn list(
             StrokeKind::Inside,
         );
         painter.text(
-            Pos2::new(rect.left() + 4.0, rect.center().y),
+            Pos2::new(rect.left() + 8.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             selected,
             font(),
@@ -507,8 +501,8 @@ fn list(
         );
         combo_chevron(
             &painter,
-            Pos2::new(rect.right() - 12.0, rect.center().y - 1.0),
-            Color32::from_gray(0x6E),
+            Pos2::new(rect.right() - 16.0, rect.center().y - 1.5),
+            theme::palette(ui.ctx()).text_muted,
         );
     }
     let ctx = ui.ctx().clone();

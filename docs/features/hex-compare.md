@@ -16,7 +16,7 @@
   与 text 视图同款 `chrome::pathbar`，每侧独立 id 作用域（可点击、拖选、右键/快捷键复制）；
   路径框或查找框持焦时视图不接管 Ctrl+A/C/X/V/Delete 等字节编辑键；File Info 头显示每侧大小与时间戳。
 - 交互：Next/Previous Difference Bytes（Ctrl+N/P）、Go To（hex/dec、选侧、跨侧同步）、
-  内联查找栏（hex/文本、大小写）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
+  内联查找栏（Hex/Text、Match case）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
   Select All、Undo/Redo、Copy to Other Side Ctrl+R）、Swap/Reload（脏确认）/Recompare、
   Hex Compare Info（四分类）、Session Settings 三页（Specs/Format/Comparison）。
 - 浏览导航件：**最左 52 px 缩略图列**（迷你图自地址栏下缘起、内容每行 1 px、

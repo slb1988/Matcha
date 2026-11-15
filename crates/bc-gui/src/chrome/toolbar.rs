@@ -20,10 +20,44 @@ pub struct ToolItem {
     pub icon: Icon,
     pub group: Option<String>,
 }
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolbarResponse {
     pub clicked: Option<ActionId>,
     pub dropdown: Option<ActionId>,
+    /// Rect of the item whose drop-down was requested (menu anchor).
+    pub dropdown_rect: Option<Rect>,
+}
+
+/// Drop-down menu of a toolbar item in the shared popup style. Call every
+/// frame with that frame's [`ToolbarResponse`]: a drop-down request opens
+/// `items(action_id)` under the item (or closes it when it is already open);
+/// returns the chosen menu action. `id` must be unique per toolbar.
+pub fn dropdown_menu(
+    ctx: &egui::Context,
+    id: egui::Id,
+    response: &ToolbarResponse,
+    items: impl FnOnce(&str) -> Vec<super::menubar::MenuItem>,
+) -> Option<ActionId> {
+    let name_id = id.with("open-item");
+    if let (Some(name), Some(rect)) = (&response.dropdown, response.dropdown_rect) {
+        let open: Option<String> = ctx.data(|d| d.get_temp(name_id));
+        if open.as_ref() == Some(name) && super::popup::is_menu_open(ctx, id) {
+            super::popup::close_menu(ctx, id);
+        } else {
+            super::popup::open_menu(ctx, id, rect.left_bottom() + egui::vec2(0.0, 2.0), Some(rect));
+            ctx.data_mut(|d| d.insert_temp(name_id, name.clone()));
+        }
+    }
+    if !super::popup::is_menu_open(ctx, id) {
+        return None;
+    }
+    let name: String = ctx.data(|d| d.get_temp(name_id))?;
+    super::popup::menu(ctx, id, 0.0, || items(&name))
+}
+
+/// Whether `id`'s drop-down menu is open (views block shortcuts meanwhile).
+pub fn dropdown_open(ctx: &egui::Context, id: egui::Id) -> bool {
+    super::popup::is_menu_open(ctx, id)
 }
 
 /// 由调用者在处理返回动作时调用。组件不会隐式改写视图的业务状态。
@@ -171,12 +205,14 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
             if item.enabled && body.clicked() {
                 if item.kind == ToolItemKind::Dropdown {
                     output.dropdown = Some(item.action_id.clone());
+                    output.dropdown_rect = Some(rect);
                 } else {
                     output.clicked = Some(item.action_id.clone());
                 }
             }
             if item.enabled && drop.is_some_and(|r| r.clicked()) {
                 output.dropdown = Some(item.action_id.clone());
+                output.dropdown_rect = Some(rect);
             }
         }
     });
@@ -234,16 +270,13 @@ mod tests {
             click(&items, 20.0),
             ToolbarResponse {
                 clicked: Some("split".into()),
-                dropdown: None
+                ..Default::default()
             }
         );
-        assert_eq!(
-            click(&items, 65.0),
-            ToolbarResponse {
-                clicked: None,
-                dropdown: Some("split".into())
-            }
-        );
+        let drop = click(&items, 65.0);
+        assert_eq!(drop.clicked, None);
+        assert_eq!(drop.dropdown.as_deref(), Some("split"));
+        assert!(drop.dropdown_rect.is_some_and(|r| r.contains(egui::pos2(65.0, 15.0))));
     }
     #[test]
     fn injected_toggle_click_excludes_its_group_only() {
@@ -269,5 +302,60 @@ mod tests {
                 .as_deref(),
             Some("drop")
         );
+    }
+    #[test]
+    fn dropdown_menu_opens_under_item_dispatches_and_toggles() {
+        use crate::chrome::popup::{self, item};
+        let ctx = egui::Context::default();
+        let items = [item("drop", ToolItemKind::Dropdown)];
+        let id = egui::Id::unique("test-toolbar-menu");
+        let run = |events: Vec<egui::Event>| {
+            let mut chosen = None;
+            let _ = crate::chrome::test_frame(
+                &ctx,
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    let response = show(ui, &items);
+                    chosen = dropdown_menu(ui.ctx(), id, &response, |name| {
+                        assert_eq!(name, "drop");
+                        vec![item::action("Home", "Home", true), item::separator(), item::action("Info", "Info", true)]
+                    });
+                },
+            );
+            chosen
+        };
+        let click = |p: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                },
+            ]
+        };
+        run(vec![]);
+        run(click(egui::pos2(20.0, 15.0)));
+        assert!(popup::is_menu_open(&ctx, id));
+        // Clicking the item again closes it (toggle).
+        run(click(egui::pos2(20.0, 15.0)));
+        assert!(!popup::is_menu_open(&ctx, id));
+        run(click(egui::pos2(20.0, 15.0)));
+        run(vec![]);
+        // Menu sits under the 46 px toolbar item: 2 px gap + border + 4 px pad,
+        // rows 26 px, separator 9 px -> "Info" row center.
+        let info = egui::pos2(40.0, 46.0 + 2.0 + 1.0 + 4.0 + 26.0 + 9.0 + 13.0);
+        assert_eq!(run(click(info)).as_deref(), Some("Info"));
+        assert!(!popup::is_menu_open(&ctx, id));
     }
 }

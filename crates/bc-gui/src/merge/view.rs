@@ -1034,16 +1034,21 @@ impl MergeView {
                 confirmed,
             }) => {
                 let (mut accept, mut cancel) = (false, false);
-                egui::Window::new("Save merge output as")
-                    .collapsible(false)
-                    .resizable(false)
+                chrome::window::Window::new("Save merge output as")
                     .show(ctx, |ui| {
                         ui.label("Output file path");
-                        ui.add(egui::TextEdit::singleline(&mut path).desired_width(420.0));
-                        ui.horizontal(|ui| {
-                            accept = ui.button("Save").clicked();
-                            cancel = ui.button("Cancel").clicked();
-                        });
+                        chrome::widgets::text_field_width(ui, &mut path, 420.0);
+                        match chrome::widgets::dialog_buttons(
+                            ui,
+                            &[
+                                ("Cancel", chrome::controls::Role::Secondary),
+                                ("Save", chrome::controls::Role::Primary),
+                            ],
+                        ) {
+                            Some(0) => cancel = true,
+                            Some(_) => accept = true,
+                            None => {}
+                        }
                     });
                 if accept && !path.trim().is_empty() {
                     self.save_as(path, then, confirmed);

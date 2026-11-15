@@ -1,4 +1,5 @@
 use bc_core::{pattern::Pattern, CoreError};
+use crate::chrome::widgets;
 use eframe::egui;
 #[derive(Default)]
 pub struct FindPanel {
@@ -40,11 +41,12 @@ impl FindPanel {
         }
         let mut action = None;
         egui::Panel::bottom("table_find").show(ui, |ui| {
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Find");
                 if ui
                     .add(
-                        egui::TextEdit::singleline(&mut self.query)
+                        widgets::field(&mut self.query)
                             .id_salt("table_find_query")
                             .desired_width(180.0),
                     )
@@ -53,33 +55,42 @@ impl FindPanel {
                     self.last = None;
                 }
                 for (name, a) in [("Next", Action::Next), ("Previous", Action::Previous)] {
-                    if ui.button(name).clicked() {
+                    if widgets::button(ui, name).clicked() {
                         action = Some(a);
                     }
                 }
-                ui.checkbox(&mut self.regex, "Regex");
-                ui.checkbox(&mut self.case, "Case");
-                ui.checkbox(&mut self.whole, "Whole words");
-                if ui.selectable_value(&mut self.side, 0, "Left").changed() {
-                    self.last = None;
+                widgets::checkbox(ui, &mut self.regex, "Regex");
+                widgets::checkbox(ui, &mut self.case, "Case");
+                widgets::checkbox(ui, &mut self.whole, "Whole words");
+                for (side, name) in [(0, "Left"), (1, "Right")] {
+                    if ui
+                        .add(widgets::Button::new(name).selected(self.side == side))
+                        .clicked()
+                        && self.side != side
+                    {
+                        self.side = side;
+                        self.last = None;
+                    }
                 }
-                if ui.selectable_value(&mut self.side, 1, "Right").changed() {
-                    self.last = None;
-                }
-                if ui.button("×").clicked() {
+                if ui
+                    .add(widgets::Button::new("×").min_width(widgets::CONTROL_HEIGHT))
+                    .on_hover_text("Close")
+                    .clicked()
+                {
                     self.open = false;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Replace");
-                ui.text_edit_singleline(&mut self.replacement);
-                if ui.button("Replace").clicked() {
+                ui.add(widgets::field(&mut self.replacement).desired_width(180.0));
+                if widgets::button(ui, "Replace").clicked() {
                     action = Some(Action::Replace);
                 }
-                if ui.button("Replace all").clicked() {
+                if widgets::button(ui, "Replace all").clicked() {
                     action = Some(Action::All);
                 }
             });
+            ui.add_space(4.0);
         });
         action
     }

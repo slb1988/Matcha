@@ -107,21 +107,23 @@ pub fn show_with_history(
             ],
             Stroke::new(1.4, super::theme::TEXT_MUTED),
         ));
-        egui::Popup::from_toggle_button_response(&chev)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                if history.is_empty() {
-                    ui.add_enabled(false, egui::Label::new("No recent paths"));
-                }
-                for entry in history {
-                    if ui.selectable_label(*path == *entry, entry).clicked() {
-                        *path = entry.clone();
-                        result.submitted = true;
-                        result.action = Some("history-select".into());
-                        ui.close();
-                    }
-                }
-            });
+        // 历史下拉：箭头与右侧历史图标都打开它，挂在编辑框下方、与编辑框等宽。
+        let history_menu = ui.scope_id().with("path-history-menu");
+        let toggle_history = |ui: &egui::Ui, owner: egui::Rect| {
+            if super::popup::is_menu_open(ui.ctx(), history_menu) {
+                super::popup::close_menu(ui.ctx(), history_menu);
+            } else {
+                super::popup::open_menu(
+                    ui.ctx(),
+                    history_menu,
+                    edit.rect.left_bottom() + egui::vec2(0.0, 2.0),
+                    Some(owner),
+                );
+            }
+        };
+        if chev.clicked() {
+            toggle_history(ui, chev.rect);
+        }
         chev.on_hover_text("Path history");
         // 右侧无边框图标按钮：历史 / 浏览(带 ▼) / 保存。
         ui.add_space(9.0);
@@ -139,7 +141,11 @@ pub fn show_with_history(
             let (rect, response) =
                 ui.allocate_exact_size(egui::vec2(extra, 28.0), egui::Sense::click());
             if response.clicked() {
-                result.action = Some(id.into());
+                if id == "history" {
+                    toggle_history(ui, rect);
+                } else {
+                    result.action = Some(id.into());
+                }
             }
             if response.hovered() {
                 ui.painter()
@@ -166,6 +172,24 @@ pub fn show_with_history(
                 ));
             }
             response.on_hover_text(tip);
+        }
+        let chosen = super::popup::menu(ui.ctx(), history_menu, edit.rect.width(), || {
+            if history.is_empty() {
+                return vec![super::popup::item::action("No recent paths", "", false)];
+            }
+            history
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| super::popup::item::radio(entry.clone(), i.to_string(), *path == *entry))
+                .collect()
+        });
+        if let Some(entry) = chosen
+            .and_then(|i| i.parse::<usize>().ok())
+            .and_then(|i| history.get(i))
+        {
+            *path = entry.clone();
+            result.submitted = true;
+            result.action = Some("history-select".into());
         }
     });
     result

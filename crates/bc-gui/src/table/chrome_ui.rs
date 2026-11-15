@@ -539,7 +539,7 @@ impl TableCompareView {
         })
         .collect();
         let response = toolbar::show(ui, &items);
-        if let Some(action) = response.clicked {
+        if let Some(action) = response.clicked.clone() {
             // The Format body opens the Format page of Session Settings.
             let action = if action == "Format" {
                 "Session Settings...".to_string()
@@ -548,48 +548,27 @@ impl TableCompareView {
             };
             self.command(&action, ui.ctx(), prefs);
         }
-        if let Some(action) = response.dropdown {
-            self.tool_dropdown = Some((
-                action,
-                ui.ctx().pointer_latest_pos().unwrap_or(ui.cursor().min),
-            ));
-        }
-        if let Some((name, pos)) = self.tool_dropdown.clone() {
-            let mut chosen = None;
-            let popup = egui::Area::new(egui::Id::unique("table-toolbar-dropdown"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(pos)
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        let entries: &[&str] = if name == "Sessions" {
-                            &["Session Settings...", "Table Compare Info"]
-                        } else {
-                            &[
-                                "Compare Values",
-                                "Compare Values + Formulas",
-                                "Compare Values + Formulas + Number Formats",
-                            ]
-                        };
-                        for entry in entries {
-                            let checked = self.checked(entry).unwrap_or(false);
-                            if ui.selectable_label(checked, *entry).clicked() {
-                                chosen = Some(*entry);
-                            }
-                        }
-                    });
-                });
-            if let Some(action) = chosen {
-                self.command(action, ui.ctx(), prefs);
-                self.tool_dropdown = None;
-            } else if ui.input(|i| {
-                i.key_pressed(egui::Key::Escape)
-                    || (i.pointer.any_pressed()
-                        && i.pointer
-                            .interact_pos()
-                            .is_some_and(|p| !popup.response.rect.contains(p)))
-            }) {
-                self.tool_dropdown = None;
+        let menu_id = ui.make_persistent_id("table-toolbar-dropdown");
+        let chosen = toolbar::dropdown_menu(ui.ctx(), menu_id, &response, |name| {
+            use crate::chrome::popup::item;
+            if name == "Sessions" {
+                ["Session Settings...", "Table Compare Info"]
+                    .into_iter()
+                    .map(|entry| item::action(entry, entry, true))
+                    .collect()
+            } else {
+                [
+                    "Compare Values",
+                    "Compare Values + Formulas",
+                    "Compare Values + Formulas + Number Formats",
+                ]
+                .into_iter()
+                .map(|entry| item::radio(entry, entry, self.checked(entry).unwrap_or(false)))
+                .collect()
             }
+        });
+        if let Some(action) = chosen {
+            self.command(&action, ui.ctx(), prefs);
         }
     }
     /// Path bar (26 px) and file info row (27 px) of one side.
@@ -875,17 +854,15 @@ impl TableCompareView {
         }
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Go To")
+        crate::chrome::window::Window::new("Go To")
             .open(&mut open)
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Row:");
                     ui.add(egui::DragValue::new(&mut self.goto[0]).range(1..=usize::MAX));
                     ui.label("Column:");
                     ui.add(egui::DragValue::new(&mut self.goto[1]).range(1..=usize::MAX));
-                    go = ui.button("Go").clicked();
+                    go = crate::chrome::widgets::primary_button(ui, "Go").clicked();
                 });
             });
         if go {

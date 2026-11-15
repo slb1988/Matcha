@@ -5,6 +5,7 @@
 //! 格式注册表接入随 hex 格式落地后置）。
 
 use bc_core::align::ByteAlignStrategy;
+use crate::chrome::{controls::Role, widgets, window::Window};
 use eframe::egui;
 
 use super::view::HexCompareView;
@@ -91,38 +92,43 @@ impl HexCompareView {
         let mut open = true;
         let mut apply = false;
         let mut cancel = false;
-        egui::Window::new("Session Settings")
+        Window::new("Session Settings")
+            .id(egui::Id::unique("hex-session-settings"))
             .open(&mut open)
-            .resizable(false)
+            .min_width(460.0)
             .show(ctx, |ui| {
                 let draft = self.settings_draft.as_mut().unwrap();
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
                     for (page, label) in [
                         (Page::Specs, "Specs"),
                         (Page::Format, "Format"),
                         (Page::Comparison, "Comparison"),
                     ] {
-                        ui.selectable_value(&mut self.settings_page, page, label);
+                        let on = self.settings_page == page;
+                        if ui.add(widgets::Button::new(label).selected(on)).clicked() {
+                            self.settings_page = page;
+                        }
                     }
                 });
-                ui.separator();
+                ui.add_space(6.0);
                 match self.settings_page {
                     Page::Specs => {
                         ui.horizontal(|ui| {
                             ui.label("Left:");
-                            ui.add(egui::TextEdit::singleline(&mut draft.left_path).desired_width(320.0));
+                            ui.add(widgets::field(&mut draft.left_path).desired_width(320.0));
                         });
-                        ui.checkbox(&mut draft.disable_editing[0], "Disable editing (left)");
+                        widgets::checkbox(ui, &mut draft.disable_editing[0], "Disable editing (left)");
                         ui.horizontal(|ui| {
                             ui.label("Right:");
-                            ui.add(egui::TextEdit::singleline(&mut draft.right_path).desired_width(320.0));
+                            ui.add(widgets::field(&mut draft.right_path).desired_width(320.0));
                         });
-                        ui.checkbox(&mut draft.disable_editing[1], "Disable editing (right)");
+                        widgets::checkbox(ui, &mut draft.disable_editing[1], "Disable editing (right)");
                         ui.horizontal(|ui| {
                             ui.label("Description:");
-                            ui.add(egui::TextEdit::singleline(&mut draft.description).desired_width(280.0));
+                            ui.add(widgets::field(&mut draft.description).desired_width(280.0));
                         });
-                        ui.label("Use for this view only");
+                        widgets::hint(ui, "Use for this view only");
                     }
                     Page::Format => {
                         ui.horizontal(|ui| {
@@ -133,28 +139,25 @@ impl HexCompareView {
                             ui.label("Right format:");
                             ui.label(&draft.format_right);
                         });
-                        ui.checkbox(&mut draft.same_as_left, "Same as left file format");
+                        widgets::checkbox(ui, &mut draft.same_as_left, "Same as left file format");
                     }
                     Page::Comparison => {
-                        ui.label("Alignment:");
-                        ui.radio_value(&mut draft.alignment, ByteAlignStrategy::Complete, "Complete");
-                        ui.radio_value(&mut draft.alignment, ByteAlignStrategy::Fast, "Fast");
-                        ui.radio_value(&mut draft.alignment, ByteAlignStrategy::None, "None");
+                        widgets::section(ui, "Alignment");
+                        widgets::radio_value(ui, &mut draft.alignment, ByteAlignStrategy::Complete, "Complete");
+                        widgets::radio_value(ui, &mut draft.alignment, ByteAlignStrategy::Fast, "Fast");
+                        widgets::radio_value(ui, &mut draft.alignment, ByteAlignStrategy::None, "None");
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.label("Files up to this size are loaded without file locks (MB):");
                             ui.add(egui::DragValue::new(&mut draft.lock_threshold_mb).range(1..=4096));
                         });
                     }
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("确定").clicked() {
-                        apply = true;
-                    }
-                    if ui.button("取消").clicked() {
-                        cancel = true;
-                    }
-                });
+                match widgets::dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]) {
+                    Some(0) => cancel = true,
+                    Some(1) => apply = true,
+                    _ => {}
+                }
             });
         if apply {
             let draft = self.settings_draft.take().unwrap();

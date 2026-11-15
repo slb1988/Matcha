@@ -46,6 +46,8 @@ pub const SELECTION: Color32 = Color32::from_rgb(0xC9, 0xE2, 0xD0);
 pub const DANGER: Color32 = Color32::from_rgb(0xC4, 0x3A, 0x34);
 pub const DANGER_HOVER: Color32 = Color32::from_rgb(0xAD, 0x2F, 0x2A);
 pub const DANGER_SOFT: Color32 = Color32::from_rgb(0xFC, 0xEC, 0xEB);
+/// Pressed fill of destructive (red ghost) buttons.
+pub const DANGER_PRESSED: Color32 = Color32::from_rgb(0xF8, 0xD9, 0xD7);
 pub const WARNING: Color32 = Color32::from_rgb(0xB4, 0x6F, 0x0E);
 pub const WARNING_SOFT: Color32 = Color32::from_rgb(0xFD, 0xF3, 0xE1);
 pub const INFO: Color32 = Color32::from_rgb(0x2D, 0x6C, 0xD6);
@@ -78,6 +80,89 @@ pub const SCROLL_THUMB_ACTIVE: Color32 = Color32::from_rgb(0x96, 0x9E, 0xA8);
 
 /// Modal backdrop scrim.
 pub const SCRIM: Color32 = Color32::from_black_alpha(64);
+
+// ------------------------------------------------------------- palette --
+
+/// 可替换的外框配色（换肤预留）。上面的 `pub const` token 是默认浅色方案
+/// [`Palette::LIGHT`] 的取值；`chrome::widgets` / `chrome::window` 等组件一律经
+/// [`palette`] 从 egui 上下文读取当前配色，而不是直接引用常量——将来换肤只需
+/// [`Theme::with_palette`] 换一套 `Palette` 再 `apply`，存量直接引用常量的组件
+/// 按需逐步迁到 `palette(ctx)`。差异内容色（红/蓝）不属于外框配色，不在此列。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Palette {
+    pub surface_chrome: Color32,
+    pub surface: Color32,
+    pub surface_subtle: Color32,
+    pub line: Color32,
+    pub line_strong: Color32,
+    pub text: Color32,
+    pub text_muted: Color32,
+    pub text_faint: Color32,
+    pub hover: Color32,
+    pub pressed: Color32,
+    pub accent: Color32,
+    pub accent_hover: Color32,
+    pub accent_pressed: Color32,
+    pub accent_soft: Color32,
+    pub accent_soft_line: Color32,
+    pub selection: Color32,
+    pub danger: Color32,
+    pub danger_hover: Color32,
+    pub danger_soft: Color32,
+    pub danger_pressed: Color32,
+    pub warning: Color32,
+    pub warning_soft: Color32,
+    pub info: Color32,
+    pub info_soft: Color32,
+    pub scrim: Color32,
+}
+
+impl Palette {
+    /// 默认浅色方案（即本模块的 `pub const` token）。
+    pub const LIGHT: Palette = Palette {
+        surface_chrome: SURFACE_CHROME,
+        surface: SURFACE,
+        surface_subtle: SURFACE_SUBTLE,
+        line: LINE,
+        line_strong: LINE_STRONG,
+        text: TEXT,
+        text_muted: TEXT_MUTED,
+        text_faint: TEXT_FAINT,
+        hover: HOVER,
+        pressed: PRESSED,
+        accent: ACCENT,
+        accent_hover: ACCENT_HOVER,
+        accent_pressed: ACCENT_PRESSED,
+        accent_soft: ACCENT_SOFT,
+        accent_soft_line: ACCENT_SOFT_LINE,
+        selection: SELECTION,
+        danger: DANGER,
+        danger_hover: DANGER_HOVER,
+        danger_soft: DANGER_SOFT,
+        danger_pressed: DANGER_PRESSED,
+        warning: WARNING,
+        warning_soft: WARNING_SOFT,
+        info: INFO,
+        info_soft: INFO_SOFT,
+        scrim: SCRIM,
+    };
+}
+
+impl Default for Palette {
+    fn default() -> Self {
+        Self::LIGHT
+    }
+}
+
+fn palette_id() -> egui::Id {
+    egui::Id::unique("matcha-theme-palette")
+}
+
+/// 当前外框配色：[`Theme::apply`] 安装的那套；未安装（无头测试）时为默认浅色。
+pub fn palette(ctx: &egui::Context) -> Palette {
+    ctx.data(|d| d.get_temp::<Palette>(palette_id()))
+        .unwrap_or(Palette::LIGHT)
+}
 
 // ---------------------------------------------- legacy names (remapped) --
 // Older call sites still use these names; they now resolve to the modern
@@ -180,6 +265,8 @@ pub struct Theme {
     pub editor_size: f32,
     pub editor_line_height: u16,
     pub icon_size: u16,
+    /// 外框配色（换肤入口）；`panel_fill` 等旧字段保留为兼容别名。
+    pub palette: Palette,
 }
 
 impl Default for Theme {
@@ -201,6 +288,7 @@ impl Default for Theme {
             editor_size: EDITOR_SIZE,
             editor_line_height: EDITOR_LINE_HEIGHT as u16,
             icon_size: TOOL_ICON as u16,
+            palette: Palette::LIGHT,
         }
     }
 }
@@ -211,35 +299,49 @@ pub fn apply(ctx: &egui::Context) {
 }
 
 impl Theme {
-    /// 将本实例的颜色、度量和字号应用到所有全局样式。
+    /// 换一套外框配色（换肤预留入口；目前只有 [`Palette::LIGHT`]）。
+    pub fn with_palette(mut self, palette: Palette) -> Self {
+        self.palette = palette;
+        self.panel_fill = palette.surface_chrome;
+        self.window_fill = palette.surface;
+        self.border = palette.line;
+        self.text = palette.text;
+        self.selected_fill = palette.accent_soft;
+        self.selected_border = palette.accent_soft_line;
+        self
+    }
+
+    /// 将本实例的颜色、度量和字号应用到所有全局样式，并安装配色供 [`palette`] 读取。
     pub fn apply(&self, ctx: &egui::Context) {
         let theme = *self;
+        let p = theme.palette;
+        ctx.data_mut(|d| d.insert_temp(palette_id(), p));
         ctx.all_styles_mut(|style| {
             let mut visuals = Visuals::light();
             visuals.window_fill = theme.window_fill;
             visuals.panel_fill = theme.panel_fill;
-            visuals.faint_bg_color = SURFACE_SUBTLE;
-            visuals.extreme_bg_color = SURFACE;
-            visuals.code_bg_color = SURFACE_SUBTLE;
-            visuals.hyperlink_color = ACCENT;
-            visuals.warn_fg_color = WARNING;
-            visuals.error_fg_color = DANGER;
+            visuals.faint_bg_color = p.surface_subtle;
+            visuals.extreme_bg_color = p.surface;
+            visuals.code_bg_color = p.surface_subtle;
+            visuals.hyperlink_color = p.accent;
+            visuals.warn_fg_color = p.warning;
+            visuals.error_fg_color = p.danger;
             let md = CornerRadius::same(RADIUS_MD);
             visuals.widgets.noninteractive = widget(theme.panel_fill, theme.border, theme.text, md);
-            visuals.widgets.inactive = widget(SURFACE, LINE_STRONG, theme.text, md);
-            visuals.widgets.hovered = widget(HOVER, LINE_STRONG, theme.text, md);
-            visuals.widgets.active = widget(PRESSED, LINE_STRONG, theme.text, md);
-            visuals.widgets.open = widget(HOVER, LINE_STRONG, theme.text, md);
+            visuals.widgets.inactive = widget(p.surface, p.line_strong, theme.text, md);
+            visuals.widgets.hovered = widget(p.hover, p.line_strong, theme.text, md);
+            visuals.widgets.active = widget(p.pressed, p.line_strong, theme.text, md);
+            visuals.widgets.open = widget(p.hover, p.line_strong, theme.text, md);
             // Buttons paint `weak_bg_fill`; `bg_fill` is what scrollbar
-            // handles, checkbox boxes and slider rails use — keep it a visible
+            // handles and slider rails use — keep it a visible
             // gray ramp so thumbs read on white content.
-            visuals.widgets.inactive.weak_bg_fill = SURFACE;
+            visuals.widgets.inactive.weak_bg_fill = p.surface;
             visuals.widgets.inactive.bg_fill = SCROLL_THUMB;
             visuals.widgets.hovered.bg_fill = SCROLL_THUMB_HOVER;
             visuals.widgets.active.bg_fill = SCROLL_THUMB_ACTIVE;
-            visuals.selection.bg_fill = SELECTION;
-            visuals.selection.stroke = Stroke::new(1.0, ACCENT_PRESSED);
-            visuals.text_cursor.stroke = Stroke::new(1.5, ACCENT);
+            visuals.selection.bg_fill = p.selection;
+            visuals.selection.stroke = Stroke::new(1.0, p.accent_pressed);
+            visuals.text_cursor.stroke = Stroke::new(1.5, p.accent);
             visuals.window_corner_radius = CornerRadius::same(RADIUS_XL);
             visuals.menu_corner_radius = CornerRadius::same(RADIUS_LG);
             visuals.window_stroke = Stroke::new(1.0, theme.border);
@@ -314,5 +416,20 @@ mod tests {
         assert_eq!(style.visuals.widgets.inactive.bg_stroke.width, 1.0);
         assert_eq!(style.visuals.panel_fill, PANEL_BG);
         assert_eq!(style.text_styles[&egui::TextStyle::Body].size, UI_SIZE);
+        assert_eq!(palette(&ctx), Palette::LIGHT);
+    }
+
+    #[test]
+    fn swapped_palette_is_installed_and_drives_visuals() {
+        let ctx = egui::Context::default();
+        let dark = Palette {
+            surface: Color32::from_gray(30),
+            accent: Color32::from_rgb(1, 2, 3),
+            ..Palette::LIGHT
+        };
+        Theme::default().with_palette(dark).apply(&ctx);
+        assert_eq!(palette(&ctx).accent, Color32::from_rgb(1, 2, 3));
+        let style = ctx.style_of(egui::Theme::Light);
+        assert_eq!(style.visuals.extreme_bg_color, Color32::from_gray(30));
     }
 }

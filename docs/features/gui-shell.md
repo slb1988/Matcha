@@ -1,7 +1,7 @@
 # GUI 外壳与视图架构（GUI Shell）
 
 > eframe/egui 桌面外壳：Home、文本比较/文本合并/文件夹/同步/表格视图、单实例与资源管理器集成。
-> 状态：**已实现**（视图群落地；外框已切换为 Matcha 现代设计系统，见 ADR 401）（2026-11-12 更新）。对应 FR-G1。
+> 状态：**已实现**（视图群落地；外框为 Matcha 现代设计系统，见 ADR 401；组件库与可替换配色见 ADR 402）（2026-11-15 更新）。对应 FR-G1。
 
 ## 功能简介
 
@@ -20,6 +20,14 @@
 - **视觉设计系统**（ADR 401）：冷中性灰表面 + 发丝线 + 圆角 + 柔和阴影，品牌强调色"抹茶绿"；
   token 集中在 `chrome/theme.rs`。确认类弹框（文本/表格/Hex 未保存、Hex 重载、文件操作确认、
   About）统一用 `chrome/modal.rs`：遮罩卡片、语气徽标、条目列表、Enter=主按钮 / Esc=取消。
+- **外框组件库**（ADR 402）：视图不直接用 egui 自带控件。浮动窗口 = `chrome::window::Window`
+  （与 Modal 同款卡片、加粗左对齐标题、× / Esc 关闭、默认居中）；按钮/勾选框/单选/列表行/组合框/
+  文本框/菜单按钮/对话框底栏 = `chrome::widgets`；所有下拉（工具栏下拉、组合框列表、路径历史、
+  菜单按钮、右键菜单）= `chrome::popup` 共享菜单（勾选/单选标记当前值，点外部/Esc 关闭，
+  再点属主按钮收起）。工具栏下拉贴在按钮正下方（`toolbar::dropdown_menu`）。
+  路径栏的历史图标与内嵌箭头打开同一个历史菜单。仅 DragValue/Slider/多行 TextEdit/ScrollArea 保留 egui 原生。
+- **换肤预留**：`theme::Palette` + `theme::palette(ctx)`；组件经它取色，`Theme::with_palette(..).apply(ctx)`
+  即可整体换色（目前只有默认浅色 `Palette::LIGHT`，无换肤 UI）。
 - 内容画布：表格空白区/行详情区与文本末行以下为灰色画布 + 点阵底纹，数据区白底；
   窗格上方文件信息行按文字实际宽度流式排列（不再用固定像素槽位）。
 - Home：会话类型以卡片一行排开（窗口过窄时才分页，圆形箭头翻页）；侧栏扁平，选中为圆角胶囊。
@@ -37,6 +45,8 @@
 | `crates/bc-gui/src/chrome/`、`dialogs/`、`legend.rs`、`log_panel.rs` | 外框、对话框、颜色图例、虚拟化操作日志 |
 | `crates/bc-gui/src/chrome/theme.rs` | 设计 token（颜色/圆角/阴影/字号）与全局 egui 样式 |
 | `crates/bc-gui/src/chrome/modal.rs`、`chrome/controls.rs` | 现代确认弹框；主/次/危险按钮与标签 chip |
+| `crates/bc-gui/src/chrome/widgets.rs`、`chrome/window.rs` | 流式布局控件（Button/Checkbox/Radio/ListRow/Combo/text_field/menu_button/dialog_buttons）；浮动窗口 |
+| `crates/bc-gui/src/chrome/popup.rs`、`chrome/toolbar.rs` | 共享弹出菜单与打开状态（`menu`/`menu_below`/`context_menu`、`item::*`）；工具栏下拉 `dropdown_menu` |
 | `crates/bc-instance`、`crates/bc-shell` | 单实例交接、Explorer 菜单 |
 
 ## 关键语义
@@ -91,6 +101,8 @@ cargo run --release -p bcompare -- <left> <right> --bench=60 --screenshot=target
 cargo test -p bc-gui --lib
 # 视觉检查（快照模式会屏蔽鼠标键盘输入，仅用于截图）
 target/debug/matcha.exe --snapshot=text-unsaved-modal --snapshot-out=target/visual/modal.png
+# 组件库陈列（Window + 全部 widgets + 展开的下拉菜单）
+target/debug/matcha.exe --snapshot=widget-gallery --snapshot-out=target/visual/gallery.png
 ```
 
 ## 深入阅读
@@ -98,5 +110,6 @@ target/debug/matcha.exe --snapshot=text-unsaved-modal --snapshot-out=target/visu
 - `crates/bc-gui/README.md`（结构清单最权威）
 - `docs/ui-framework-decision.md`（egui 选型测量与结论）
 - `docs/decisions/401-modern-design-system.md`（为何离开像素对齐、token 与弹框规范）
+- `docs/decisions/402-chrome-component-kit-and-palette.md`（组件库、下拉菜单统一、换肤预留）
 - `docs/visual-parity/`（历史：经典外观对齐 tokens 与 HANDOFF）、`docs/reference-parity/visual.md`
 - 单实例交接协议见 README"Open questions"与 `crates/bc-instance`

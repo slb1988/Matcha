@@ -1633,7 +1633,14 @@ impl TableCompareView {
                     .fixed_pos(rect.min)
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
-                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        let p = crate::chrome::theme::palette(ui.ctx());
+                        egui::Frame::NONE
+                            .fill(p.surface)
+                            .stroke(egui::Stroke::new(1.0, p.line))
+                            .corner_radius(crate::chrome::theme::RADIUS_LG)
+                            .shadow(crate::chrome::theme::shadow_popup())
+                            .inner_margin(8)
+                            .show(ui, |ui| {
                             commit |= ui.input_mut(|i| {
                                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
                             });
@@ -1649,8 +1656,9 @@ impl TableCompareView {
                                 editor.focus = false;
                             }
                             ui.horizontal(|ui| {
-                                commit |= ui.button("Commit (Ctrl+Enter)").clicked();
-                                cancel = ui.button("Cancel edit").clicked();
+                                use crate::chrome::widgets;
+                                commit |= widgets::primary_button(ui, "Commit (Ctrl+Enter)").clicked();
+                                cancel = widgets::button(ui, "Cancel edit").clicked();
                             });
                             cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
                         });
@@ -1728,7 +1736,7 @@ impl TableCompareView {
         }
         if self.show_statistics {
             let keys = self.keys_description();
-            egui::Window::new("Table Compare Info")
+            crate::chrome::window::Window::new("Table Compare Info")
                 .open(&mut self.show_statistics)
                 .show(ctx, |ui| {
                     for (i,summary) in self.summaries.iter().enumerate(){

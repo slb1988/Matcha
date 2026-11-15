@@ -154,7 +154,6 @@ pub struct TableCompareView {
     /// before the first frame of focus), freezing arrow navigation.
     pub(super) key_focus: bool,
     pub(super) menus: Vec<crate::chrome::menubar::MenuSpec>,
-    pub(super) tool_dropdown: Option<(String, egui::Pos2)>,
     pub(super) show_goto: bool,
     pub(super) path_edits: [String; 2],
     pub(super) path_sources: [Option<PathBuf>; 2],
@@ -208,7 +207,6 @@ impl TableCompareView {
             focus_grid: None,
             key_focus: false,
             menus: Vec::new(),
-            tool_dropdown: None,
             show_goto: false,
             path_edits: Default::default(),
             path_sources: Default::default(),
@@ -1132,7 +1130,7 @@ impl TableCompareView {
                             // Initial load failed: show the error with an explicit
                             // retry entry instead of spinning forever.
                             ui.label(format!("Load failed: {}", self.message));
-                            if ui.button("Retry load").clicked() {
+                            if crate::chrome::widgets::button(ui, "Retry load").clicked() {
                                 self.reload();
                             }
                         } else {

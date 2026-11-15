@@ -1,3 +1,4 @@
+use crate::chrome::{controls::Role, theme, widgets, window::Window};
 use crate::egui;
 use bc_core::pattern::Pattern;
 #[derive(Default)]
@@ -15,30 +16,32 @@ pub struct FindDialog {
 impl FindDialog {
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         let mut search = false;
-        egui::Window::new("Find filename")
+        Window::new("Find filename")
             .open(&mut self.open)
             .show(ctx, |ui| {
-                ui.text_edit_singleline(&mut self.text);
+                widgets::text_field(ui, &mut self.text);
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.case_sensitive, "Case");
-                    ui.checkbox(&mut self.whole_word, "Whole word");
-                    ui.checkbox(&mut self.regex, "Regex");
+                    widgets::checkbox(ui, &mut self.case_sensitive, "Case");
+                    widgets::checkbox(ui, &mut self.whole_word, "Whole word");
+                    widgets::checkbox(ui, &mut self.regex, "Regex");
                 });
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.wrap, "Wrap");
-                    ui.checkbox(&mut self.backwards, "Up");
+                    widgets::checkbox(ui, &mut self.wrap, "Wrap");
+                    widgets::checkbox(ui, &mut self.backwards, "Up");
                 });
-                egui::ComboBox::from_id_salt("find_side")
-                    .selected_text(["Left", "Right", "Either"][self.side])
-                    .show_ui(ui, |ui| {
-                        for (s, label) in ["Left", "Right", "Either"].iter().enumerate() {
-                            ui.selectable_value(&mut self.side, s, *label);
-                        }
-                    });
-                search = ui.button("Find").clicked();
+                ui.horizontal(|ui| {
+                    ui.label("Side");
+                    widgets::Combo::new("find_side", ["Left", "Right", "Either"][self.side])
+                        .show(ui, |list| {
+                            for (s, label) in ["Left", "Right", "Either"].iter().enumerate() {
+                                list.selectable_value(&mut self.side, s, *label);
+                            }
+                        });
+                });
                 if let Some(error) = &self.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    ui.colored_label(theme::palette(ui.ctx()).danger, error);
                 }
+                search = widgets::dialog_buttons(ui, &[("Find", Role::Primary)]) == Some(0);
             });
         search
     }

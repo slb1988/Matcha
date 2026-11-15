@@ -18,8 +18,6 @@ const SHORTCUT_RIGHT: f32 = 22.0;
 const SHORTCUT_GAP: f32 = 40.0;
 const MIN_WIDTH: f32 = 160.0;
 pub const BACKGROUND: Color32 = super::theme::SURFACE;
-const SEPARATOR: Color32 = super::theme::LINE;
-const DISABLED: Color32 = super::theme::TEXT_FAINT;
 /// Highlighted item index meaning "none" (fresh right-click menus).
 pub const NONE: usize = usize::MAX;
 
@@ -44,7 +42,7 @@ fn font() -> FontId {
 /// when it has one) between the 27 px label inset and the 24 px right margin
 /// — per item, like the reference (a long shortcut-less label does not add
 /// the shortcut column).
-fn width(ctx: &egui::Context, items: &[MenuItem]) -> f32 {
+fn width(ctx: &egui::Context, items: &[MenuItem], min_width: f32) -> f32 {
     let mut widest = 0.0f32;
     ctx.fonts_mut(|f| {
         for item in items {
@@ -64,7 +62,7 @@ fn width(ctx: &egui::Context, items: &[MenuItem]) -> f32 {
         }
     });
     (LABEL_X + widest + SHORTCUT_RIGHT + 1.0)
-        .max(MIN_WIDTH)
+        .max(min_width)
         .round()
 }
 
@@ -81,8 +79,10 @@ pub fn level(
     depth: usize,
     alt: bool,
     moved: bool,
+    min_width: f32,
 ) -> Level {
-    let width = width(ctx, items);
+    let palette = super::theme::palette(ctx);
+    let width = width(ctx, items, min_width);
     let height = 2.0
         + PAD_TOP
         + PAD_BOTTOM
@@ -109,11 +109,11 @@ pub fn level(
             let painter = ui.painter();
             let radius = super::theme::RADIUS_LG;
             painter.add(super::theme::shadow_popup().as_shape(outer, radius));
-            painter.rect_filled(outer, radius, BACKGROUND);
+            painter.rect_filled(outer, radius, palette.surface);
             painter.rect_stroke(
                 outer,
                 radius,
-                Stroke::new(1.0, super::theme::LINE),
+                Stroke::new(1.0, palette.line),
                 egui::StrokeKind::Inside,
             );
             let mut y = outer.top() + 1.0 + PAD_TOP;
@@ -125,7 +125,7 @@ pub fn level(
                             Pos2::new(outer.right() - INSET - 4.0, y + 5.0),
                         ),
                         0.0,
-                        SEPARATOR,
+                        palette.line,
                     );
                     y += SEPARATOR_HEIGHT;
                     continue;
@@ -152,16 +152,16 @@ pub fn level(
                     painter.rect_filled(
                         rect.shrink2(Vec2::new(INSET - 1.0, 1.0)),
                         super::theme::RADIUS_MD,
-                        super::theme::HOVER,
+                        palette.hover,
                     );
                 }
                 if highlighted && matches!(item.kind, MenuItemKind::Submenu(_)) {
                     child_anchor = Some(Pos2::new(outer.right() - 2.0, rect.top() - 1.0 - PAD_TOP));
                 }
                 let color = if item.enabled {
-                    super::theme::TEXT
+                    palette.text
                 } else {
-                    DISABLED
+                    palette.text_faint
                 };
                 let galley = ui.fonts_mut(|f| {
                     f.layout_job(super::menubar::label_job(
@@ -201,7 +201,7 @@ pub fn level(
                     let tip = Pos2::new(outer.right() - 14.0, rect.center().y);
                     painter.add(egui::Shape::line(
                         vec![tip + Vec2::new(-3.5, -4.0), tip, tip + Vec2::new(-3.5, 4.0)],
-                        Stroke::new(1.4, super::theme::TEXT_MUTED),
+                        Stroke::new(1.4, palette.text_muted),
                     ));
                 } else if let Some(shortcut) = &item.shortcut {
                     painter.text(
@@ -209,11 +209,7 @@ pub fn level(
                         egui::Align2::RIGHT_CENTER,
                         shortcut,
                         FontId::proportional(super::theme::UI_SIZE - 1.0),
-                        if item.enabled {
-                            super::theme::TEXT_FAINT
-                        } else {
-                            DISABLED
-                        },
+                        palette.text_faint,
                     );
                 }
                 if response.clicked()
@@ -260,6 +256,20 @@ pub fn cascade(
     path: &mut Vec<usize>,
     alt: bool,
 ) -> (Option<ActionId>, Vec<Rect>) {
+    cascade_min_width(ctx, id, position, root, path, alt, MIN_WIDTH)
+}
+
+/// [`cascade`] whose first level is at least `min_width` wide (combo lists
+/// match their box).
+pub fn cascade_min_width(
+    ctx: &egui::Context,
+    id: egui::Id,
+    position: Pos2,
+    root: &[MenuItem],
+    path: &mut Vec<usize>,
+    alt: bool,
+    min_width: f32,
+) -> (Option<ActionId>, Vec<Rect>) {
     let moved = ctx.input(|i| i.pointer.delta() != Vec2::ZERO);
     let mut rects = Vec::new();
     let mut action = None;
@@ -279,6 +289,7 @@ pub fn cascade(
             depth,
             alt,
             moved,
+            if depth == 0 { min_width } else { MIN_WIDTH },
         );
         rects.push(level.rect);
         action = action.or(level.action);
@@ -291,10 +302,111 @@ pub fn cascade(
     (action, rects)
 }
 
+/// An open popup menu: where it sits, its highlighted path and the control
+/// that owns it (clicks on the owner do not count as clicking away, so the
+/// owner can toggle the menu).
 #[derive(Clone, Debug)]
-struct ContextState {
+struct MenuState {
     position: Pos2,
     path: Vec<usize>,
+    owner: Option<Rect>,
+}
+
+/// Open the menu `id` with its top-left at `position`.
+pub fn open_menu(ctx: &egui::Context, id: egui::Id, position: Pos2, owner: Option<Rect>) {
+    let state = MenuState {
+        position,
+        path: vec![NONE],
+        owner,
+    };
+    ctx.data_mut(|d| d.insert_temp(id, state));
+}
+
+pub fn close_menu(ctx: &egui::Context, id: egui::Id) {
+    ctx.data_mut(|d| d.remove::<MenuState>(id));
+}
+
+pub fn is_menu_open(ctx: &egui::Context, id: egui::Id) -> bool {
+    ctx.data(|d| d.get_temp::<MenuState>(id).is_some())
+}
+
+/// Toggle the menu `id` as a drop-down under `owner` (button, chevron,
+/// toolbar item): opens 2 px below its bottom-left, or closes it when open.
+pub fn toggle_menu_below(ctx: &egui::Context, id: egui::Id, owner: Rect) {
+    if is_menu_open(ctx, id) {
+        close_menu(ctx, id);
+    } else {
+        open_menu(
+            ctx,
+            id,
+            owner.left_bottom() + Vec2::new(0.0, 2.0),
+            Some(owner),
+        );
+    }
+}
+
+/// Paint the menu `id` if it is open (first level at least `min_width`
+/// wide). `items` is only built while open. Returns the chosen action; a
+/// choice, Esc or a click outside the menu and its owner closes it.
+pub fn menu(
+    ctx: &egui::Context,
+    id: egui::Id,
+    min_width: f32,
+    items: impl FnOnce() -> Vec<MenuItem>,
+) -> Option<ActionId> {
+    show_menu(ctx, id, min_width, items, false)
+}
+
+fn show_menu(
+    ctx: &egui::Context,
+    id: egui::Id,
+    min_width: f32,
+    items: impl FnOnce() -> Vec<MenuItem>,
+    opening: bool,
+) -> Option<ActionId> {
+    let mut open = ctx.data(|d| d.get_temp::<MenuState>(id))?;
+    let root = items();
+    if root.is_empty() {
+        close_menu(ctx, id);
+        return None;
+    }
+    let (action, mut rects) = cascade_min_width(
+        ctx,
+        id,
+        open.position,
+        &root,
+        &mut open.path,
+        false,
+        min_width.max(MIN_WIDTH),
+    );
+    rects.extend(open.owner);
+    let clicked_away = !opening
+        && ctx.input(|i| {
+            (i.pointer.any_click() || i.pointer.secondary_clicked())
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !rects.iter().any(|r| r.contains(p)))
+        });
+    let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if action.is_some() || clicked_away || escape {
+        close_menu(ctx, id);
+    } else {
+        ctx.data_mut(|d| d.insert_temp(id, open));
+    }
+    action
+}
+
+/// Drop-down menu owned by `response` (a button or chevron): a click toggles
+/// it under the control. Returns the chosen action.
+pub fn menu_below(
+    response: &egui::Response,
+    items: impl FnOnce() -> Vec<MenuItem>,
+) -> Option<ActionId> {
+    let id = response.id.with("menu-below");
+    if response.clicked() {
+        toggle_menu_below(&response.ctx, id, response.rect);
+    }
+    menu(&response.ctx, id, response.rect.width(), items)
 }
 
 /// Right-click menu on `response` in the shared popup style. `items` is only
@@ -304,37 +416,52 @@ pub fn context_menu(
     response: &egui::Response,
     items: impl FnOnce() -> Vec<MenuItem>,
 ) -> Option<ActionId> {
-    let ctx = response.ctx.clone();
+    let ctx = &response.ctx;
     let id = response.id.with("classic-context-menu");
-    let mut state = ctx.data(|d| d.get_temp::<ContextState>(id));
-    if response.secondary_clicked() {
+    let opening = response.secondary_clicked();
+    if opening {
         if let Some(position) = response.interact_pointer_pos() {
-            state = Some(ContextState {
-                position,
-                path: vec![NONE],
-            });
+            open_menu(ctx, id, position, None);
         }
     }
-    let mut open = state?;
-    let root = items();
-    if root.is_empty() {
-        ctx.data_mut(|d| d.remove::<ContextState>(id));
-        return None;
+    show_menu(ctx, id, MIN_WIDTH, items, opening)
+}
+
+/// Menu-item constructors for code that builds popup menus.
+pub mod item {
+    use super::super::menubar::{MenuItem, MenuItemKind};
+    pub fn action(label: impl Into<String>, id: impl Into<String>, enabled: bool) -> MenuItem {
+        MenuItem {
+            enabled,
+            ..MenuItem::action(label, id)
+        }
     }
-    let (action, rects) = cascade(&ctx, id, open.position, &root, &mut open.path, false);
-    let clicked_away = ctx.input(|i| {
-        (i.pointer.any_click() || i.pointer.secondary_clicked())
-            && i.pointer
-                .interact_pos()
-                .is_some_and(|p| !rects.iter().any(|r| r.contains(p)))
-    }) && !response.secondary_clicked();
-    let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    if action.is_some() || clicked_away || escape {
-        ctx.data_mut(|d| d.remove::<ContextState>(id));
-    } else {
-        ctx.data_mut(|d| d.insert_temp(id, open));
+    pub fn check(label: impl Into<String>, id: impl Into<String>, checked: bool) -> MenuItem {
+        MenuItem {
+            kind: MenuItemKind::Check { checked },
+            ..MenuItem::action(label, id)
+        }
     }
-    action
+    pub fn radio(label: impl Into<String>, id: impl Into<String>, selected: bool) -> MenuItem {
+        MenuItem {
+            kind: MenuItemKind::Radio { selected },
+            ..MenuItem::action(label, id)
+        }
+    }
+    pub fn submenu(label: impl Into<String>, children: Vec<MenuItem>) -> MenuItem {
+        let label = label.into();
+        MenuItem {
+            kind: MenuItemKind::Submenu(children),
+            ..MenuItem::action(label.clone(), label)
+        }
+    }
+    pub fn separator() -> MenuItem {
+        MenuItem {
+            kind: MenuItemKind::Separator,
+            enabled: false,
+            ..MenuItem::action("", "")
+        }
+    }
 }
 
 #[cfg(test)]

@@ -8,7 +8,10 @@
 //! code page; Backups) plus Startup, which holds the Windows Explorer context
 //! menu switch (`bc-shell`: registers or removes the HKCU verbs on OK/Apply);
 //! the reference's other pages are listed disabled.
-use crate::chrome::dialog::{self, ButtonKind, Placement};
+use crate::chrome::{
+    dialog::{self, ButtonKind, Placement},
+    theme,
+};
 use bc_session::prefs::Prefs;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
@@ -28,11 +31,9 @@ pub const PAGES: [(&str, bool); 11] = [
     ("Open With", false),
     ("Tweaks", false),
 ];
-const NAV: Color32 = Color32::from_rgb(0xE3, 0xE7, 0xED);
 const NAV_WIDTH: f32 = 241.0;
 const ROW: f32 = 37.0;
 const FIRST_ROW: f32 = 54.0;
-const FOCUS: Color32 = Color32::from_rgb(0x00, 0x67, 0xC0);
 
 #[derive(Default)]
 pub struct OptionsDialog {
@@ -197,27 +198,28 @@ impl OptionsDialog {
     }
     fn navigation(&mut self, ui: &mut egui::Ui, o: Pos2) {
         let painter = ui.painter().clone();
-        painter.rect_filled(span(o, 0.0, 0.0, NAV_WIDTH, 604.0), 0.0, NAV);
+        let p = theme::palette(ui.ctx());
+        painter.rect_filled(span(o, 0.0, 0.0, NAV_WIDTH, 604.0), 0.0, p.surface_subtle);
         painter.rect_filled(
             span(o, NAV_WIDTH, 0.0, NAV_WIDTH + 1.0, 604.0),
             0.0,
             dialog::RULE,
         );
-        // Page filter box (focused look: 2 px blue underline).
+        // Page filter box: rounded field, accent outline while focused.
         let search = span(o, 10.0, 10.0, 231.0, 35.0);
-        painter.rect_filled(search, 0.0, Color32::WHITE);
+        let focused = ui.memory(|m| m.has_focus(egui::Id::unique("options-search")));
+        painter.rect_filled(search, theme::RADIUS_MD, p.surface);
         painter.rect_stroke(
             search,
-            0.0,
-            Stroke::new(1.0, Color32::from_gray(0xEC)),
+            theme::RADIUS_MD,
+            Stroke::new(1.0, if focused { p.accent } else { p.line_strong }),
             StrokeKind::Inside,
         );
-        painter.rect_filled(span(o, 10.0, 33.0, 231.0, 35.0), 0.0, FOCUS);
         let ring = at(o, 21.0, 20.0);
-        painter.circle_stroke(ring, 3.5, Stroke::new(1.4, Color32::from_gray(0x6E)));
+        painter.circle_stroke(ring, 3.5, Stroke::new(1.4, p.text_faint));
         painter.line_segment(
-            [ring + Vec2::new(-2.5, 2.5), ring + Vec2::new(-5.0, 5.0)],
-            Stroke::new(1.8, Color32::from_gray(0x6E)),
+            [ring + Vec2::new(2.5, 2.5), ring + Vec2::new(5.0, 5.0)],
+            Stroke::new(1.8, p.text_faint),
         );
         ui.scope_builder(
             egui::UiBuilder::new().max_rect(span(o, 30.0, 12.0, 228.0, 32.0)),
@@ -241,32 +243,24 @@ impl OptionsDialog {
             let top = FIRST_ROW + ROW * row as f32;
             row += 1;
             let rect = span(o, 0.0, top, NAV_WIDTH, top + ROW);
+            let pill = span(o, 8.0, top + 3.0, NAV_WIDTH - 8.0, top + ROW - 3.0);
             if index == self.page {
-                // Selected row joins the content: #F0 across the divider,
-                // #A0 rules above and below.
-                painter.rect_filled(
-                    span(o, 0.0, top, NAV_WIDTH + 1.0, top + ROW),
-                    0.0,
-                    dialog::FACE,
-                );
-                dialog::rule(&painter, o.x, o.x + NAV_WIDTH, o.y + top, dialog::RULE);
-                dialog::rule(
-                    &painter,
-                    o.x,
-                    o.x + NAV_WIDTH,
-                    o.y + top + ROW - 1.0,
-                    dialog::RULE,
-                );
+                // Selected page: accent pill (same as list rows elsewhere).
+                painter.rect_filled(pill, theme::RADIUS_MD, p.accent_soft);
+            } else if enabled && ui.rect_contains_pointer(rect) {
+                painter.rect_filled(pill, theme::RADIUS_MD, p.hover);
             }
             painter.text(
                 at(o, 45.0, top + ROW / 2.0),
                 egui::Align2::LEFT_CENTER,
                 name,
                 font.clone(),
-                if enabled {
-                    Color32::BLACK
+                if !enabled {
+                    p.text_faint
+                } else if index == self.page {
+                    p.accent_pressed
                 } else {
-                    dialog::DISABLED_TEXT
+                    p.text
                 },
             );
             if enabled

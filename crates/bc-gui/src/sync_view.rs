@@ -7,8 +7,10 @@ use crate::{
     chrome::{
         icons::{self, Icon},
         menubar::{self, MenuItem, MenuItemKind, MenuSpec},
-        theme,
+        popup, theme,
         toolbar::{self, ToolItem, ToolItemKind},
+        widgets,
+        window::Window,
     },
     dir_view::{choice_label, Command, DirCompareView, FolderNavigation, SyncSummary},
     egui,
@@ -20,13 +22,9 @@ use std::path::Path;
 const PATHS_HEIGHT: f32 = 40.0;
 const OPERATIONS_HEIGHT: f32 = 191.0;
 const LOG_HEIGHT: f32 = 106.0;
-const COMBO_EDGE: egui::Color32 = egui::Color32::from_rgb(141, 141, 141);
-const BUTTON_EDGE: egui::Color32 = egui::Color32::from_rgb(208, 208, 208);
-const BUTTON_FILL: egui::Color32 = egui::Color32::from_rgb(253, 253, 253);
-const BUTTON_SHADOW: egui::Color32 = egui::Color32::from_rgb(186, 186, 186);
-const DISABLED_EDGE: egui::Color32 = egui::Color32::from_rgb(233, 233, 233);
-const DISABLED_FILL: egui::Color32 = egui::Color32::from_rgb(249, 249, 249);
-const DISABLED_TEXT: egui::Color32 = egui::Color32::from_rgb(160, 160, 160);
+const COMBO_EDGE: egui::Color32 = theme::LINE_STRONG;
+const DISABLED_FILL: egui::Color32 = theme::SURFACE_SUBTLE;
+const DISABLED_TEXT: egui::Color32 = theme::TEXT_FAINT;
 
 const METHODS: [&str; 6] = [
     "Update Left",
@@ -234,7 +232,6 @@ pub struct SyncView {
     filter_draft: String,
     filter_source: String,
     show_info: bool,
-    sessions_popup: Option<egui::Pos2>,
 }
 impl SyncView {
     pub fn open(ctx: &egui::Context, left: &Path, right: &Path) -> Self {
@@ -258,7 +255,6 @@ impl SyncView {
             filter_draft: String::new(),
             filter_source: String::new(),
             show_info: false,
-            sessions_popup: None,
         };
         view.send_mode();
         view
@@ -476,14 +472,11 @@ impl SyncView {
                 response = toolbar::show(ui, &items);
             });
             y = rect.bottom();
-            if let Some(action) = response.clicked {
+            if let Some(action) = response.clicked.clone() {
                 switch = self.command(&action).or(switch);
             }
-            if response.dropdown.is_some() {
-                self.sessions_popup = ctx.pointer_latest_pos();
-            }
+            switch = self.sessions_dropdown(ui, &response).or(switch);
         }
-        switch = self.sessions_dropdown(ui).or(switch);
         let paths = egui::Rect::from_min_size(
             egui::pos2(full.left(), y),
             egui::vec2(full.width(), PATHS_HEIGHT),
@@ -625,39 +618,20 @@ impl SyncView {
             ),
         ]
     }
-    fn sessions_dropdown(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
-        let pos = self.sessions_popup?;
-        let mut picked = None;
-        let area = egui::Area::new(egui::Id::unique("sync-sessions-dropdown"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(pos)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    for (label, id) in [
-                        ("Home", "Home"),
-                        ("Session Settings...", "Session Settings..."),
-                        ("Folder Sync Info", "Folder Sync Info"),
-                    ] {
-                        if ui.button(label).clicked() {
-                            picked = Some(id);
-                        }
-                    }
-                });
-            });
-        if let Some(id) = picked {
-            self.sessions_popup = None;
-            return self.command(id);
-        }
-        if ui.input(|i| {
-            i.key_pressed(egui::Key::Escape)
-                || (i.pointer.any_pressed()
-                    && i.pointer
-                        .interact_pos()
-                        .is_some_and(|p| !area.response.rect.contains(p)))
-        }) {
-            self.sessions_popup = None;
-        }
-        None
+    /// Sessions toolbar drop-down (shared popup menu under the item).
+    fn sessions_dropdown(
+        &mut self,
+        ui: &mut egui::Ui,
+        response: &toolbar::ToolbarResponse,
+    ) -> Option<FolderNavigation> {
+        let id = egui::Id::unique("sync-sessions-dropdown");
+        let picked = toolbar::dropdown_menu(ui.ctx(), id, response, |_| {
+            ["Home", "Session Settings...", "Folder Sync Info"]
+                .into_iter()
+                .map(|label| popup::item::action(label, label, true))
+                .collect()
+        })?;
+        self.command(&picked)
     }
     /// Paths area (40 px): two editable folder boxes, "..." browse buttons
     /// and the swap button between them.
@@ -666,7 +640,7 @@ impl SyncView {
         painter.hline(
             rect.left()..=rect.right(),
             rect.top(),
-            egui::Stroke::new(1.0, egui::Color32::WHITE),
+            egui::Stroke::new(1.0, theme::LINE),
         );
         let sources = self.folder.path_texts();
         for (side, source) in sources.into_iter().enumerate() {
@@ -696,7 +670,7 @@ impl SyncView {
                     egui::Align2::CENTER_CENTER,
                     "...",
                     egui::FontId::proportional(theme::UI_SIZE),
-                    egui::Color32::BLACK,
+                    theme::TEXT,
                 );
             }) {
                 self.folder.folder_command(if side == 0 {
@@ -738,39 +712,38 @@ impl SyncView {
             egui::Align2::LEFT_CENTER,
             "Operations:",
             font.clone(),
-            egui::Color32::BLACK,
+            theme::TEXT,
         );
         painter.text(
             at(677.0, 17.5),
             egui::Align2::LEFT_CENTER,
             "Filters:",
             font.clone(),
-            egui::Color32::BLACK,
+            theme::TEXT,
         );
         // Operation method dropdown.
         let combo = egui::Rect::from_min_max(at(239.0, 32.0), at(566.0, 57.0));
         let response = ui.interact(combo, egui::Id::unique("sync-method"), egui::Sense::click());
-        frame_box(&painter, combo, egui::Color32::WHITE, COMBO_EDGE);
+        frame_box(&painter, combo, theme::SURFACE, COMBO_EDGE);
         paint_method_icon(&painter, egui::pos2(combo.left() + 4.0, combo.center().y));
         painter.text(
             egui::pos2(combo.left() + 20.0, combo.center().y),
             egui::Align2::LEFT_CENTER,
             METHODS[self.method],
             font.clone(),
-            egui::Color32::BLACK,
+            theme::TEXT,
         );
         chevron(&painter, egui::pos2(combo.right() - 9.0, combo.center().y));
-        let mut method = self.method;
-        egui::Popup::from_toggle_button_response(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-            .show(|ui| {
-                ui.set_min_width(combo.width() - 8.0);
-                for (index, label) in METHODS.iter().enumerate() {
-                    if ui.selectable_label(method == index, *label).clicked() {
-                        method = index;
-                    }
-                }
-            });
+        let current = self.method;
+        let method = popup::menu_below(&response, || {
+            METHODS
+                .iter()
+                .enumerate()
+                .map(|(index, label)| popup::item::radio(*label, index.to_string(), current == index))
+                .collect()
+        })
+        .and_then(|id| id.parse::<usize>().ok())
+        .unwrap_or(current);
         if method != self.method && !busy {
             self.method = method;
             self.send_mode();
@@ -828,7 +801,7 @@ impl SyncView {
                 "Sync Now",
                 egui::FontId::proportional(theme::UI_SIZE),
                 if can_sync {
-                    egui::Color32::BLACK
+                    theme::TEXT
                 } else {
                     DISABLED_TEXT
                 },
@@ -850,7 +823,7 @@ impl SyncView {
             egui::Align2::LEFT_CENTER,
             DESCRIPTIONS[self.method],
             font.clone(),
-            egui::Color32::BLACK,
+            theme::TEXT,
         );
         if self.method == 5 {
             self.custom_rules(
@@ -864,7 +837,7 @@ impl SyncView {
                     egui::Align2::LEFT_CENTER,
                     line,
                     font.clone(),
-                    egui::Color32::BLACK,
+                    theme::TEXT,
                 );
             }
         }
@@ -884,17 +857,19 @@ impl SyncView {
                 .iter()
                 .enumerate()
                 {
-                    egui::ComboBox::from_id_salt(("sync_custom", index))
-                        .selected_text(format!("{label}: {}", choice_label(self.custom[index])))
-                        .show_ui(ui, |ui| {
-                            for choice in choices() {
-                                ui.selectable_value(
-                                    &mut self.custom[index],
-                                    choice,
-                                    choice_label(choice),
-                                );
-                            }
-                        });
+                    widgets::Combo::new(
+                        ("sync_custom", index),
+                        format!("{label}: {}", choice_label(self.custom[index])),
+                    )
+                    .show(ui, |list| {
+                        for choice in choices() {
+                            list.selectable_value(
+                                &mut self.custom[index],
+                                choice,
+                                choice_label(choice),
+                            );
+                        }
+                    });
                 }
             });
         });
@@ -908,9 +883,8 @@ impl SyncView {
         }
         let mut open = true;
         let stats = self.folder.snapshot.sync_stats;
-        egui::Window::new("Folder Sync Info")
+        Window::new("Folder Sync Info")
             .open(&mut open)
-            .collapsible(false)
             .show(ctx, |ui| match stats {
                 Some(stats) => {
                     ui.label(format!(
@@ -956,16 +930,16 @@ pub(crate) fn summary_lines(summary: &SyncSummary) -> Vec<String> {
     lines
 }
 fn frame_box(painter: &egui::Painter, rect: egui::Rect, fill: egui::Color32, edge: egui::Color32) {
-    painter.rect_filled(rect, 0.0, fill);
+    painter.rect_filled(rect, theme::RADIUS_MD, fill);
     painter.rect_stroke(
         rect,
-        0.0,
+        theme::RADIUS_MD,
         egui::Stroke::new(1.0, edge),
         egui::StrokeKind::Inside,
     );
 }
 fn chevron(painter: &egui::Painter, center: egui::Pos2) {
-    let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(96, 96, 96));
+    let stroke = egui::Stroke::new(1.4, theme::TEXT_MUTED);
     painter.line_segment(
         [
             center + egui::vec2(-4.0, -2.0),
@@ -981,20 +955,20 @@ fn chevron(painter: &egui::Painter, center: egui::Pos2) {
         stroke,
     );
 }
-/// Editable combo box (white, #8D8D8D edge, inline chevron); true on Enter.
+/// Editable combo box (token field look, inline chevron); true on Enter.
 fn combo_edit(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     text: &mut String,
     id: impl std::hash::Hash + std::fmt::Debug,
 ) -> bool {
-    frame_box(ui.painter(), rect, egui::Color32::WHITE, COMBO_EDGE);
+    frame_box(ui.painter(), rect, theme::SURFACE, COMBO_EDGE);
     chevron(
         ui.painter(),
         egui::pos2(rect.right() - 9.0, rect.center().y),
     );
     let inner = egui::Rect::from_min_max(
-        rect.min + egui::vec2(1.0, 1.0),
+        rect.min + egui::vec2(4.0, 1.0),
         rect.max - egui::vec2(19.0, 1.0),
     );
     let mut submitted = false;
@@ -1016,8 +990,8 @@ fn combo_edit(
     });
     submitted
 }
-/// Classic push button (#D0D0D0 edge, #FDFDFD face, #BABABA bottom line);
-/// disabled buttons are flat #F9F9F9 with a #E9E9E9 edge.
+/// Push button at a fixed rect, painted with the shared button face
+/// (`controls::paint_face`); `content` draws the label/icon.
 fn push_button(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -1034,25 +1008,14 @@ fn push_button(
             egui::Sense::hover()
         },
     );
-    let painter = ui.painter();
-    if enabled {
-        let fill = if response.is_pointer_button_down_on() {
-            egui::Color32::from_rgb(204, 228, 247)
-        } else if response.hovered() {
-            theme::HOVER_BLUE
-        } else {
-            BUTTON_FILL
-        };
-        frame_box(painter, rect, fill, BUTTON_EDGE);
-        painter.hline(
-            rect.left()..=rect.right() - 1.0,
-            rect.bottom() - 0.5,
-            egui::Stroke::new(1.0, BUTTON_SHADOW),
-        );
-    } else {
-        frame_box(painter, rect, DISABLED_FILL, DISABLED_EDGE);
-    }
-    content(painter, rect);
+    crate::chrome::controls::paint_face(
+        ui,
+        rect,
+        &response,
+        crate::chrome::controls::Role::Secondary,
+        enabled,
+    );
+    content(ui.painter(), rect);
     enabled && response.clicked()
 }
 fn labelled(painter: &egui::Painter, rect: egui::Rect, label: &str, enabled: bool, icon: Icon) {
@@ -1071,7 +1034,7 @@ fn labelled(painter: &egui::Painter, rect: egui::Rect, label: &str, enabled: boo
         label,
         egui::FontId::proportional(theme::UI_SIZE),
         if enabled {
-            egui::Color32::BLACK
+            theme::TEXT
         } else {
             DISABLED_TEXT
         },

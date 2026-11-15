@@ -1,4 +1,5 @@
 //! Dialog fields compile to the same DirOp models used by scripts.
+use crate::chrome::{controls::Role, popup, theme, widgets, window::Window};
 use crate::egui;
 use bc_core::Side;
 use bc_engine_dir::{
@@ -113,106 +114,127 @@ impl OperationDialog {
     ) -> Option<Result<(DirOp, bool), ()>> {
         let mut result = None;
         let mut open = true;
-        egui::Window::new(format!("{:?}", self.kind))
+        Window::new(format!("{:?}", self.kind))
             .open(&mut open)
-            .collapsible(false)
+            .min_width(360.0)
             .show(ctx, |ui| {
                 if self.kind != Kind::Rename {
-                    egui::ComboBox::from_id_salt("operation_target")
-                        .selected_text(format!("{:?}", self.target))
-                        .show_ui(ui, |ui| {
-                            for value in [Target::Left, Target::Right, Target::All] {
-                                ui.selectable_value(&mut self.target, value, format!("{value:?}"));
-                            }
-                        });
+                    ui.horizontal(|ui| {
+                        ui.label("Target");
+                        widgets::Combo::new("operation_target", format!("{:?}", self.target))
+                            .show(ui, |list| {
+                                for value in [Target::Left, Target::Right, Target::All] {
+                                    list.selectable_value(
+                                        &mut self.target,
+                                        value,
+                                        format!("{value:?}"),
+                                    );
+                                }
+                            });
+                    });
                 }
                 match self.kind {
                     Kind::CopyTo | Kind::MoveTo => {
                         ui.label("Destination folder");
-                        ui.text_edit_singleline(&mut self.text);
-                        egui::ComboBox::from_id_salt("operation_recent")
-                            .selected_text("Recent folders")
-                            .show_ui(ui, |ui| {
-                                for path in &self.recent {
-                                    if ui.button(path).clicked() {
-                                        self.text = path.clone();
-                                        ui.close();
-                                    }
-                                }
+                        ui.horizontal(|ui| {
+                            widgets::text_field_width(ui, &mut self.text, 300.0);
+                            let recent = &self.recent;
+                            let picked = widgets::menu_button(ui, "Recent", || {
+                                recent
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, path)| {
+                                        popup::item::action(path.clone(), i.to_string(), true)
+                                    })
+                                    .collect()
                             });
-                        egui::ComboBox::from_id_salt("operation_path_mode")
-                            .selected_text(format!("{:?}", self.path_mode))
-                            .show_ui(ui, |ui| {
+                            if let Some(path) = picked
+                                .and_then(|i| i.parse::<usize>().ok())
+                                .and_then(|i| self.recent.get(i).cloned())
+                            {
+                                self.text = path;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Path mode");
+                            widgets::Combo::new(
+                                "operation_path_mode",
+                                format!("{:?}", self.path_mode),
+                            )
+                            .show(ui, |list| {
                                 for mode in [PathMode::None, PathMode::Relative, PathMode::Base] {
-                                    ui.selectable_value(
+                                    list.selectable_value(
                                         &mut self.path_mode,
                                         mode,
                                         format!("{mode:?}"),
                                     );
                                 }
                             });
+                        });
                     }
                     Kind::Rename => {
-                        ui.checkbox(&mut self.regex, "Regular expression");
+                        widgets::checkbox(ui, &mut self.regex, "Regular expression");
                         if self.regex {
                             ui.label("Find pattern");
-                            ui.text_edit_singleline(&mut self.old);
+                            widgets::text_field(ui, &mut self.old);
                         }
                         ui.label("New mask / replacement");
-                        ui.text_edit_singleline(&mut self.text);
+                        widgets::text_field(ui, &mut self.text);
                     }
                     Kind::Attributes => {
                         ui.label("Set attributes (rhas)");
-                        ui.text_edit_singleline(&mut self.text);
+                        widgets::text_field(ui, &mut self.text);
                         ui.label("Clear attributes (rhas)");
-                        ui.text_edit_singleline(&mut self.old);
+                        widgets::text_field(ui, &mut self.old);
                     }
                     Kind::Touch => {
-                        egui::ComboBox::from_id_salt("touch_kind")
-                            .selected_text(
+                        widgets::Combo::new(
+                            "touch_kind",
+                            ["Set now / timestamp", "Left -> right", "Right -> left"]
+                                [self.touch_mode],
+                        )
+                        .width(200.0)
+                        .show(ui, |list| {
+                            for (i, label) in
                                 ["Set now / timestamp", "Left -> right", "Right -> left"]
-                                    [self.touch_mode],
-                            )
-                            .show_ui(ui, |ui| {
-                                for (i, label) in
-                                    ["Set now / timestamp", "Left -> right", "Right -> left"]
-                                        .iter()
-                                        .enumerate()
-                                {
-                                    ui.selectable_value(&mut self.touch_mode, i, *label);
-                                }
-                            });
+                                    .iter()
+                                    .enumerate()
+                            {
+                                list.selectable_value(&mut self.touch_mode, i, *label);
+                            }
+                        });
                         if self.touch_mode == 0 {
-                            ui.text_edit_singleline(&mut self.text);
+                            widgets::text_field(ui, &mut self.text);
                             ui.label("Empty = now; explicit dates use the local UTC offset.");
                         }
                     }
                     Kind::NewFolder => {
                         ui.label("Folder name (selected folder, or bases if none selected)");
-                        ui.text_edit_singleline(&mut self.text);
+                        widgets::text_field(ui, &mut self.text);
                     }
                     Kind::Delete => {
-                        ui.checkbox(&mut self.recycle, "Use recycle bin");
+                        widgets::checkbox(ui, &mut self.recycle, "Use recycle bin");
                     }
                 }
-                ui.checkbox(
+                widgets::checkbox(
+                    ui,
                     &mut self.include_hidden,
                     "Include filtered / hidden items for this operation",
                 );
                 if let Some(error) = &self.error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    ui.colored_label(theme::palette(ui.ctx()).danger, error);
                 }
-                ui.horizontal(|ui| {
-                    if ui.button("Plan and run").clicked() {
-                        match self.operation(clock) {
-                            Ok(op) => result = Some(Ok((op, self.include_hidden))),
-                            Err(e) => self.error = Some(e),
-                        }
-                    }
-                    if ui.button("Cancel").clicked() {
-                        result = Some(Err(()));
-                    }
-                });
+                match widgets::dialog_buttons(
+                    ui,
+                    &[("Cancel", Role::Secondary), ("Plan and run", Role::Primary)],
+                ) {
+                    Some(1) => match self.operation(clock) {
+                        Ok(op) => result = Some(Ok((op, self.include_hidden))),
+                        Err(e) => self.error = Some(e),
+                    },
+                    Some(0) => result = Some(Err(())),
+                    _ => {}
+                }
             });
         if !open {
             result = Some(Err(()));

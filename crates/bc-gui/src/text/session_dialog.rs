@@ -7,7 +7,10 @@
 //! has are live; reference controls without a Matcha counterpart (spec copy
 //! button, session description, session-default scopes) are disabled
 //! placeholders.
-use crate::chrome::dialog::{self, ButtonKind, Placement};
+use crate::chrome::{
+    dialog::{self, ButtonKind, Placement},
+    theme, widgets,
+};
 use bc_core::{
     align::AlignStrategy,
     encoding::{BomPolicy, Encoding},
@@ -17,7 +20,7 @@ use bc_formats::{
     text_rules::{Replacement, UnimportantText},
     ElementKind,
 };
-use eframe::egui::{self, Color32, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 /// Client size of the reference dialog.
 pub const CLIENT: Vec2 = Vec2::new(583.0, 563.0);
@@ -165,7 +168,7 @@ impl SessionDialog {
                         egui::Align2::LEFT_CENTER,
                         error,
                         dialog::font(),
-                        Color32::from_rgb(0xC0, 0x00, 0x00),
+                        theme::palette(ui.ctx()).danger,
                     );
                 }
                 ok = dialog::button(
@@ -182,20 +185,6 @@ impl SessionDialog {
                     ButtonKind::Normal,
                     true,
                 );
-                for (dx, dy) in [
-                    (5.0, 1.0),
-                    (5.0, 4.0),
-                    (2.0, 4.0),
-                    (5.0, 7.0),
-                    (2.0, 7.0),
-                    (-1.0, 7.0),
-                ] {
-                    ui.painter().rect_filled(
-                        Rect::from_min_size(at(o, 574.0 + dx, 553.0 + dy), Vec2::splat(2.0)),
-                        0.0,
-                        Color32::from_gray(0xBF),
-                    );
-                }
             },
         );
         if closed || cancel || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -234,11 +223,15 @@ impl SessionDialog {
             );
             painter.rect_stroke(
                 field,
-                0.0,
-                Stroke::new(1.0, Color32::from_gray(0x8D)),
+                theme::RADIUS_MD,
+                Stroke::new(1.0, theme::palette(ui.ctx()).line_strong),
                 StrokeKind::Inside,
             );
-            dialog::combo_chevron(&painter, at(o, 485.0, 80.0 + dy), Color32::from_gray(0x6E));
+            dialog::combo_chevron(
+                &painter,
+                at(o, 482.0, 80.0 + dy),
+                theme::palette(ui.ctx()).text_muted,
+            );
             // "..." browse: Matcha's open prompt is the path field itself.
             dialog::button(
                 ui,
@@ -285,33 +278,14 @@ impl SessionDialog {
         dialog::label(&painter, at(o, 22.0, 211.0), "Description:", true);
         // Session descriptions are not stored by Matcha: disabled box.
         let desc = span(o, 22.0, 233.0, 558.0, 471.0);
-        painter.rect_filled(desc, 0.0, Color32::WHITE);
+        let p = theme::palette(ui.ctx());
+        painter.rect_filled(desc, theme::RADIUS_MD, p.surface_subtle);
         painter.rect_stroke(
             desc,
-            0.0,
-            Stroke::new(1.0, Color32::from_gray(0xEC)),
+            theme::RADIUS_MD,
+            Stroke::new(1.0, p.line),
             StrokeKind::Inside,
         );
-        dialog::rule(
-            &painter,
-            desc.left(),
-            desc.right(),
-            desc.bottom() - 1.0,
-            Color32::from_gray(0x83),
-        );
-        for (y, up) in [(desc.top() + 7.0, true), (desc.bottom() - 13.0, false)] {
-            let c = Pos2::new(desc.right() - 9.0, y + 3.0);
-            let dir = if up { -1.0 } else { 1.0 };
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    c + Vec2::new(-3.5, 2.0 * -dir),
-                    c + Vec2::new(3.5, 2.0 * -dir),
-                    c + Vec2::new(0.0, 2.0 * dir),
-                ],
-                Color32::from_gray(0xC0),
-                Stroke::NONE,
-            ));
-        }
     }
     fn format(&mut self, ui: &mut egui::Ui, o: Pos2, format_names: &[String]) {
         let painter = ui.painter().clone();
@@ -331,7 +305,7 @@ impl SessionDialog {
                 o.x + 90.0,
                 o.x + 556.0,
                 o.y + 54.0 + dy,
-                Color32::from_gray(0xE5),
+                theme::palette(ui.ctx()).line,
             );
             let shown = match &draft.format[s] {
                 FormatChoice::Keep => draft.format_names[s].clone(),
@@ -469,11 +443,12 @@ impl SessionDialog {
             "Unimportant text and replacements:",
             true,
         );
-        painter.rect_filled(list, 0.0, Color32::WHITE);
+        let p = theme::palette(ui.ctx());
+        painter.rect_filled(list, theme::RADIUS_MD, p.surface);
         painter.rect_stroke(
             list,
-            0.0,
-            Stroke::new(1.0, Color32::from_gray(0x8D)),
+            theme::RADIUS_MD,
+            Stroke::new(1.0, p.line_strong),
             StrokeKind::Inside,
         );
         let comparison = &mut draft.rules.comparison;
@@ -487,25 +462,25 @@ impl SessionDialog {
                         ui.push_id(("unimportant", n), |ui| {
                             ui.horizontal(|ui| {
                                 ui.label("Unimportant");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut r.pattern).desired_width(150.0),
-                                );
-                                ui.checkbox(&mut r.is_regexp, "Regex");
-                                ui.checkbox(&mut r.case_sensitive, "Case");
-                                egui::ComboBox::from_id_salt("element")
-                                    .width(90.0)
-                                    .selected_text(r.only_in.map_or("Any element", |k| k.as_str()))
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut r.only_in, None, "Any element");
-                                        for kind in ElementKind::ALL {
-                                            ui.selectable_value(
-                                                &mut r.only_in,
-                                                Some(kind),
-                                                kind.as_str(),
-                                            );
-                                        }
-                                    });
-                                if ui.small_button("Remove").clicked() {
+                                ui.add(widgets::field(&mut r.pattern).desired_width(150.0));
+                                widgets::checkbox(ui, &mut r.is_regexp, "Regex");
+                                widgets::checkbox(ui, &mut r.case_sensitive, "Case");
+                                widgets::Combo::new(
+                                    "element",
+                                    r.only_in.map_or("Any element", |k| k.as_str()),
+                                )
+                                .width(110.0)
+                                .show(ui, |list| {
+                                    list.selectable_value(&mut r.only_in, None, "Any element");
+                                    for kind in ElementKind::ALL {
+                                        list.selectable_value(
+                                            &mut r.only_in,
+                                            Some(kind),
+                                            kind.as_str(),
+                                        );
+                                    }
+                                });
+                                if ui.add(widgets::Button::new("Remove").danger()).clicked() {
                                     remove = Some(n);
                                 }
                             });
@@ -519,14 +494,14 @@ impl SessionDialog {
                         ui.push_id(("replacement", n), |ui| {
                             ui.horizontal(|ui| {
                                 ui.label("Replace");
-                                ui.add(egui::TextEdit::singleline(&mut r.from).desired_width(90.0));
+                                ui.add(widgets::field(&mut r.from).desired_width(90.0));
                                 ui.label("with");
-                                ui.add(egui::TextEdit::singleline(&mut r.to).desired_width(90.0));
-                                ui.checkbox(&mut r.is_regexp, "Regex");
-                                ui.checkbox(&mut r.case_sensitive, "Case");
-                                ui.checkbox(&mut r.whole_words, "Words");
-                                ui.checkbox(&mut r.bidirectional, "Both");
-                                if ui.small_button("Remove").clicked() {
+                                ui.add(widgets::field(&mut r.to).desired_width(90.0));
+                                widgets::checkbox(ui, &mut r.is_regexp, "Regex");
+                                widgets::checkbox(ui, &mut r.case_sensitive, "Case");
+                                widgets::checkbox(ui, &mut r.whole_words, "Words");
+                                widgets::checkbox(ui, &mut r.bidirectional, "Both");
+                                if ui.add(widgets::Button::new("Remove").danger()).clicked() {
                                     remove = Some(n);
                                 }
                             });

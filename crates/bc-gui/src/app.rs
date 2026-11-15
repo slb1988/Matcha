@@ -705,7 +705,7 @@ impl MatchaApp {
         let mut home = false;
         egui::Panel::top("top_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                home = ui.button("Home").clicked();
+                home = crate::chrome::widgets::button(ui, "Home").clicked();
                 ui.separator();
                 ui.label(self.active_view().kind());
             });

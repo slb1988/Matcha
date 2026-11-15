@@ -52,7 +52,7 @@ cargo test -p bc-gui --lib
 
 ## 外观基础与快照（Wave 1B）
 
-`chrome/` 提供数据驱动菜单、工具栏、路径/状态栏、分割条和简单滚动条；视图拿返回的 action_id 调用已有业务动作。实际文本/文件夹布局本波不重排，完整接线在 Wave 2/3。
+`chrome/` 提供数据驱动菜单、工具栏、路径/状态栏、分割条和简单滚动条；视图拿返回的 action_id 调用已有业务动作。控件与浮窗一律用 `chrome::widgets` / `chrome::window::Window`，下拉一律用 `chrome::popup` 共享菜单，颜色经 `theme::palette(ctx)` 取（ADR 402）。实际文本/文件夹布局本波不重排，完整接线在 Wave 2/3。
 
 ```powershell
 cargo run --release -p bcompare -- --snapshot=text-basic
@@ -61,7 +61,7 @@ tools/visual/set-corpus-mtime.ps1
 tools/visual/snap-matcha.ps1 -All -Verify
 ```
 
-- 场景仅 `icon-catalog`、`chrome-demo`、`text-basic`、`folder-basic`；默认 PNG 为 `target/visual/matcha/<scene>.png`，客户区 1384×961。
+- 演示场景 `icon-catalog`、`chrome-demo`、`widget-gallery`（组件库陈列，ADR 402），其余场景见 `snapshot::SCENES`；默认 PNG 为 `target/visual/matcha/<scene>.png`，客户区 1384×961。
 - 文本/文件夹使用 `tools/visual/corpus/` 的真实语料与真实视图；文件夹预置展开全部。后台完成后再等待两帧无视图/egui 重绘请求，写入 PNG 后退出，失败非零退出；60 秒门控超时。
 - 快照禁用动画/光标闪烁，固定逻辑时间、100% DPI、排除外部输入和 performance_status 调试栏，不记录演示语料到最近会话。`--screenshot` 的 BMP 兼容行为保留。
 - Windows UI 字体来自 `SPI_GETNONCLIENTMETRICS.lfMessageFont`；为了保持 Rust `forbid(unsafe_code)`，使用隐藏的系统 PowerShell 一次性查询 SPI 与字体注册表。失败回退 Segoe UI/egui 内置，Consolas 10pt 编辑器与微软雅黑 CJK 回退；不分发字体文件。

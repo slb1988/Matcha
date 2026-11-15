@@ -18,6 +18,9 @@ pub struct FiltersBar {
     pub show_none_option: bool,
     pub content: String,
     pub exclude_containing: bool,
+    /// Legacy layout: "Add preset" / "Other filters" form windows open.
+    preset_form: bool,
+    other_form: bool,
 }
 #[derive(Debug, Default)]
 pub struct FilterChange {
@@ -36,7 +39,7 @@ impl FiltersBar {
     /// 参考布局：标签 + 组合框（下拉列出预设）+ Filters / Peek 大图标按钮。
     /// 只在 45 px 高的条带内绘制；点击 Filters 或回车应用，Peek 切换 suppress_filters。
     pub fn chrome(&mut self, ui: &mut egui::Ui, bar: egui::Rect) -> FilterChange {
-        use crate::chrome::{icons, icons::Icon, theme};
+        use crate::chrome::{icons, icons::Icon, popup, theme};
         let mut change = FilterChange::default();
         let painter = ui.painter().clone();
         painter.rect_filled(bar, 0.0, theme::PANEL_BG);
@@ -57,18 +60,19 @@ impl FiltersBar {
             egui::Align2::LEFT_CENTER,
             "Filters:",
             egui::FontId::proportional(theme::UI_SIZE),
-            egui::Color32::BLACK,
+            theme::palette(ui.ctx()).text,
         );
         // 组合框：x43 起、293 宽、25 高，白底 #8D8D8D 边。
         let combo = egui::Rect::from_min_size(
             egui::pos2(bar.left() + 43.0, bar.top() + 11.0),
             egui::vec2(293.0, 25.0),
         );
-        painter.rect_filled(combo, 0.0, egui::Color32::WHITE);
+        let palette = theme::palette(ui.ctx());
+        painter.rect_filled(combo, theme::RADIUS_MD, palette.surface);
         painter.rect_stroke(
             combo,
-            0.0,
-            egui::Stroke::new(1.0, crate::chrome::theme::LINE_STRONG),
+            theme::RADIUS_MD,
+            egui::Stroke::new(1.0, palette.line_strong),
             egui::StrokeKind::Inside,
         );
         let mut popup_choice = None;
@@ -81,8 +85,8 @@ impl FiltersBar {
                 ui.visuals_mut().widgets.inactive.bg_stroke =
                     egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
                 let edit_rect = egui::Rect::from_min_size(
-                    combo.min + egui::vec2(1.0, 1.0),
-                    egui::vec2(combo.width() - 19.0, combo.height() - 2.0),
+                    combo.min + egui::vec2(5.0, 1.0),
+                    egui::vec2(combo.width() - 27.0, combo.height() - 2.0),
                 );
                 let edit = ui
                     .scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
@@ -98,35 +102,50 @@ impl FiltersBar {
                 }
                 // 内嵌下拉箭头：列出预设。
                 let chevron = egui::Rect::from_min_size(
-                    egui::pos2(combo.right() - 16.0, combo.top()),
-                    egui::vec2(16.0, combo.height()),
+                    egui::pos2(combo.right() - 22.0, combo.top()),
+                    egui::vec2(20.0, combo.height()),
                 );
                 let chev = ui.interact(
                     chevron,
                     ui.scope_id().with("filter-preset-chevron"),
                     egui::Sense::click(),
                 );
-                icons::dropdown_triangle(
-                    ui.painter(),
-                    chevron.center(),
-                    egui::Color32::from_rgb(110, 110, 110),
-                );
-                egui::Popup::from_toggle_button_response(&chev)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .show(|ui| {
-                        if self.presets.items.is_empty() {
-                            ui.add_enabled(false, egui::Label::new("No saved presets"));
-                        }
-                        for preset in &self.presets.items {
-                            if ui
-                                .selectable_label(self.names == preset.masks, &preset.name)
-                                .clicked()
-                            {
-                                popup_choice = Some(preset.masks.clone());
-                                ui.close();
-                            }
-                        }
-                    });
+                let c = chevron.center();
+                ui.painter().add(egui::Shape::line(
+                    vec![
+                        c + egui::vec2(-3.5, -1.5),
+                        c + egui::vec2(0.0, 2.0),
+                        c + egui::vec2(3.5, -1.5),
+                    ],
+                    egui::Stroke::new(1.4, palette.text_muted),
+                ));
+                // 预设列表：共享弹出菜单，锚在整个组合框下方。
+                let menu_id = chev.id.with("menu-below");
+                if chev.clicked() {
+                    popup::toggle_menu_below(ui.ctx(), menu_id, combo);
+                }
+                let presets = &self.presets.items;
+                let names = &self.names;
+                let picked = popup::menu(ui.ctx(), menu_id, combo.width(), || {
+                    if presets.is_empty() {
+                        return vec![popup::item::action("No saved presets", "", false)];
+                    }
+                    presets
+                        .iter()
+                        .enumerate()
+                        .map(|(i, preset)| {
+                            popup::item::radio(
+                                preset.name.clone(),
+                                i.to_string(),
+                                *names == preset.masks,
+                            )
+                        })
+                        .collect()
+                });
+                popup_choice = picked
+                    .and_then(|i| i.parse::<usize>().ok())
+                    .and_then(|i| self.presets.items.get(i))
+                    .map(|preset| preset.masks.clone());
                 chev.on_hover_text("Filter presets");
             },
         );
@@ -154,17 +173,23 @@ impl FiltersBar {
                 egui::Sense::click(),
             );
             if response.hovered() || selected {
+                // 与工具栏同款圆角胶囊：选中=强调色浅底+描边，悬停=中性灰。
                 let fill = egui::Rect::from_min_max(
                     rect.min + egui::vec2(0.0, 2.0),
                     rect.max - egui::vec2(0.0, 3.0),
                 );
-                painter.rect_filled(fill, 0.0, theme::HOVER_BLUE);
-                painter.rect_stroke(
-                    fill,
-                    0.0,
-                    egui::Stroke::new(1.0, theme::CLASSIC_BLUE),
-                    egui::StrokeKind::Inside,
-                );
+                let radius = theme::RADIUS_LG - 2;
+                if selected {
+                    painter.rect_filled(fill, radius, palette.accent_soft);
+                    painter.rect_stroke(
+                        fill,
+                        radius,
+                        egui::Stroke::new(1.0, palette.accent_soft_line),
+                        egui::StrokeKind::Inside,
+                    );
+                } else {
+                    painter.rect_filled(fill, radius, palette.hover);
+                }
             }
             icons::paint(
                 &painter,
@@ -177,7 +202,11 @@ impl FiltersBar {
             painter.galley(
                 egui::pos2(rect.center().x - galley.size().x / 2.0, rect.top() + 23.0),
                 galley,
-                egui::Color32::BLACK,
+                if selected {
+                    palette.accent_pressed
+                } else {
+                    palette.text_muted
+                },
             );
             if response.clicked() {
                 match id {
@@ -195,65 +224,57 @@ impl FiltersBar {
     }
     /// 文件夹同步视图沿用的旧行式布局（Wave 3 不换肤同步视图）。
     pub fn ui_legacy(&mut self, ui: &mut egui::Ui, allow_flatten: bool) -> FilterChange {
+        use crate::chrome::{controls::Role, popup, theme, widgets, window::Window};
         let mut change = FilterChange::default();
+        let palette = theme::palette(ui.ctx());
         ui.horizontal(|ui| {
             ui.label("Filters");
             let edited = ui.add(
-                egui::TextEdit::singleline(&mut self.names)
+                widgets::field(&mut self.names)
                     .desired_width(280.0)
                     .hint_text("*.rs;-*.bak;-Backup\\"),
             );
             if edited.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 change.apply = true;
             }
-            if ui.button("Apply filters").clicked() {
+            if widgets::button(ui, "Apply filters").clicked() {
                 change.apply = true;
             }
-            egui::ComboBox::from_id_salt("name_presets")
-                .selected_text("Presets")
-                .show_ui(ui, |ui| {
-                    for preset in &self.presets.items {
-                        if ui.button(&preset.name).clicked() {
-                            self.names = preset.masks.clone();
-                            change.apply = true;
-                            ui.close();
-                        }
-                    }
-                });
-            ui.menu_button("Add preset", |ui| {
-                ui.text_edit_singleline(&mut self.preset_name);
-                if ui.button("Save named preset").clicked() {
-                    match self.presets.upsert(&self.preset_name, &self.names) {
-                        Ok(()) => {
-                            self.error = None;
-                            change.save_presets = true;
-                            ui.close();
-                        }
-                        Err(e) => self.error = Some(e),
-                    }
-                }
+            let presets = &self.presets.items;
+            let picked = widgets::menu_button(ui, "Presets", || {
+                presets
+                    .iter()
+                    .enumerate()
+                    .map(|(i, preset)| popup::item::action(preset.name.clone(), i.to_string(), true))
+                    .collect()
             });
+            if let Some(preset) = picked
+                .and_then(|i| i.parse::<usize>().ok())
+                .and_then(|i| self.presets.items.get(i))
+            {
+                self.names = preset.masks.clone();
+                change.apply = true;
+            }
+            if ui
+                .add(widgets::Button::new("Add preset").selected(self.preset_form))
+                .clicked()
+            {
+                self.preset_form = !self.preset_form;
+            }
         });
         ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("display_filter")
-                .selected_text(display_label(self.options.display))
-                .show_ui(ui, |ui| {
+            change.apply |= widgets::Combo::new("display_filter", display_label(self.options.display))
+                .show(ui, |list| {
                     for value in DisplayFilter::ALL {
                         if value == DisplayFilter::None && !self.show_none_option {
                             continue;
                         }
-                        change.apply |= ui
-                            .selectable_value(
-                                &mut self.options.display,
-                                value,
-                                display_label(value),
-                            )
-                            .changed();
+                        list.selectable_value(&mut self.options.display, value, display_label(value));
                     }
-                });
-            egui::ComboBox::from_id_salt("folder_filter")
-                .selected_text(folder_label(self.options.folders))
-                .show_ui(ui, |ui| {
+                })
+                .changed();
+            change.apply |= widgets::Combo::new("folder_filter", folder_label(self.options.folders))
+                .show(ui, |list| {
                     for value in [
                         FolderDisplay::AlwaysShow,
                         FolderDisplay::FilesAndStructure,
@@ -263,40 +284,71 @@ impl FiltersBar {
                         if value == FolderDisplay::Flatten && !allow_flatten {
                             continue;
                         }
-                        change.apply |= ui
-                            .selectable_value(&mut self.options.folders, value, folder_label(value))
-                            .changed();
+                        list.selectable_value(&mut self.options.folders, value, folder_label(value));
                     }
-                });
-            change.apply |= ui
-                .checkbox(&mut self.options.suppress_filters, "Suppress filters")
+                })
                 .changed();
-            change.apply |= ui
-                .checkbox(&mut self.options.ignore_unimportant, "Ignore unimportant")
-                .changed();
-            ui.menu_button("Other filters", |ui| {
+            change.apply |=
+                widgets::checkbox(ui, &mut self.options.suppress_filters, "Suppress filters")
+                    .changed();
+            change.apply |=
+                widgets::checkbox(ui, &mut self.options.ignore_unimportant, "Ignore unimportant")
+                    .changed();
+            if ui
+                .add(widgets::Button::new("Other filters").selected(self.other_form))
+                .clicked()
+            {
+                self.other_form = !self.other_form;
+            }
+        });
+        // 原 menu_button 内的小表单改为同款浮动窗口（弹出菜单只放命令项）。
+        let ctx = ui.ctx().clone();
+        let mut preset_form = self.preset_form;
+        Window::new("Add filter preset")
+            .open(&mut preset_form)
+            .show(&ctx, |ui| {
+                ui.label("Preset name");
+                widgets::text_field(ui, &mut self.preset_name);
+                if widgets::dialog_buttons(ui, &[("Save named preset", Role::Primary)]) == Some(0) {
+                    match self.presets.upsert(&self.preset_name, &self.names) {
+                        Ok(()) => {
+                            self.error = None;
+                            change.save_presets = true;
+                            self.preset_form = false;
+                        }
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+            });
+        self.preset_form &= preset_form;
+        let mut other_form = self.other_form;
+        Window::new("Other filters")
+            .open(&mut other_form)
+            .show(&ctx, |ui| {
                 ui.label("Script fields: cutoff:<7days size:>1MB attrib:-sh");
-                ui.add(egui::TextEdit::singleline(&mut self.other).desired_width(400.0));
+                widgets::text_field_width(ui, &mut self.other, 400.0);
                 ui.label("UTF-8 content text (empty disables)");
-                ui.text_edit_singleline(&mut self.content);
-                ui.checkbox(
+                widgets::text_field_width(ui, &mut self.content, 400.0);
+                widgets::checkbox(
+                    ui,
                     &mut self.exclude_containing,
                     "Exclude containing (otherwise exclude not containing)",
                 );
-                if ui.button("Apply other filters").clicked() {
+                if widgets::dialog_buttons(ui, &[("Apply other filters", Role::Primary)]) == Some(0)
+                {
                     change.apply = true;
-                    ui.close();
+                    self.other_form = false;
                 }
             });
-        });
+        self.other_form &= other_form;
         if !self.other.trim().is_empty() || !self.content.is_empty() {
             ui.colored_label(
-                egui::Color32::LIGHT_BLUE,
+                palette.info,
                 "Other filters active; filtered partners remain visible in teal.",
             );
         }
         if let Some(e) = &self.error {
-            ui.colored_label(egui::Color32::LIGHT_RED, e);
+            ui.colored_label(palette.danger, e);
         }
         change
     }

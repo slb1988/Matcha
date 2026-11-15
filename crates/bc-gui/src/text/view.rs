@@ -26,6 +26,7 @@ use bc_engine_text::{
 };
 use bc_formats::{registry::FormatRegistry, FormatKind};
 use bc_session::prefs::Prefs;
+use crate::chrome::{widgets, window::Window};
 use eframe::egui;
 use std::{
     collections::HashMap,
@@ -72,6 +73,14 @@ enum Pending {
     Clipboard(usize, String),
     Encoding(usize, Encoding),
 }
+/// Encodings offered by the file header combo and the File properties window.
+const ENCODINGS: [(&str, Encoding); 5] = [
+    ("UTF-8", Encoding::Utf8),
+    ("UTF-16 LE", Encoding::Utf16Le),
+    ("UTF-16 BE", Encoding::Utf16Be),
+    ("GBK (936)", Encoding::CodePage(936)),
+    ("Windows-1252", Encoding::CodePage(1252)),
+];
 #[derive(Clone, Copy)]
 enum FileMode {
     Open,
@@ -148,7 +157,6 @@ pub struct TextCompareView {
     path_sources: [Option<PathBuf>; 2],
     snapshot_select_paths: bool,
     displayed_sections: usize,
-    tool_dropdown: Option<(String, egui::Pos2)>,
 }
 impl TextCompareView {
     fn registry() -> Result<FormatRegistry, CoreError> {
@@ -245,7 +253,6 @@ impl TextCompareView {
             snapshot_select_paths: false,
             path_sources: Default::default(),
             displayed_sections: 0,
-            tool_dropdown: None,
         };
         view.rebuild_projection();
         view.recompare();
@@ -1379,90 +1386,96 @@ impl TextCompareView {
         })
         .collect();
         let response = toolbar::show(ui, &items);
-        if let Some(action) = response.clicked {
+        if let Some(action) = response.clicked.clone() {
             self.command(&action, ui.ctx(), prefs);
         }
-        if let Some(action) = response.dropdown {
-            self.tool_dropdown = Some((
-                action,
-                ui.ctx().pointer_latest_pos().unwrap_or(ui.cursor().min),
-            ));
-        }
-        if let Some((name, pos)) = self.tool_dropdown.clone() {
-            let mut chosen = None;
-            let mut format = None;
-            let popup = egui::Area::new(egui::Id::unique("text-toolbar-dropdown"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(pos)
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        if name == "Sessions" {
-                            for label in ["Home", "Session Settings...", "Text Compare Info"] {
-                                if ui.button(label).clicked() {
-                                    chosen = Some(label);
-                                }
-                            }
-                            ui.add_enabled(false, egui::Button::new("Open Session"));
-                            ui.add_enabled(false, egui::Button::new("Save Session"));
-                        } else {
-                            if ui.button("Detected").clicked() {
-                                format = Some(
-                                    self.files[self.active]
-                                        .path
-                                        .as_ref()
-                                        .and_then(|p| {
-                                            self.registry.resolve(p, Some(FormatKind::Text))
-                                        })
-                                        .cloned(),
-                                );
-                            }
-                            if ui.button("Plain text").clicked() {
-                                format = Some(None);
-                            }
-                            for f in self
-                                .registry
-                                .formats()
-                                .iter()
-                                .filter(|f| f.kind == FormatKind::Text)
-                            {
-                                if ui.button(&f.name).clicked() {
-                                    format = Some(Some(f.clone()));
-                                }
-                            }
-                        }
-                    });
-                });
-            if let Some(action) = chosen {
-                self.command(action, ui.ctx(), prefs);
-                self.tool_dropdown = None;
-            }
+        let current_format = self
+            .content(self.active)
+            .format()
+            .map(|f| f.name.clone());
+        let formats: Vec<String> = self
+            .registry
+            .formats()
+            .iter()
+            .filter(|f| f.kind == FormatKind::Text)
+            .map(|f| f.name.clone())
+            .collect();
+        let menu = toolbar::dropdown_menu(
+            ui.ctx(),
+            ui.make_persistent_id("text-toolbar-dropdown"),
+            &response,
+            |name| {
+                use crate::chrome::popup::item;
+                if name == "Sessions" {
+                    vec![
+                        item::action("Home", "Home", true),
+                        item::action("Session Settings...", "Session Settings...", true),
+                        item::action("Text Compare Info", "Text Compare Info", true),
+                        item::separator(),
+                        item::action("Open Session", "Open Session", false),
+                        item::action("Save Session", "Save Session", false),
+                    ]
+                } else {
+                    let mut items = vec![
+                        item::action("Detected", "format:detected", true),
+                        item::radio("Plain text", "format:plain", current_format.is_none()),
+                        item::separator(),
+                    ];
+                    items.extend(formats.iter().enumerate().map(|(i, name)| {
+                        item::radio(
+                            name.clone(),
+                            format!("format:{i}"),
+                            current_format.as_ref() == Some(name),
+                        )
+                    }));
+                    items
+                }
+            },
+        );
+        if let Some(action) = menu {
+            let format = match action.strip_prefix("format:") {
+                None => {
+                    self.command(&action, ui.ctx(), prefs);
+                    None
+                }
+                Some("detected") => Some(
+                    self.files[self.active]
+                        .path
+                        .as_ref()
+                        .and_then(|p| self.registry.resolve(p, Some(FormatKind::Text)))
+                        .cloned(),
+                ),
+                Some("plain") => Some(None),
+                Some(i) => i
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| {
+                        self.registry
+                            .formats()
+                            .iter()
+                            .filter(|f| f.kind == FormatKind::Text)
+                            .nth(i)
+                            .cloned()
+                    })
+                    .map(Some),
+            };
             if let Some(format) = format {
                 match self.content_mut(self.active).set_format(format) {
                     Ok(()) => self.recompare(),
                     Err(e) => self.message = e.to_string(),
                 }
-                self.tool_dropdown = None;
-            }
-            if ui.input(|i| {
-                i.key_pressed(egui::Key::Escape)
-                    || (i.pointer.any_pressed()
-                        && i.pointer
-                            .interact_pos()
-                            .is_some_and(|p| !popup.response.rect.contains(p)))
-            }) {
-                self.tool_dropdown = None;
             }
         }
         if self.show_file_options {
             let mut open = true;
-            egui::Window::new("File properties")
+            Window::new("File properties")
                 .open(&mut open)
                 .show(ui.ctx(), |ui| self.file_options(ui, self.active, prefs));
-            self.show_file_options = open;
+            self.show_file_options &= open;
         }
         if self.show_goto {
             let mut open = true;
-            egui::Window::new("Go To")
+            Window::new("Go To")
                 .open(&mut open)
                 .show(ui.ctx(), |ui| {
                     ui.horizontal(|ui| {
@@ -1470,7 +1483,7 @@ impl TextCompareView {
                         ui.add(egui::DragValue::new(&mut self.goto_line).range(1..=usize::MAX));
                         ui.label("Column:");
                         ui.add(egui::DragValue::new(&mut self.goto_column).range(1..=usize::MAX));
-                        if ui.button("Go").clicked() {
+                        if widgets::primary_button(ui, "Go").clicked() {
                             let content = self.content(self.active);
                             let lines = content.lines.borrow();
                             let line = (self.goto_line - 1).min(lines.len().saturating_sub(1));
@@ -1491,14 +1504,14 @@ impl TextCompareView {
             self.show_goto &= open;
         }
         if self.show_view_options {
-            egui::Window::new("Text display")
+            Window::new("Text display")
                 .open(&mut self.show_view_options)
                 .show(ui.ctx(), |ui| {
                     ui.add(egui::Slider::new(&mut self.font_size, 10.0..=24.0).text("Font size"));
                 });
         }
         if self.show_info {
-            egui::Window::new("Text Compare Info")
+            Window::new("Text Compare Info")
                 .open(&mut self.show_info)
                 .show(ui.ctx(), |ui| {
                     ui.label(status_bar::side_text(&self.map.left, &self.editors[0]));
@@ -2019,11 +2032,18 @@ impl TextCompareView {
                         .map_or("Everything Else", |f| f.name.as_str())
                         .to_string();
                     let mut choice = None;
-                    egui::ComboBox::from_id_salt(("format", s))
+                    let formats: Vec<_> = self
+                        .registry
+                        .formats()
+                        .iter()
+                        .filter(|f| f.kind == FormatKind::Text)
+                        .cloned()
+                        .collect();
+                    widgets::Combo::new(("format", s), selected.as_str())
                         .width(110.0)
-                        .selected_text(selected)
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_label(false, "Detected").clicked() {
+                        .flat()
+                        .show(ui, |list| {
+                            if list.selectable_label(false, "Detected") {
                                 choice = Some(
                                     self.files[s]
                                         .path
@@ -2034,16 +2054,12 @@ impl TextCompareView {
                                         .cloned(),
                                 );
                             }
-                            if ui.selectable_label(false, "Plain text").clicked() {
+                            if list.selectable_label(selected == "Everything Else", "Plain text") {
                                 choice = Some(None);
                             }
-                            for f in self
-                                .registry
-                                .formats()
-                                .iter()
-                                .filter(|f| f.kind == FormatKind::Text)
-                            {
-                                if ui.selectable_label(false, &f.name).clicked() {
+                            list.separator();
+                            for f in &formats {
+                                if list.selectable_label(selected == f.name, f.name.as_str()) {
                                     choice = Some(Some(f.clone()));
                                 }
                             }
@@ -2056,25 +2072,21 @@ impl TextCompareView {
                     }
 
                     let encoding = super::status_bar::encoding_label(self.content(s));
-                    egui::ComboBox::from_id_salt(("encoding", s))
+                    let current = self.content(s).encoding;
+                    let mut pick = None;
+                    widgets::Combo::new(("encoding", s), encoding)
                         .width(96.0)
-                        .selected_text(encoding)
-                        .show_ui(ui, |ui| {
-                            for (label, value) in [
-                                ("UTF-8", Encoding::Utf8),
-                                ("UTF-16 LE", Encoding::Utf16Le),
-                                ("UTF-16 BE", Encoding::Utf16Be),
-                                ("GBK (936)", Encoding::CodePage(936)),
-                                ("Windows-1252", Encoding::CodePage(1252)),
-                            ] {
-                                if ui
-                                    .selectable_label(self.content(s).encoding == value, label)
-                                    .clicked()
-                                {
-                                    self.request(Pending::Encoding(s, value));
+                        .flat()
+                        .show(ui, |list| {
+                            for (label, value) in ENCODINGS {
+                                if list.selectable_label(current == value, label) {
+                                    pick = Some(value);
                                 }
                             }
                         });
+                    if let Some(value) = pick {
+                        self.request(Pending::Encoding(s, value));
+                    }
                     ui.label(super::status_bar::ending_label(self.content(s)));
                 });
             },
@@ -2085,84 +2097,82 @@ impl TextCompareView {
         );
     }
     fn file_options(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {
-        for (label, mode) in [
-            ("Open…", FileMode::Open),
-            ("Save as…", FileMode::SaveAs),
-            ("Save target…", FileMode::Target),
-        ] {
-            if ui.button(label).clicked() {
-                self.file_dialog = Some(FileDialog {
-                    side: s,
-                    mode,
-                    path: self.files[s]
-                        .path
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default(),
-                });
-                ui.close();
-            }
-        }
-        if ui.button("Save").clicked() {
-            if let Err(e) = self.save(s, prefs) {
-                self.message = e.to_string();
-            }
-            ui.close();
-        }
-        if ui.button("Reload").clicked() {
-            self.request(Pending::Reload(s));
-            ui.close();
-        }
-        if ui.button("Open Clipboard").clicked() {
-            self.clipboard_side = Some(s);
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-            ui.close();
-        }
-        ui.checkbox(&mut self.content_mut(s).read_only, "Read-only");
-        ui.separator();
-        for (label, encoding) in [
-            ("UTF-8", Encoding::Utf8),
-            ("UTF-16 LE", Encoding::Utf16Le),
-            ("UTF-16 BE", Encoding::Utf16Be),
-            ("GBK (936)", Encoding::CodePage(936)),
-            ("Windows-1252", Encoding::CodePage(1252)),
-        ] {
-            if ui
-                .selectable_label(self.content(s).encoding == encoding, label)
-                .clicked()
-            {
-                self.request(Pending::Encoding(s, encoding));
-                ui.close();
-            }
-        }
-        ui.label("Save BOM policy");
-        let old = self.content(s).bom_policy;
-        for (name, policy) in [
-            ("Preserve", BomPolicy::Preserve),
-            ("Always", BomPolicy::Always),
-            ("Never", BomPolicy::Never),
-        ] {
-            ui.selectable_value(&mut self.content_mut(s).bom_policy, policy, name);
-        }
-        if old != self.content(s).bom_policy {
-            self.files[s].metadata_dirty = true;
-        }
-        ui.menu_button("Convert line endings", |ui| {
-            for e in [
-                bc_core::line::LineEnding::Lf,
-                bc_core::line::LineEnding::CrLf,
-                bc_core::line::LineEnding::Cr,
+        ui.horizontal_wrapped(|ui| {
+            for (label, mode) in [
+                ("Open…", FileMode::Open),
+                ("Save as…", FileMode::SaveAs),
+                ("Save target…", FileMode::Target),
             ] {
-                if ui.button(format!("{e:?}")).clicked() {
-                    match self.content_mut(s).convert_endings(e) {
-                        Ok(()) => self.recompare(),
-                        Err(e) => self.message = e.to_string(),
-                    }
-                    ui.close();
+                if widgets::button(ui, label).clicked() {
+                    self.file_dialog = Some(FileDialog {
+                        side: s,
+                        mode,
+                        path: self.files[s]
+                            .path
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default(),
+                    });
                 }
             }
         });
+        ui.horizontal_wrapped(|ui| {
+            if widgets::button(ui, "Save").clicked() {
+                if let Err(e) = self.save(s, prefs) {
+                    self.message = e.to_string();
+                }
+            }
+            if widgets::button(ui, "Reload").clicked() {
+                self.request(Pending::Reload(s));
+            }
+            if widgets::button(ui, "Open Clipboard").clicked() {
+                self.clipboard_side = Some(s);
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            }
+        });
+        widgets::checkbox(ui, &mut self.content_mut(s).read_only, "Read-only");
+        widgets::section(ui, "Encoding");
+        for (label, encoding) in ENCODINGS {
+            if widgets::list_row(ui, self.content(s).encoding == encoding, label).clicked() {
+                self.request(Pending::Encoding(s, encoding));
+            }
+        }
+        widgets::section(ui, "Save BOM policy");
+        let old = self.content(s).bom_policy;
+        ui.horizontal(|ui| {
+            for (name, policy) in [
+                ("Preserve", BomPolicy::Preserve),
+                ("Always", BomPolicy::Always),
+                ("Never", BomPolicy::Never),
+            ] {
+                widgets::radio_value(ui, &mut self.content_mut(s).bom_policy, policy, name);
+            }
+        });
+        if old != self.content(s).bom_policy {
+            self.files[s].metadata_dirty = true;
+        }
+        ui.add_space(4.0);
+        let endings = [
+            bc_core::line::LineEnding::Lf,
+            bc_core::line::LineEnding::CrLf,
+            bc_core::line::LineEnding::Cr,
+        ];
+        let chosen = widgets::menu_button(ui, "Convert line endings", || {
+            endings
+                .iter()
+                .enumerate()
+                .map(|(i, e)| {
+                    crate::chrome::popup::item::action(format!("{e:?}"), i.to_string(), true)
+                })
+                .collect()
+        });
+        if let Some(e) = chosen.and_then(|i| i.parse::<usize>().ok()).map(|i| endings[i]) {
+            match self.content_mut(s).convert_endings(e) {
+                Ok(()) => self.recompare(),
+                Err(e) => self.message = e.to_string(),
+            }
+        }
     }
     fn keyboard(&mut self, ctx: &egui::Context, prefs: &Prefs) {
         let events = ctx.input(|i| i.events.clone());

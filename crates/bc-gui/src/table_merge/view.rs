@@ -29,7 +29,7 @@ pub(crate) const HEADER: f32 = 24.0;
 pub(crate) const COLUMNS: f32 = 20.0;
 pub(crate) const COLUMN_WIDTH: f32 = 110.0;
 pub(crate) const ROW_HEIGHT: f32 = 20.0;
-const SHEET_TABS: f32 = 24.0;
+const SHEET_TABS: f32 = 32.0;
 /// 选中格详情条的高度（状态条之上）。
 const DETAILS: f32 = 62.0;
 
@@ -833,7 +833,10 @@ impl TableMergeView {
                         } else {
                             egui::RichText::new(label)
                         };
-                        if ui.selectable_label(i == self.model.sheet, text).clicked() {
+                        if ui
+                            .add(chrome::widgets::Button::new(text).selected(i == self.model.sheet))
+                            .clicked()
+                        {
                             clicked = Some(i);
                         }
                     }
@@ -1346,16 +1349,21 @@ impl TableMergeView {
                 confirmed,
             }) => {
                 let (mut accept, mut cancel) = (false, false);
-                egui::Window::new("Save merge output as")
-                    .collapsible(false)
-                    .resizable(false)
+                chrome::window::Window::new("Save merge output as")
                     .show(ctx, |ui| {
                         ui.label("Output file path");
-                        ui.add(egui::TextEdit::singleline(&mut path).desired_width(420.0));
-                        ui.horizontal(|ui| {
-                            accept = ui.button("Save").clicked();
-                            cancel = ui.button("Cancel").clicked();
-                        });
+                        chrome::widgets::text_field_width(ui, &mut path, 420.0);
+                        match chrome::widgets::dialog_buttons(
+                            ui,
+                            &[
+                                ("Cancel", chrome::controls::Role::Secondary),
+                                ("Save", chrome::controls::Role::Primary),
+                            ],
+                        ) {
+                            Some(0) => cancel = true,
+                            Some(_) => accept = true,
+                            None => {}
+                        }
                     });
                 if accept && !path.trim().is_empty() {
                     self.save_as(path, then, confirmed);

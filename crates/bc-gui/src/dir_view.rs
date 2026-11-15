@@ -1925,7 +1925,6 @@ pub struct DirCompareView {
     /// 参考 chrome 布局状态（仅比较视图；同步视图保持旧布局）。
     menus: Vec<crate::chrome::menubar::MenuSpec>,
     home_requested: bool,
-    tool_dropdown: Option<(String, egui::Pos2)>,
     show_files: bool,
     chrome_log: Vec<String>,
     chrome_log_logged: bool,
@@ -2032,7 +2031,6 @@ impl DirCompareView {
             align_regex: false,
             menus: folder_menu_inventory(),
             home_requested: false,
-            tool_dropdown: None,
             show_files: true,
             chrome_log: Vec::new(),
             chrome_log_logged: false,
@@ -2603,37 +2601,85 @@ impl DirCompareView {
         let mut align = false;
         let mut apply_filters = false;
         let mut save_presets = false;
-        egui::Window::new("Folder comparison rules").open(&mut open).show(ctx,|ui|{
-            // 旧过滤行的附加字段迁到这里（名称掩码在过滤栏组合框）。
-            ui.label("Name filters are edited in the toolbar filter box; additional script filters:");
-            ui.add(egui::TextEdit::singleline(&mut self.filters.other).desired_width(550.0));
-            ui.label("UTF-8 content text (empty disables)");
-            ui.text_edit_singleline(&mut self.filters.content);
-            ui.checkbox(&mut self.filters.exclude_containing,"Exclude containing (otherwise exclude not containing)");
-            if ui.button("Apply filters").clicked(){apply_filters=true;}
-            ui.horizontal(|ui|{
-                ui.text_edit_singleline(&mut self.filters.preset_name);
-                if ui.button("Save named preset").clicked(){
-                    match self.filters.presets.upsert(&self.filters.preset_name,&self.filters.names){
-                        Ok(())=>{self.filters.error=None;save_presets=true;}
-                        Err(e)=>self.filters.error=Some(e),
+        use crate::chrome::{widgets, window::Window};
+        Window::new("Folder comparison rules")
+            .open(&mut open)
+            .default_size([620.0, 640.0])
+            .scroll(true)
+            .show(ctx, |ui| {
+                // 旧过滤行的附加字段迁到这里（名称掩码在过滤栏组合框）。
+                widgets::section(ui, "Filters");
+                widgets::hint(
+                    ui,
+                    "Name filters are edited in the toolbar filter box; additional script filters:",
+                );
+                widgets::text_field_width(ui, &mut self.filters.other, 550.0);
+                ui.label("UTF-8 content text (empty disables)");
+                widgets::text_field_width(ui, &mut self.filters.content, 550.0);
+                widgets::checkbox(
+                    ui,
+                    &mut self.filters.exclude_containing,
+                    "Exclude containing (otherwise exclude not containing)",
+                );
+                ui.horizontal(|ui| {
+                    if widgets::button(ui, "Apply filters").clicked() {
+                        apply_filters = true;
                     }
+                    widgets::text_field_width(ui, &mut self.filters.preset_name, 200.0);
+                    if widgets::button(ui, "Save named preset").clicked() {
+                        match self
+                            .filters
+                            .presets
+                            .upsert(&self.filters.preset_name, &self.filters.names)
+                        {
+                            Ok(()) => {
+                                self.filters.error = None;
+                                save_presets = true;
+                            }
+                            Err(e) => self.filters.error = Some(e),
+                        }
+                    }
+                });
+                ui.separator();
+                widgets::section(ui, "Comparison");
+                ui.label("criteria arguments");
+                widgets::text_field_width(ui, &mut self.criteria_text, 550.0);
+                widgets::hint(ui, "Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / skip-quick-same. Rules-based uses the default text rules; add comments-unimportant to ignore comment edits.");
+                widgets::checkbox(ui, &mut self.pairing.case_sensitive, "Case-sensitive pairing");
+                widgets::checkbox(ui, &mut self.pairing.ignore_extension, "Align different extensions");
+                widgets::checkbox(ui, &mut self.pairing.normalize_nfc, "Align Unicode normalization forms");
+                widgets::checkbox(ui, &mut self.scan.automatic, "Automatic recursive scan");
+                widgets::checkbox(ui, &mut self.scan.scan_orphans, "Scan top-level orphan folders");
+                widgets::checkbox(ui, &mut self.scan.expand_on_load, "Expand folders on load");
+                widgets::checkbox(ui, &mut self.scan.differences_only, "Expand differences only");
+                widgets::checkbox(ui, &mut self.scan.auto_refresh, "Automatic filesystem refresh");
+                ui.separator();
+                widgets::section(ui, "Handling");
+                widgets::checkbox(ui, &mut self.handling.copy_timestamps, "Preserve timestamps");
+                widgets::checkbox(ui, &mut self.handling.copy_attributes, "Preserve attributes");
+                widgets::checkbox(ui, &mut self.handling.copy_creation_time, "Preserve creation time");
+                widgets::checkbox(ui, &mut self.handling.include_hidden, "Include hidden items by default");
+                ui.add_enabled(
+                    false,
+                    widgets::Checkbox::new(
+                        &mut self.handling.copy_ntfs_permissions,
+                        "NTFS permissions (deferred)",
+                    ),
+                );
+                if ui.add(widgets::Button::new("Apply and reload").primary()).clicked() {
+                    apply = true;
+                }
+                ui.separator();
+                widgets::section(ui, "Alignment override");
+                widgets::hint(ui, "Left pattern / right pattern / optional relative folder");
+                widgets::text_field_width(ui, &mut self.align_left, 550.0);
+                widgets::text_field_width(ui, &mut self.align_right, 550.0);
+                widgets::text_field_width(ui, &mut self.align_folder, 550.0);
+                widgets::checkbox(ui, &mut self.align_regex, "Regex captures");
+                if widgets::button(ui, "Add alignment override").clicked() {
+                    align = true;
                 }
             });
-            ui.separator();
-            ui.label("criteria arguments");ui.add(egui::TextEdit::singleline(&mut self.criteria_text).desired_width(550.0));
-            ui.small("Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / skip-quick-same. Rules-based uses the default text rules; add comments-unimportant to ignore comment edits.");
-            ui.checkbox(&mut self.pairing.case_sensitive,"Case-sensitive pairing");ui.checkbox(&mut self.pairing.ignore_extension,"Align different extensions");ui.checkbox(&mut self.pairing.normalize_nfc,"Align Unicode normalization forms");
-            ui.checkbox(&mut self.scan.automatic,"Automatic recursive scan");ui.checkbox(&mut self.scan.scan_orphans,"Scan top-level orphan folders");ui.checkbox(&mut self.scan.expand_on_load,"Expand folders on load");ui.checkbox(&mut self.scan.differences_only,"Expand differences only");ui.checkbox(&mut self.scan.auto_refresh,"Automatic filesystem refresh");
-            ui.separator();
-            ui.checkbox(&mut self.handling.copy_timestamps,"Preserve timestamps");
-            ui.checkbox(&mut self.handling.copy_attributes,"Preserve attributes");
-            ui.checkbox(&mut self.handling.copy_creation_time,"Preserve creation time");
-            ui.checkbox(&mut self.handling.include_hidden,"Include hidden items by default");
-            ui.add_enabled(false,egui::Checkbox::new(&mut self.handling.copy_ntfs_permissions,"NTFS permissions (deferred)"));
-            if ui.button("Apply and reload").clicked(){apply=true;}
-            ui.separator();ui.label("Alignment override (left pattern / right pattern / optional relative folder)");ui.text_edit_singleline(&mut self.align_left);ui.text_edit_singleline(&mut self.align_right);ui.text_edit_singleline(&mut self.align_folder);ui.checkbox(&mut self.align_regex,"Regex captures");if ui.button("Add alignment override").clicked(){align=true;}
-        });
         self.rules_open = open;
         if apply_filters {
             self.apply_view_options();
@@ -2704,7 +2750,7 @@ impl DirCompareView {
         }
         if let Some(text) = self.quick.clone() {
             let mut open = true;
-            egui::Window::new("Quick compare")
+            crate::chrome::window::Window::new("Quick compare")
                 .open(&mut open)
                 .show(&ctx, |ui| {
                     ui.label(text);
@@ -2716,12 +2762,15 @@ impl DirCompareView {
         if let Some(view) = &mut self.text {
             let mut open = true;
             let mut action = None;
-            self.floating[0] = egui::Window::new("Text Compare — selected files")
-                .id(egui::Id::unique(("folder_text", self.window_id)))
+            let id = egui::Id::unique(("folder_text", self.window_id));
+            // Esc belongs to the embedded view (find bar, selection), not the window.
+            self.floating[0] = crate::chrome::window::Window::new("Text Compare — selected files")
+                .id(id)
                 .open(&mut open)
                 .default_size([1150.0, 650.0])
+                .close_on_escape(false)
                 .show(&ctx, |ui| action = view.ui(ui, &mut self.text_prefs))
-                .map(|shown| shown.response.rect);
+                .and_then(|()| ctx.memory(|m| m.area_rect(id)));
             if !open {
                 // The close box goes through the text view's own save prompt.
                 view.request_close();
@@ -2899,16 +2948,18 @@ impl DirCompareView {
         }
         if let Some(child) = &mut self.child {
             let mut open = true;
-            self.floating[1] = egui::Window::new("Folder Compare — new view")
-                .id(egui::Id::unique(("folder_child", self.window_id)))
+            let id = egui::Id::unique(("folder_child", self.window_id));
+            self.floating[1] = crate::chrome::window::Window::new("Folder Compare — new view")
+                .id(id)
                 .open(&mut open)
                 .default_size([1200.0, 720.0])
+                .close_on_escape(false)
                 .show(&ctx, |ui| {
                     if let Some(action) = child.ui(ui) {
                         switch = Some(action);
                     }
                 })
-                .map(|shown| shown.response.rect);
+                .and_then(|()| ctx.memory(|m| m.area_rect(id)));
             if !open {
                 self.child = None;
                 self.message = "Child view closed; Refresh if its files changed".into();
@@ -3017,7 +3068,6 @@ const HEADER_SEP: egui::Color32 = crate::chrome::theme::LINE;
 const HEADER_EDGE: egui::Color32 = crate::chrome::theme::LINE;
 const TREE_EDGE: egui::Color32 = crate::chrome::theme::LINE;
 const LOG_FILL: egui::Color32 = crate::chrome::theme::SURFACE_SUBTLE;
-const COMBO_EDGE: egui::Color32 = crate::chrome::theme::LINE_STRONG;
 
 /// 每行树线标记：参考只画“父节点 → 直接子行”的肘形连接，无跨层贯通竖线。
 /// `parent_up` = 本行到父行的行距（行数）；0 表示顶层行无连接线。
@@ -4503,128 +4553,60 @@ impl DirCompareView {
         ]
     }
     /// 工具栏下拉（Sessions / Diffs / Files）：Area 弹出，选择后映射到同一动作入口。
-    fn chrome_dropdown(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
-        let (name, pos) = self.tool_dropdown.clone()?;
-        let mut picked: Option<String> = None;
-        let area = egui::Area::new(egui::Id::unique(("folder-tool-dropdown", self.window_id)))
-            .order(egui::Order::Foreground)
-            .fixed_pos(pos)
-            .movable(false)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(egui::Color32::WHITE)
-                    .stroke(egui::Stroke::new(1.0, crate::chrome::theme::BORDER))
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        match name.as_str() {
-                            "Sessions" => {
-                                for (label, id, enabled) in [
-                                    ("Home", "Home", true),
-                                    ("Session Settings...", "Session Settings", true),
-                                    ("Open Session", "Open Session", false),
-                                    ("Save Session", "Save Session", false),
-                                ] {
-                                    if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
-                                        picked = Some(id.to_string());
-                                    }
-                                }
-                            }
-                            "Show Differences" => {
-                                use bc_engine_dir::filter::DisplayFilter as D;
-                                for (label, id, mode) in [
-                                    ("Show All", "Show All", D::All),
-                                    ("Show Differences", "Show Differences", D::Mismatches),
-                                    ("Show Same", "Show Same", D::Matches),
-                                    ("Show No Orphans", "Show No Orphans", D::NoOrphans),
-                                    (
-                                        "Show Differences but No Orphans",
-                                        "Show Differences but No Orphans",
-                                        D::MismatchesNoOrphans,
-                                    ),
-                                    ("Show Orphans", "Show Orphans", D::Orphans),
-                                    ("Show Left Newer", "Show Left Newer", D::LeftNewer),
-                                    ("Show Right Newer", "Show Right Newer", D::RightNewer),
-                                    (
-                                        "Show Left Newer and Left Orphans",
-                                        "Show Left Newer and Left Orphans",
-                                        D::LeftNewerOrphans,
-                                    ),
-                                    (
-                                        "Show Right Newer and Right Orphans",
-                                        "Show Right Newer and Right Orphans",
-                                        D::RightNewerOrphans,
-                                    ),
-                                    ("Show Left Orphans", "Show Left Orphans", D::LeftOrphans),
-                                    ("Show Right Orphans", "Show Right Orphans", D::RightOrphans),
-                                ] {
-                                    if ui
-                                        .selectable_label(
-                                            self.filters.options.display == mode,
-                                            label,
-                                        )
-                                        .clicked()
-                                    {
-                                        picked = Some(id.to_string());
-                                    }
-                                }
-                            }
-                            "Show Files" => {
-                                if ui.selectable_label(self.show_files, "Show Files").clicked() {
-                                    picked = Some("Show Files".to_string());
-                                }
-                                ui.separator();
-                                for (label, id, mode) in [
-                                    (
-                                        "Always Show Folders",
-                                        "Always Show Folders",
-                                        FolderDisplay::AlwaysShow,
-                                    ),
-                                    (
-                                        "Compare Files and Folder Structure",
-                                        "Compare Files and Folder Structure",
-                                        FolderDisplay::FilesAndStructure,
-                                    ),
-                                    (
-                                        "Only Compare Files",
-                                        "Only Compare Files",
-                                        FolderDisplay::FilesOnly,
-                                    ),
-                                    (
-                                        "Ignore Folder Structure",
-                                        "Ignore Folder Structure",
-                                        FolderDisplay::Flatten,
-                                    ),
-                                ] {
-                                    if ui
-                                        .selectable_label(
-                                            self.filters.options.folders == mode,
-                                            label,
-                                        )
-                                        .clicked()
-                                    {
-                                        picked = Some(id.to_string());
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    });
-            });
-        let mut switch = None;
-        if let Some(id) = picked {
-            switch = self.folder_command(&id);
-            self.tool_dropdown = None;
-        }
-        if ui.input(|i| {
-            i.key_pressed(egui::Key::Escape)
-                || (i.pointer.any_pressed()
-                    && i.pointer
-                        .interact_pos()
-                        .is_some_and(|p| !area.response.rect.contains(p)))
-        }) {
-            self.tool_dropdown = None;
-        }
-        switch
+    /// Toolbar drop-down menus (Sessions / Show Differences / Show Files) in
+    /// the shared popup style, opened under the clicked toolbar item.
+    fn chrome_dropdown(
+        &mut self,
+        ui: &mut egui::Ui,
+        response: &crate::chrome::toolbar::ToolbarResponse,
+    ) -> Option<FolderNavigation> {
+        use crate::chrome::{popup::item, toolbar};
+        use bc_engine_dir::filter::DisplayFilter as D;
+        let id = egui::Id::unique(("folder-tool-dropdown", self.window_id));
+        let display = self.filters.options.display;
+        let folders = self.filters.options.folders;
+        let show_files = self.show_files;
+        let picked = toolbar::dropdown_menu(ui.ctx(), id, response, |name| match name {
+            "Sessions" => vec![
+                item::action("Home", "Home", true),
+                item::action("Session Settings...", "Session Settings", true),
+                item::action("Open Session", "Open Session", false),
+                item::action("Save Session", "Save Session", false),
+            ],
+            "Show Differences" => [
+                ("Show All", D::All),
+                ("Show Differences", D::Mismatches),
+                ("Show Same", D::Matches),
+                ("Show No Orphans", D::NoOrphans),
+                ("Show Differences but No Orphans", D::MismatchesNoOrphans),
+                ("Show Orphans", D::Orphans),
+                ("Show Left Newer", D::LeftNewer),
+                ("Show Right Newer", D::RightNewer),
+                ("Show Left Newer and Left Orphans", D::LeftNewerOrphans),
+                ("Show Right Newer and Right Orphans", D::RightNewerOrphans),
+                ("Show Left Orphans", D::LeftOrphans),
+                ("Show Right Orphans", D::RightOrphans),
+            ]
+            .into_iter()
+            .map(|(label, mode)| item::radio(label, label, display == mode))
+            .collect(),
+            "Show Files" => {
+                let mut items = vec![item::check("Show Files", "Show Files", show_files), item::separator()];
+                items.extend(
+                    [
+                        ("Always Show Folders", FolderDisplay::AlwaysShow),
+                        ("Compare Files and Folder Structure", FolderDisplay::FilesAndStructure),
+                        ("Only Compare Files", FolderDisplay::FilesOnly),
+                        ("Ignore Folder Structure", FolderDisplay::Flatten),
+                    ]
+                    .into_iter()
+                    .map(|(label, mode)| item::radio(label, label, folders == mode)),
+                );
+                items
+            }
+            _ => Vec::new(),
+        })?;
+        self.folder_command(&picked)
     }
     fn chrome_ui(&mut self, ui: &mut egui::Ui, busy: bool) -> Option<FolderNavigation> {
         use crate::chrome::{menubar, theme, toolbar};
@@ -4648,6 +4630,7 @@ impl DirCompareView {
             switch = self.folder_command(&action);
         }
         // 工具栏 43 px。
+        let mut tool_response = toolbar::ToolbarResponse::default();
         if self.toolbar {
             let tool_rect = egui::Rect::from_min_size(
                 egui::pos2(full.left(), y),
@@ -4660,17 +4643,12 @@ impl DirCompareView {
                 response = toolbar::show(ui, &items);
             });
             y = tool_rect.bottom();
-            if let Some(action) = response.clicked {
+            if let Some(action) = response.clicked.clone() {
                 switch = self.folder_command(&action).or(switch);
             }
-            if let Some(action) = response.dropdown {
-                self.tool_dropdown = Some((
-                    action,
-                    ui.ctx().pointer_latest_pos().unwrap_or(ui.cursor().min),
-                ));
-            }
+            tool_response = response;
         }
-        if let Some(action) = self.chrome_dropdown(ui) {
+        if let Some(action) = self.chrome_dropdown(ui, &tool_response) {
             switch = Some(action);
         }
         // 过滤栏 45 px。
@@ -4742,16 +4720,17 @@ impl DirCompareView {
                 egui::pos2(origin + 1.0, bar.top() + 1.0),
                 egui::vec2(combo_w, 25.0),
             );
-            painter.rect_filled(combo, 0.0, egui::Color32::WHITE);
+            let palette = crate::chrome::theme::palette(ui.ctx());
+            painter.rect_filled(combo, crate::chrome::theme::RADIUS_MD, palette.surface);
             painter.rect_stroke(
                 combo,
-                0.0,
-                egui::Stroke::new(1.0, COMBO_EDGE),
+                crate::chrome::theme::RADIUS_MD,
+                egui::Stroke::new(1.0, palette.line_strong),
                 egui::StrokeKind::Inside,
             );
             let edit_rect = egui::Rect::from_min_max(
-                combo.min + egui::vec2(1.0, 1.0),
-                egui::pos2(combo.right() - 15.0, combo.bottom() - 1.0),
+                combo.min + egui::vec2(5.0, 1.0),
+                egui::pos2(combo.right() - 21.0, combo.bottom() - 1.0),
             );
             let mut submitted = false;
             let edit_id = egui::Id::unique(("folder-path-edit", self.window_id, side));
@@ -4783,29 +4762,43 @@ impl DirCompareView {
             }
             // 内嵌历史下拉箭头。
             let chevron = egui::Rect::from_min_size(
-                egui::pos2(combo.right() - 15.0, combo.top()),
-                egui::vec2(14.0, combo.height()),
+                egui::pos2(combo.right() - 21.0, combo.top()),
+                egui::vec2(20.0, combo.height()),
             );
-            icons::dropdown_triangle(
-                &painter,
-                chevron.center(),
-                egui::Color32::from_rgb(110, 110, 110),
-            );
+            let c = chevron.center();
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::vec2(-3.5, -1.5),
+                    c + egui::vec2(0.0, 2.0),
+                    c + egui::vec2(3.5, -1.5),
+                ],
+                egui::Stroke::new(1.4, palette.text_muted),
+            ));
             let chev = ui.interact(chevron, edit_id.with("chevron"), egui::Sense::click());
-            let mut picked = None;
-            egui::Popup::from_toggle_button_response(&chev)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show(|ui| {
-                    if self.paths.recent.is_empty() {
-                        ui.add_enabled(false, egui::Label::new("No recent folders"));
-                    }
-                    for entry in &self.paths.recent {
-                        if ui.selectable_label(false, entry).clicked() {
-                            picked = Some(entry.clone());
-                            ui.close();
-                        }
-                    }
-                });
+            // 历史列表：共享弹出菜单，锚在整个组合框下方。
+            let menu_id = chev.id.with("menu-below");
+            if chev.clicked() {
+                crate::chrome::popup::toggle_menu_below(ui.ctx(), menu_id, combo);
+            }
+            let recent = &self.paths.recent;
+            let current = if side == 0 {
+                &self.paths.left
+            } else {
+                &self.paths.right
+            };
+            let picked = crate::chrome::popup::menu(ui.ctx(), menu_id, combo.width(), || {
+                use crate::chrome::popup::item;
+                if recent.is_empty() {
+                    return vec![item::action("No recent folders", "", false)];
+                }
+                recent
+                    .iter()
+                    .enumerate()
+                    .map(|(i, entry)| item::radio(entry.clone(), i.to_string(), entry == current))
+                    .collect()
+            })
+            .and_then(|i| i.parse::<usize>().ok())
+            .and_then(|i| self.paths.recent.get(i).cloned());
             if let Some(path) = picked {
                 if side == 0 {
                     self.paths.left = path;
@@ -4848,12 +4841,10 @@ impl DirCompareView {
                     },
                 );
                 if response.hovered() && enabled {
-                    painter.rect_filled(slot, 0.0, crate::chrome::theme::HOVER_BLUE);
-                    painter.rect_stroke(
-                        slot,
-                        0.0,
-                        egui::Stroke::new(1.0, crate::chrome::theme::CLASSIC_BLUE),
-                        egui::StrokeKind::Inside,
+                    painter.rect_filled(
+                        slot.shrink(1.0),
+                        crate::chrome::theme::RADIUS_MD,
+                        crate::chrome::theme::HOVER,
                     );
                 }
                 let mut icon_painter = painter.clone();
@@ -4873,9 +4864,9 @@ impl DirCompareView {
                         &painter,
                         egui::pos2(slot.left() + 20.0, slot.center().y),
                         if enabled {
-                            egui::Color32::BLACK
+                            crate::chrome::theme::TEXT_MUTED
                         } else {
-                            egui::Color32::from_rgb(150, 150, 150)
+                            crate::chrome::theme::TEXT_FAINT
                         },
                     );
                 }
@@ -5075,7 +5066,7 @@ impl DirCompareView {
         painter.rect_filled(
             egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 1.0)),
             0.0,
-            egui::Color32::from_rgb(236, 236, 236),
+            crate::chrome::theme::LINE,
         );
         painter.rect_filled(
             egui::Rect::from_min_size(
@@ -5083,7 +5074,7 @@ impl DirCompareView {
                 egui::vec2(rect.width(), 1.0),
             ),
             0.0,
-            egui::Color32::from_rgb(254, 254, 254),
+            crate::chrome::theme::SURFACE_CHROME,
         );
         // 行区。
         let rows_area = egui::Rect::from_min_max(
@@ -5284,7 +5275,7 @@ impl DirCompareView {
         painter.rect_filled(
             egui::Rect::from_min_size(rect.min, egui::vec2(1.0, rect.height())),
             0.0,
-            egui::Color32::from_rgb(236, 236, 236),
+            crate::chrome::theme::LINE,
         );
         painter.rect_filled(
             egui::Rect::from_min_size(
@@ -5292,7 +5283,7 @@ impl DirCompareView {
                 egui::vec2(1.0, rect.height()),
             ),
             0.0,
-            egui::Color32::from_rgb(254, 254, 254),
+            crate::chrome::theme::SURFACE_CHROME,
         );
         let seams: Vec<f32> = if self.sync_mode {
             SYNC_ARROW_LINES
@@ -5400,7 +5391,11 @@ impl DirCompareView {
                 egui::pos2(track.left() + 1.0, track.top() + travel * frac),
                 egui::vec2(track.width() - 2.0, thumb_h),
             );
-            painter.rect_filled(thumb, 0.0, egui::Color32::from_rgb(192, 192, 192));
+            painter.rect_filled(
+                thumb.shrink2(egui::vec2(2.0, 1.0)),
+                crate::chrome::theme::RADIUS_SM,
+                crate::chrome::theme::SCROLL_THUMB,
+            );
             let bar_response = ui.interact(
                 track,
                 egui::Id::unique(("folder-scrollbar", self.window_id)),
@@ -5419,7 +5414,7 @@ impl DirCompareView {
                     egui::vec2(2.0, 17.0),
                 ),
                 0.0,
-                egui::Color32::from_rgb(133, 133, 133),
+                crate::chrome::theme::TEXT_FAINT,
             );
         }
         painter.rect_filled(
@@ -5428,7 +5423,7 @@ impl DirCompareView {
                 egui::vec2(1.0, rect.height()),
             ),
             0.0,
-            egui::Color32::from_rgb(247, 247, 247),
+            crate::chrome::theme::SURFACE_CHROME,
         );
         painter.rect_filled(
             egui::Rect::from_min_size(
@@ -5436,7 +5431,7 @@ impl DirCompareView {
                 egui::vec2(1.0, rect.height()),
             ),
             0.0,
-            egui::Color32::from_rgb(230, 230, 230),
+            crate::chrome::theme::LINE,
         );
     }
     /// 日志区（106 px）：左侧齿轮/保存图标，#E3E7ED 文本框，右侧面板灰条。
@@ -5446,12 +5441,12 @@ impl DirCompareView {
         painter.hline(
             rect.left()..=rect.right(),
             rect.top(),
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(254, 254, 254)),
+            egui::Stroke::new(1.0, crate::chrome::theme::SURFACE_CHROME),
         );
         painter.hline(
             rect.left()..=rect.right(),
             rect.top() + 1.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(131, 131, 131)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE),
         );
         // 左侧小图标（原创）：齿轮 = 收起日志；文档 = 保存日志。
         let gear =
@@ -5506,19 +5501,19 @@ impl DirCompareView {
         painter.rect_stroke(
             text_box,
             0.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(236, 236, 236)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE),
             egui::StrokeKind::Inside,
         );
         // 底部边框行（参考 y934 #FEFEFE / y935 #838383）。
         painter.hline(
             rect.left()..=rect.right(),
             rect.bottom() - 2.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(254, 254, 254)),
+            egui::Stroke::new(1.0, crate::chrome::theme::SURFACE_CHROME),
         );
         painter.hline(
             rect.left()..=rect.right(),
             rect.bottom() - 1.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(131, 131, 131)),
+            egui::Stroke::new(1.0, crate::chrome::theme::LINE),
         );
         let mut lines = self.chrome_log.clone();
         for entry in self.shared.log.snapshot() {
@@ -5555,18 +5550,21 @@ impl DirCompareView {
                 clip.hline(
                     text_box.left()..=text_box.right(),
                     ly + 15.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(192, 192, 192)),
+                    egui::Stroke::new(1.0, crate::chrome::theme::LINE),
                 );
             }
         }
         if self.log_save_open {
             let mut save = None;
-            egui::Window::new("Save log")
+            use crate::chrome::{controls::Role, widgets};
+            crate::chrome::window::Window::new("Save log")
                 .open(&mut self.log_save_open)
                 .show(ui.ctx(), |ui| {
                     ui.label("Log file path");
-                    ui.text_edit_singleline(&mut self.log_panel.save_path);
-                    if ui.button("Save log").clicked() && !self.log_panel.save_path.is_empty() {
+                    widgets::text_field_width(ui, &mut self.log_panel.save_path, 360.0);
+                    if widgets::dialog_buttons(ui, &[("Save log", Role::Primary)]) == Some(0)
+                        && !self.log_panel.save_path.is_empty()
+                    {
                         save = Some(self.log_panel.save_path.clone());
                     }
                 });

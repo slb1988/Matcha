@@ -6,7 +6,7 @@
 //! Prev and (default) Next buttons and, at the right edge, an options
 //! dropdown. Options without a button of their own (replace row, search
 //! backwards, differences only, close) live in that dropdown, drawn with the
-//! shared classic popup.
+//! shared popup menu; controls use the design-system tokens.
 use crate::chrome::{
     menubar::{MenuItem, MenuItemKind},
     popup, theme,
@@ -19,12 +19,6 @@ pub const BAR_HEIGHT: f32 = 37.0;
 /// Extra height of the replace row when it is shown.
 const REPLACE_HEIGHT: f32 = 30.0;
 const HISTORY_LIMIT: usize = 12;
-const FOCUS: Color32 = Color32::from_rgb(0x00, 0x78, 0xD4);
-const BUTTON_EDGE: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD0);
-const BUTTON_FILL: Color32 = Color32::from_rgb(0xFD, 0xFD, 0xFD);
-const BUTTON_BOTTOM: Color32 = Color32::from_rgb(0xBA, 0xBA, 0xBA);
-const GLYPH: Color32 = Color32::from_rgb(0x33, 0x33, 0x33);
-const DISABLED: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
 
 #[derive(Default)]
 pub struct FindPanel {
@@ -59,73 +53,42 @@ pub enum FindAction {
 fn query_id() -> egui::Id {
     egui::Id::unique("find_query")
 }
-/// Rounded classic push button; `default` gets the blue default border.
-fn button(painter: &egui::Painter, rect: Rect, default: bool, on: bool) {
-    let (fill, edge) = if on {
-        (theme::HOVER_BLUE, theme::CLASSIC_BLUE)
+/// Find-bar push button in the shared control style: neutral outlined,
+/// `on` = accent tint (toggles), `default` = filled accent (Next). Returns
+/// the ink its label/glyph should use.
+fn button(ui: &egui::Ui, painter: &egui::Painter, rect: Rect, default: bool, on: bool) -> Color32 {
+    let p = theme::palette(ui.ctx());
+    let hovered = ui.rect_contains_pointer(rect);
+    let (fill, edge, ink) = if default {
+        (
+            if hovered { p.accent_hover } else { p.accent },
+            None,
+            Color32::WHITE,
+        )
+    } else if on {
+        (p.accent_soft, Some(p.accent_soft_line), p.accent_pressed)
     } else {
-        (BUTTON_FILL, if default { FOCUS } else { BUTTON_EDGE })
+        (
+            if hovered { p.hover } else { p.surface },
+            Some(p.line_strong),
+            p.text,
+        )
     };
-    painter.rect_filled(rect, 2.0, fill);
-    painter.rect_stroke(rect, 2.0, Stroke::new(1.0, edge), StrokeKind::Inside);
-    if !default && !on {
-        painter.rect_filled(
-            Rect::from_min_max(
-                Pos2::new(rect.left() + 2.0, rect.bottom() - 1.0),
-                Pos2::new(rect.right() - 2.0, rect.bottom()),
-            ),
-            0.0,
-            BUTTON_BOTTOM,
-        );
+    painter.rect_filled(rect, theme::RADIUS_MD, fill);
+    if let Some(edge) = edge {
+        painter.rect_stroke(rect, theme::RADIUS_MD, Stroke::new(1.0, edge), StrokeKind::Inside);
     }
+    ink
 }
-/// Pixel rows `(dy, x0, x1)` (inclusive) from `origin`, unfeathered.
-fn pixel_rows(painter: &egui::Painter, origin: Pos2, rows: &[(f32, f32, f32)], color: Color32) {
-    let mut mesh = egui::Mesh::default();
-    for &(dy, x0, x1) in rows {
-        mesh.add_colored_rect(
-            Rect::from_min_max(
-                origin + Vec2::new(x0, dy),
-                origin + Vec2::new(x1 + 1.0, dy + 1.0),
-            ),
-            color,
-        );
-    }
-    painter.add(egui::Shape::mesh(mesh));
-}
-/// Combo "v": 8 px wide, one-pixel steps.
-const COMBO_CHEVRON: [(f32, f32, f32); 8] = [
-    (0.0, 0.0, 0.0),
-    (0.0, 7.0, 7.0),
-    (1.0, 1.0, 1.0),
-    (1.0, 6.0, 6.0),
-    (2.0, 2.0, 2.0),
-    (2.0, 5.0, 5.0),
-    (3.0, 3.0, 4.0),
-    (3.0, 3.0, 3.0),
-];
-/// Options-button "v": 9 px wide, three-pixel-thick strokes.
-const BOLD_CHEVRON: [(f32, f32, f32); 10] = [
-    (0.0, 0.0, 1.0),
-    (0.0, 7.0, 8.0),
-    (1.0, 0.0, 2.0),
-    (1.0, 6.0, 8.0),
-    (2.0, 1.0, 3.0),
-    (2.0, 5.0, 7.0),
-    (3.0, 2.0, 6.0),
-    (4.0, 3.0, 5.0),
-    (5.0, 4.0, 4.0),
-    (5.0, 4.0, 4.0),
-];
-fn triangle_down(painter: &egui::Painter, center: Pos2, color: Color32) {
-    painter.add(egui::Shape::convex_polygon(
+/// Stroke chevron (same as combo boxes elsewhere).
+fn chevron(painter: &egui::Painter, c: Pos2, color: Color32) {
+    painter.add(egui::Shape::line(
         vec![
-            center + Vec2::new(-4.0, -2.0),
-            center + Vec2::new(4.0, -2.0),
-            center + Vec2::new(0.0, 2.5),
+            c + Vec2::new(-3.5, -1.5),
+            c + Vec2::new(0.0, 2.0),
+            c + Vec2::new(3.5, -1.5),
         ],
-        color,
-        Stroke::NONE,
+        Stroke::new(1.4, color),
     ));
 }
 impl FindPanel {
@@ -218,27 +181,28 @@ impl FindPanel {
         let painter = ui.painter_at(bar);
         let at = |x: f32, y: f32| bar.min + Vec2::new(x, y);
         let span = |x0: f32, y0: f32, x1: f32, y1: f32| Rect::from_min_max(at(x0, y0), at(x1, y1));
-        painter.rect_filled(bar, 0.0, theme::PANEL_BG);
-        painter.rect_filled(span(0.0, 0.0, bar.width(), 1.0), 0.0, Color32::WHITE);
+        let p = theme::palette(ui.ctx());
+        painter.rect_filled(bar, 0.0, p.surface_chrome);
+        painter.rect_filled(span(0.0, 0.0, bar.width(), 1.0), 0.0, p.line);
         // Search glyph: ring with a handle toward the lower right.
         let ring = at(15.5, 17.0);
-        painter.circle_stroke(ring, 4.5, Stroke::new(1.8, Color32::BLACK));
+        painter.circle_stroke(ring, 4.5, Stroke::new(1.6, p.text_muted));
         painter.line_segment(
-            [ring + Vec2::new(3.2, 3.2), ring + Vec2::new(8.0, 8.0)],
-            Stroke::new(2.2, Color32::BLACK),
+            [ring + Vec2::new(3.2, 3.2), ring + Vec2::new(7.5, 7.5)],
+            Stroke::new(2.0, p.text_muted),
         );
-        // Search combo (focused look: 1 px blue border on white).
+        // Search combo: rounded field, accent outline while focused.
         let combo = span(41.0, 8.0, 696.0, 33.0);
-        painter.rect_filled(combo, 1.0, Color32::WHITE);
-        painter.rect_stroke(combo, 1.0, Stroke::new(1.0, FOCUS), StrokeKind::Inside);
-        pixel_rows(
-            &painter,
-            at(683.0, 19.0),
-            &COMBO_CHEVRON,
-            Color32::from_gray(0x6F),
-        );
-        let field = span(43.0, 11.0, 676.0, 30.0);
         let focused = ui.memory(|m| m.has_focus(query_id()));
+        painter.rect_filled(combo, theme::RADIUS_MD, p.surface);
+        painter.rect_stroke(
+            combo,
+            theme::RADIUS_MD,
+            Stroke::new(1.0, if focused { p.accent } else { p.line_strong }),
+            StrokeKind::Inside,
+        );
+        chevron(&painter, at(686.0, 20.5), p.text_muted);
+        let field = span(49.0, 11.0, 676.0, 30.0);
         if focused {
             self.select_hint = false;
         }
@@ -253,23 +217,16 @@ impl FindPanel {
                 .size()
                 .x;
             painter.rect_filled(
-                Rect::from_min_size(at(44.0, 11.0), Vec2::new(width.ceil(), 17.0)),
+                Rect::from_min_size(at(50.0, 11.0), Vec2::new(width.ceil(), 17.0)),
                 0.0,
-                Color32::from_rgb(0x00, 0x78, 0xD7),
+                p.selection,
             );
         }
         let output = ui
             .scope_builder(egui::UiBuilder::new().max_rect(field), |ui| {
-                let visuals = &mut ui.visuals_mut().selection;
-                visuals.bg_fill = Color32::from_rgb(0x00, 0x78, 0xD7);
-                visuals.stroke = Stroke::new(1.0, Color32::WHITE);
                 egui::TextEdit::singleline(&mut self.options.pattern)
                     .id(query_id())
-                    .text_color(if hinted {
-                        Color32::WHITE
-                    } else {
-                        Color32::BLACK
-                    })
+                    .text_color(p.text)
                     .frame(egui::Frame::NONE)
                     .margin(egui::Margin::symmetric(1, 1))
                     .font(FontId::proportional(theme::UI_SIZE))
@@ -303,12 +260,8 @@ impl FindPanel {
             ui.interact(rect, id.with(key), Sense::click()).clicked()
         };
         let history = row(702.0, 730.0);
-        button(&painter, history, false, false);
-        triangle_down(
-            &painter,
-            history.center() + Vec2::new(2.0, 0.5),
-            Color32::BLACK,
-        );
+        let ink = button(ui, &painter, history, false, false);
+        chevron(&painter, history.center(), ink);
         let toggles: [(f32, &str, bool, bool); 4] = [
             (742.0, ".*", self.options.is_regexp, true),
             (772.0, "Aa", self.options.case_sensitive, true),
@@ -319,8 +272,8 @@ impl FindPanel {
         let mut toggled = [false; 4];
         for (i, (x, label, on, enabled)) in toggles.into_iter().enumerate() {
             let rect = row(x, x + 28.0);
-            button(&painter, rect, false, on);
-            let ink = if enabled { Color32::BLACK } else { DISABLED };
+            let ink = button(ui, &painter, rect, false, on && enabled);
+            let ink = if enabled { ink } else { p.text_faint };
             let c = rect.center();
             match label {
                 "ab" => {
@@ -368,15 +321,14 @@ impl FindPanel {
         self.options.whole_words ^= toggled[2];
         let prev = row(872.0, 916.0);
         let next = row(918.0, 964.0);
-        button(&painter, prev, false, false);
-        button(&painter, next, true, false);
-        for (rect, label) in [(prev, "Prev"), (next, "Next")] {
+        for (rect, label, default) in [(prev, "Prev", false), (next, "Next", true)] {
+            let ink = button(ui, &painter, rect, default, false);
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 label,
                 FontId::proportional(theme::UI_SIZE),
-                Color32::BLACK,
+                ink,
             );
         }
         if click(ui, prev, "prev") {
@@ -386,13 +338,8 @@ impl FindPanel {
             action = Some(FindAction::Next);
         }
         let expand = row(bar.width() - 35.0, bar.width() - 6.0);
-        button(&painter, expand, false, false);
-        pixel_rows(
-            &painter,
-            expand.min + Vec2::new(10.0, 11.0),
-            &BOLD_CHEVRON,
-            GLYPH,
-        );
+        let ink = button(ui, &painter, expand, false, false);
+        chevron(&painter, expand.center(), ink);
         // Dropdowns (history / options) in the classic popup style.
         if click(ui, history, "history") {
             self.menu = Some((Dropdown::History, vec![popup::NONE]));
@@ -439,32 +386,38 @@ impl FindPanel {
                 egui::Align2::LEFT_CENTER,
                 "Replace with:",
                 FontId::proportional(theme::UI_SIZE),
-                Color32::BLACK,
+                p.text,
             );
             let edit = span(130.0, top + 2.0, 696.0, top + 25.0);
-            painter.rect_filled(edit, 1.0, Color32::WHITE);
-            painter.rect_stroke(edit, 1.0, Stroke::new(1.0, BUTTON_EDGE), StrokeKind::Inside);
+            let editing = ui.memory(|m| m.has_focus(egui::Id::unique("find_replacement")));
+            painter.rect_filled(edit, theme::RADIUS_MD, p.surface);
+            painter.rect_stroke(
+                edit,
+                theme::RADIUS_MD,
+                Stroke::new(1.0, if editing { p.accent } else { p.line_strong }),
+                StrokeKind::Inside,
+            );
             ui.scope_builder(
-                egui::UiBuilder::new().max_rect(edit.shrink2(Vec2::new(3.0, 3.0))),
+                egui::UiBuilder::new().max_rect(edit.shrink2(Vec2::new(7.0, 3.0))),
                 |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.replacement)
                             .id(egui::Id::unique("find_replacement"))
                             .frame(egui::Frame::NONE)
-                            .desired_width(edit.width() - 6.0),
+                            .desired_width(edit.width() - 14.0),
                     );
                 },
             );
             let replace = span(702.0, top + 1.0, 790.0, top + 26.0);
             let all = span(794.0, top + 1.0, 890.0, top + 26.0);
             for (rect, label) in [(replace, "Replace"), (all, "Replace All")] {
-                button(&painter, rect, false, false);
+                let ink = button(ui, &painter, rect, false, false);
                 painter.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
                     label,
                     FontId::proportional(theme::UI_SIZE),
-                    Color32::BLACK,
+                    ink,
                 );
             }
             if click(ui, replace, "replace") {

@@ -49,8 +49,10 @@ impl LogPanel {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("Operation log ({} events)", self.lines.len()));
-                    ui.text_edit_singleline(&mut self.save_path);
-                    if ui.button("Save log").clicked() && !self.save_path.is_empty() {
+                    crate::chrome::widgets::text_field_width(ui, &mut self.save_path, 260.0);
+                    if crate::chrome::widgets::button(ui, "Save log").clicked()
+                        && !self.save_path.is_empty()
+                    {
                         save = Some(self.save_path.clone());
                     }
                 });

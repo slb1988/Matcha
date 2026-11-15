@@ -21,6 +21,7 @@ pub const SCENES: &[&str] = &[
     "hex-diffs-filter",
     "icon-catalog",
     "chrome-demo",
+    "widget-gallery",
     "text-basic",
     "folder-basic",
     "text-diffs-filter",
@@ -80,7 +81,7 @@ pub const HEX_RIGHT: &str = "docs/reference-parity/hex-compare/corpus/right.bin"
 pub const MERGE_LEFT: &str = "tools/visual/corpus/merge-left.txt";
 pub const MERGE_RIGHT: &str = "tools/visual/corpus/merge-right.txt";
 pub const MERGE_BASE: &str = "tools/visual/corpus/merge-base.txt";
-pub const REGISTRY: [Scene; 23] = [
+pub const REGISTRY: [Scene; 24] = [
     // text-merge：打开即定位到第一个冲突 / 解决第一个冲突之后。
     Scene {
         name: "merge-basic",
@@ -115,6 +116,13 @@ pub const REGISTRY: [Scene; 23] = [
     },
     Scene {
         name: "chrome-demo",
+        view: SceneView::Chrome,
+        preset: Preset::None,
+    },
+    // Design-system gallery: floating Window with every chrome::widgets
+    // control plus an open drop-down menu (visual regression of the kit).
+    Scene {
+        name: "widget-gallery",
         view: SceneView::Chrome,
         preset: Preset::None,
     },
@@ -219,7 +227,7 @@ pub fn is_scene(scene: Option<&str>) -> bool {
     scene.is_some_and(|s| REGISTRY.iter().any(|r| r.name == s))
 }
 pub fn is_demo(scene: &str) -> bool {
-    matches!(scene, "icon-catalog" | "chrome-demo")
+    matches!(scene, "icon-catalog" | "chrome-demo" | "widget-gallery")
 }
 /// 不忽略 I/O 错误；未知场景和缺失语料在打开窗口前失败。
 pub fn prepare_options(mut options: LaunchOptions) -> std::io::Result<LaunchOptions> {
@@ -625,6 +633,28 @@ pub struct ChromeDemo {
     paths: [String; 2],
     tools: Vec<ToolItem>,
     last_action: String,
+    gallery: Gallery,
+}
+/// State of the `widget-gallery` scene.
+struct Gallery {
+    check: bool,
+    radio: u8,
+    combo: u8,
+    text: String,
+    row: usize,
+    menu_opened: bool,
+}
+impl Default for Gallery {
+    fn default() -> Self {
+        Self {
+            check: true,
+            radio: 1,
+            combo: 0,
+            text: "C:\\work\\left.txt".into(),
+            row: 1,
+            menu_opened: false,
+        }
+    }
 }
 impl Default for ChromeDemo {
     fn default() -> Self {
@@ -632,16 +662,97 @@ impl Default for ChromeDemo {
             paths: [TEXT_LEFT.into(), TEXT_RIGHT.into()],
             tools: demo_tools(),
             last_action: String::new(),
+            gallery: Gallery::default(),
         }
     }
 }
 impl ChromeDemo {
+    fn gallery(&mut self, ui: &mut egui::Ui) {
+        use crate::chrome::{controls::Role, popup, theme, widgets, window::Window};
+        let g = &mut self.gallery;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(theme::CANVAS))
+            .show(ui, |ui| {
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    let menu = ui.add(widgets::Button::new("Sessions").dropdown(true));
+                    let id = menu.id.with("menu-below");
+                    if !g.menu_opened {
+                        popup::open_menu(
+                            ui.ctx(),
+                            id,
+                            menu.rect.left_bottom() + egui::vec2(0.0, 2.0),
+                            Some(menu.rect),
+                        );
+                        g.menu_opened = true;
+                    }
+                    popup::menu_below(&menu, || {
+                        vec![
+                            popup::item::action("Home", "home", true),
+                            popup::item::action("Session Settings...", "settings", true),
+                            popup::item::check("Show Toolbar", "toolbar", true),
+                            popup::item::separator(),
+                            popup::item::radio("Compare Values", "values", true),
+                            popup::item::radio("Compare Formulas", "formulas", false),
+                            popup::item::separator(),
+                            popup::item::action("Open Session", "open", false),
+                        ]
+                    });
+                });
+            });
+        Window::new("Widget gallery")
+            .default_width(460.0)
+            .show(ui.ctx(), |ui| {
+                widgets::section(ui, "Buttons");
+                ui.horizontal(|ui| {
+                    widgets::button(ui, "Secondary");
+                    widgets::primary_button(ui, "Primary");
+                    ui.add(widgets::Button::new("Delete").danger());
+                    ui.add(widgets::Button::new("Toggled").selected(true));
+                    ui.add_enabled(false, widgets::Button::new("Disabled"));
+                });
+                widgets::section(ui, "Choices");
+                ui.horizontal(|ui| {
+                    widgets::checkbox(ui, &mut g.check, "Checked");
+                    let mut off = false;
+                    widgets::checkbox(ui, &mut off, "Unchecked");
+                    ui.add_enabled(false, widgets::Checkbox::new(&mut off, "Disabled"));
+                });
+                ui.horizontal(|ui| {
+                    widgets::radio_value(ui, &mut g.radio, 0, "Complete");
+                    widgets::radio_value(ui, &mut g.radio, 1, "Fast");
+                    widgets::radio_value(ui, &mut g.radio, 2, "None");
+                });
+                widgets::section(ui, "Fields");
+                ui.horizontal(|ui| {
+                    widgets::text_field_width(ui, &mut g.text, 220.0);
+                    widgets::Combo::new("gallery-combo", ["UTF-8", "UTF-16 LE", "GBK (936)"][g.combo as usize])
+                        .width(140.0)
+                        .show(ui, |list| {
+                            list.selectable_value(&mut g.combo, 0, "UTF-8");
+                            list.selectable_value(&mut g.combo, 1, "UTF-16 LE");
+                            list.selectable_value(&mut g.combo, 2, "GBK (936)");
+                        });
+                });
+                widgets::section(ui, "List");
+                for (i, row) in ["C/C++", "Rust", "XML"].iter().enumerate() {
+                    widgets::list_value(ui, &mut g.row, i, *row);
+                }
+                widgets::hint(ui, "Hint text explains a setting in a muted color and wraps.");
+                widgets::dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]);
+            });
+    }
     pub fn show(&mut self, ui: &mut egui::Ui, scene: &str) {
         use crate::chrome::{
             menubar, pathbar,
             statusbar::{self, StatusField},
             toolbar,
         };
+        if scene == "widget-gallery" {
+            self.gallery(ui);
+            return;
+        }
         if scene == "icon-catalog" {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.heading("Matcha — original vector icon catalog");

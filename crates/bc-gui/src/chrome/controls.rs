@@ -51,42 +51,56 @@ pub fn paint_button(
     role: Role,
     enabled: bool,
 ) {
+    let ink = paint_face(ui, rect, response, role, enabled);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font(),
+        ink,
+    );
+}
+
+/// Paint only the button face (fill, outline, focus ring) and return the ink
+/// color its label should use.
+pub fn paint_face(ui: &Ui, rect: Rect, response: &Response, role: Role, enabled: bool) -> Color32 {
     let hovered = enabled && response.hovered();
     let pressed = enabled && response.is_pointer_button_down_on();
+    let p = theme::palette(ui.ctx());
     let (fill, line, ink) = match (enabled, role) {
-        (false, _) => (theme::SURFACE_SUBTLE, theme::LINE, theme::TEXT_FAINT),
+        (false, _) => (p.surface_subtle, p.line, p.text_faint),
         (true, Role::Primary) => (
             if pressed {
-                theme::ACCENT_PRESSED
+                p.accent_pressed
             } else if hovered {
-                theme::ACCENT_HOVER
+                p.accent_hover
             } else {
-                theme::ACCENT
+                p.accent
             },
             Color32::TRANSPARENT,
             Color32::WHITE,
         ),
         (true, Role::Secondary) => (
             if pressed {
-                theme::PRESSED
+                p.pressed
             } else if hovered {
-                theme::HOVER
+                p.hover
             } else {
-                theme::SURFACE
+                p.surface
             },
-            theme::LINE_STRONG,
-            theme::TEXT,
+            p.line_strong,
+            p.text,
         ),
         (true, Role::Destructive) => (
             if pressed {
-                Color32::from_rgb(0xF8, 0xD9, 0xD7)
+                p.danger_pressed
             } else if hovered {
-                theme::DANGER_SOFT
+                p.danger_soft
             } else {
                 Color32::TRANSPARENT
             },
             Color32::TRANSPARENT,
-            theme::DANGER,
+            p.danger,
         ),
     };
     let painter = ui.painter();
@@ -103,17 +117,11 @@ pub fn paint_button(
         painter.rect_stroke(
             rect.expand(2.0),
             BUTTON_RADIUS + 2,
-            Stroke::new(2.0, theme::ACCENT_SOFT_LINE),
+            Stroke::new(2.0, p.accent_soft_line),
             StrokeKind::Inside,
         );
     }
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        font(),
-        ink,
-    );
+    ink
 }
 
 /// Small rounded label chip (e.g. "LEFT" / "RIGHT").

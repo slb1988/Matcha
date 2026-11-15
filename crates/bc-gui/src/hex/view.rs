@@ -14,6 +14,7 @@ use crate::chrome::icons::Icon;
 use crate::chrome::menubar;
 use crate::chrome::statusbar::{self, StatusField};
 use crate::chrome::toolbar::{self, ToolItem, ToolItemKind};
+use crate::chrome::{controls::Role, widgets, window::Window};
 
 use super::menu;
 use super::render::{self, GridRowModel, GridStyle};
@@ -1106,9 +1107,9 @@ impl HexCompareView {
             return;
         }
         let mut open = true;
-        egui::Window::new("Layout")
+        Window::new("Layout")
+            .id(egui::Id::unique("hex-layout"))
             .open(&mut open)
-            .resizable(false)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Bytes per group:");
@@ -1121,7 +1122,7 @@ impl HexCompareView {
                     ui.label("Groups per item:");
                     ui.add(egui::DragValue::new(&mut self.groups_per_item).range(1..=16));
                 });
-                ui.checkbox(&mut self.fit_to_window, "Fit to window");
+                widgets::checkbox(ui, &mut self.fit_to_window, "Fit to window");
                 ui.horizontal(|ui| {
                     ui.label("Context count:");
                     let mut v = self.map.rules.context_count as u32;
@@ -1230,33 +1231,39 @@ impl HexCompareView {
             return;
         }
         ui.horizontal(|ui| {
-            ui.label("查找:");
-            ui.add(egui::TextEdit::singleline(&mut self.find_input).desired_width(220.0));
-            if ui.selectable_label(self.find_hex, "Hex").clicked() {
+            ui.label("Find:");
+            ui.add(widgets::field(&mut self.find_input).desired_width(220.0));
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if ui.add(widgets::Button::new("Hex").selected(self.find_hex)).clicked() {
                 self.find_hex = true;
             }
-            if ui.selectable_label(!self.find_hex, "文本").clicked() {
+            if ui.add(widgets::Button::new("Text").selected(!self.find_hex)).clicked() {
                 self.find_hex = false;
             }
+            ui.spacing_mut().item_spacing.x = 8.0;
             if !self.find_hex {
-                ui.checkbox(&mut self.find_case, "大小写");
+                widgets::checkbox(ui, &mut self.find_case, "Match case");
             }
-            if ui.button("上一个").clicked() {
+            if widgets::button(ui, "Previous").clicked() {
                 self.find_next(false);
             }
-            if ui.button("下一个").clicked() {
+            if widgets::primary_button(ui, "Next").clicked() {
                 self.find_next(true);
             }
-            if ui.button("\u{00d7}").clicked() {
+            if ui
+                .add(widgets::Button::new("\u{00d7}").min_width(28.0))
+                .on_hover_text("Close")
+                .clicked()
+            {
                 self.find_open = false;
                 self.replace_open = false;
             }
         });
         if self.replace_open {
             ui.horizontal(|ui| {
-                ui.label("替换:");
-                ui.add(egui::TextEdit::singleline(&mut self.replace_input).desired_width(220.0));
-                if ui.button("替换").clicked() {
+                ui.label("Replace:");
+                ui.add(widgets::field(&mut self.replace_input).desired_width(220.0));
+                if widgets::button(ui, "Replace").clicked() {
                     self.replace_current();
                 }
             });
@@ -1269,26 +1276,27 @@ impl HexCompareView {
             return;
         }
         let mut open = true;
-        egui::Window::new("Go To").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("字节地址:");
-                ui.add(egui::TextEdit::singleline(&mut self.goto_input).desired_width(160.0));
-            });
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut self.goto_hex, true, "Hex");
-                ui.radio_value(&mut self.goto_hex, false, "Decimal");
-                ui.radio_value(&mut self.goto_side, 0, "Left");
-                ui.radio_value(&mut self.goto_side, 1, "Right");
-            });
-            ui.horizontal(|ui| {
-                if ui.button("确定").clicked() {
-                    self.goto_apply();
+        Window::new("Go To")
+            .id(egui::Id::unique("hex-goto"))
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Byte address:");
+                    ui.add(widgets::field(&mut self.goto_input).desired_width(160.0));
+                });
+                ui.horizontal(|ui| {
+                    widgets::radio_value(ui, &mut self.goto_hex, true, "Hex");
+                    widgets::radio_value(ui, &mut self.goto_hex, false, "Decimal");
+                    ui.add_space(12.0);
+                    widgets::radio_value(ui, &mut self.goto_side, 0, "Left");
+                    widgets::radio_value(ui, &mut self.goto_side, 1, "Right");
+                });
+                match widgets::dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]) {
+                    Some(0) => self.goto_open = false,
+                    Some(1) => self.goto_apply(),
+                    _ => {}
                 }
-                if ui.button("取消").clicked() {
-                    self.goto_open = false;
-                }
             });
-        });
         if self.goto_open {
             self.goto_open = open;
         }
@@ -1300,11 +1308,14 @@ impl HexCompareView {
             return;
         }
         let mut open = true;
-        egui::Window::new("Hex Compare Info").open(&mut open).resizable(false).show(ctx, |ui| {
-            for line in self.info_lines() {
-                ui.label(line);
-            }
-        });
+        Window::new("Hex Compare Info")
+            .id(egui::Id::unique("hex-info"))
+            .open(&mut open)
+            .show(ctx, |ui| {
+                for line in self.info_lines() {
+                    ui.label(line);
+                }
+            });
         self.info_open = open;
     }
 
