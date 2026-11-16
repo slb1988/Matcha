@@ -65,6 +65,12 @@
 - GUI 没有自己的 mmap/unsafe；只读锁与编码下沉到 `bc-core`/引擎，系统光标读取与原生对话框属主窗口在 `bc-shell`。
 - **剪贴板**：eframe 必须启用 `clipboard` feature，否则 egui-winit 退化为进程内假剪贴板，
   Ctrl+C/V、`copy_text`、`RequestPaste` 都不经过系统剪贴板。
+- **路径框首次进入默认全选**：左键点入或键盘/程序化聚焦路径框（`chrome::pathbar` 可编辑与只读变体、
+  文件夹/同步视图路径框）时整段路径全选，对齐浏览器地址栏；再次点击或拖拽正常落点圈选。
+  左键点入的全选延迟到「未拖拽的释放」帧（按下即拖是圈选手势，不能被全选覆盖锚点）；
+  右键聚焦不触发（随后的左键落点不应被抢走），见 `pathbar::select_all_on_first_focus`。
+  路径框文本选区用与正文窗格一致的经典选区蓝 #99C9EF（`TEXT_SELECTION`），选中文字保持正文色；
+  主题全局的选区绿（`SELECTION`）只留给树/表格的行选中态。
 - **路径框粘贴**：所有路径编辑框（`chrome::pathbar` 与文件夹/同步视图路径框）粘贴时去掉
   首尾空白及成对包住整段的双引号（Explorer「复制为路径」的格式）；Ctrl+V 与右键 Paste 同一规则，
   见 `pathbar::clean_pasted_path`。

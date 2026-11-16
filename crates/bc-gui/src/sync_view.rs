@@ -999,7 +999,10 @@ fn combo_edit(
         ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
         ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
         ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
-        ui.visuals_mut().selection.stroke = egui::Stroke::NONE;
+        // 选区蓝底，与 chrome::pathbar 一致（stroke 是选中文字色，保持正文色）。
+        ui.visuals_mut().selection.bg_fill = crate::chrome::theme::TEXT_SELECTION;
+        ui.visuals_mut().selection.stroke =
+            egui::Stroke::new(1.0, crate::chrome::theme::TEXT);
         let text_id = ui.make_persistent_id("path-text");
         crate::chrome::pathbar::clean_paste_events(ui.ctx(), text_id);
         let response = ui.add_sized(
@@ -1009,6 +1012,7 @@ fn combo_edit(
                 .frame(egui::Frame::NONE)
                 .margin(egui::vec2(2.0, 4.0)),
         );
+        crate::chrome::pathbar::select_all_on_first_focus(ui, &response, text);
         submitted = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     });
     submitted

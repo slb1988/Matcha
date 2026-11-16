@@ -29,6 +29,10 @@ pub fn show_with_history(
             Stroke::new(1.0, super::theme::LINE_STRONG);
         ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::new(1.0, super::theme::TEXT_FAINT);
         ui.visuals_mut().extreme_bg_color = super::theme::SURFACE;
+        // 文本选区用与正文窗格一致的经典选区蓝（主题全局选区绿留给树/表格选中态）；
+        // selection.stroke 是 egui 选中文字的颜色，保持正文色避免变透明。
+        ui.visuals_mut().selection.bg_fill = super::theme::TEXT_SELECTION;
+        ui.visuals_mut().selection.stroke = Stroke::new(1.0, super::theme::TEXT);
         let edit_width = (ui.available_width() - 82.0).max(40.0);
         // 与 add_sized 相同的「居中并填满」布局，但保留 TextEditOutput：
         // galley 供右键点击定位光标。
@@ -47,6 +51,8 @@ pub fn show_with_history(
             )
             .inner;
         let edit = output.response.response.clone();
+        // 首次进入路径框默认全选整段路径；再次点击/拖拽正常落点圈选。
+        select_all_on_first_focus(ui, &edit, path);
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             result.submitted = true;
             result.action = Some("path-submit".into());
@@ -193,6 +199,55 @@ pub fn show_with_history(
         }
     });
     result
+}
+/// 首次进入路径框（左键点入或键盘/程序化聚焦）时全选整段路径，对齐浏览器地址栏习惯：
+/// 随后再次点击或拖拽即可正常落点、圈选想要的子串。
+/// 左键点进来的焦点等到「未拖拽的释放」帧才全选——按下即拖是圈选手势，全选会覆盖
+/// 掉拖拽锚点；键盘/程序化聚焦没有指针手势，直接全选。右键聚焦不触发（右键是开菜单，
+/// 随后的左键落点不应被全选抢走）。可编辑框与只读框、文件夹/同步视图路径框共用。
+pub fn select_all_on_first_focus(ui: &egui::Ui, edit: &egui::Response, text: &str) {
+    let ctx = ui.ctx();
+    let pending_id = edit.id.with("select-all-on-focus");
+    if edit.gained_focus() {
+        let (any_pressed, primary_pressed, primary_released) = ui.input(|i| {
+            (
+                i.pointer.any_pressed(),
+                i.pointer.button_pressed(egui::PointerButton::Primary),
+                i.pointer.primary_released(),
+            )
+        });
+        if primary_pressed && !primary_released {
+            // 等释放帧判定是「点击」（全选）还是「按下-拖拽」（圈选）。
+            ctx.data_mut(|d| d.insert_temp(pending_id, ()));
+        } else if (primary_released || !any_pressed) && !edit.dragged() {
+            // 同帧完成的点击，或键盘/程序化聚焦；右键按下进来的不触发。
+            select_all_text(ctx, edit.id, text);
+        }
+        return;
+    }
+    let pending = ctx.data(|d| d.get_temp::<()>(pending_id)).is_some();
+    if !pending {
+        return;
+    }
+    if edit.lost_focus() || edit.dragged() {
+        ctx.data_mut(|d| d.remove::<()>(pending_id));
+    } else if ui.input(|i| i.pointer.primary_released()) {
+        ctx.data_mut(|d| d.remove::<()>(pending_id));
+        if edit.has_focus() {
+            select_all_text(ctx, edit.id, text);
+        }
+    }
+}
+/// 把编辑框光标设为全选（锚在 0、主光标在末尾，长路径滚到文件名一端）。
+fn select_all_text(ctx: &egui::Context, id: egui::Id, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let mut state = egui::widgets::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::select_all_str(text)));
+    state.store(ctx, id);
 }
 /// 粘贴进路径框的文本：去掉首尾空白，以及成对包住整段的双引号
 /// （资源管理器「复制为路径」、命令行引用的路径都带引号）。
@@ -487,6 +542,9 @@ fn edit_menu(
 pub fn show_readonly(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::Response {
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
         let edit_id = ui.make_persistent_id("pathbar-readonly");
+        // 选区底色同可编辑路径框（经典选区蓝，文字保持正文色）。
+        ui.visuals_mut().selection.bg_fill = super::theme::TEXT_SELECTION;
+        ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0, super::theme::TEXT);
         // &str 实现 TextBuffer 且 is_mutable()==false：egui 只读编辑框，可选中/复制。
         let mut buffer = text;
         let output = ui
@@ -506,6 +564,8 @@ pub fn show_readonly(ui: &mut egui::Ui, rect: egui::Rect, text: &str) -> egui::R
             )
             .inner;
         let edit = output.response.response.clone();
+        // 首次进入同样全选，便于整段复制。
+        select_all_on_first_focus(ui, &edit, text);
         // 失焦也保住水平滚动位置；标题条底色擦除，纵向收缩以避开底部分隔线。
         let mut clip = output.text_clip_rect.expand2(egui::vec2(1.0, 0.0));
         clip.max.y -= 1.0;
@@ -698,6 +758,80 @@ mod tests {
             .iter()
             .any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t == "C:/work/left.txt")));
         assert_eq!(path, "C:/work/left.txt");
+    }
+    #[test]
+    fn first_click_selects_all_typing_replaces_whole_path() {
+        // 首次点入路径框：按下+释放同帧到达，当帧即全选；接着输入整段替换。
+        let ctx = egui::Context::default();
+        let mut path = "C:/work/left.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], false); // 首帧注册 widget
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(egui::pos2(30.0, 12.0), egui::PointerButton::Primary),
+            false,
+        );
+        menu_frame(
+            &ctx,
+            &mut path,
+            vec![egui::Event::Text("D:/new.txt".into())],
+            false,
+        );
+        assert_eq!(path, "D:/new.txt");
+    }
+    #[test]
+    fn second_click_places_cursor_for_normal_editing() {
+        // 再次点击（与首次位置拉开距离，避免被计为双击）：选区收拢为落点光标，
+        // 输入只插入一个字符而不是整体替换。
+        let ctx = egui::Context::default();
+        let mut path = "C:/work/left.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(egui::pos2(30.0, 12.0), egui::PointerButton::Primary),
+            false,
+        );
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(egui::pos2(80.0, 12.0), egui::PointerButton::Primary),
+            false,
+        );
+        menu_frame(&ctx, &mut path, vec![egui::Event::Text("X".into())], false);
+        assert_eq!(path.chars().count(), "C:/work/left.txt".chars().count() + 1);
+        assert!(path.contains('X'));
+    }
+    #[test]
+    fn first_press_drag_selects_range_without_select_all() {
+        // 首次手势就是按下-拖拽：拖拽取消全选候补，圈选落点区间。
+        let ctx = egui::Context::default();
+        let mut path = "C:/work/left.txt".to_string();
+        menu_frame(&ctx, &mut path, vec![], false);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: egui::pos2(30.0, 12.0),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        menu_frame(
+            &ctx,
+            &mut path,
+            vec![egui::Event::PointerMoved(egui::pos2(30.0, 12.0)), button(true)],
+            false,
+        );
+        menu_frame(
+            &ctx,
+            &mut path,
+            vec![egui::Event::PointerMoved(egui::pos2(70.0, 12.0))],
+            false,
+        );
+        menu_frame(&ctx, &mut path, vec![button(false)], false);
+        menu_frame(&ctx, &mut path, vec![egui::Event::Text("X".into())], false);
+        assert!(
+            path.contains('X') && path != "X",
+            "拖拽圈选不应被全选覆盖: {path}"
+        );
     }
     #[test]
     fn right_click_cut_paste_delete_and_select_all() {

@@ -4907,6 +4907,10 @@ impl DirCompareView {
                 egui::UiBuilder::new().max_rect(edit_rect).id_salt(edit_id),
                 |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                    // 选区蓝底，与 chrome::pathbar 一致。
+                    ui.visuals_mut().selection.bg_fill = crate::chrome::theme::TEXT_SELECTION;
+                    ui.visuals_mut().selection.stroke =
+                        egui::Stroke::new(1.0, crate::chrome::theme::TEXT);
                     let text_id = edit_id.with("text");
                     crate::chrome::pathbar::clean_paste_events(ui.ctx(), text_id);
                     let edit = ui.add(
@@ -4916,6 +4920,7 @@ impl DirCompareView {
                             .font(egui::FontId::proportional(crate::chrome::theme::UI_SIZE))
                             .margin(egui::vec2(2.0, 5.0)),
                     );
+                    crate::chrome::pathbar::select_all_on_first_focus(ui, &edit, text);
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         submitted = true;
                     }
