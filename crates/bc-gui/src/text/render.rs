@@ -70,6 +70,8 @@ impl TextCompareView {
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
         // 行响应盖在窗格响应之上：行上的右键合并进窗格响应，统一打开右键菜单。
         let mut menu_target = response.clone();
+        // 选区箭头所覆盖的本侧整行：每帧算一次。
+        let selected = self.selected_line_range(s);
         let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
             // Wheel input is applied raw by `TextCompareView::ui` before
@@ -249,6 +251,31 @@ impl TextCompareView {
                             egui::pos2(ui.clip_rect().left(), rect.top()),
                             egui::pos2(ui.clip_rect().right(), rect.bottom()),
                         );
+                        // 行号栏箭头：命中区注册在行响应之上，点击不落到文本。
+                        let arrow = if self.show_numbers {
+                            self.gutter_arrow(s, row, selected.as_ref())
+                        } else {
+                            None
+                        };
+                        let arrow_hit = arrow.as_ref().map(|_| gutter::arrow_rect(viewport_rect));
+                        let mut arrow_hovered = false;
+                        if let (Some(arrow), Some(hit)) = (&arrow, arrow_hit) {
+                            let enabled = arrow.disabled.is_none();
+                            let hit_response = ui
+                                .interact(
+                                    hit,
+                                    egui::Id::unique(("gutter_arrow", s, row)),
+                                    egui::Sense::click(),
+                                )
+                                .on_hover_text(arrow.tooltip(s));
+                            arrow_hovered = hit_response.hovered();
+                            if enabled && arrow_hovered {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if enabled && hit_response.clicked() {
+                                self.pending_gutter_copy = Some((s, row, arrow.kind));
+                            }
+                        }
                         let orphan =
                             matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
                         let fill = row_fill(&prefs.colors, importance, orphan);
@@ -405,7 +432,8 @@ impl TextCompareView {
                                 viewport_rect,
                                 line.filter(|i| *i < snapshot.lines.len()),
                                 row == self.current_row,
-                                importance != Importance::Same,
+                                arrow.as_ref(),
+                                arrow_hovered,
                                 s,
                             );
                         }
@@ -422,6 +450,9 @@ impl TextCompareView {
                             viewport_rect.contains(*p)
                                 && self.pane_rects[s].contains(*p)
                                 && !covered
+                                // 在箭头上按下属于箭头（拖选经过箭头区仍照常扩展）。
+                                && !((pressed || secondary)
+                                    && arrow_hit.is_some_and(|h| h.contains(*p)))
                         }) {
                             // 右键：选区外先移动光标（选区内保留选区），供右键菜单作用。
                             if ui.is_enabled() && secondary {
@@ -516,6 +547,11 @@ impl TextCompareView {
         // editor owner on mouse release after egui's click-elsewhere processing.
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
             ui.memory_mut(|m| m.request_focus(id));
+        }
+        // 行号栏箭头点击：本窗格行循环结束后才改内容与对齐。
+        if let Some((side, row, kind)) = self.pending_gutter_copy.take() {
+            self.apply_gutter_copy(side, row, kind);
+            ui.ctx().request_repaint();
         }
         // 右键菜单（参考 text-context）：作用于被点击的窗格。
         if menu_target.secondary_clicked() {

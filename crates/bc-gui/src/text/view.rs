@@ -5,6 +5,7 @@ mod tests;
 use super::{
     editor::{Caret, Editor},
     find_panel::{FindAction, FindPanel},
+    gutter::{ArrowKind, GutterArrow},
     nav_bar::NavBar,
     projection::{DisplayFilter, DisplayRow, Projection},
     session_dialog::{Draft as SessionDraft, FormatChoice, SessionDialog},
@@ -163,6 +164,8 @@ pub struct TextCompareView {
     path_sources: [Option<PathBuf>; 2],
     snapshot_select_paths: bool,
     displayed_sections: usize,
+    /// 本帧点中的行号栏箭头（窗格、行、种类），行循环结束后执行。
+    pub(crate) pending_gutter_copy: Option<(usize, usize, ArrowKind)>,
 }
 impl TextCompareView {
     fn registry() -> Result<FormatRegistry, CoreError> {
@@ -259,6 +262,7 @@ impl TextCompareView {
             snapshot_select_paths: false,
             path_sources: Default::default(),
             displayed_sections: 0,
+            pending_gutter_copy: None,
         };
         view.rebuild_projection();
         view.recompare();
@@ -595,11 +599,88 @@ impl TextCompareView {
             let lines = self.editors[source].selected_lines(self.content(source));
             self.copy_lines(destination, lines);
         } else {
-            let edit = self.map.copy_section(self.current_row, side(source))?;
-            self.content_mut(destination).edits.push(edit);
-            self.after_alignment();
+            self.copy_section_at(destination, self.current_row)?;
         }
         Ok(())
+    }
+    /// 把 `row` 所属差异区块整块覆盖到 `destination`，一次撤销，同步得到新对齐。
+    fn copy_section_at(&mut self, destination: usize, row: usize) -> Result<(), CoreError> {
+        let edit = self.map.copy_section(row, side(1 - destination))?;
+        self.content_mut(destination).edits.push(edit);
+        self.after_alignment();
+        Ok(())
+    }
+    /// `s` 侧选区覆盖的整行；没有选区时为 `None`（光标行不算）。
+    pub(crate) fn selected_line_range(&self, s: usize) -> Option<Range<usize>> {
+        self.editors[s].selection()?;
+        Some(self.editors[s].selected_lines(self.content(s))).filter(|r| !r.is_empty())
+    }
+    /// 行号栏箭头判定：`selected` 为 `s` 侧选区整行（每帧算一次后传入）。
+    /// 选区内的行（含相同行）为选区箭头；否则差异区块中本侧有内容的行为区块箭头。
+    /// 对齐过期时差异信息不可用，只剩（禁用的）选区箭头。
+    pub(crate) fn gutter_arrow(
+        &self,
+        s: usize,
+        row: usize,
+        selected: Option<&Range<usize>>,
+    ) -> Option<GutterArrow> {
+        let mapped = self.row(row);
+        let line = index(mapped, s).filter(|l| *l < self.content(s).lines.borrow().len())?;
+        let kind = if selected.is_some_and(|r| r.contains(&line)) {
+            ArrowKind::Selection
+        } else {
+            let section = self.sections.get(mapped.section?)?;
+            if section
+                .importance
+                .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                == Importance::Same
+            {
+                return None;
+            }
+            ArrowKind::Section
+        };
+        Some(GutterArrow {
+            kind,
+            disabled: self.gutter_disabled(s),
+        })
+    }
+    fn gutter_disabled(&self, s: usize) -> Option<String> {
+        if self.map.is_stale() {
+            Some("Comparison is updating".into())
+        } else if self.content(1 - s).read_only {
+            Some(format!(
+                "{} side is read-only",
+                if s == 0 { "Right" } else { "Left" }
+            ))
+        } else {
+            None
+        }
+    }
+    /// 执行行号栏箭头点击：区块整块覆盖，或选中的行覆盖到另一侧（之后清除选区）。
+    pub(crate) fn apply_gutter_copy(&mut self, s: usize, row: usize, kind: ArrowKind) {
+        let destination = 1 - s;
+        let to = if destination == 1 { "Right" } else { "Left" };
+        if let Some(reason) = self.gutter_disabled(s) {
+            self.message = reason;
+            return;
+        }
+        self.cancel_join();
+        match kind {
+            ArrowKind::Section => match self.copy_section_at(destination, row) {
+                Ok(()) => self.message = format!("Copied section to {to}"),
+                Err(e) => self.message = e.to_string(),
+            },
+            ArrowKind::Selection => {
+                let Some(lines) = self.selected_line_range(s) else {
+                    self.message = "No lines selected".into();
+                    return;
+                };
+                let count = lines.len();
+                self.copy_lines(destination, lines);
+                self.editors[s].anchor = None;
+                self.message = format!("Copied {count} line(s) to {to}");
+            }
+        }
     }
     /// Copy Line to Left/Right：选中各行（无选区时为光标行）覆盖目标侧对齐行。
     fn copy_line_to(&mut self, destination: usize) -> Result<(), CoreError> {

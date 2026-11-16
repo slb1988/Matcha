@@ -1358,3 +1358,211 @@ fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
         modifiers: Default::default(),
     }
 }
+
+// ---- 行号栏复制箭头 ----
+
+/// `s` 侧第 `row` 行箭头中心（屏幕坐标）。
+fn arrow_pos(v: &TextCompareView, s: usize, row: usize) -> egui::Pos2 {
+    let g = super::super::projection::RowGeometry::for_row_height(v.row_height());
+    let y = v.projection.y_of(v.projection.display_for(row), g);
+    v.pane_rects[s].left_top() + egui::vec2(13.0, 1.0 + y + v.row_height() / 2.0)
+}
+fn select_lines(v: &mut TextCompareView, s: usize, lines: Range<usize>) {
+    v.editors[s].anchor = Some(Caret {
+        line: lines.start,
+        byte: 0,
+    });
+    v.editors[s].caret = Caret {
+        line: lines.end,
+        byte: 0,
+    };
+}
+
+#[test]
+fn gutter_arrow_kinds_and_disabled_states() {
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    assert_eq!(v.gutter_arrow(0, 0, None), None, "same row has no arrow");
+    let section = v.gutter_arrow(0, 2, None).unwrap();
+    assert_eq!(section.kind, ArrowKind::Section);
+    assert_eq!(section.disabled, None);
+    assert_eq!(section.tooltip(0), "Copy section to Right");
+    assert_eq!(
+        v.gutter_arrow(1, 2, None).unwrap().tooltip(1),
+        "Copy section to Left"
+    );
+    // 选区覆盖第 0–1 行：相同行 0 与差异行 1 都是选区箭头，选区外的差异行仍是区块箭头。
+    select_lines(&mut v, 0, 0..2);
+    let selected = v.selected_line_range(0);
+    assert_eq!(selected, Some(0..2));
+    let kind = |v: &TextCompareView, row| v.gutter_arrow(0, row, selected.as_ref()).map(|a| a.kind);
+    assert_eq!(kind(&v, 0), Some(ArrowKind::Selection));
+    assert_eq!(kind(&v, 1), Some(ArrowKind::Selection));
+    assert_eq!(kind(&v, 2), Some(ArrowKind::Section));
+    assert_eq!(kind(&v, 4), None);
+    assert_eq!(
+        v.gutter_arrow(0, 0, selected.as_ref()).unwrap().tooltip(0),
+        "Copy selected lines to Right"
+    );
+    // 光标无选区时不算选区。
+    v.editors[0].anchor = None;
+    assert_eq!(v.selected_line_range(0), None);
+    // 目标侧只读。
+    v.map.right.read_only = true;
+    let disabled = v.gutter_arrow(0, 2, None).unwrap();
+    assert_eq!(
+        disabled.disabled.as_deref(),
+        Some("Right side is read-only")
+    );
+    assert_eq!(v.gutter_arrow(1, 2, None).unwrap().disabled, None);
+    v.map.right.read_only = false;
+    // 编辑后对齐过期：差异信息不可用，只剩禁用的选区箭头。
+    v.map.left.replace_line(4, b"c edited").unwrap();
+    assert!(v.map.is_stale());
+    assert_eq!(v.gutter_arrow(0, 2, None), None);
+    select_lines(&mut v, 0, 0..2);
+    let stale = v
+        .gutter_arrow(0, 0, v.selected_line_range(0).as_ref())
+        .unwrap();
+    assert_eq!(stale.kind, ArrowKind::Selection);
+    assert_eq!(stale.disabled.as_deref(), Some("Comparison is updating"));
+}
+
+#[test]
+fn gutter_arrow_gap_side_has_no_arrow() {
+    let v = view("a\nc\n", "a\nx\nc\n");
+    let row = (0..v.map.row_count())
+        .find(|r| v.row(*r).left.is_none())
+        .expect("gap row");
+    assert_eq!(v.gutter_arrow(0, row, None), None);
+    assert_eq!(
+        v.gutter_arrow(1, row, None).unwrap().kind,
+        ArrowKind::Section
+    );
+}
+
+#[test]
+fn apply_gutter_copy_section_and_selection() {
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    v.apply_gutter_copy(0, 2, ArrowKind::Section);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
+    assert_eq!(v.counts.important, 0);
+    assert_eq!(v.message, "Copied section to Right");
+    v.map.right.edits.undo();
+    v.recompare();
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nB1\nB2\nB3\nc\n");
+    // 只把选中的第 2–3 行（b1、b2）覆盖到右侧，区块其余行不变，选区被清除。
+    select_lines(&mut v, 0, 1..3);
+    v.apply_gutter_copy(0, 1, ArrowKind::Selection);
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nb1\nb2\nB3\nc\n");
+    assert_eq!(v.editors[0].selection(), None);
+    // 目标只读：不改内容，消息说明原因。
+    v.map.left.read_only = true;
+    v.apply_gutter_copy(1, 3, ArrowKind::Section);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
+    assert_eq!(v.message, "Left side is read-only");
+}
+
+#[test]
+fn clicking_gutter_arrows_copies_without_moving_caret() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    v.editors[0].place(Caret { line: 4, byte: 1 }, false);
+    let caret = v.editors[0].caret;
+    let pos = arrow_pos(&v, 0, 2);
+    let out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
+    assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::PointingHand);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
+    assert_eq!(
+        v.editors[0].caret, caret,
+        "arrow click must not move the caret"
+    );
+    assert_eq!(v.editors[0].anchor, None);
+    assert_eq!(v.dragging, None);
+}
+
+#[test]
+fn clicking_right_only_section_arrow_inserts_on_left() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nc\n", "a\nx\ny\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    let row = (0..v.map.row_count())
+        .find(|r| v.row(*r).left.is_none())
+        .unwrap();
+    let pos = arrow_pos(&v, 1, row);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\nx\ny\nc\n");
+    assert_eq!(v.counts.important, 0);
+}
+
+#[test]
+fn clicking_selection_arrow_copies_only_selected_lines() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    select_lines(&mut v, 0, 2..4);
+    frame(&ctx, &mut v, vec![]);
+    let pos = arrow_pos(&v, 0, 2);
+    click(&ctx, &mut v, pos);
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nB1\nb2\nb3\nc\n");
+    assert_eq!(v.editors[0].selection(), None);
+}
+
+#[test]
+fn clicking_disabled_arrows_changes_nothing() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    v.map.right.read_only = true;
+    frame(&ctx, &mut v, vec![]);
+    let pos = arrow_pos(&v, 0, 2);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nB1\nB2\nB3\nc\n");
+    v.map.right.read_only = false;
+    // 编辑后对齐尚未完成：选区箭头禁用，点击不改任何一侧。
+    v.map.left.replace_line(4, b"c edited").unwrap();
+    select_lines(&mut v, 0, 1..3);
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.map.is_stale());
+    let pos = arrow_pos(&v, 0, 1);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc edited\n");
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nB1\nB2\nB3\nc\n");
+}
+
+#[test]
+fn selection_arrows_paint_distinct_from_section_arrows() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    let fills = |out: &egui::FullOutput| {
+        out.shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Path(p) if p.closed && p.points.len() == 7 => Some(p.fill),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let yellow = egui::Color32::from_rgb(255, 220, 110);
+    let blue = egui::Color32::from_rgb(90, 150, 230);
+    frame(&ctx, &mut v, vec![]);
+    let out = frame(&ctx, &mut v, vec![]);
+    let before = fills(&out);
+    // 区块 3 行 × 两侧。
+    assert_eq!(before.iter().filter(|c| **c == yellow).count(), 6);
+    assert!(!before.contains(&blue));
+    select_lines(&mut v, 0, 0..2);
+    let out = frame(&ctx, &mut v, vec![]);
+    let after = fills(&out);
+    // 左侧选中的第 0–1 行（含相同行 0）变蓝，其余差异行仍为黄色。
+    assert_eq!(after.iter().filter(|c| **c == blue).count(), 2);
+    assert_eq!(after.iter().filter(|c| **c == yellow).count(), 5);
+    v.map.right.read_only = true;
+    // 右侧只读：左侧 4 个箭头（2 选区 + 2 区块）变灰，右侧箭头不受影响。
+    let out = frame(&ctx, &mut v, vec![]);
+    let grey = egui::Color32::from_gray(200);
+    assert_eq!(fills(&out).iter().filter(|c| **c == grey).count(), 4);
+}
