@@ -1146,13 +1146,13 @@ impl MatchaApp {
             }
         }
         // 页面级 Esc：菜单 / 对话框 / 查找条 / 单元格编辑器等弹层已在上方各自
-        // 消费 Esc；帧末仍未被消费的 Esc 视为退出进程（等价于关窗，未保存页
-        // 仍由 step_exit 逐页弹保存确认，取消则中止）。
+        // 消费 Esc；帧末仍未被消费的 Esc 关闭当前标签页（等价于 Ctrl+W：脏页先弹
+        // 保存确认），关闭最后一页即退出进程——多标签时一次 Esc 只关一页。
         if !self.exiting
             && self.snapshot.is_none()
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
-            self.begin_exit(false);
+            self.close_tab(&ctx, self.active);
         }
         if self.exiting {
             ctx.request_repaint();

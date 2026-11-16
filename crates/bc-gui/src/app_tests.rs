@@ -683,37 +683,49 @@ fn esc(ctx: &egui::Context, app: &mut MatchaApp) {
 }
 
 #[test]
-fn escape_on_a_clean_page_exits_the_process() {
+fn escape_closes_tabs_one_at_a_time_then_exits() {
     let ctx = egui::Context::default();
     let mut app = home_app();
+    app.open_tab(View::TableCompare(Box::new(TableCompareView::empty())));
+    app.open_tab(View::TableCompare(Box::new(TableCompareView::empty())));
     run(&ctx, &mut app, vec![]);
+    assert_eq!((app.tab_count(), app.active_tab()), (3, 2));
+    // 多标签：每次 Esc 只关当前页，不退出进程。
     esc(&ctx, &mut app);
-    assert!(app.exiting);
-    // 无脏页：下一步直接放行关窗（进程随窗口关闭结束）。
-    run(&ctx, &mut app, vec![]);
+    assert_eq!((app.tab_count(), app.active_tab()), (2, 1));
+    assert!(!app.exiting && !app.exit_confirmed);
+    esc(&ctx, &mut app);
+    assert_eq!((app.tab_count(), app.active_tab()), (1, 0));
+    assert!(!app.exit_confirmed);
+    // 关掉最后一页即退出进程。
+    esc(&ctx, &mut app);
     assert!(app.exit_confirmed);
 }
 
 #[test]
-fn escape_with_a_dirty_tab_prompts_and_escape_again_cancels() {
+fn escape_on_a_dirty_tab_prompts_and_escape_again_cancels() {
     let ctx = egui::Context::default();
-    let mut app = MatchaApp::with_view(dirty_text());
+    let mut app = home_app();
+    app.open_tab(dirty_text());
     run(&ctx, &mut app, vec![]);
     esc(&ctx, &mut app);
-    assert!(app.exiting);
     run(&ctx, &mut app, vec![]);
     assert!(app.active_view().prompt_open());
-    // 保存确认框吃掉这次 Esc（= Cancel）：退出中止，进程不退出。
+    // 保存确认框吃掉这次 Esc（= Cancel）：标签页保留。
     esc(&ctx, &mut app);
     run(&ctx, &mut app, vec![]);
-    assert!(!app.exiting && !app.exit_confirmed);
-    assert_eq!(app.tab_count(), 1);
-    // 再按 Esc 重新发起退出；放弃修改后关窗。
+    assert!(!app.active_view().prompt_open());
+    assert_eq!(app.tab_count(), 2);
+    assert!(!app.exit_confirmed);
+    // 再按 Esc 重新发起关闭；放弃修改后只关这一页。
     esc(&ctx, &mut app);
     run(&ctx, &mut app, vec![]);
     let out = run(&ctx, &mut app, vec![]);
     click(&ctx, &mut app, text_at(&out, "Don't Save"));
-    assert!(app.exit_confirmed);
+    run(&ctx, &mut app, vec![]);
+    assert_eq!(app.tab_count(), 1);
+    assert!(matches!(app.active_view(), View::Home(_)));
+    assert!(!app.exit_confirmed);
 }
 
 #[test]
@@ -736,5 +748,5 @@ fn escape_closes_the_find_bar_instead_of_exiting() {
     assert!(!view.find_open());
     assert!(!app.exiting && !app.exit_confirmed);
     esc(&ctx, &mut app);
-    assert!(app.exiting);
+    assert!(app.exit_confirmed);
 }
