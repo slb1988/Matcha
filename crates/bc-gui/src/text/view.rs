@@ -321,6 +321,10 @@ impl TextCompareView {
     pub fn prompt_open(&self) -> bool {
         self.pending.is_some()
     }
+    /// 查找条是否打开（Esc 语义：先关查找条，再退出进程）。
+    pub fn find_open(&self) -> bool {
+        self.find.open
+    }
     pub fn request_exit(&mut self) {
         self.request(Pending::Exit);
     }

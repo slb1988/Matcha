@@ -373,10 +373,12 @@ impl FindPanel {
             });
             if let Some(chosen) = chosen {
                 self.menu_action(&chosen);
-            } else if !away && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            } else if !away
+                && !ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
                 self.menu = Some((which, path));
             }
-        } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             self.open = false;
         }
         if self.replace_open {

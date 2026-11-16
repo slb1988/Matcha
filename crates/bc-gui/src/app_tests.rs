@@ -667,3 +667,74 @@ fn table_merge_launch_and_hand_off_report_result_codes() {
     let prices = book.load_sheet("Prices").unwrap();
     assert_eq!(prices.display_at(1, 1).as_deref(), Some("120"));
 }
+
+fn esc(ctx: &egui::Context, app: &mut MatchaApp) {
+    run(
+        ctx,
+        app,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+}
+
+#[test]
+fn escape_on_a_clean_page_exits_the_process() {
+    let ctx = egui::Context::default();
+    let mut app = home_app();
+    run(&ctx, &mut app, vec![]);
+    esc(&ctx, &mut app);
+    assert!(app.exiting);
+    // 无脏页：下一步直接放行关窗（进程随窗口关闭结束）。
+    run(&ctx, &mut app, vec![]);
+    assert!(app.exit_confirmed);
+}
+
+#[test]
+fn escape_with_a_dirty_tab_prompts_and_escape_again_cancels() {
+    let ctx = egui::Context::default();
+    let mut app = MatchaApp::with_view(dirty_text());
+    run(&ctx, &mut app, vec![]);
+    esc(&ctx, &mut app);
+    assert!(app.exiting);
+    run(&ctx, &mut app, vec![]);
+    assert!(app.active_view().prompt_open());
+    // 保存确认框吃掉这次 Esc（= Cancel）：退出中止，进程不退出。
+    esc(&ctx, &mut app);
+    run(&ctx, &mut app, vec![]);
+    assert!(!app.exiting && !app.exit_confirmed);
+    assert_eq!(app.tab_count(), 1);
+    // 再按 Esc 重新发起退出；放弃修改后关窗。
+    esc(&ctx, &mut app);
+    run(&ctx, &mut app, vec![]);
+    let out = run(&ctx, &mut app, vec![]);
+    click(&ctx, &mut app, text_at(&out, "Don't Save"));
+    assert!(app.exit_confirmed);
+}
+
+#[test]
+fn escape_closes_the_find_bar_instead_of_exiting() {
+    let ctx = egui::Context::default();
+    let content = || TextContent::from_bytes(b"same\n".to_vec(), None).unwrap();
+    let view = TextCompareView::from_contents(content(), content(), FormatRegistry::with_builtins());
+    let mut app = MatchaApp::with_view(View::TextCompare(Box::new(view)));
+    run(&ctx, &mut app, vec![]);
+    ctrl(&ctx, &mut app, egui::Key::F);
+    let View::TextCompare(view) = app.active_view() else {
+        unreachable!()
+    };
+    assert!(view.find_open());
+    // Esc 关闭查找条且不触发退出；查找条已关后再按 Esc 才退出。
+    esc(&ctx, &mut app);
+    let View::TextCompare(view) = app.active_view() else {
+        unreachable!()
+    };
+    assert!(!view.find_open());
+    assert!(!app.exiting && !app.exit_confirmed);
+    esc(&ctx, &mut app);
+    assert!(app.exiting);
+}

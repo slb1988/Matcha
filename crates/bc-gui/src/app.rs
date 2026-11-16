@@ -1145,6 +1145,15 @@ impl MatchaApp {
                 }
             }
         }
+        // 页面级 Esc：菜单 / 对话框 / 查找条 / 单元格编辑器等弹层已在上方各自
+        // 消费 Esc；帧末仍未被消费的 Esc 视为退出进程（等价于关窗，未保存页
+        // 仍由 step_exit 逐页弹保存确认，取消则中止）。
+        if !self.exiting
+            && self.snapshot.is_none()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.begin_exit(false);
+        }
         if self.exiting {
             ctx.request_repaint();
         }

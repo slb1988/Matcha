@@ -1284,12 +1284,8 @@ impl TableMergeView {
             edit.focused = true;
             return;
         }
-        let (enter, escape) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::Enter),
-                i.key_pressed(egui::Key::Escape),
-            )
-        });
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let escape = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         if escape {
             self.editing = None;
         } else if enter || response.lost_focus() {

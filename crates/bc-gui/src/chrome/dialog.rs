@@ -533,7 +533,8 @@ fn list(
                     .interact_pos()
                     .is_some_and(|p| !rect.contains(p) && !rects.iter().any(|r| r.contains(p)))
         });
-        if chosen.is_none() && !away && !ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        if chosen.is_none() && !away && !escape {
             state = Some(open);
         }
     }

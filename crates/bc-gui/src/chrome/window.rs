@@ -189,7 +189,9 @@ impl<'open> Window<'open> {
         if closable && self.close_on_escape {
             let focused_here = ctx.memory(|m| m.focused().is_none())
                 || shown.response.contains_pointer();
-            if focused_here && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if focused_here
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
                 close = true;
             }
         }

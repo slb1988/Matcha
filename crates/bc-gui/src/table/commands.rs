@@ -1679,7 +1679,9 @@ impl TableCompareView {
                                         .clicked();
                                     cancel = widgets::button(ui, "Cancel edit").clicked();
                                 });
-                                cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
+                                cancel |= ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                                });
                             });
                     });
             }

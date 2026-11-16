@@ -122,7 +122,7 @@ fn keyboard(ctx: &egui::Context, menus: &[MenuSpec], state: &mut MenuState) -> O
         state.open = None;
         return None;
     }
-    if ctx.input(|i| i.key_pressed(Key::Escape)) {
+    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
         if state.path.len() > 1 {
             state.path.pop();
         } else {

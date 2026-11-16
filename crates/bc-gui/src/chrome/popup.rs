@@ -387,7 +387,7 @@ fn show_menu(
                     .interact_pos()
                     .is_some_and(|p| !rects.iter().any(|r| r.contains(p)))
         });
-    let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if action.is_some() || clicked_away || escape {
         close_menu(ctx, id);
     } else {

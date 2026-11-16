@@ -218,7 +218,10 @@ impl HexCompareView {
         if ok {
             let draft = self.settings_draft.take().unwrap();
             self.apply_session_draft(draft);
-        } else if cancel || closed || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        } else if cancel
+            || closed
+            || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
             self.settings_draft = None;
             self.settings_open = false;
         }
