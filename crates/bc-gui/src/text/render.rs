@@ -276,6 +276,19 @@ impl TextCompareView {
                                 self.pending_gutter_copy = Some((s, row, arrow.kind));
                             }
                         }
+                        // 文本区（行号栏右侧）悬停显示 I 形插入光标。
+                        let text_left = viewport_rect.left()
+                            + if self.show_numbers {
+                                gutter::WIDTH
+                            } else {
+                                0.0
+                            };
+                        if !arrow_hovered
+                            && response.hovered()
+                            && response.hover_pos().is_some_and(|p| p.x >= text_left)
+                        {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        }
                         let orphan =
                             matches!(mapped.kind, DiffKind::LeftOnly | DiffKind::RightOnly);
                         let fill = row_fill(&prefs.colors, importance, orphan);
@@ -369,7 +382,7 @@ impl TextCompareView {
                                 ui.painter().rect_filled(
                                     selection,
                                     0.0,
-                                    ui.visuals().selection.bg_fill.gamma_multiply(0.55),
+                                    crate::chrome::theme::palette(ui.ctx()).text_selection,
                                 );
                             }
                         }
@@ -545,6 +558,10 @@ impl TextCompareView {
             });
         // Row interactions sit above the pane's focus registration. Restore the
         // editor owner on mouse release after egui's click-elsewhere processing.
+        // 拖选途中指针可能离开起始行（甚至窗格），光标保持 I 形。
+        if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_down()) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+        }
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
             ui.memory_mut(|m| m.request_focus(id));
         }

@@ -8,6 +8,8 @@
 - 打开两个文件 → 计算行级对齐（`TextMap`），按 `DiffKind` 着色；支持左/右或上/下布局。
 - 行内字符级差异（inline diff，FR-T2）、不重要差异（Unimportant，蓝色语义）与重要性传播。
 - 就地编辑：UTF-8 字节光标、选区、IME、undo/redo；保存可独立单侧进行。
+- 指针在文本区（行号栏右侧）显示 I 形插入光标，拖选途中保持；行号栏仍是默认箭头（可点的合并箭头为手形）。
+  选区为不透明的选区蓝底（`theme::TEXT_SELECTION` / `Palette::text_selection`），盖在差异行底色上也清晰可辨。
 - 语法高亮来自文件格式库（见 [sessions-and-formats.md](sessions-and-formats.md)）。
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - 鼠标点窗格任意位置（包括只有对侧有内容的空隙行）都会把焦点和活动侧切到该窗格；

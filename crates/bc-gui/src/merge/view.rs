@@ -720,6 +720,16 @@ impl MergeView {
             self.active = pane;
             response.request_focus();
         }
+        // 输出窗格可编辑：文本区（行号栏右侧）悬停或拖选时显示 I 形插入光标。
+        if pane == OUT
+            && ((response.hovered()
+                && response
+                    .hover_pos()
+                    .is_some_and(|p| p.x >= area.left() + GUTTER))
+                || (self.dragging && ui.input(|i| i.pointer.primary_down())))
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+        }
         if pane == OUT {
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(
@@ -884,7 +894,7 @@ impl MergeView {
                                 origin + egui::vec2(x2.max(x1 + 2.0), row_height - 1.0),
                             ),
                             0.0,
-                            ui.visuals().selection.bg_fill.gamma_multiply(0.55),
+                            theme::palette(ui.ctx()).text_selection,
                         );
                     }
                 }

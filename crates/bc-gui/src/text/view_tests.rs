@@ -1485,6 +1485,23 @@ fn clicking_gutter_arrows_copies_without_moving_caret() {
 }
 
 #[test]
+fn hovering_text_area_shows_ibeam_but_gutter_does_not() {
+    let ctx = egui::Context::default();
+    let mut v = view("abc
+", "abd
+");
+    frame(&ctx, &mut v, vec![]);
+    let arrow = arrow_pos(&v, 0, 0);
+    let text = arrow + egui::vec2(super::super::gutter::WIDTH + 20.0, 0.0);
+    let out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(text)]);
+    assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::Text);
+    // 行号栏右半（无箭头处）保持默认箭头光标。
+    let numbers = arrow + egui::vec2(20.0, 0.0);
+    let out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(numbers)]);
+    assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::Default);
+}
+
+#[test]
 fn clicking_right_only_section_arrow_inserts_on_left() {
     let ctx = egui::Context::default();
     let mut v = view("a\nc\n", "a\nx\ny\nc\n");

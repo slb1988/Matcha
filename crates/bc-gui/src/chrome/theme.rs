@@ -42,6 +42,9 @@ pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0xE3, 0xF0, 0xE6);
 pub const ACCENT_SOFT_LINE: Color32 = Color32::from_rgb(0xB5, 0xD4, 0xBE);
 /// Text selection highlight.
 pub const SELECTION: Color32 = Color32::from_rgb(0xC9, 0xE2, 0xD0);
+/// 文档正文（文本比较/合并窗格）的选中底色：不透明的经典选区蓝，
+/// 盖在差异行底色上也一眼可辨（文字照常按语法/差异色绘制在其上）。
+pub const TEXT_SELECTION: Color32 = Color32::from_rgb(0x99, 0xC9, 0xEF);
 
 pub const DANGER: Color32 = Color32::from_rgb(0xC4, 0x3A, 0x34);
 pub const DANGER_HOVER: Color32 = Color32::from_rgb(0xAD, 0x2F, 0x2A);
@@ -106,6 +109,7 @@ pub struct Palette {
     pub accent_soft: Color32,
     pub accent_soft_line: Color32,
     pub selection: Color32,
+    pub text_selection: Color32,
     pub danger: Color32,
     pub danger_hover: Color32,
     pub danger_soft: Color32,
@@ -136,6 +140,7 @@ impl Palette {
         accent_soft: ACCENT_SOFT,
         accent_soft_line: ACCENT_SOFT_LINE,
         selection: SELECTION,
+        text_selection: TEXT_SELECTION,
         danger: DANGER,
         danger_hover: DANGER_HOVER,
         danger_soft: DANGER_SOFT,
