@@ -865,6 +865,7 @@ impl MergeView {
                 false,
                 4,
                 ui.visuals().text_color(),
+                &egui::FontId::monospace(self.font_size),
             );
             let galley = painter.layout_job(job);
             self.content_width = self.content_width.max(galley.size().x);

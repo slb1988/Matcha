@@ -188,6 +188,8 @@ pub const RADIUS_LG: u8 = 10;
 pub const RADIUS_XL: u8 = 14;
 
 pub const UI_SIZE: f32 = 13.0;
+/// Glyph coverage gamma (`alpha = coverage^gamma`); < 1 renders strokes heavier.
+pub const TEXT_GAMMA: f32 = 0.7;
 pub const TITLE_SIZE: f32 = 17.0;
 pub const EDITOR_SIZE: f32 = 40.0 / 3.0;
 pub const EDITOR_LINE_HEIGHT: f32 = 15.0;
@@ -249,6 +251,17 @@ pub fn strong(ctx: &egui::Context, size: f32) -> egui::FontId {
         egui::FontId::new(size, family)
     } else {
         egui::FontId::proportional(size)
+    }
+}
+
+/// Bold editor font (Consolas Bold, same advance width as the editor face);
+/// falls back to the regular monospace face when it is not installed.
+pub fn editor_bold(ctx: &egui::Context, size: f32) -> egui::FontId {
+    let family = egui::FontFamily::Name(super::fonts::EDITOR_BOLD_FAMILY.into());
+    if ctx.fonts(|f| f.families().contains(&family)) {
+        egui::FontId::new(size, family)
+    } else {
+        egui::FontId::monospace(size)
     }
 }
 
@@ -331,6 +344,11 @@ impl Theme {
             visuals.hyperlink_color = p.accent;
             visuals.warn_fg_color = p.warning;
             visuals.error_fg_color = p.danger;
+            // egui's raw glyph coverage reads thinner than GDI ClearType; a gamma
+            // below 1 thickens light strokes so dark-on-white text matches the
+            // weight of native Windows text (the reference renders with GDI).
+            visuals.text_options.color_transfer_function =
+                egui::epaint::FontColorTransferFunction::Gamma(TEXT_GAMMA);
             let md = CornerRadius::same(RADIUS_MD);
             visuals.widgets.noninteractive = widget(theme.panel_fill, theme.border, theme.text, md);
             visuals.widgets.inactive = widget(p.surface, p.line_strong, theme.text, md);

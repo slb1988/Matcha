@@ -9,9 +9,12 @@ use std::path::{Path, PathBuf};
 const UI_FONT: &str = "matcha-system-message";
 const UI_BOLD_FONT: &str = "matcha-system-message-bold";
 const EDITOR_FONT: &str = "matcha-consolas";
+const EDITOR_BOLD_FONT: &str = "matcha-consolas-bold";
 const CJK_FONT: &str = "matcha-microsoft-yahei";
 /// Named family for emphasized UI text (dialog titles, section headings).
 pub const STRONG_FAMILY: &str = "matcha-strong";
+/// Named family for bold editor text (syntax keywords): Consolas Bold, same advance as Consolas.
+pub const EDITOR_BOLD_FAMILY: &str = "matcha-editor-bold";
 
 /// The paths used by the loader, kept separate to make fallback behavior testable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,6 +22,7 @@ pub struct FontPlan {
     pub ui: PathBuf,
     pub ui_bold: PathBuf,
     pub editor: PathBuf,
+    pub editor_bold: PathBuf,
     pub cjk: PathBuf,
 }
 
@@ -29,15 +33,17 @@ impl FontPlan {
             ui: dir.join("segoeui.ttf"),
             ui_bold: dir.join("segoeuib.ttf"),
             editor: dir.join("consola.ttf"),
+            editor_bold: dir.join("consolab.ttf"),
             cjk: dir.join("msyh.ttc"),
         }
     }
 
-    fn entries(&self) -> [(&'static str, &Path); 4] {
+    fn entries(&self) -> [(&'static str, &Path); 5] {
         [
             (UI_FONT, self.ui.as_path()),
             (UI_BOLD_FONT, self.ui_bold.as_path()),
             (EDITOR_FONT, self.editor.as_path()),
+            (EDITOR_BOLD_FONT, self.editor_bold.as_path()),
             (CJK_FONT, self.cjk.as_path()),
         ]
     }
@@ -255,6 +261,15 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
     definitions
         .families
         .insert(FontFamily::Name(STRONG_FAMILY.into()), strong);
+    // Bold editor family: Consolas Bold first, then the regular monospace chain.
+    let mut editor_bold = Vec::new();
+    if definitions.font_data.contains_key(EDITOR_BOLD_FONT) {
+        editor_bold.push(EDITOR_BOLD_FONT.to_owned());
+    }
+    editor_bold.extend(monospace.iter().cloned());
+    definitions
+        .families
+        .insert(FontFamily::Name(EDITOR_BOLD_FAMILY.into()), editor_bold);
     definitions
         .families
         .insert(FontFamily::Proportional, proportional);
@@ -340,6 +355,10 @@ mod tests {
             &[EDITOR_FONT, CJK_FONT]
         );
         assert!(fonts.families[&FontFamily::Monospace].len() > 2);
+        assert_eq!(
+            &fonts.families[&FontFamily::Name(EDITOR_BOLD_FAMILY.into())][..2],
+            &[EDITOR_BOLD_FONT, EDITOR_FONT]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -349,6 +368,7 @@ mod tests {
         assert_eq!(plan.ui.file_name().unwrap(), "segoeui.ttf");
         assert_eq!(plan.ui_bold.file_name().unwrap(), "segoeuib.ttf");
         assert_eq!(plan.editor.file_name().unwrap(), "consola.ttf");
+        assert_eq!(plan.editor_bold.file_name().unwrap(), "consolab.ttf");
         assert_eq!(plan.cjk.file_name().unwrap(), "msyh.ttc");
     }
 }

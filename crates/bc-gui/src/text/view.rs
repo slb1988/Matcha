@@ -5,7 +5,7 @@ mod tests;
 use super::{
     editor::{Caret, Editor},
     find_panel::{FindAction, FindPanel},
-    gutter::{ArrowKind, GutterArrow},
+    gutter::{ArrowKind, GutterArrow, GutterMark},
     nav_bar::NavBar,
     projection::{DisplayFilter, DisplayRow, Projection},
     session_dialog::{Draft as SessionDraft, FormatChoice, SessionDialog},
@@ -620,20 +620,32 @@ impl TextCompareView {
         Some(self.editors[s].selected_lines(self.content(s))).filter(|r| !r.is_empty())
     }
     /// 行号栏箭头判定：`selected` 为 `s` 侧选区整行（每帧算一次后传入）。
-    /// 选区内的行（含相同行）为选区箭头；否则差异区块中本侧有内容的行为区块箭头。
-    /// 对齐过期时差异信息不可用，只剩（禁用的）选区箭头。
+    /// 选区所跨的行（含相同行、本侧空隙行）为选区标记；否则非相同差异区块的各行为区块标记
+    /// ——本侧是空隙也画（与参考一致：点击即把空白覆盖到对侧，即删除对侧这些行）。
+    /// 首行为箭头，其余行为括号线（[`GutterMark`]）。
+    /// 对齐过期时差异信息不可用，只剩（禁用的）选区标记。
     pub(crate) fn gutter_arrow(
         &self,
         s: usize,
         row: usize,
         selected: Option<&Range<usize>>,
     ) -> Option<GutterArrow> {
-        let mapped = self.row(row);
-        let line = index(mapped, s).filter(|l| *l < self.content(s).lines.borrow().len())?;
-        let kind = if selected.is_some_and(|r| r.contains(&line)) {
-            ArrowKind::Selection
+        let selection = selected
+            .filter(|r| !r.is_empty())
+            .map(|r| {
+                (
+                    self.row_for_line(s, r.start),
+                    self.row_for_line(s, r.end - 1),
+                )
+            })
+            .filter(|(first, last)| (*first..=*last).contains(&row));
+        let (kind, mark) = if let Some((first, last)) = selection {
+            (ArrowKind::Selection, GutterMark::at(row, first, last))
         } else {
-            let section = self.sections.get(mapped.section?)?;
+            if self.map.is_stale() {
+                return None;
+            }
+            let section = self.sections.get(self.row(row).section?)?;
             if section
                 .importance
                 .with_ignore_unimportant(self.map.rules.ignore_unimportant)
@@ -641,10 +653,15 @@ impl TextCompareView {
             {
                 return None;
             }
-            ArrowKind::Section
+            let rows = &section.rows;
+            (
+                ArrowKind::Section,
+                GutterMark::at(row, rows.start, rows.end.saturating_sub(1)),
+            )
         };
         Some(GutterArrow {
             kind,
+            mark,
             disabled: self.gutter_disabled(s),
         })
     }

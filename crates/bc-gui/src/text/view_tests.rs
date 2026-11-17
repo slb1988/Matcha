@@ -1385,6 +1385,13 @@ fn gutter_arrow_kinds_and_disabled_states() {
     let section = v.gutter_arrow(0, 2, None).unwrap();
     assert_eq!(section.kind, ArrowKind::Section);
     assert_eq!(section.disabled, None);
+    // 区块第 1–3 行：首行箭头，其余为括号线，末行带脚。
+    assert_eq!(v.gutter_arrow(0, 1, None).unwrap().mark, GutterMark::Arrow);
+    assert_eq!(section.mark, GutterMark::Bracket { last: false });
+    assert_eq!(
+        v.gutter_arrow(1, 3, None).unwrap().mark,
+        GutterMark::Bracket { last: true }
+    );
     assert_eq!(section.tooltip(0), "Copy section to Right");
     assert_eq!(
         v.gutter_arrow(1, 2, None).unwrap().tooltip(1),
@@ -1398,6 +1405,11 @@ fn gutter_arrow_kinds_and_disabled_states() {
     assert_eq!(kind(&v, 0), Some(ArrowKind::Selection));
     assert_eq!(kind(&v, 1), Some(ArrowKind::Selection));
     assert_eq!(kind(&v, 2), Some(ArrowKind::Section));
+    let mark = |v: &TextCompareView, row| {
+        v.gutter_arrow(0, row, selected.as_ref()).unwrap().mark
+    };
+    assert_eq!(mark(&v, 0), GutterMark::Arrow);
+    assert_eq!(mark(&v, 1), GutterMark::Bracket { last: true });
     assert_eq!(kind(&v, 4), None);
     assert_eq!(
         v.gutter_arrow(0, 0, selected.as_ref()).unwrap().tooltip(0),
@@ -1428,16 +1440,31 @@ fn gutter_arrow_kinds_and_disabled_states() {
 }
 
 #[test]
-fn gutter_arrow_gap_side_has_no_arrow() {
+fn gutter_arrow_gap_side_also_has_section_arrow() {
+    // 与参考一致：本侧是空隙的区块也画箭头（点击 = 用空白覆盖对侧，即删除对侧这些行）。
     let v = view("a\nc\n", "a\nx\nc\n");
     let row = (0..v.map.row_count())
         .find(|r| v.row(*r).left.is_none())
         .expect("gap row");
-    assert_eq!(v.gutter_arrow(0, row, None), None);
-    assert_eq!(
-        v.gutter_arrow(1, row, None).unwrap().kind,
-        ArrowKind::Section
-    );
+    for s in 0..2 {
+        let arrow = v.gutter_arrow(s, row, None).unwrap();
+        assert_eq!(arrow.kind, ArrowKind::Section);
+        assert_eq!(arrow.mark, GutterMark::Arrow);
+    }
+}
+
+#[test]
+fn clicking_gap_side_arrow_deletes_other_side_lines() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nc\n", "a\nx\ny\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    let row = (0..v.map.row_count())
+        .find(|r| v.row(*r).left.is_none())
+        .unwrap();
+    let pos = arrow_pos(&v, 0, row);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nc\n");
+    assert_eq!(v.counts.important, 0);
 }
 
 #[test]
@@ -1471,7 +1498,8 @@ fn clicking_gutter_arrows_copies_without_moving_caret() {
     frame(&ctx, &mut v, vec![]);
     v.editors[0].place(Caret { line: 4, byte: 1 }, false);
     let caret = v.editors[0].caret;
-    let pos = arrow_pos(&v, 0, 2);
+    // 区块首行（第 1 行）是箭头；其余行是括号线。
+    let pos = arrow_pos(&v, 0, 1);
     let out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
     assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::PointingHand);
     click(&ctx, &mut v, pos);
@@ -1535,9 +1563,14 @@ fn clicking_disabled_arrows_changes_nothing() {
     let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
     v.map.right.read_only = true;
     frame(&ctx, &mut v, vec![]);
-    let pos = arrow_pos(&v, 0, 2);
+    let pos = arrow_pos(&v, 0, 1);
     click(&ctx, &mut v, pos);
     assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nB1\nB2\nB3\nc\n");
+    assert_eq!(v.message, "Right side is read-only");
+    // 括号线行不可点：点击落到文本，不复制。
+    let pos = arrow_pos(&v, 1, 2);
+    click(&ctx, &mut v, pos);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
     v.map.right.read_only = false;
     // 编辑后对齐尚未完成：选区箭头禁用，点击不改任何一侧。
     v.map.left.replace_line(4, b"c edited").unwrap();
@@ -1552,34 +1585,45 @@ fn clicking_disabled_arrows_changes_nothing() {
 
 #[test]
 fn selection_arrows_paint_distinct_from_section_arrows() {
+    use super::super::gutter::{BRACKET, SECTION_OUTLINE, SELECTION_OUTLINE};
     let ctx = egui::Context::default();
     let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
-    let fills = |out: &egui::FullOutput| {
+    // 箭头 = 7 点闭合描边（填充是网格渐变）；括号 = BRACKET 色线段。
+    let outlines = |out: &egui::FullOutput, color: egui::Color32| {
         out.shapes
             .iter()
-            .filter_map(|s| match &s.shape {
-                egui::Shape::Path(p) if p.closed && p.points.len() == 7 => Some(p.fill),
-                _ => None,
+            .filter(|s| match &s.shape {
+                egui::Shape::Path(p) => {
+                    p.closed
+                        && p.points.len() == 7
+                        && p.stroke.color == egui::epaint::ColorMode::Solid(color)
+                }
+                _ => false,
             })
-            .collect::<Vec<_>>()
+            .count()
     };
-    let yellow = egui::Color32::from_rgb(255, 220, 110);
-    let blue = egui::Color32::from_rgb(90, 150, 230);
+    let brackets = |out: &egui::FullOutput| {
+        out.shapes
+            .iter()
+            .filter(|s| {
+                matches!(&s.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == BRACKET)
+            })
+            .count()
+    };
     frame(&ctx, &mut v, vec![]);
     let out = frame(&ctx, &mut v, vec![]);
-    let before = fills(&out);
-    // 区块 3 行 × 两侧。
-    assert_eq!(before.iter().filter(|c| **c == yellow).count(), 6);
-    assert!(!before.contains(&blue));
+    // 3 行区块 × 两侧：每侧首行一个箭头，其余 2 行括号（末行另有一段脚）。
+    assert_eq!(outlines(&out, SECTION_OUTLINE), 2);
+    assert_eq!(outlines(&out, SELECTION_OUTLINE), 0);
+    assert_eq!(brackets(&out), 2 * (2 + 1));
     select_lines(&mut v, 0, 0..2);
     let out = frame(&ctx, &mut v, vec![]);
-    let after = fills(&out);
-    // 左侧选中的第 0–1 行（含相同行 0）变蓝，其余差异行仍为黄色。
-    assert_eq!(after.iter().filter(|c| **c == blue).count(), 2);
-    assert_eq!(after.iter().filter(|c| **c == yellow).count(), 5);
+    // 左侧选中第 0–1 行：首行蓝色箭头；左侧区块首行被选区覆盖，只剩右侧的黄色箭头。
+    assert_eq!(outlines(&out, SELECTION_OUTLINE), 1);
+    assert_eq!(outlines(&out, SECTION_OUTLINE), 1);
+    // 右侧只读：左侧箭头配色不变（与参考一致），只是点击无效并提示原因。
     v.map.right.read_only = true;
-    // 右侧只读：左侧 4 个箭头（2 选区 + 2 区块）变灰，右侧箭头不受影响。
     let out = frame(&ctx, &mut v, vec![]);
-    let grey = egui::Color32::from_gray(200);
-    assert_eq!(fills(&out).iter().filter(|c| **c == grey).count(), 4);
+    assert_eq!(outlines(&out, SELECTION_OUTLINE), 1);
+    assert_eq!(outlines(&out, SECTION_OUTLINE), 1);
 }
