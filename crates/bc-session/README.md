@@ -14,7 +14,7 @@ are `todo!()`; the data model and class-name tables are complete.
 - `folder` – `SessionFolder` tree and `SessionManager` (load/save/upsert).
 - `workspace` – `Workspace`, `WorkspaceItem`, `WindowPlacement`.
 - `xml` – `read_sessions` / `write_sessions` / node conversion on `bc_core::persist`.
-- `prefs` – `Prefs` subset of `TBcPrefs` (colours, backups, default code page, tab size).
+- `prefs` – `Prefs` subset of `TBcPrefs` (colours, backups, default code page, tab size, editor font family + point size).
 
 ## Dependency boundary
 

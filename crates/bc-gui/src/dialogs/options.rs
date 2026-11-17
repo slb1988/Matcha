@@ -4,7 +4,8 @@
 //! column with a search box and 37 px page rows (the selected row joins the
 //! #F0F0F0 content like a tab), page content to the right and OK / Cancel /
 //! Apply under a full-width rule. Only pages backed by real `Prefs` fields are
-//! enabled (Appearance: difference colors; Text Editing: default tab size and
+//! enabled (Appearance: difference colors and the editor font — family from the
+//! installed monospace fonts, size in points; Text Editing: default tab size and
 //! code page; Backups) plus Startup, which holds the Windows Explorer context
 //! menu switch (`bc-shell`: registers or removes the HKCU verbs on OK/Apply);
 //! the reference's other pages are listed disabled.
@@ -44,6 +45,8 @@ pub struct OptionsDialog {
     tab_size: String,
     code_page: String,
     suffix: String,
+    /// Editor font size (points) as typed.
+    font_size: String,
     search: String,
     error: Option<String>,
     /// Explorer context menu wanted (draft) / as last applied.
@@ -81,6 +84,8 @@ impl OptionsDialog {
         self.tab_size = prefs.default_tab_size.to_string();
         self.code_page = prefs.default_code_page.to_string();
         self.suffix = prefs.backups.extension.clone().unwrap_or_default();
+        self.font_size = prefs.editor_font.size_pt.to_string();
+        crate::chrome::font_catalog::warm();
         self.draft = Some(prefs.clone());
         self.placement = Some(placement);
         if self.shell_apply.is_none() {
@@ -111,6 +116,14 @@ impl OptionsDialog {
             .parse()
             .map_err(|_| "Code page must be a number".to_string())?;
         prefs.backups.extension = (!self.suffix.is_empty()).then(|| self.suffix.clone());
+        let range = bc_session::prefs::EditorFont::SIZE_RANGE;
+        prefs.editor_font.size_pt = self
+            .font_size
+            .trim()
+            .parse()
+            .ok()
+            .filter(|n| range.contains(n))
+            .ok_or_else(|| format!("Font size must be {}..{} pt", range.start(), range.end()))?;
         Ok(prefs)
     }
     /// Draw the dialog; OK / Apply write the draft into `prefs`.
@@ -279,6 +292,51 @@ impl OptionsDialog {
             }
         }
     }
+    /// Appearance › Editor font: installed monospace family + size (points).
+    fn editor_font(&mut self, ui: &mut egui::Ui, o: Pos2) {
+        let painter = ui.painter().clone();
+        let draft = self.draft.as_mut().unwrap();
+        dialog::label(&painter, at(o, 258.0, 176.0), "Editor font:", true);
+        let mut families: Vec<String> = match crate::chrome::font_catalog::ready() {
+            Some(list) => list.iter().map(|f| f.name.clone()).collect(),
+            None => {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(50));
+                Vec::new()
+            }
+        };
+        if !families
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(&draft.editor_font.family))
+        {
+            families.insert(0, draft.editor_font.family.clone());
+        }
+        if let Some(i) = dialog::combo(
+            ui,
+            span(o, 274.0, 200.0, 534.0, 225.0),
+            egui::Id::unique("options-editor-font"),
+            &draft.editor_font.family,
+            &families,
+            true,
+        ) {
+            draft.editor_font.family = families[i].clone();
+        }
+        dialog::label(&painter, at(o, 550.0, 204.0), "Size:", true);
+        dialog::text_field(
+            ui,
+            span(o, 590.0, 200.0, 640.0, 225.0),
+            egui::Id::unique("options-editor-font-size"),
+            &mut self.font_size,
+            true,
+        );
+        dialog::label(&painter, at(o, 648.0, 204.0), "pt", true);
+        dialog::label(
+            &painter,
+            at(o, 274.0, 236.0),
+            "Used by Text Compare and Text Merge; saved for later sessions.",
+            false,
+        );
+    }
     fn content(&mut self, ui: &mut egui::Ui, o: Pos2) {
         let painter = ui.painter().clone();
         let (name, _) = PAGES[self.page];
@@ -329,6 +387,7 @@ impl OptionsDialog {
                     );
                     dialog::label(&painter, at(o, 318.0, y + 3.0), label, true);
                 }
+                self.editor_font(ui, o);
             }
             "Text Editing" => {
                 dialog::label(
@@ -460,6 +519,16 @@ mod tests {
         frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
         assert!(!d.open);
         assert_eq!(prefs.default_tab_size, 8);
+        // Editor font size is validated and written on OK.
+        d.show(&prefs, Placement::ClientOnly);
+        d.font_size = "99".into();
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
+        assert!(d.open && d.error.as_deref().is_some_and(|e| e.contains("Font size")));
+        d.font_size = "12".into();
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
+        assert!(!d.open);
+        assert_eq!(prefs.editor_font.size_pt, 12);
     }
 
     #[cfg(windows)]

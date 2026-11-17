@@ -464,8 +464,9 @@ impl MergeView {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, _prefs: &mut Prefs) -> Option<MergeAction> {
+    pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<MergeAction> {
         let ctx = ui.ctx().clone();
+        self.font_size = prefs.editor_font.size_px();
         let blocked = self.prompt.is_some();
         if !blocked {
             self.keyboard(&ctx);

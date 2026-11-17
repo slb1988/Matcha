@@ -210,6 +210,9 @@ pub struct MatchaApp {
     bench: Option<BenchState>,
     bench_dir: Option<DirBench>,
     prefs: Prefs,
+    /// Editor font currently installed and saved; a different `prefs.editor_font`
+    /// (Options OK / Apply) is applied and persisted at the end of the frame.
+    applied_font: bc_session::prefs::EditorFont,
     last_update_ms: f64,
     frame_cpu_ms: Option<f64>,
     exit_confirmed: bool,
@@ -234,7 +237,9 @@ impl MatchaApp {
     ) -> Self {
         crate::perf::mark("app:new-enter");
         crate::chrome::theme::apply(&cc.egui_ctx);
-        crate::chrome::fonts::install(&cc.egui_ctx);
+        // 已保存的偏好（编辑器字体等）；快照/基准模式下为默认值。
+        let prefs = crate::settings::load();
+        crate::chrome::fonts::install(&cc.egui_ctx, &prefs.editor_font.family);
         let snapshot_capture = options
             .snapshot_out
             .as_ref()
@@ -269,12 +274,30 @@ impl MatchaApp {
         let bench_dir = options.bench_dir.then(DirBench::default);
         crate::perf::mark("app:view-created");
         let mut app = Self::with_view(view);
+        app.applied_font = prefs.editor_font.clone();
+        app.prefs = prefs;
         app.bench = bench;
         app.bench_dir = bench_dir;
         app.screenshot = options.screenshot;
         app.snapshot = options.snapshot;
         app.snapshot_capture = snapshot_capture;
         app
+    }
+    /// Install and save an editor font chosen in any Options dialog (Home's or a view's).
+    fn apply_editor_font(&mut self, ctx: &egui::Context) {
+        if self.prefs.editor_font == self.applied_font {
+            return;
+        }
+        if !self
+            .prefs
+            .editor_font
+            .family
+            .eq_ignore_ascii_case(&self.applied_font.family)
+        {
+            crate::chrome::fonts::set_editor_family(ctx, &self.prefs.editor_font.family);
+        }
+        crate::settings::save(&self.prefs);
+        self.applied_font = self.prefs.editor_font.clone();
     }
     /// 单标签页的应用（启动、快照、基准与测试共用）。
     pub fn with_view(view: View) -> Self {
@@ -286,6 +309,7 @@ impl MatchaApp {
             bench: None,
             bench_dir: None,
             prefs: Prefs::default(),
+            applied_font: Default::default(),
             last_update_ms: 0.0,
             frame_cpu_ms: None,
             exit_confirmed: false,
@@ -1071,6 +1095,7 @@ impl MatchaApp {
             }
         }
         self.options.ui(&ctx, &mut self.prefs);
+        self.apply_editor_font(&ctx);
         match merge_action {
             Some(MergeAction::Home) => commands.push(TabCommand::Home),
             Some(MergeAction::NewTab) => commands.push(TabCommand::NewTab),

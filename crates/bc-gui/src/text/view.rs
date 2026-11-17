@@ -156,6 +156,8 @@ pub struct TextCompareView {
     show_info: bool,
     show_goto: bool,
     show_view_options: bool,
+    /// Point size picked in View › Text display (written to `prefs.editor_font` next frame).
+    font_request: Option<u8>,
     show_file_options: bool,
     path_edits: [String; 2],
     path_sources: [Option<PathBuf>; 2],
@@ -256,6 +258,7 @@ impl TextCompareView {
             show_info: false,
             show_goto: false,
             show_view_options: false,
+            font_request: None,
             show_file_options: false,
             path_edits: Default::default(),
             snapshot_select_paths: false,
@@ -1254,6 +1257,11 @@ impl TextCompareView {
     }
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<ViewAction> {
         self.poll();
+        // 编辑器字号来自全局偏好（Options › Appearance › Editor font，持久化）。
+        if let Some(pt) = self.font_request.take() {
+            prefs.editor_font.size_pt = pt;
+        }
+        self.font_size = prefs.editor_font.size_px();
         let ctx = ui.ctx().clone();
         if self.worker.is_some() || self.edited_at.is_some() || self.labels_pending() {
             ctx.request_repaint_after(Duration::from_millis(16));
@@ -1662,11 +1670,18 @@ impl TextCompareView {
             self.show_goto &= open;
         }
         if self.show_view_options {
+            let mut pt = prefs.editor_font.size_pt;
             Window::new("Text display")
                 .open(&mut self.show_view_options)
                 .show(ui.ctx(), |ui| {
-                    ui.add(egui::Slider::new(&mut self.font_size, 10.0..=24.0).text("Font size"));
+                    ui.add(
+                        egui::Slider::new(&mut pt, bc_session::prefs::EditorFont::SIZE_RANGE)
+                            .text("Font size (pt)"),
+                    );
                 });
+            if pt != prefs.editor_font.size_pt {
+                self.font_request = Some(pt);
+            }
         }
         if self.show_info {
             Window::new("Text Compare Info")

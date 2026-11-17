@@ -17,7 +17,16 @@
   按语言的覆盖写在 `LANGUAGE_OVERRIDES`（按格式名，如 HTML 标签用深蓝常规体），新增语言只加一行。
   单侧行（只有本侧有内容的差异行）整行用差异色着墨：不重要元素（默认注释）用不重要差异色，
   `keep_on_diff` 的元素（注释）在被设为重要时保留自身风格，一眼可辨"这是注释"。
-  全局字形 gamma（`theme::TEXT_GAMMA` = 0.7）加重笔画，使 egui 灰度抗锯齿的文字接近参考 GDI 渲染的粗细。
+  全局字形 gamma `theme::TEXT_GAMMA` = 1.0（原始覆盖率，egui 浅色模式推荐值；此前 0.7 使 Consolas 看着像粗体）。
+- **编辑器字体**（参考：Options › Colors, Fonts › Editor Font）：Tools › Options › Appearance 的 **Editor font**
+  选字体族（本机已安装的等宽字体，扫描 `%WINDIR%\Fonts` 与用户字体目录，只读字体表头）与字号（6–36 pt，默认
+  Consolas 10 pt）；OK/Apply 后文本比较与文本合并立即换字体，并写入 `%APPDATA%\Matcha\settings.txt`
+  （`editor.font.family` / `editor.font.size`），下次启动沿用。View › Text display 的字号滑块改的是同一偏好。
+  粗体（关键字）用该字体的 Bold 面；只有可变字重时用 `wght` 700；都没有则用常规体。
+  未安装的字体名退回 Consolas。快照/基准模式不读写该文件。
+- **中文与编辑器字体对齐**：编辑器字体缺字（CJK）时回退到微软雅黑，按 GDI 字体链接的做法把回退字体缩放到与编辑器字体
+  同行高（雅黑 1.32 em → Consolas 1.17 em，约 0.89 倍）并对齐基线（`fonts::editor_cjk_tweak`）；
+  此前中文比英文大一号、下沉约 2 px，底部被行裁掉。界面（菜单、对话框）里的中文不受影响。
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - **打开即定位首个差异**：打开文件对（或在会话里换一侧文件）后，首次比较完成时光标与滚动自动落到第一个差异区段的首行
   （与 First Difference 同口径：开启 Ignore Unimportant 时跳过只有不重要差异的区段）；两侧相同则停在首行。
@@ -41,6 +50,7 @@
 |---|---|---|
 | 引擎 | `crates/bc-engine-text` | `TextContent`（单侧内容+EditStack）、`TextRules`、`TextMap`/`TextMapRow`、`importance`、`inline`、`merge`（已实现，见 [text-merge.md](text-merge.md)）、`jobs`（Align2/Realign2/Align3/Realign3）、`search` |
 | GUI | `crates/bc-gui/src/text/` | `view.rs`（控制器/导航/保存）、`render.rs`+`gutter.rs`（自绘）、`syntax_style.rs`（按语言的语法风格）、`editor.rs`、`projection.rs`、`nav_bar.rs`（缩略条）、`worker.rs`（350ms 防抖 Realign2Job） |
+| 字体 | `crates/bc-gui/src/chrome/` | `fonts.rs`（字体安装、CJK 回退对齐、运行时换编辑器字体）、`font_catalog.rs`（已安装等宽字体扫描）；`settings.rs`（`settings.txt` 持久化）；`dialogs/options.rs`（Appearance › Editor font） |
 | 启动 | `apps/bcompare` | `matcha <left> <right>` 直接进入 |
 
 ## 关键语义

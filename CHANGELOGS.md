@@ -4,6 +4,12 @@
 
 ## 2026-11-17
 
+- **文本显示字体：中文对齐、去掉"粗体感"，可选字体并保存**（`docs/features/text-compare.md`）：
+  文本比较/合并里的中文（微软雅黑回退）此前比英文大一号、下沉约 2 px 且底部被裁，现按 GDI 字体链接方式缩放并对齐基线；
+  字形 gamma 由 0.7 改回 1.0，Consolas 不再显得像粗体（整个界面文字随之略细）。
+  Tools › Options › Appearance 新增 **Editor font**：从本机等宽字体中选字体族、设字号（6–36 pt），立即生效，
+  保存在 `%APPDATA%\Matcha\settings.txt`，重启后沿用。
+
 - **表格比较打开即定位到首个差异格**（`docs/features/table-compare.md`）：打开文件对、切换 sheet 标签或换一侧文件后，
   比较完成时自动跳到第一个差异行的第一个改动格并滚动到可见（此前总停在左上角，需再按 Next Difference）；
   就绪前已移动光标/编辑则不跳，重新对齐与 Recompare 不受影响。

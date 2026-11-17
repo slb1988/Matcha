@@ -11,6 +11,9 @@ const UI_BOLD_FONT: &str = "matcha-system-message-bold";
 const EDITOR_FONT: &str = "matcha-consolas";
 const EDITOR_BOLD_FONT: &str = "matcha-consolas-bold";
 const CJK_FONT: &str = "matcha-microsoft-yahei";
+/// The CJK fallback as used inside the editor chain: same file as [`CJK_FONT`],
+/// tweaked (see [`editor_cjk_tweak`]) to sit on the editor font's baseline.
+const EDITOR_CJK_FONT: &str = "matcha-editor-cjk";
 /// Named family for emphasized UI text (dialog titles, section headings).
 pub const STRONG_FAMILY: &str = "matcha-strong";
 /// Named family for bold editor text (syntax keywords): Consolas Bold, same advance as Consolas.
@@ -22,7 +25,13 @@ pub struct FontPlan {
     pub ui: PathBuf,
     pub ui_bold: PathBuf,
     pub editor: PathBuf,
+    /// TTC member of [`Self::editor`].
+    pub editor_index: u32,
+    /// Empty = no bold face (bold editor text uses the regular face).
     pub editor_bold: PathBuf,
+    pub editor_bold_index: u32,
+    /// The bold face is [`Self::editor_bold`] rendered at `wght` 700 (variable font).
+    pub editor_bold_wght: bool,
     pub cjk: PathBuf,
 }
 
@@ -33,18 +42,47 @@ impl FontPlan {
             ui: dir.join("segoeui.ttf"),
             ui_bold: dir.join("segoeuib.ttf"),
             editor: dir.join("consola.ttf"),
+            editor_index: 0,
             editor_bold: dir.join("consolab.ttf"),
+            editor_bold_index: 0,
+            editor_bold_wght: false,
             cjk: dir.join("msyh.ttc"),
         }
     }
 
-    fn entries(&self) -> [(&'static str, &Path); 5] {
+    /// Use the installed `family` for the editor (Options › Appearance). The
+    /// default Consolas skips the font scan; an unknown family keeps the
+    /// current editor faces.
+    pub fn with_editor_family(mut self, family: &str) -> Self {
+        let default = bc_session::prefs::EditorFont::DEFAULT_FAMILY;
+        if family.eq_ignore_ascii_case(default) && self.editor.is_file() {
+            return self;
+        }
+        if let Some(found) = super::font_catalog::find(family) {
+            self.editor = found.regular.path.clone();
+            self.editor_index = found.regular.index;
+            let bold = found
+                .bold
+                .clone()
+                .or_else(|| found.variable_weight.then(|| found.regular.clone()));
+            self.editor_bold_wght = found.bold.is_none() && bold.is_some();
+            (self.editor_bold, self.editor_bold_index) =
+                bold.map_or((PathBuf::new(), 0), |b| (b.path, b.index));
+        }
+        self
+    }
+
+    fn entries(&self) -> [(&'static str, &Path, u32); 5] {
         [
-            (UI_FONT, self.ui.as_path()),
-            (UI_BOLD_FONT, self.ui_bold.as_path()),
-            (EDITOR_FONT, self.editor.as_path()),
-            (EDITOR_BOLD_FONT, self.editor_bold.as_path()),
-            (CJK_FONT, self.cjk.as_path()),
+            (UI_FONT, self.ui.as_path(), 0),
+            (UI_BOLD_FONT, self.ui_bold.as_path(), 0),
+            (EDITOR_FONT, self.editor.as_path(), self.editor_index),
+            (
+                EDITOR_BOLD_FONT,
+                self.editor_bold.as_path(),
+                self.editor_bold_index,
+            ),
+            (CJK_FONT, self.cjk.as_path(), 0),
         ]
     }
 }
@@ -64,17 +102,22 @@ type Resolved = (Option<SystemFont>, FontDefinitions);
 static PREFETCH: std::sync::Mutex<Option<std::thread::JoinHandle<Resolved>>> =
     std::sync::Mutex::new(None);
 
-/// Start resolving the system fonts in the background; [`install`] joins it.
-pub fn prefetch() {
+/// The system part of the plan (UI fonts) as resolved at start-up; editor
+/// family changes re-plan from here without repeating the SPI query.
+static BASE: std::sync::Mutex<Option<(FontPlan, Option<SystemFont>)>> = std::sync::Mutex::new(None);
+
+/// Start resolving the system fonts (and the saved editor `family`) in the
+/// background; [`install`] joins it.
+pub fn prefetch(family: String) {
     if let Ok(handle) = std::thread::Builder::new()
         .name("matcha-fonts".into())
-        .spawn(resolve)
+        .spawn(move || resolve(&family))
     {
         *PREFETCH.lock().unwrap() = Some(handle);
     }
 }
 
-fn resolve() -> Resolved {
+fn resolve(family: &str) -> Resolved {
     let mut plan = FontPlan::from_dir(windows_font_dir());
     let t = std::time::Instant::now();
     let system = system_message_font();
@@ -85,29 +128,44 @@ fn resolve() -> Resolved {
             plan.ui_bold = windows_font_dir().join("msyhbd.ttc");
         }
     }
-    let t = std::time::Instant::now();
-    let mut definitions = load(&plan);
-    crate::perf::span("fonts:load-files", t);
-    if let Some(font) = &system {
-        // 微软雅黑 TTC 索引 0 是 Microsoft YaHei，索引 1 是 UI 家族。
-        if font.family == "Microsoft YaHei UI" {
-            for key in [UI_FONT, UI_BOLD_FONT] {
-                if let Some(data) = definitions.font_data.get_mut(key) {
-                    std::sync::Arc::make_mut(data).index = 1;
-                }
-            }
-        }
-    }
+    *BASE.lock().unwrap_or_else(|e| e.into_inner()) = Some((plan.clone(), system.clone()));
+    let definitions = definitions(&plan.with_editor_family(family), system.as_ref());
     (system, definitions)
 }
 
+/// [`load`] plus the system-font face selection.
+fn definitions(plan: &FontPlan, system: Option<&SystemFont>) -> FontDefinitions {
+    let t = std::time::Instant::now();
+    let mut definitions = load(plan);
+    crate::perf::span("fonts:load-files", t);
+    // 微软雅黑 TTC 索引 0 是 Microsoft YaHei，索引 1 是 UI 家族。
+    if system.is_some_and(|font| font.family == "Microsoft YaHei UI") {
+        for key in [UI_FONT, UI_BOLD_FONT] {
+            if let Some(data) = definitions.font_data.get_mut(key) {
+                std::sync::Arc::make_mut(data).index = 1;
+            }
+        }
+    }
+    definitions
+}
+
+/// Switch the editor font family at run time (Options › Appearance › Editor font).
+pub fn set_editor_family(ctx: &egui::Context, family: &str) {
+    let base = BASE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let (plan, system) = base.unwrap_or_else(|| (FontPlan::from_dir(windows_font_dir()), None));
+    ctx.set_fonts(definitions(
+        &plan.with_editor_family(family),
+        system.as_ref(),
+    ));
+}
+
 /// Install system fonts, preserving egui's bundled fonts as the final fallback.
-pub fn install(ctx: &egui::Context) {
+pub fn install(ctx: &egui::Context, family: &str) {
     let t = std::time::Instant::now();
     let prefetched = PREFETCH.lock().unwrap().take();
     let (system, definitions) = prefetched
         .and_then(|handle| handle.join().ok())
-        .unwrap_or_else(resolve);
+        .unwrap_or_else(|| resolve(family));
     crate::perf::span("fonts:resolved", t);
     // 诊断只在计时运行（`MATCHA_PERF` / `MATCHA_TABLE_PERF`）输出：命令行用户的终端里不应出现。
     if crate::perf::enabled() {
@@ -129,7 +187,7 @@ pub fn install(ctx: &egui::Context) {
     );
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct SystemFont {
     family: String,
     path: PathBuf,
@@ -209,15 +267,36 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
     let mut definitions = FontDefinitions::default();
     let mut missing = Vec::new();
 
-    for (name, path) in plan.entries() {
+    for (name, path, index) in plan.entries() {
+        if path.as_os_str().is_empty() {
+            continue;
+        }
         match std::fs::read(path) {
             Ok(bytes) => {
-                definitions
-                    .font_data
-                    .insert(name.to_owned(), FontData::from_owned(bytes).into());
+                let mut data = FontData::from_owned(bytes);
+                data.index = index;
+                if name == EDITOR_BOLD_FONT && plan.editor_bold_wght {
+                    data.tweak.coords =
+                        egui::epaint::text::VariationCoords::new([(b"wght", 700.0)]);
+                }
+                definitions.font_data.insert(name.to_owned(), data.into());
             }
             Err(_) => missing.push(path.display().to_string()),
         }
+    }
+    // 编辑器链里的 CJK 回退：同一字体文件（共享字节），按编辑器字体缩放并对齐基线。
+    if let Some(cjk) = definitions.font_data.get(CJK_FONT) {
+        let mut data = FontData::clone(cjk);
+        if let Some(tweak) = definitions
+            .font_data
+            .get(EDITOR_FONT)
+            .and_then(|editor| editor_cjk_tweak(editor, &data))
+        {
+            data.tweak = tweak;
+        }
+        definitions
+            .font_data
+            .insert(EDITOR_CJK_FONT.to_owned(), data.into());
     }
 
     let mut proportional = Vec::new();
@@ -242,8 +321,8 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
     if definitions.font_data.contains_key(EDITOR_FONT) {
         monospace.push(EDITOR_FONT.to_owned());
     }
-    if definitions.font_data.contains_key(CJK_FONT) {
-        monospace.push(CJK_FONT.to_owned());
+    if definitions.font_data.contains_key(EDITOR_CJK_FONT) {
+        monospace.push(EDITOR_CJK_FONT.to_owned());
     }
     monospace.extend(
         definitions
@@ -286,6 +365,44 @@ pub fn load(plan: &FontPlan) -> FontDefinitions {
         );
     }
     definitions
+}
+
+/// Vertical metrics in em units: (ascent, descent as a positive depth, line gap),
+/// read the same way epaint reads them.
+fn em_metrics(data: &FontData) -> Option<(f32, f32, f32)> {
+    use skrifa::MetadataProvider;
+    let font = skrifa::FontRef::from_index((*data.font).as_ref(), data.index).ok()?;
+    let m = font.metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    let upm = f32::from(m.units_per_em);
+    (upm > 0.0).then(|| (m.ascent / upm, -m.descent / upm, m.leading / upm))
+}
+
+/// GDI-style font linking for the editor's CJK fallback: scale the fallback so
+/// its line height (ascent + descent + gap) matches the editor font's
+/// (Microsoft YaHei 1.32 em vs Consolas 1.17 em, so unscaled ideographs dwarf
+/// Latin text and spill below the row), then shift it so both baselines
+/// coincide. egui otherwise centres a taller fallback's line box on the
+/// primary's, which drops ideographs ~2 px below the Latin baseline and clips
+/// their bottoms on 15 px rows.
+fn editor_cjk_tweak(editor: &FontData, cjk: &FontData) -> Option<egui::epaint::text::FontTweak> {
+    let (ea, ed, eg) = em_metrics(editor)?;
+    let (ca, cd, cg) = em_metrics(cjk)?;
+    if ca + cd + cg <= 0.0 {
+        return None;
+    }
+    let scale = ((ea + ed + eg) / (ca + cd + cg)).clamp(0.5, 1.0);
+    // epaint's baseline for a fallback glyph, in units of the font size:
+    //   fallback ascent + (primary height - fallback height) / 2
+    let natural = ca * scale + 0.5 * ((ea + ed + eg) - (ca + cd + cg) * scale);
+    Some(egui::epaint::text::FontTweak {
+        scale,
+        // `y_offset_factor` is multiplied by size × scale.
+        y_offset_factor: (ea - natural) / scale,
+        ..Default::default()
+    })
 }
 
 /// 按同一字号 token 安装字体；DPI 默认由 eframe 管理。
@@ -342,7 +459,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("matcha-fonts-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let plan = FontPlan::from_dir(&dir);
-        for (_, path) in plan.entries() {
+        for (_, path, _) in plan.entries() {
             std::fs::write(path, bytes.as_ref()).unwrap();
         }
         let fonts = load(&plan);
@@ -352,7 +469,7 @@ mod tests {
         );
         assert_eq!(
             &fonts.families[&FontFamily::Monospace][..2],
-            &[EDITOR_FONT, CJK_FONT]
+            &[EDITOR_FONT, EDITOR_CJK_FONT]
         );
         assert!(fonts.families[&FontFamily::Monospace].len() > 2);
         assert_eq!(

@@ -384,6 +384,7 @@ dependencies = [
  "image",
  "rfd",
  "serde_json",
+ "skrifa",
 ]
 
 [[package]]

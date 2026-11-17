@@ -19,6 +19,8 @@ bc-session = { workspace = true }
 bc-shell = { workspace = true }
 bc-script = { workspace = true }
 eframe = { workspace = true }
+# 读字体度量（与 epaint 同版本，不增加编译量）：对齐编辑器字体与 CJK 回退字体的基线。
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 
 # 路径框右键菜单读取系统剪贴板（egui 只提供写入）。
 arboard = { version = "3", default-features = false }

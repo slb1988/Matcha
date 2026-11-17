@@ -28,6 +28,7 @@ pub mod log_panel;
 pub mod merge;
 pub mod perf;
 pub mod remote;
+pub mod settings;
 pub mod snapshot;
 pub mod sync_view;
 pub mod table;
@@ -72,15 +73,16 @@ pub fn run_with_remote(
     remote: Option<remote::RemoteInbox>,
 ) -> Result<i32, eframe::Error> {
     perf::mark("run:enter");
-    // Overlap the system-font lookup with window creation.
-    chrome::fonts::prefetch();
     let options =
         snapshot::prepare_options(options).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
     let snapshot_mode = options.snapshot.is_some();
     // 快照与基准要求确定的布局：不读不写用户的分隔线位置。
     if snapshot_mode || options.bench.is_some() || options.bench_table || options.bench_dir {
         layout::disable_persistence();
+        settings::disable_persistence();
     }
+    // Overlap the system-font lookup (and the saved editor font) with window creation.
+    chrome::fonts::prefetch(settings::load().editor_font.family);
     let result: snapshot::CaptureResult = Default::default();
     let capture_result = result.clone();
     let launch_result: remote::ResultSlot = Default::default();

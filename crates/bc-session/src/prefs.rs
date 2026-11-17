@@ -49,10 +49,42 @@ pub struct BackupPrefs {
     pub extension: Option<String>,
 }
 
+/// Editor font (reference: Options › Colors, Fonts › Editor Font) used by the
+/// text compare / text merge panes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorFont {
+    /// Installed family name (English); unknown names fall back to Consolas.
+    pub family: String,
+    /// Size in points (96 dpi: px = pt × 4 / 3).
+    pub size_pt: u8,
+}
+
+impl EditorFont {
+    pub const DEFAULT_FAMILY: &'static str = "Consolas";
+    pub const DEFAULT_SIZE_PT: u8 = 10;
+    pub const SIZE_RANGE: std::ops::RangeInclusive<u8> = 6..=36;
+
+    /// Size in logical pixels (points at 96 dpi).
+    pub fn size_px(&self) -> f32 {
+        f32::from(self.size_pt) * 4.0 / 3.0
+    }
+}
+
+impl Default for EditorFont {
+    fn default() -> Self {
+        Self {
+            family: Self::DEFAULT_FAMILY.to_owned(),
+            size_pt: Self::DEFAULT_SIZE_PT,
+        }
+    }
+}
+
 /// Preferences used by the engines and the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Prefs {
     pub colors: DiffColors,
+    /// Text editor font (family + size).
+    pub editor_font: EditorFont,
     pub backups: BackupPrefs,
     /// Default ANSI code page when detection is inconclusive.
     pub default_code_page: u16,

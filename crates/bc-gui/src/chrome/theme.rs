@@ -188,8 +188,9 @@ pub const RADIUS_LG: u8 = 10;
 pub const RADIUS_XL: u8 = 14;
 
 pub const UI_SIZE: f32 = 13.0;
-/// Glyph coverage gamma (`alpha = coverage^gamma`); < 1 renders strokes heavier.
-pub const TEXT_GAMMA: f32 = 0.7;
+/// Glyph coverage gamma (`alpha = coverage^gamma`). 1.0 = raw coverage (egui's
+/// light-mode recommendation); values < 1 thicken strokes and made Consolas look bold.
+pub const TEXT_GAMMA: f32 = 1.0;
 pub const TITLE_SIZE: f32 = 17.0;
 pub const EDITOR_SIZE: f32 = 40.0 / 3.0;
 pub const EDITOR_LINE_HEIGHT: f32 = 15.0;
@@ -344,9 +345,8 @@ impl Theme {
             visuals.hyperlink_color = p.accent;
             visuals.warn_fg_color = p.warning;
             visuals.error_fg_color = p.danger;
-            // egui's raw glyph coverage reads thinner than GDI ClearType; a gamma
-            // below 1 thickens light strokes so dark-on-white text matches the
-            // weight of native Windows text (the reference renders with GDI).
+            // Raw glyph coverage (gamma 1): the earlier 0.7 boost made the
+            // editor's Consolas read as bold next to native ClearType text.
             visuals.text_options.color_transfer_function =
                 egui::epaint::FontColorTransferFunction::Gamma(TEXT_GAMMA);
             let md = CornerRadius::same(RADIUS_MD);
