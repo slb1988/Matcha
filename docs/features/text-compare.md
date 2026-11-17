@@ -21,7 +21,7 @@
 - **编辑器字体**（参考：Options › Colors, Fonts › Editor Font）：Tools › Options › Appearance 的 **Editor font**
   选字体族（本机已安装的等宽字体，扫描 `%WINDIR%\Fonts` 与用户字体目录，只读字体表头）与字号（6–36 pt，默认
   Consolas 10 pt）；OK/Apply 后文本比较与文本合并立即换字体，并写入 `%APPDATA%\Matcha\settings.txt`
-  （`editor.font.family` / `editor.font.size`），下次启动沿用。View › Text display 的字号滑块改的是同一偏好。
+  （`editor.font.family` / `editor.font.size`，与其他 Options 设置一起，见 [gui-shell.md](gui-shell.md)「偏好持久化」），下次启动沿用。View › Text display 的字号滑块改的是同一偏好。
   粗体（关键字）用该字体的 Bold 面；只有可变字重时用 `wght` 700；都没有则用常规体。
   未安装的字体名退回 Consolas。快照/基准模式不读写该文件。
 - **中文与编辑器字体对齐**：编辑器字体缺字（CJK）时回退到微软雅黑，按 GDI 字体链接的做法把回退字体缩放到与编辑器字体
@@ -30,6 +30,7 @@
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - **打开即定位首个差异**：打开文件对（或在会话里换一侧文件）后，首次比较完成时光标与滚动自动落到第一个差异区段的首行
   （与 First Difference 同口径：开启 Ignore Unimportant 时跳过只有不重要差异的区段）；两侧相同则停在首行。
+  滚动时差异上方保留最多 5 行上下文（窗格较矮时不超过可见行数的三分之一），差异不会贴在窗格顶边。
   一次性：比较完成前已编辑或移动过光标则不跳；编辑后的重新对齐、Recompare 不会把光标拉回首个差异。
 - 鼠标点窗格任意位置（包括只有对侧有内容的空隙行）都会把焦点和活动侧切到该窗格；
   空隙行上光标落到其后本侧第一行行首（`TextCompareView::place_in_gap`）。

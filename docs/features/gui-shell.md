@@ -34,6 +34,11 @@
   快照场景：`dlg-text-session-settings`、`dlg-table-session-settings`、`dlg-folder-session-settings`。
 - **可拖动分隔线**：各视图窗格之间、文件夹/同步日志面板、合并视图输入/输出区、Home 会话树均可拖动调整，
   位置存 `%APPDATA%\Matcha\layout.txt`、重启保持，双击复位，见 [resizable-splitters.md](resizable-splitters.md)。
+- **偏好持久化**：Tools › Options（Home 与各比较视图共用同一份 `Prefs`）的设置——差异颜色、编辑器字体与字号、
+  默认 Tab 宽度、默认代码页、保存前备份及后缀——在 OK / Apply（以及 View › Text display 改字号）后写入
+  `%APPDATA%\Matcha\settings.txt`（首行 `# matcha settings v1`，之后 `键	值`；颜色为 `#RRGGBB`；
+  未识别的键原样保留），启动时读回；无效值忽略、用默认值。快照/基准模式不读不写。Explorer 右键菜单开关仍单独存于
+  `shell-menu.txt`。实现：`crates/bc-gui/src/settings.rs`，帧末 `MatchaApp::save_prefs` 检测变化后保存。
 - **sheet 标签**：`chrome::sheet_tabs` 下划线页签 + 状态圆点，表格比较（网格与状态栏之间）与表格合并共用。
 - **换肤预留**：`theme::Palette` + `theme::palette(ctx)`；组件经它取色，`Theme::with_palette(..).apply(ctx)`
   即可整体换色（目前只有默认浅色 `Palette::LIGHT`，无换肤 UI）。
@@ -50,6 +55,7 @@
 | `crates/bc-gui/src/app.rs` | View 切换、全局 Prefs、关闭保护；接线集中于 View/HomeAction/ViewAction |
 | `crates/bc-gui/src/home.rs` | 主页与拖放 |
 | `crates/bc-gui/src/chrome/drop.rs` | 比较视图的系统拖放落点 → 左/右侧判定（各视图共用） |
+| `crates/bc-gui/src/settings.rs` | Options 偏好读写（`settings.txt`） |
 | `crates/bc-gui/src/text/`、`crates/bc-gui/src/merge/`、`table/`、`dir_view.rs`、`sync_view.rs` | 各功能视图（文本合并为 `View::TextMerge`；见对应 feature 文档） |
 | `crates/bc-gui/src/chrome/`、`dialogs/`、`legend.rs`、`log_panel.rs` | 外框、对话框、颜色图例、虚拟化操作日志 |
 | `crates/bc-gui/src/chrome/theme.rs` | 设计 token（颜色/圆角/阴影/字号）与全局 egui 样式 |

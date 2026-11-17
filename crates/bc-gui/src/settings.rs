@@ -1,15 +1,27 @@
-//! 持久化偏好：Tools › Options 里需要跨会话保留的值（目前是编辑器字体），见
-//! `docs/features/text-compare.md`「编辑器字体」。
+//! 持久化偏好：Tools › Options 的全部设置（差异颜色、编辑器字体、默认 Tab 宽度与代码页、
+//! 备份），见 `docs/features/gui-shell.md`「偏好持久化」。
 //!
 //! 文件 `settings.txt` 与 `layout.txt` 同目录：首行 [`HEADER`]，之后每行 `键\t值`；
 //! 未识别的键原样保留（新版本写入的键不会被旧版本丢掉）。快照/基准模式经
 //! [`disable_persistence`] 只用默认值、不读不写；单元测试中从不读写磁盘。
-use bc_session::prefs::{EditorFont, Prefs};
+use bc_session::prefs::{DiffColors, EditorFont, Prefs};
 use std::collections::BTreeMap;
 
 const HEADER: &str = "# matcha settings v1";
 const FONT_FAMILY: &str = "editor.font.family";
 const FONT_SIZE: &str = "editor.font.size";
+const TAB_SIZE: &str = "text.default-tab-size";
+const CODE_PAGE: &str = "text.default-code-page";
+const BACKUPS: &str = "backups.enabled";
+const BACKUP_SUFFIX: &str = "backups.suffix";
+/// Colour keys (`#RRGGBB`) and the `DiffColors` field each one maps to.
+type ColorField = fn(&mut DiffColors) -> &mut [u8; 3];
+const COLORS: [(&str, ColorField); 4] = [
+    ("colors.important", |c| &mut c.important),
+    ("colors.unimportant", |c| &mut c.unimportant),
+    ("colors.inserted", |c| &mut c.inserted),
+    ("colors.conflict", |c| &mut c.conflict),
+];
 
 static PERSIST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(!cfg!(test));
 
@@ -71,11 +83,56 @@ fn apply(values: &BTreeMap<String, String>, prefs: &mut Prefs) {
     {
         prefs.editor_font.size_pt = size;
     }
+    if let Some(n) = values
+        .get(TAB_SIZE)
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|n| *n <= 64)
+    {
+        prefs.default_tab_size = n;
+    }
+    if let Some(n) = values.get(CODE_PAGE).and_then(|s| s.trim().parse().ok()) {
+        prefs.default_code_page = n;
+    }
+    match values.get(BACKUPS).map(|s| s.trim()) {
+        Some("true") => prefs.backups.enabled = true,
+        Some("false") => prefs.backups.enabled = false,
+        _ => {}
+    }
+    if let Some(suffix) = values.get(BACKUP_SUFFIX) {
+        prefs.backups.extension = (!suffix.is_empty()).then(|| suffix.clone());
+    }
+    for (key, field) in COLORS {
+        if let Some(rgb) = values.get(key).and_then(|v| parse_rgb(v)) {
+            *field(&mut prefs.colors) = rgb;
+        }
+    }
 }
 
 fn store(prefs: &Prefs, values: &mut BTreeMap<String, String>) {
     values.insert(FONT_FAMILY.into(), prefs.editor_font.family.clone());
     values.insert(FONT_SIZE.into(), prefs.editor_font.size_pt.to_string());
+    values.insert(TAB_SIZE.into(), prefs.default_tab_size.to_string());
+    values.insert(CODE_PAGE.into(), prefs.default_code_page.to_string());
+    values.insert(BACKUPS.into(), prefs.backups.enabled.to_string());
+    values.insert(
+        BACKUP_SUFFIX.into(),
+        prefs.backups.extension.clone().unwrap_or_default(),
+    );
+    let mut colors = prefs.colors;
+    for (key, field) in COLORS {
+        let [r, g, b] = *field(&mut colors);
+        values.insert(key.into(), format!("#{r:02X}{g:02X}{b:02X}"));
+    }
+}
+
+/// `#RRGGBB` → bytes.
+fn parse_rgb(text: &str) -> Option<[u8; 3]> {
+    let hex = text.trim().strip_prefix('#')?;
+    if hex.len() != 6 || !hex.is_ascii() {
+        return None;
+    }
+    let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+    Some([byte(0)?, byte(2)?, byte(4)?])
 }
 
 fn parse(text: &str) -> BTreeMap<String, String> {
@@ -112,6 +169,12 @@ mod tests {
             family: "Cascadia Mono".into(),
             size_pt: 12,
         };
+        prefs.colors.important = [0x12, 0xAB, 0xEF];
+        prefs.colors.inserted = [0, 0, 0];
+        prefs.default_tab_size = 8;
+        prefs.default_code_page = 936;
+        prefs.backups.enabled = true;
+        prefs.backups.extension = Some(".bak".into());
         let mut values = parse("# matcha settings v1\nfuture.key\tkept\n");
         store(&prefs, &mut values);
         let text = format(&values);
@@ -119,17 +182,22 @@ mod tests {
         assert!(text.contains("future.key\tkept\n"));
         let mut back = Prefs::default();
         apply(&parse(&text), &mut back);
-        assert_eq!(back.editor_font, prefs.editor_font);
+        assert!(text.contains("colors.important\t#12ABEF\n"));
+        assert_eq!(back, prefs);
     }
 
     #[test]
     fn bad_values_fall_back_to_defaults() {
         let mut prefs = Prefs::default();
         apply(
-            &parse("# matcha settings v1\neditor.font.size\t99\neditor.font.family\t  \n"),
+            &parse(
+                "# matcha settings v1\neditor.font.size\t99\neditor.font.family\t  \n\
+                 text.default-tab-size\t65\ntext.default-code-page\tx\nbackups.enabled\tyes\n\
+                 colors.important\t#12345\ncolors.unimportant\tred\n",
+            ),
             &mut prefs,
         );
-        assert_eq!(prefs.editor_font, EditorFont::default());
+        assert_eq!(prefs, Prefs::default());
         assert!(
             parse("editor.font.size\t12\n").is_empty(),
             "header required"
