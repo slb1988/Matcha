@@ -37,7 +37,7 @@
   实测两个约 18 MB 的 exe：首屏 16 ms、Complete 对齐约 0.6 s、每帧约 5 ms、进程峰值约 140 MB（逐行存储时约 2.2 GB）。
 - 入口：Home 会话卡、二进制路由（`bc_formats::route`：不是表格时，`*.bin` 掩码或前 8 KiB 内容嗅探
   判为二进制，同文本引擎的 `encoding::detect` 规则；exe / dll / 无扩展名二进制均覆盖；xlsx 等表格先判，
-  不进十六进制）、`/fv="Hex Compare"`、Text/Table 的 Compare Files Using 互切、空会话逐侧打开。
+  不进十六进制）、`/fv="Hex Compare"`、Compare Files Using 互切（规则见 gui-shell.md）、空会话逐侧打开。
   文件夹比较中打开二进制文件对时新开 Hex Compare 标签页（内嵌窗口只有文本）。
 
 ## 代码地图

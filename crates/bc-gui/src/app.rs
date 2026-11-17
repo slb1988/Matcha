@@ -662,6 +662,29 @@ impl MatchaApp {
         };
         self.open_tab(view);
     }
+    /// Session › Compare Files Using：三个文件视图共用，原位以另一类视图重开这对文件。
+    fn reopen_using(reopen: crate::using::Reopen) -> Option<TabCommand> {
+        use bc_formats::route::FileView;
+        let crate::using::Reopen { view, left, right } = reopen;
+        let opened = match view {
+            FileView::Text => {
+                TextCompareView::open(&left, &right).map(|v| View::TextCompare(Box::new(v)))
+            }
+            FileView::Table => {
+                TableCompareView::open(&left, &right).map(|v| View::TableCompare(Box::new(v)))
+            }
+            FileView::Hex => {
+                HexCompareView::open(&left, &right).map(|v| View::HexCompare(Box::new(v)))
+            }
+        };
+        match opened {
+            Ok(view) => Some(TabCommand::Replace(view)),
+            Err(e) => {
+                eprintln!("Cannot open {view:?}: {e}");
+                None
+            }
+        }
+    }
     /// Home 打开两侧路径的比较：成功则新开标签页，失败把错误写回 Home。
     fn open_comparison(&mut self, ctx: &egui::Context, action: HomeAction) {
         let Some(opened) = Self::comparison_view(ctx, action) else {
@@ -1062,22 +1085,7 @@ impl MatchaApp {
                 TableAction::Close => Some(TabCommand::Close),
                 TableAction::NewTab => Some(TabCommand::NewTab),
                 TableAction::Exit => Some(TabCommand::Exit(true)),
-                // Session > Using: Text Compare 原位换会话类型。
-                TableAction::Text { left, right } => match TextCompareView::open(&left, &right) {
-                    Ok(v) => Some(TabCommand::Replace(View::TextCompare(Box::new(v)))),
-                    Err(e) => {
-                        eprintln!("Cannot open text: {e}");
-                        None
-                    }
-                },
-                // Using: Hex Compare 原位换会话类型。
-                TableAction::Hex { left, right } => match HexCompareView::open(&left, &right) {
-                    Ok(v) => Some(TabCommand::Replace(View::HexCompare(Box::new(v)))),
-                    Err(e) => {
-                        eprintln!("Cannot open hex: {e}");
-                        None
-                    }
-                },
+                TableAction::Using(reopen) => Self::reopen_using(reopen),
             };
             commands.extend(command);
         }
@@ -1102,14 +1110,7 @@ impl MatchaApp {
                         }
                     }
                 }
-                // Session > Compare Files Using > Hex Compare：原位换会话类型。
-                ViewAction::CompareAsHex { left, right } => match HexCompareView::open(&left, &right) {
-                    Ok(v) => Some(TabCommand::Replace(View::HexCompare(Box::new(v)))),
-                    Err(e) => {
-                        eprintln!("Cannot open hex: {e}");
-                        None
-                    }
-                },
+                ViewAction::Using(reopen) => Self::reopen_using(reopen),
             });
         }
         if let Some(action) = hex_action {
@@ -1118,20 +1119,7 @@ impl MatchaApp {
                 HexAction::Close => Some(TabCommand::Close),
                 HexAction::NewTab => Some(TabCommand::NewTab),
                 HexAction::Exit => Some(TabCommand::Exit(true)),
-                HexAction::CompareAsText { left, right } => match TextCompareView::open(&left, &right) {
-                    Ok(v) => Some(TabCommand::Replace(View::TextCompare(Box::new(v)))),
-                    Err(e) => {
-                        eprintln!("Cannot open text: {e}");
-                        None
-                    }
-                },
-                HexAction::CompareAsTable { left, right } => match TableCompareView::open(&left, &right) {
-                    Ok(v) => Some(TabCommand::Replace(View::TableCompare(Box::new(v)))),
-                    Err(e) => {
-                        eprintln!("Cannot open table: {e}");
-                        None
-                    }
-                },
+                HexAction::Using(reopen) => Self::reopen_using(reopen),
             };
             commands.extend(command);
         }

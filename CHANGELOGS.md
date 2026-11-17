@@ -4,6 +4,11 @@
 
 ## 2026-11-17
 
+- **Compare Files Using 按文件决定可用项，三个视图统一**（`docs/features/gui-shell.md`）：
+  此前各视图写死白名单——表格视图只能切 Text（xlsx 切过去打不开）、Hex 有实现却是灰的；文本视图切不了 Table。
+  现在文本 / 表格 / 十六进制视图共用一个子菜单与规则：Hex 总可用，Table 要求表格或文本内容，Text 要求文本内容
+  （xlsx 只能切 Hex，csv 可切 Text / Hex），当前视图与未实现的 Media / Picture / Version 置灰。
+
 - **xlsx/csv 等表格默认走表格比较，文件类型路由统一到一处**（`docs/features/gui-shell.md`、`table-compare.md`）：
   此前两个文件先做二进制嗅探再判表格，xlsx（ZIP 包）被误开成十六进制比较。现在命令行、Home 打开/拖放、
   Auto 新会话、文件夹比较打开文件对统一调 `bc_formats::route`，顺序为表格 → 十六进制 → 文本；

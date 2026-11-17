@@ -49,7 +49,6 @@ const ENABLED: &[&str] = &[
     "Table Compare Report...",
     "Export Summary as CSV...",
     "Table Compare Info",
-    "Using:Text Compare",
     "Exit",
     "Open File...",
     "Open Clipboard",
@@ -175,6 +174,10 @@ impl TableCompareView {
     /// share these rules).
     fn refresh_items(&self, items: &mut [MenuItem]) {
         for item in items {
+            if item.label == crate::using::LABEL {
+                crate::using::refresh_item(item, bc_formats::route::FileView::Table, &self.paths());
+                continue;
+            }
             if let MenuItemKind::Submenu(children) = &mut item.kind {
                 self.refresh_items(children);
                 item.enabled = children
@@ -211,17 +214,6 @@ impl TableCompareView {
     fn update_menus(&mut self) {
         if self.menus.is_empty() {
             let mut menus = super::menu::inventory();
-            // Session › Compare Files Using › Text Compare shares its label
-            // with Session › New Session › Text Compare.
-            for item in &mut menus[0].items {
-                if item.label == "Compare Files Using" {
-                    if let MenuItemKind::Submenu(children) = &mut item.kind {
-                        for child in children {
-                            child.action_id = format!("Using:{}", child.label);
-                        }
-                    }
-                }
-            }
             for (index, names) in EXTRAS {
                 menus[index].items.push(MenuItem {
                     label: String::new(),
@@ -285,8 +277,11 @@ impl TableCompareView {
             "Table Compare Report..." => self.file_dialog(FileMode::Summary(false)),
             "Export Summary as CSV..." => self.file_dialog(FileMode::Summary(true)),
             "Table Compare Info" => self.show_statistics = true,
-            "Using:Text Compare" => self.request(Pending::Text),
-            "Using:Hex Compare" => self.request(Pending::Hex),
+            id if crate::using::view_of(id).is_some() => {
+                if let Some(view) = crate::using::view_of(id) {
+                    self.request(Pending::Using(view));
+                }
+            }
             "Open File..." => self.file_dialog(FileMode::Open(s)),
             "Open Clipboard" => {
                 self.clipboard_side = Some(s);

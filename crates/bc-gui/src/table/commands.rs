@@ -1502,22 +1502,13 @@ impl TableCompareView {
                     }
                 }
             }
-            Pending::Text => {
-                if let [Some(left), Some(right)] = self.paths() {
+            Pending::Using(view) => match crate::using::reopen(view, self.paths()) {
+                Ok(reopen) => {
                     self.cancel();
-                    self.action = Some(TableAction::Text { left, right });
-                } else {
-                    self.message = "Save clipboard sources before opening Text Compare".into();
+                    self.action = Some(TableAction::Using(reopen));
                 }
-            }
-            Pending::Hex => {
-                if let [Some(left), Some(right)] = self.paths() {
-                    self.cancel();
-                    self.action = Some(TableAction::Hex { left, right });
-                } else {
-                    self.message = "Save clipboard sources before opening Hex Compare".into();
-                }
-            }
+                Err(e) => self.message = e,
+            },
             Pending::Settings(draft) => {
                 let reload = draft.options != self.options
                     || draft.paths
@@ -1848,7 +1839,7 @@ impl TableCompareView {
                         | Some(Pending::Exit)
                         | Some(Pending::Reload)
                         | Some(Pending::Settings(_))
-                        | Some(Pending::Text)
+                        | Some(Pending::Using(_))
                 );
                 let replaced_side_cached_dirty = match &self.pending {
                     Some(Pending::Open(s, _)) | Some(Pending::Clipboard(s, _)) => {

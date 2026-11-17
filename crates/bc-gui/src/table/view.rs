@@ -36,15 +36,8 @@ pub enum TableAction {
     /// Session > New Tab。
     NewTab,
     Exit,
-    Text {
-        left: PathBuf,
-        right: PathBuf,
-    },
-    /// Using: Hex Compare 原位换会话类型。
-    Hex {
-        left: PathBuf,
-        right: PathBuf,
-    },
+    /// Session › Compare Files Using：原位以另一类视图重开。
+    Using(crate::using::Reopen),
 }
 #[derive(Clone)]
 pub(super) enum Pending {
@@ -54,8 +47,8 @@ pub(super) enum Pending {
     Open(usize, PathBuf),
     Clipboard(usize, String),
     Settings(Box<Draft>),
-    Text,
-    Hex,
+    /// Compare Files Using：以另一类视图重开。
+    Using(bc_formats::route::FileView),
 }
 /// A destructive load staged on the worker: files/options/rules/pairs of the
 /// running session are replaced only after the load succeeds; a failure keeps

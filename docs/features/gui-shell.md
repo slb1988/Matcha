@@ -66,6 +66,11 @@
   或格式库里无外部转换的表格格式（`*.csv`、用户表格格式；格式库未匹配时 `*.tsv`/`*.tab`）；
   十六进制 = `*.bin` 或前 8 KiB 嗅探为二进制；其余文本。工作簿是 ZIP，必须先于二进制嗅探判定。
   需要外部转换的 `*.xls` 读不了，按内容落到十六进制。`/fv=` 仍可强制类型。
+- **Session › Compare Files Using**（`crates/bc-gui/src/using.rs`，文本 / 表格 / 十六进制视图共用）：
+  用另一类视图原位重开当前文件对。可用性只看文件（`bc_formats::route::can_open`），不再各视图写白名单：
+  当前视图自身灰；两侧须为磁盘文件；Hex 总可用；Table 要求两侧是表格或文本内容；Text 要求两侧是文本内容
+  （xlsx 不能用 Text，csv 可以）。Media / Picture / Version Compare 尚未实现，恒灰。
+  文本视图有未保存编辑时拒绝切换并在状态栏提示。
 - **线程模型**：live 编辑目标（含 Rc/RefCell）只在 UI 线程；worker 用快照，
   结果带修订号、过期丢弃（文本 350ms 防抖重对齐）。
 - GUI 没有自己的 mmap/unsafe；只读锁与编码下沉到 `bc-core`/引擎，系统光标读取与原生对话框属主窗口在 `bc-shell`。

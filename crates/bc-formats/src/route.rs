@@ -90,6 +90,21 @@ fn sniffs_binary(path: &Path) -> bool {
     bc_core::encoding::detect(&prefix, 1252).encoding == bc_core::encoding::Encoding::Binary
 }
 
+/// Compare Files Using：`path` 能否以 `view` 打开（参考：“用另一类文件视图打开当前文件”）。
+///
+/// * 十六进制：任何文件；
+/// * 表格：可读的表格文件，或内容是文本（按分隔符解析成表）；
+/// * 文本：内容是文本（工作簿、二进制不行；csv 可以）。
+///
+/// 读不了的文件按“可以”处理——目标会话会自己报 IO 错误。
+pub fn can_open(view: FileView, path: &Path, registry: &FormatRegistry) -> bool {
+    match view {
+        FileView::Hex => true,
+        FileView::Table => is_table(path, registry) || !sniffs_binary(path),
+        FileView::Text => !sniffs_binary(path),
+    }
+}
+
 /// 单个文件的比较类型。
 pub fn file_view(path: &Path, registry: &FormatRegistry) -> FileView {
     pair_view(path, path, registry)
@@ -167,6 +182,27 @@ mod tests {
         // 不存在的文件只看扩展名。
         assert!(is_workbook(Path::new("missing.xlsx")));
         assert!(!is_workbook(Path::new("missing.zip")));
+    }
+
+    #[test]
+    fn compare_files_using_offers_views_by_content() {
+        let dir = Dir::new("using");
+        let registry = FormatRegistry::with_builtins();
+        let book = dir.file("a.xlsx", &fake_xlsx());
+        let csv = dir.file("a.csv", b"a,b\n");
+        let txt = dir.file("a.cpp", b"int x;\n");
+        let exe = dir.file("a.exe", b"MZ\x90\x00\x03\x00\x00\x00");
+        let can = |v, p: &PathBuf| can_open(v, p, &registry);
+        // 工作簿：表格 / 十六进制，不能文本。
+        assert!(can(FileView::Table, &book) && can(FileView::Hex, &book));
+        assert!(!can(FileView::Text, &book));
+        // csv 与文本文件：三种都行（文本按分隔符解析成表）。
+        for p in [&csv, &txt] {
+            assert!(can(FileView::Text, p) && can(FileView::Table, p) && can(FileView::Hex, p));
+        }
+        // 二进制：只有十六进制。
+        assert!(can(FileView::Hex, &exe));
+        assert!(!can(FileView::Text, &exe) && !can(FileView::Table, &exe));
     }
 
     #[test]

@@ -33,6 +33,7 @@ pub mod sync_view;
 pub mod table;
 pub mod table_merge;
 pub mod text;
+pub mod using;
 
 use std::path::PathBuf;
 

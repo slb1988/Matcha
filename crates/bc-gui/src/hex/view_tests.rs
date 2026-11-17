@@ -532,7 +532,10 @@ fn compare_files_using_emits_hex_switch_action() {
     v.command("Using:Text Compare");
     assert!(matches!(
         v.action,
-        Some(super::HexAction::CompareAsText { .. })
+        Some(super::HexAction::Using(crate::using::Reopen {
+            view: bc_formats::route::FileView::Text,
+            ..
+        }))
     ));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -64,11 +64,8 @@ pub enum ViewAction {
         left: String,
         right: String,
     },
-    /// Session > Compare Files Using > Hex Compare：同一对文件原位以 Hex Compare 重开。
-    CompareAsHex {
-        left: std::path::PathBuf,
-        right: std::path::PathBuf,
-    },
+    /// Session › Compare Files Using：原位以另一类视图重开。
+    Using(crate::using::Reopen),
 }
 #[derive(Clone)]
 enum Pending {
@@ -1708,6 +1705,11 @@ impl TextCompareView {
                 if item.action_id == "Align With..." {
                     item.shortcut = None;
                 }
+                if item.label == crate::using::LABEL {
+                    let current = bc_formats::route::FileView::Text;
+                    crate::using::refresh_item(item, current, &view.paths());
+                    continue;
+                }
                 if let MenuItemKind::Submenu(children) = &mut item.kind {
                     update(view, children);
                     item.enabled = true;
@@ -1925,13 +1927,15 @@ impl TextCompareView {
                 None => self.message = "This side has no file on disk".into(),
             },
             "Swap Sides" => self.swap(),
-            "Hex Compare" => {
-                let [left, right] = self.paths();
-                match (left, right) {
-                    (Some(left), Some(right)) => {
-                        self.action = Some(ViewAction::CompareAsHex { left, right })
+            id if crate::using::view_of(id).is_some() => {
+                if self.is_dirty() {
+                    self.message = "Save or discard edits before using another file view".into();
+                } else {
+                    match crate::using::request(id, self.paths()) {
+                        Some(Ok(reopen)) => self.action = Some(ViewAction::Using(reopen)),
+                        Some(Err(e)) => self.message = e,
+                        None => {}
                     }
-                    _ => self.message = "Save clipboard sides before opening Hex Compare".into(),
                 }
             }
             "Recompare Files" => self.recompare(),

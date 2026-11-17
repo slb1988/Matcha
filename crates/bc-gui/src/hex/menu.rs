@@ -119,14 +119,11 @@ pub fn menus(view: &crate::hex::view::HexCompareView) -> Vec<MenuSpec> {
                 off("Hex Compare Report..."), // 报告输出后置（H08）
                 item("Hex Compare Info", Some("Ctrl+I"), vec![]),
                 sep(),
-                item(
-                    "Compare Files Using",
-                    None,
-                    vec![
-                        MenuItem { action_id: "Using:Text Compare".into(), ..item("Text Compare", None, vec![]) },
-                        MenuItem { action_id: "Using:Table Compare".into(), ..item("Table Compare", None, vec![]) },
-                    ],
-                ),
+                {
+                    let mut using = crate::using::submenu(None);
+                    crate::using::refresh_item(&mut using, bc_formats::route::FileView::Hex, &view.paths());
+                    using
+                },
                 off("Compare Parent Folders"),
                 sep(),
                 item("Close Tab", Some("Ctrl+W"), vec![]),

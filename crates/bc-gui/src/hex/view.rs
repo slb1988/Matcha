@@ -30,8 +30,7 @@ pub enum HexAction {
     NewTab,
     Exit,
     /// Compare Files Using 互切（H10）：同一对文件以 Text/Table Compare 原位重开。
-    CompareAsText { left: PathBuf, right: PathBuf },
-    CompareAsTable { left: PathBuf, right: PathBuf },
+    Using(crate::using::Reopen),
 }
 
 /// 退出/关闭确认对话框的状态。
@@ -596,17 +595,11 @@ impl HexCompareView {
             }
             "Recompare Files" => self.recompare(),
             "Hex Compare Info" => self.info_open = true,
-            "Using:Text Compare" | "Using:Table Compare" => {
-                let [left, right] = self.paths();
-                match (left, right) {
-                    (Some(left), Some(right)) => {
-                        self.action = Some(if id.ends_with("Text Compare") {
-                            HexAction::CompareAsText { left, right }
-                        } else {
-                            HexAction::CompareAsTable { left, right }
-                        });
-                    }
-                    _ => self.message = "两侧均为文件路径才能互切".into(),
+            id if crate::using::view_of(id).is_some() => {
+                match crate::using::request(id, self.paths()) {
+                    Some(Ok(reopen)) => self.action = Some(HexAction::Using(reopen)),
+                    Some(Err(e)) => self.message = e,
+                    None => {}
                 }
             }
             "Close Tab" => self.request_close(),
