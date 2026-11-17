@@ -506,3 +506,35 @@ fn swap_mirrors_cached_sheet_summaries_left_right_counts() {
     let _ = std::fs::remove_file(left);
     let _ = std::fs::remove_file(right);
 }
+
+#[test]
+fn switching_to_a_sheet_lands_on_its_first_difference() {
+    let left = temp_xlsx(
+        "land-left.xlsx",
+        &xlsx(&[("Data", "id,name
+7,apple"), ("Summary", "id,total,n
+1,10,5
+2,20,6")]),
+    );
+    let right = temp_xlsx(
+        "land-right.xlsx",
+        &xlsx(&[("Data", "id,name
+7,apple"), ("Summary", "id,total,n
+1,10,5
+2,20,9")]),
+    );
+    let mut v = open_files(&left, &right);
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor::default(), "Data has no differences");
+    v.select_sheet(1);
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor { row: 2, column: 2 });
+    // Revisiting a cached sheet starts a fresh grid and lands again.
+    v.select_sheet(0);
+    ready(&mut v);
+    v.select_sheet(1);
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor { row: 2, column: 2 });
+    let _ = std::fs::remove_file(left);
+    let _ = std::fs::remove_file(right);
+}

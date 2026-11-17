@@ -33,6 +33,10 @@
   网格右键菜单按参考排列（Align With、Copy to Left/Right、Cut/Copy/Paste、插删行列、Modify…、Open/Save、Explorer），
   右键先选中所点格；Session Settings 为 Specs / Format / Columns / Alignment / Sheets 五页，OK / Cancel / Apply。
   工作簿一侧的信息行不显示分隔符。
+- **打开即定位首个差异格**：打开文件对、切到另一个 sheet 标签或在会话里换一侧文件后，比较首次就绪时
+  光标与滚动自动落到第一个差异行的第一个改动格（与 Next Difference 同口径；整行只有行序差异时落在首个可见列）；
+  无差异则停在左上角。一次性（`TableCompareView::land_on_first_diff`）：就绪前已移动光标或编辑则不跳，
+  编辑后的重新对齐、Recompare、显示层切换不会把光标拉回。
 - 入口路由：两个文件按 `bc_formats::route` 统一判定（见 [gui-shell.md](gui-shell.md)「文件对的会话类型统一路由」），
   xlsx/xlsm/csv/tsv/tab 与用户表格格式默认打开表格比较，先于二进制嗅探（xlsx 是 ZIP，此前会误进十六进制）；
   文件夹比较里打开这类文件对时新开表格比较标签页。`/qc` 规则比较对表格按单元格比较（见 cli-and-scripting.md）。

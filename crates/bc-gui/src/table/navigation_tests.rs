@@ -19,6 +19,8 @@ fn nav_view() -> TableCompareView {
         sheet("id,text,n\n0,base,0\n1,apple,1\n2,new,3\n3,same,3\n5,right,5\n6,end,6\n"),
         rules,
     );
+    // Fixture starts from the origin; first-difference landing is tested separately.
+    v.land_on_first_diff = false;
     ready(&mut v);
     v
 }
@@ -231,6 +233,7 @@ fn navigation_scrolls_to_a_distant_cell_in_both_dimensions() {
             ..Default::default()
         },
     );
+    v.land_on_first_diff = false;
     ready(&mut v);
     let ctx = egui::Context::default();
     choose(&ctx, &mut v, "None");
@@ -298,4 +301,69 @@ fn empty_same_and_stale_tables_never_navigate_to_phantom_cells() {
     assert!(v.message.contains("Wait"));
     v.navigate(true, 0);
     assert_eq!(v.grid.cursor, Cursor::default());
+}
+
+#[test]
+fn opening_lands_on_the_first_difference_cell_and_scrolls_to_it() {
+    let mut left = Sheet::default();
+    for row in 0..1000 {
+        left.push_row((0..40).map(|c| Cell::text(format!("R{row}C{c}"))).collect());
+    }
+    let mut right = left.clone();
+    right.set_cell(900, 35, Cell::text("changed")).unwrap();
+    right.set_cell(950, 2, Cell::text("later")).unwrap();
+    let mut v = TableCompareView::from_sheets(
+        left,
+        right,
+        TableRules {
+            columns: ColumnMapping::by_number(40, 40),
+            keys: KeySelection::Manual(vec![0]),
+            strategy: AlignStrategy::Quick,
+            ..Default::default()
+        },
+    );
+    ready(&mut v);
+    assert_eq!(
+        v.grid.cursor,
+        Cursor {
+            row: 900,
+            column: 35
+        }
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.grid.visible.contains(&900));
+    assert!(v.grid.scroll.x > 0.0);
+    // One-shot: a later recompare keeps the user's position.
+    v.goto_cell(Cursor::default());
+    v.recompare();
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor::default());
+}
+
+#[test]
+fn opening_identical_tables_stays_on_the_origin_and_a_moved_cursor_is_kept() {
+    let same = sheet("id,n\n1,a\n2,b\n");
+    let mut v = TableCompareView::from_sheets(
+        same.clone(),
+        same,
+        TableRules {
+            keys: KeySelection::Manual(vec![0]),
+            ..Default::default()
+        },
+    );
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor::default());
+    let mut v = TableCompareView::from_sheets(
+        sheet("id,n\n1,a\n2,b\n"),
+        sheet("id,n\n1,a\n2,c\n"),
+        TableRules {
+            keys: KeySelection::Manual(vec![0]),
+            ..Default::default()
+        },
+    );
+    // The user moved before the comparison finished: never yank the cursor.
+    v.grid.cursor = Cursor { row: 1, column: 0 };
+    ready(&mut v);
+    assert_eq!(v.grid.cursor, Cursor { row: 1, column: 0 });
 }

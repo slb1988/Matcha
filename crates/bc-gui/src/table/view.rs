@@ -159,6 +159,9 @@ pub struct TableCompareView {
     pub(super) labels: [super::chrome_ui::FileLabels; 2],
     /// Snapshot scenes reproduce the reference "path selected on open" state.
     pub(super) snapshot_select_paths: bool,
+    /// 打开/切换工作表/换一侧文件后，比较首次就绪时自动落到第一个差异格
+    /// （一次性；编辑过或光标已移动则作废）。
+    pub(super) land_on_first_diff: bool,
 }
 impl TableCompareView {
     pub(super) fn blank() -> Self {
@@ -211,6 +214,7 @@ impl TableCompareView {
             path_sources: Default::default(),
             labels: Default::default(),
             snapshot_select_paths: false,
+            land_on_first_diff: true,
         }
     }
     /// 空会话：两侧无文件、无比较；路径栏提交经 `Pending::Open` 逐侧暂存加载
@@ -619,6 +623,15 @@ impl TableCompareView {
                     self.edited_at = None;
                     // A failed staged load keeps the previous session untouched.
                     self.staged = None;
+                    self.land_on_first_diff = false;
+                }
+            }
+        }
+        if self.land_on_first_diff && self.editor.is_none() && self.is_ready() {
+            self.land_on_first_diff = false;
+            if self.grid.cursor == Cursor::default() {
+                if let Some(cursor) = self.first_difference() {
+                    self.goto_cell(cursor);
                 }
             }
         }
@@ -669,7 +682,23 @@ impl TableCompareView {
             }
         }
     }
+    /// 第一个差异行的第一个改动格（与 Next Difference 同口径）；整行都相同时
+    /// （如只有行序差异）落在首个可见列。
+    pub(super) fn first_difference(&self) -> Option<Cursor> {
+        let p = self.pair.as_ref()?;
+        let row = *p.cache.diff_rows.first()?;
+        let column = (0..p.map.column_count())
+            .find(|&c| {
+                p.map
+                    .cell_importance(row, c)
+                    .is_some_and(|i| i != bc_engine_table::compare::Importance::Same)
+            })
+            .or_else(|| self.grid.columns.first().copied())
+            .unwrap_or(0);
+        Some(Cursor { row, column })
+    }
     pub(super) fn edited(&mut self) {
+        self.land_on_first_diff = false;
         self.align_with = None;
         if let Some(w) = &self.worker {
             w.cancel();
@@ -867,6 +896,7 @@ impl TableCompareView {
             self.cached.insert(self.active_pair, p);
         }
         self.active_pair = index;
+        self.land_on_first_diff = true;
         self.grid = GridState {
             row_numbers: self.grid.row_numbers,
             whitespace: self.grid.whitespace,

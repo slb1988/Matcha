@@ -61,6 +61,8 @@ fn view() -> TableCompareView {
             ..Default::default()
         },
     );
+    // Fixture starts from the origin; first-difference landing is tested separately.
+    v.land_on_first_diff = false;
     ready(&mut v);
     v
 }

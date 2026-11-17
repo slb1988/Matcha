@@ -1176,6 +1176,7 @@ impl TableCompareView {
         options: ReadOptions,
         loaded: Loaded,
     ) {
+        self.land_on_first_diff = true;
         let other = 1 - s;
         let other_index_of = |pair: &bc_engine_table::sheets::SheetPair| {
             if other == 0 {
