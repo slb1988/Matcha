@@ -3,6 +3,7 @@ use super::{
     editor::{byte_at_char, Caret},
     gutter,
     projection::{DisplayFilter, DisplayRow, RowGeometry},
+    syntax_style::{ElementStyle, SyntaxStyle},
     view::{editor_id, index},
     TextCompareView,
 };
@@ -11,7 +12,7 @@ use bc_engine_text::{
     importance::{Importance, LineView},
     inline::{inline_diff_classified, InlineOptions},
 };
-use bc_formats::{grammar::Token, ElementKind};
+use bc_formats::grammar::Token;
 use bc_session::prefs::{DiffColors, Prefs};
 use eframe::egui::{
     self,
@@ -73,6 +74,8 @@ impl TextCompareView {
         // 选区箭头所覆盖的本侧整行：每帧算一次。
         let selected = self.selected_line_range(s);
         let bold = crate::chrome::theme::editor_bold(ui.ctx(), self.font_size);
+        // 按本侧文件格式（语言）取语法风格：每帧每窗格一次。
+        let syntax = SyntaxStyle::for_format(snapshot.format.as_deref());
         let output = egui::ScrollArea::new([need_hscroll, true])
             .id_salt(("text_scroll", s))
             // Wheel input is applied raw by `TextCompareView::ui` before
@@ -315,9 +318,9 @@ impl TextCompareView {
                             .get(&row)
                             .map(|d| if s == 0 { &d.left[..] } else { &d.right[..] })
                             .unwrap_or_default();
-                        // 参考在单侧行上用差异色整行着墨，不叠语法色。
+                        // 单侧差异行整行用差异色着墨；`keep_on_diff` 的元素（注释）保留自身风格。
                         let orphan_ink = orphan && importance != Importance::Same;
-                        let tokens = if self.show_syntax && !self.map.is_stale() && !orphan_ink {
+                        let tokens = if self.show_syntax && !self.map.is_stale() {
                             line.filter(|i| *i < snapshot.lines.len())
                                 .map(|i| snapshot.tokens(i))
                                 .unwrap_or_default()
@@ -351,12 +354,12 @@ impl TextCompareView {
                                 .and_then(|f| f.tab_size)
                                 .unwrap_or(4)
                                 .clamp(1, 32) as usize,
-                            if orphan_ink {
-                                diff_ink(&prefs.colors, importance)
-                            } else {
-                                EDITOR_TEXT
+                            &LineInk {
+                                normal: EDITOR_TEXT,
+                                diff: orphan_ink.then(|| diff_ink(&prefs.colors, importance)),
+                                syntax: &syntax,
+                                bold: &bold,
                             },
-                            &bold,
                         );
                         let galley = ui.painter().layout_job(job);
                         let origin = rect.min
@@ -660,7 +663,19 @@ impl TextCompareView {
     }
 }
 /// 编辑区正文色：参考为纯黑（界面其余文字用主题的近黑色）。
-const EDITOR_TEXT: egui::Color32 = egui::Color32::BLACK;
+pub(crate) const EDITOR_TEXT: egui::Color32 = egui::Color32::BLACK;
+
+/// 一行文字的着墨参数（[`layout`]）。
+pub(crate) struct LineInk<'a> {
+    /// 正文色（无语法元素、或元素无颜色时）。
+    pub normal: egui::Color32,
+    /// 单侧差异行的整行差异色；`None` 为普通行。
+    pub diff: Option<egui::Color32>,
+    /// 本侧语言的语法风格。
+    pub syntax: &'a SyntaxStyle,
+    /// 粗体字体（[`crate::chrome::theme::editor_bold`]）。
+    pub bold: &'a egui::FontId,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn layout(
@@ -673,8 +688,7 @@ pub(crate) fn layout(
     ignore: bool,
     whitespace: bool,
     tab: usize,
-    normal: egui::Color32,
-    bold: &egui::FontId,
+    ink: &LineInk<'_>,
 ) -> (LayoutJob, Vec<usize>) {
     let mut job = LayoutJob::default();
     let mut mapping = Vec::new();
@@ -682,20 +696,25 @@ pub(crate) fn layout(
     for (offset, c) in text.char_indices() {
         let byte = start + offset;
         let token = tokens.iter().find(|t| t.span.contains(&byte));
-        let color = token.map_or(normal, |t| syntax_color(t.element, normal));
+        let style = token.map_or(ElementStyle::PLAIN, |t| ink.syntax.get(t.element));
+        let color = match ink.diff {
+            Some(diff) if !style.keep_on_diff => diff,
+            _ => style.color.unwrap_or(ink.normal),
+        };
         let span = spans.iter().find(|s| {
             s.range.contains(&byte)
                 && s.importance.with_ignore_unimportant(ignore) != Importance::Same
         });
-        // 参考的关键字为粗体（Consolas Bold 与常规体等宽，列位置不变）。
-        let font_id = if token.is_some_and(|t| t.element == ElementKind::Keyword) {
-            bold.clone()
+        // 粗体用 Consolas Bold（与常规体等宽，列位置不变）。
+        let font_id = if style.bold {
+            ink.bold.clone()
         } else {
             egui::FontId::monospace(font)
         };
         let format = egui::TextFormat {
             font_id,
             color: span.map_or(color, |s| diff_ink(colors, s.importance)),
+            italics: style.italic,
             ..Default::default()
         };
         let value = if c == '\t' {
@@ -732,16 +751,6 @@ pub(crate) fn layout(
     }
     mapping.push(start + text.len());
     (job, mapping)
-}
-/// 参考的默认语法配色（取自参考截图）：注释灰、预处理指令栗色、字符串深绿，
-/// 关键字为黑色粗体（见 [`layout`]），其余为正文色。
-fn syntax_color(kind: ElementKind, normal: egui::Color32) -> egui::Color32 {
-    match kind {
-        ElementKind::Comment => egui::Color32::from_rgb(128, 128, 128),
-        ElementKind::Directive => egui::Color32::from_rgb(128, 0, 0),
-        ElementKind::String => egui::Color32::from_rgb(0, 128, 64),
-        _ => normal,
-    }
 }
 
 pub(crate) fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {

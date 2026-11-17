@@ -1585,7 +1585,7 @@ fn clicking_disabled_arrows_changes_nothing() {
 
 #[test]
 fn selection_arrows_paint_distinct_from_section_arrows() {
-    use super::super::gutter::{BRACKET, SECTION_OUTLINE, SELECTION_OUTLINE};
+    use super::super::gutter::{BRACKET, DISABLED_OUTLINE, SECTION_OUTLINE, SELECTION_OUTLINE};
     let ctx = egui::Context::default();
     let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
     // 箭头 = 7 点闭合描边（填充是网格渐变）；括号 = BRACKET 色线段。
@@ -1621,9 +1621,56 @@ fn selection_arrows_paint_distinct_from_section_arrows() {
     // 左侧选中第 0–1 行：首行蓝色箭头；左侧区块首行被选区覆盖，只剩右侧的黄色箭头。
     assert_eq!(outlines(&out, SELECTION_OUTLINE), 1);
     assert_eq!(outlines(&out, SECTION_OUTLINE), 1);
-    // 右侧只读：左侧箭头配色不变（与参考一致），只是点击无效并提示原因。
+    // 右侧只读：左侧（覆盖到右侧的）选区箭头变灰，右侧箭头不受影响。
     v.map.right.read_only = true;
     let out = frame(&ctx, &mut v, vec![]);
-    assert_eq!(outlines(&out, SELECTION_OUTLINE), 1);
+    assert_eq!(outlines(&out, DISABLED_OUTLINE), 1);
+    assert_eq!(outlines(&out, SELECTION_OUTLINE), 0);
     assert_eq!(outlines(&out, SECTION_OUTLINE), 1);
+}
+
+#[test]
+fn diff_rows_keep_comment_style_but_ink_code() {
+    use super::super::render::{layout, LineInk, EDITOR_TEXT};
+    use super::super::syntax_style::SyntaxStyle;
+    use bc_formats::{grammar::Token, ElementKind};
+    let text = "int x; // note";
+    let tokens = [
+        Token {
+            span: 0..3,
+            element: ElementKind::Keyword,
+            grammar_index: 0,
+        },
+        Token {
+            span: 7..14,
+            element: ElementKind::Comment,
+            grammar_index: 0,
+        },
+    ];
+    let syntax = SyntaxStyle::base();
+    let bold = egui::FontId::monospace(13.0);
+    let red = egui::Color32::RED;
+    let color_at = |diff: Option<egui::Color32>, byte: usize| {
+        let ink = LineInk {
+            normal: EDITOR_TEXT,
+            diff,
+            syntax: &syntax,
+            bold: &bold,
+        };
+        let (job, _) = layout(text, 0, &tokens, &[], &Default::default(), 13.0, false, false, 4, &ink);
+        job.sections
+            .iter()
+            .find(|s| s.byte_range.contains(&egui::text::ByteIndex(byte)))
+            .unwrap()
+            .format
+            .color
+    };
+    let grey = egui::Color32::from_rgb(128, 128, 128);
+    // 普通行：关键字正文色，注释灰。
+    assert_eq!(color_at(None, 0), EDITOR_TEXT);
+    assert_eq!(color_at(None, 9), grey);
+    // 单侧差异行：代码用差异色，注释保留注释风格。
+    assert_eq!(color_at(Some(red), 0), red);
+    assert_eq!(color_at(Some(red), 4), red);
+    assert_eq!(color_at(Some(red), 9), grey);
 }

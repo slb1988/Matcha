@@ -2158,6 +2158,24 @@ impl TextCompareView {
                     // Flowing items (no fixed slots): long dates or sizes never overlap.
                     ui.add(egui::Label::new(self.files[s].modified_label.text()).extend());
                     ui.add(egui::Label::new(format!("{} bytes", self.files[s].byte_len)).extend());
+                    // 参考在信息栏标出只读文件（如 Perforce 未 checkout 的文件带只读属性）；
+                    // 点击打开文件属性，可取消只读以允许在 Matcha 中编辑/覆盖。
+                    if self.content(s).read_only
+                        && ui
+                            .add(
+                                egui::Label::new(egui::RichText::new("Read-only").underline())
+                                    .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text(
+                                "This side is read-only (the file has the read-only attribute), \
+                                 so nothing can be copied or typed into it. \
+                                 Click to open File properties and clear Read-only.",
+                            )
+                            .clicked()
+                    {
+                        self.active = s;
+                        self.show_file_options = true;
+                    }
                     let selected = self
                         .content(s)
                         .format()

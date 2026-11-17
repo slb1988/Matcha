@@ -9,6 +9,7 @@ pub mod projection;
 pub(crate) mod render;
 pub mod session_dialog;
 pub mod status_bar;
+pub mod syntax_style;
 pub mod view;
 mod worker;
 

@@ -103,6 +103,8 @@ const BRACKET_INSET: f32 = 3.0;
 pub(crate) const BRACKET: egui::Color32 = egui::Color32::from_rgb(105, 105, 105);
 /// 区块箭头描边（常态）。
 pub(crate) const SECTION_OUTLINE: egui::Color32 = egui::Color32::from_rgb(88, 78, 50);
+/// 禁用箭头描边。
+pub(crate) const DISABLED_OUTLINE: egui::Color32 = egui::Color32::from_gray(150);
 /// 选区箭头描边（常态）。
 pub(crate) const SELECTION_OUTLINE: egui::Color32 = egui::Color32::from_rgb(30, 64, 130);
 
@@ -136,8 +138,14 @@ fn paint_arrow(ui: &egui::Ui, gutter: egui::Rect, arrow: &GutterArrow, hovered: 
             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 24),
         );
     }
-    // 参考：只读目标侧的箭头同样是黄色（点击时在状态栏说明原因）。
+    // 不可覆盖（目标侧只读、对齐过期）时灰色：一眼可知点了无效；悬停/点击说明原因。
+    let enabled = arrow.disabled.is_none();
     let (top, bottom, outline) = match (arrow.kind, hot) {
+        _ if !enabled => (
+            egui::Color32::from_gray(238),
+            egui::Color32::from_gray(200),
+            DISABLED_OUTLINE,
+        ),
         (ArrowKind::Section, false) => (
             egui::Color32::from_rgb(255, 236, 140),
             egui::Color32::from_rgb(238, 186, 40),

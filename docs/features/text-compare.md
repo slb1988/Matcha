@@ -10,9 +10,13 @@
 - 就地编辑：UTF-8 字节光标、选区、IME、undo/redo；保存可独立单侧进行。
 - 指针在文本区（行号栏右侧）显示 I 形插入光标，拖选途中保持；行号栏仍是默认箭头（可点的合并箭头为手形）。
   选区为不透明的选区蓝底（`theme::TEXT_SELECTION` / `Palette::text_selection`），盖在差异行底色上也清晰可辨。
-- 语法高亮来自文件格式库（见 [sessions-and-formats.md](sessions-and-formats.md)）。配色对齐参考默认值：
-  正文纯黑、注释灰、预处理指令栗色、字符串深绿，**关键字黑色粗体**（Consolas Bold，与常规体等宽，列位置不变；
-  未安装时退回常规体）。单侧行（只有本侧有内容的差异行）整行用差异色着墨，不叠语法色。
+- 语法高亮来自文件格式库（见 [sessions-and-formats.md](sessions-and-formats.md)）。显示风格由
+  `text/syntax_style.rs` 抽象：每类语法元素（`ElementKind`）一个 `ElementStyle`（颜色/粗体/斜体/
+  差异行是否保留），`SyntaxStyle::base()` 为对齐参考的基础风格——正文纯黑、注释灰、预处理指令栗色、
+  字符串深绿、**关键字黑色粗体**（Consolas Bold，与常规体等宽，列位置不变；未安装时退回常规体）、环境变量紫色；
+  按语言的覆盖写在 `LANGUAGE_OVERRIDES`（按格式名，如 HTML 标签用深蓝常规体），新增语言只加一行。
+  单侧行（只有本侧有内容的差异行）整行用差异色着墨，但 `keep_on_diff` 的元素（注释）保留自身风格，
+  一眼可辨"这是注释"。
   全局字形 gamma（`theme::TEXT_GAMMA` = 0.7）加重笔画，使 egui 灰度抗锯齿的文字接近参考 GDI 渲染的粗细。
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - 鼠标点窗格任意位置（包括只有对侧有内容的空隙行）都会把焦点和活动侧切到该窗格；
@@ -23,15 +27,17 @@
   点击箭头把**整个区块**覆盖到另一侧；括号线只是标记，不可点。某侧有选区时，选区所跨的行改为**蓝色**
   选区箭头（选区首行）+ 括号线，点击只把**选中的行**覆盖到对侧对齐行（无对齐行时插入到对应位置），之后清除选区。
   两种都是一次可撤销编辑；点箭头不移动光标、不开始拖选；悬停显示手形光标与提示。
-  目标侧只读时箭头配色不变（同参考），但点击不修改内容，状态栏与悬停提示说明原因；编辑后对齐尚未完成时
-  （差异着色暂缺）区块箭头暂不显示，选区箭头点击无效，对齐完成后恢复。
+  不能覆盖时箭头为**灰色**（同形状），点击不修改内容，状态栏与悬停提示说明原因：
+  目标侧只读——加载时读取文件只读属性（如 Perforce 未 checkout 的文件、p4 打印到临时目录的历史版本），
+  该侧信息栏显示下划线的 **Read-only**，点击打开 File properties 可取消只读；编辑后对齐尚未完成时
+  （差异着色暂缺）区块箭头暂不显示，选区箭头为灰色，对齐完成后恢复。
 
 ## 代码地图
 
 | 层 | 位置 | 内容 |
 |---|---|---|
 | 引擎 | `crates/bc-engine-text` | `TextContent`（单侧内容+EditStack）、`TextRules`、`TextMap`/`TextMapRow`、`importance`、`inline`、`merge`（已实现，见 [text-merge.md](text-merge.md)）、`jobs`（Align2/Realign2/Align3/Realign3）、`search` |
-| GUI | `crates/bc-gui/src/text/` | `view.rs`（控制器/导航/保存）、`render.rs`+`gutter.rs`（自绘）、`editor.rs`、`projection.rs`、`nav_bar.rs`（缩略条）、`worker.rs`（350ms 防抖 Realign2Job） |
+| GUI | `crates/bc-gui/src/text/` | `view.rs`（控制器/导航/保存）、`render.rs`+`gutter.rs`（自绘）、`syntax_style.rs`（按语言的语法风格）、`editor.rs`、`projection.rs`、`nav_bar.rs`（缩略条）、`worker.rs`（350ms 防抖 Realign2Job） |
 | 启动 | `apps/bcompare` | `matcha <left> <right>` 直接进入 |
 
 ## 关键语义
