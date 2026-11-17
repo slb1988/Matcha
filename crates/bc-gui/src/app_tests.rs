@@ -434,6 +434,22 @@ fn fv_hex_compare_opens_hex_view() {
 }
 
 #[test]
+fn command_line_workbooks_open_table_compare_not_hex() {
+    // xlsx 是 ZIP（内容嗅探为二进制），命令行两个工作簿仍须打开表格比较。
+    let corpus = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/reference-parity/table-report/corpus/key-none-rows-changed/"
+    );
+    let options = LaunchOptions {
+        left: Some(PathBuf::from(format!("{corpus}left.xlsx"))),
+        right: Some(PathBuf::from(format!("{corpus}right.xlsx"))),
+        ..Default::default()
+    };
+    let view = MatchaApp::launch_view(&egui::Context::default(), &options);
+    assert!(matches!(view, View::TableCompare(_)));
+}
+
+#[test]
 fn bin_mask_routes_to_hex_compare_view() {
     let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
     let options = LaunchOptions {

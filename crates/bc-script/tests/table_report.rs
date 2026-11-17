@@ -366,3 +366,46 @@ fn title_row_labels_lettered_columns() {
     assert!(e.message.contains("title-row"), "{}", e.message);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `/qc` 规则比较按表格判定（`bc_formats::route`）：工作簿与 CSV 比单元格，不比字节/文本。
+#[test]
+fn quick_compare_rules_mode_compares_tables_by_cells() {
+    use bc_script::runner::quick_compare_files;
+    let dir = folder("qc");
+    let rows: &[&[&str]] = &[&["id", "name"], &["1", "apple"], &["2", "pear"]];
+    let changed: &[&[&str]] = &[&["id", "name"], &["1", "apple"], &["2", "plum"]];
+    let left = workbook(&[("Data", rows)]);
+    // 同内容、不同字节：给右侧 ZIP 加一段注释。
+    let mut right = workbook(&[("Data", rows)]);
+    let n = right.len();
+    right[n - 2..].copy_from_slice(&4u16.to_le_bytes());
+    right.extend(b"note");
+    assert_ne!(left, right);
+    let write = |name: &str, bytes: &[u8]| {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    };
+    let qc = |l: &Path, r: &Path| quick_compare_files(l, r, None).unwrap();
+    let (l, r) = (write("l.xlsx", &left), write("r.xlsx", &right));
+    assert_eq!(qc(&l, &r), ExitCode::RulesBasedSame);
+    // 版本控制临时文件名（扩展名对不上）按内容识别为工作簿。
+    let (lt, rt) = (write("l.xlsx.r12", &left), write("r.tmp", &right));
+    assert_eq!(qc(&lt, &rt), ExitCode::RulesBasedSame);
+    let d = write("d.xlsx", &workbook(&[("Data", changed)]));
+    assert_eq!(qc(&l, &d), ExitCode::RulesBasedDifferent);
+    // 字节模式不受影响。
+    assert_eq!(
+        quick_compare_files(&l, &r, Some(bc_engine_dir::ContentCompare::Binary)).unwrap(),
+        ExitCode::BinaryDifferent
+    );
+    // CSV：引号只是写法，单元格值相同即相同。
+    let (a, b) = (
+        write("a.csv", b"id,name\n1,apple\n"),
+        write("b.csv", b"\"id\",name\r\n1,\"apple\"\r\n"),
+    );
+    assert_eq!(qc(&a, &b), ExitCode::RulesBasedSame);
+    let c = write("c.csv", b"id,name\n1,pear\n");
+    assert_eq!(qc(&a, &c), ExitCode::RulesBasedDifferent);
+    let _ = std::fs::remove_dir_all(&dir);
+}

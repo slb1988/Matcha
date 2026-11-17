@@ -8,6 +8,7 @@
 //! * [`builtin_formats`] – the built-in library converted at build time from
 //!   `data/bcfileformats.xml` (`BCFILEFORMATS` resource) and embedded as JSON.
 //! * [`registry`] – lookup by mask / name (`TFileFormatManager`).
+//! * [`route`] – which comparison (table / hex / text) opens a file pair.
 //! * [`grammar`] – compiled line-state tokenizer and format weight matching.
 //! * [`text_rules`] – unimportant-text and replacement rules.
 #![forbid(unsafe_code)]
@@ -16,6 +17,7 @@ pub mod bcff;
 pub mod grammar;
 pub mod model;
 pub mod registry;
+pub mod route;
 pub mod text_rules;
 
 pub use model::{

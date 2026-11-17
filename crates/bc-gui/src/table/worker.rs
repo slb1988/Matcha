@@ -230,9 +230,7 @@ fn load(
     }
     pin_header_mode(&mut resolved);
     let options = &resolved;
-    let workbook = path
-        .extension()
-        .is_some_and(|e| matches!(e.to_string_lossy().to_lowercase().as_str(), "xlsx" | "xlsm"));
+    let workbook = bc_formats::route::is_workbook(path);
     if workbook {
         let t = Instant::now();
         let names = {

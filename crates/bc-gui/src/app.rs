@@ -440,6 +440,13 @@ impl MatchaApp {
                 };
             }
         }
+        // 文件对的会话类型统一由 `bc_formats::route` 判定（表格 → 十六进制 → 文本）。
+        use bc_formats::route::FileView;
+        let file_view = match (&options.left, &options.right) {
+            _ if options.bench_table => FileView::Table,
+            (Some(l), Some(r)) if !(l.is_dir() && r.is_dir()) => crate::home::file_view(l, r),
+            _ => FileView::Text,
+        };
         match (&options.left, &options.right) {
             (Some(l), Some(r))
                 if l.is_dir()
@@ -451,22 +458,20 @@ impl MatchaApp {
             (Some(l), Some(r)) if l.is_dir() && r.is_dir() => View::FolderCompare(Box::new(
                 DirCompareView::open(ctx, l, r, false, options.bench_dir),
             )),
-            (Some(l), Some(r)) if !options.bench_table && crate::home::hex_paths(l, r) => {
-                match HexCompareView::open(l, r) {
-                    Ok(v) => {
-                        if options.snapshot.is_none() {
-                            HomeView::record(l, r);
-                        }
-                        View::HexCompare(Box::new(v))
+            (Some(l), Some(r)) if file_view == FileView::Hex => match HexCompareView::open(l, r) {
+                Ok(v) => {
+                    if options.snapshot.is_none() {
+                        HomeView::record(l, r);
                     }
-                    Err(e) => {
-                        let mut home = home();
-                        home.set_error(format!("Cannot open: {e}"));
-                        View::Home(home)
-                    }
+                    View::HexCompare(Box::new(v))
                 }
-            }
-            (Some(l), Some(r)) if options.bench_table || crate::home::table_paths(l, r) => {
+                Err(e) => {
+                    let mut home = home();
+                    home.set_error(format!("Cannot open: {e}"));
+                    View::Home(home)
+                }
+            },
+            (Some(l), Some(r)) if file_view == FileView::Table => {
                 match TableCompareView::open(l, r) {
                     Ok(mut v) => {
                         if options.snapshot.is_some() {
@@ -1003,7 +1008,9 @@ impl MatchaApp {
             View::FolderSync(view) => Some(&mut view.folder),
             _ => None,
         };
+        let mut folder_open = None;
         if let Some(view) = folder {
+            folder_open = view.take_open_request();
             if view.take_exit_request() {
                 commands.push(TabCommand::Exit(false));
             }
@@ -1027,6 +1034,18 @@ impl MatchaApp {
                 .show(&self.prefs, crate::chrome::dialog::Placement::Window),
             Some(action) => self.open_comparison(&ctx, action),
             None => {}
+        }
+        // 文件夹比较里打开的表格 / 十六进制文件对：新标签页。
+        if let Some(action) = folder_open {
+            match Self::comparison_view(&ctx, action) {
+                Some(Ok(view)) => self.open_tab(view),
+                Some(Err(e)) => match self.view_mut() {
+                    View::FolderCompare(v) => v.set_message(format!("Cannot open: {e}")),
+                    View::FolderSync(v) => v.folder.set_message(format!("Cannot open: {e}")),
+                    _ => {}
+                },
+                None => {}
+            }
         }
         self.options.ui(&ctx, &mut self.prefs);
         match merge_action {

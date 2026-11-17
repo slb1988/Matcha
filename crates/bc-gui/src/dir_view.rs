@@ -1905,6 +1905,8 @@ pub struct DirCompareView {
     close_after_text: bool,
     close_requested: bool,
     new_tab_requested: bool,
+    /// 打开的文件对是表格或十六进制比较：由应用在新标签页打开（内嵌窗口只有文本）。
+    open_requested: Option<crate::home::HomeAction>,
     compare_to: bool,
     align_to: bool,
     anchor: Option<(usize, usize)>,
@@ -2008,6 +2010,7 @@ impl DirCompareView {
             close_after_text: false,
             close_requested: false,
             new_tab_requested: false,
+            open_requested: None,
             compare_to: false,
             align_to: false,
             anchor: None,
@@ -2127,16 +2130,15 @@ impl DirCompareView {
                 }
                 Notice::Clipboard(text) => ctx.copy_text(text),
                 Notice::Quick(text) => self.quick = Some(text),
-                // 二进制文件对打不开文本视图（内嵌窗口不支持 hex），给出可操作提示。
-                Notice::Text(paths) if crate::home::hex_paths(&paths[0], &paths[1]) => {
-                    self.message = format!(
-                        "Cannot open text: {} is binary — open the pair in a Hex Compare session",
-                        paths[0].display()
-                    );
-                }
-                Notice::Text(paths) => match TextCompareView::open(&paths[0], &paths[1]) {
-                    Ok(view) => self.text = Some(Box::new(view)),
-                    Err(e) => self.message = format!("Cannot open text: {e}"),
+                // 按统一路由定型：文本进内嵌窗口；表格 / 十六进制由应用新开标签页。
+                Notice::Text([left, right]) => match crate::home::routed(left, right) {
+                    crate::home::HomeAction::OpenTextCompare { left, right } => {
+                        match TextCompareView::open(&left, &right) {
+                            Ok(view) => self.text = Some(Box::new(view)),
+                            Err(e) => self.message = format!("Cannot open text: {e}"),
+                        }
+                    }
+                    action => self.open_requested = Some(action),
                 },
                 Notice::Presets(presets) => self.filters.presets = presets,
                 Notice::Focus(node) => self.pending_focus = Some(node),
@@ -2362,6 +2364,15 @@ impl DirCompareView {
     /// True once Session > New Tab was chosen.
     pub fn take_new_tab_request(&mut self) -> bool {
         std::mem::take(&mut self.new_tab_requested)
+    }
+    /// 状态栏提示（应用层回报新标签页打开失败等）。
+    pub(crate) fn set_message(&mut self, message: impl Into<String>) {
+        self.message = message.into();
+    }
+    /// 文件对按类型需要新标签页打开（表格 / 十六进制比较）。
+    pub fn take_open_request(&mut self) -> Option<crate::home::HomeAction> {
+        let child = self.child.as_mut().and_then(|c| c.take_open_request());
+        self.open_requested.take().or(child)
     }
     /// True once a text window confirmed Exit (the app then closes the window).
     pub fn take_exit_request(&mut self) -> bool {

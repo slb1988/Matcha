@@ -42,43 +42,28 @@ pub enum HomeAction {
     Options,
     Exit,
 }
-pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
+/// 文件对的比较类型：统一走 [`bc_formats::route::pair_view`]（表格 → 十六进制 → 文本）。
+pub fn file_view(left: &std::path::Path, right: &std::path::Path) -> bc_formats::route::FileView {
     let registry = crate::table::formats::load_registry()
         .unwrap_or_else(|_| bc_formats::registry::FormatRegistry::with_builtins());
-    [left, right]
-        .iter()
-        .any(|path| crate::table::formats::table_path(path, &registry))
+    bc_formats::route::pair_view(left, right, &registry)
 }
-/// Hex 路由：内置 `*.bin` 掩码，或内容嗅探（前 8 KiB 经 `encoding::detect`，
-/// 与文本引擎加载时的判定同一条规则）判为二进制。
+pub fn table_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
+    file_view(left, right) == bc_formats::route::FileView::Table
+}
+/// 打开后会是 Hex 比较（不是表格，且 `*.bin` 掩码或内容嗅探为二进制）。
 pub fn hex_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
-    [left, right].iter().any(|path| {
-        path.extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
-            || sniffs_binary(path)
-    })
-}
-/// 读前 8 KiB 判二进制。读不了的文件不算二进制——目标会话会自己报 IO 错误。
-fn sniffs_binary(path: &std::path::Path) -> bool {
-    use std::io::Read;
-    let mut prefix = Vec::new();
-    if std::fs::File::open(path)
-        .and_then(|f| f.take(8192).read_to_end(&mut prefix))
-        .is_err()
-    {
-        return false;
-    }
-    bc_core::encoding::detect(&prefix, 1252).encoding == bc_core::encoding::Encoding::Binary
+    file_view(left, right) == bc_formats::route::FileView::Hex
 }
 pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
+    use bc_formats::route::FileView;
     if left.is_dir() && right.is_dir() {
-        HomeAction::OpenFolderCompare { left, right }
-    } else if hex_paths(&left, &right) {
-        HomeAction::OpenHexCompare { left, right }
-    } else if table_paths(&left, &right) {
-        HomeAction::OpenTableCompare { left, right }
-    } else {
-        HomeAction::OpenTextCompare { left, right }
+        return HomeAction::OpenFolderCompare { left, right };
+    }
+    match file_view(&left, &right) {
+        FileView::Table => HomeAction::OpenTableCompare { left, right },
+        FileView::Hex => HomeAction::OpenHexCompare { left, right },
+        FileView::Text => HomeAction::OpenTextCompare { left, right },
     }
 }
 /// Session types offered on Home, in icon-grid order.
@@ -100,13 +85,16 @@ const KINDS: [SessionKind; 5] = [
     SessionKind::HexCompare,
 ];
 impl SessionKind {
-    /// Auto 按预填路径定型（文件夹 / 表格格式 / 文本）；无路径时取图标网格首项。
+    /// Auto 按预填路径定型（文件夹 / 表格 / 十六进制 / 文本）；无路径时取图标网格首项。
     fn resolve(self, path: Option<&std::path::Path>) -> Self {
+        use bc_formats::route::FileView;
         match (self, path) {
             (Self::Auto, Some(p)) if p.is_dir() => Self::FolderCompare,
-            (Self::Auto, Some(p)) if hex_paths(p, p) => Self::HexCompare,
-            (Self::Auto, Some(p)) if table_paths(p, p) => Self::TableCompare,
-            (Self::Auto, Some(_)) => Self::TextCompare,
+            (Self::Auto, Some(p)) => match file_view(p, p) {
+                FileView::Table => Self::TableCompare,
+                FileView::Hex => Self::HexCompare,
+                FileView::Text => Self::TextCompare,
+            },
             (Self::Auto, None) => Self::FolderCompare,
             (kind, _) => kind,
         }
@@ -1257,6 +1245,56 @@ mod tests {
             &dir.join("missing.exe"),
             &dir.join("missing.exe")
         ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workbooks_and_text_tables_route_to_table_before_the_binary_sniff() {
+        let dir = std::env::temp_dir().join(format!("matcha-route-table-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // xlsx 是 ZIP：内容嗅探为二进制，但必须先判为表格。
+        let book = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/reference-parity/table-report/corpus/key-none-rows-changed/"
+        );
+        let (l, r) = (
+            PathBuf::from(format!("{book}left.xlsx")),
+            PathBuf::from(format!("{book}right.xlsx")),
+        );
+        assert!(bc_formats::route::is_binary(&l));
+        assert!(matches!(
+            routed(l.clone(), r.clone()),
+            HomeAction::OpenTableCompare { .. }
+        ));
+        assert!(!hex_paths(&l, &r));
+        assert_eq!(
+            SessionKind::Auto.resolve(Some(&l)),
+            SessionKind::TableCompare
+        );
+        // 版本控制临时名：扩展名对不上，按包内容识别为工作簿。
+        let temp = dir.join("left.xlsx.r42");
+        std::fs::copy(&l, &temp).unwrap();
+        assert!(matches!(
+            routed(temp.clone(), r.clone()),
+            HomeAction::OpenTableCompare { .. }
+        ));
+        for name in ["a.csv", "b.TSV", "c.tab"] {
+            let path = dir.join(name);
+            std::fs::write(
+                &path,
+                b"a,b
+1,2
+",
+            )
+            .unwrap();
+            assert!(
+                matches!(
+                    routed(path.clone(), path),
+                    HomeAction::OpenTableCompare { .. }
+                ),
+                "{name}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

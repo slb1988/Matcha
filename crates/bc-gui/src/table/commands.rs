@@ -1369,11 +1369,10 @@ impl TableCompareView {
                 // the actual delimiter of the clipboard text instead of
                 // squeezing a TSV paste into one comma column.
                 let mut options = self.options[s].clone();
-                let workbook_side = self.files[s].path.as_ref().is_some_and(|p| {
-                    p.extension().is_some_and(|e| {
-                        matches!(e.to_string_lossy().to_lowercase().as_str(), "xlsx" | "xlsm")
-                    })
-                });
+                let workbook_side = self.files[s]
+                    .path
+                    .as_ref()
+                    .is_some_and(|p| bc_formats::route::is_workbook(p));
                 if workbook_side {
                     options.format.detect_delimiter = true;
                 }

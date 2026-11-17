@@ -87,10 +87,10 @@ fn table_masks_use_registry_order_and_never_enable_external_converters() {
         "data.csv",
         "book.XLSX",
     ] {
-        assert!(formats::table_path(Path::new(path), &r), "{path}");
+        assert!(bc_formats::route::is_table(Path::new(path), &r), "{path}");
     }
-    assert!(!formats::table_path(Path::new("report-12.dat"), &r));
-    assert!(!formats::table_path(Path::new("source.cpp"), &r));
+    assert!(!bc_formats::route::is_table(Path::new("report-12.dat"), &r));
+    assert!(!bc_formats::route::is_table(Path::new("source.cpp"), &r));
     let mut f = r
         .formats()
         .iter()
@@ -102,7 +102,7 @@ fn table_masks_use_registry_order_and_never_enable_external_converters() {
     f.source_xml = None;
     r.upsert(f).unwrap();
     r.move_to(FormatKind::Text, "Prefer text", 0).unwrap();
-    assert!(!formats::table_path(Path::new("left.fix"), &r));
+    assert!(!bc_formats::route::is_table(Path::new("left.fix"), &r));
     assert!(formats::options(Path::new("legacy.xls"), &r).is_err());
     let mut f = r.get(FormatKind::Table, "Fixed blocks").unwrap().clone();
     f.convert = Some(bc_formats::model::ConvertKind::Pdf);

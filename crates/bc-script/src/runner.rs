@@ -555,6 +555,15 @@ pub fn quick_compare_files(
         }
     }
     let formats = default_formats();
+    // 规则比较按文件类型的会话规则：表格（xlsx/csv 等，判定见 `bc_formats::route`）走表格比较。
+    let rules_based = mode.is_none_or(|m| m == bc_engine_dir::ContentCompare::RulesBased);
+    if rules_based
+        && bc_formats::route::pair_view(left, right, &formats) == bc_formats::route::FileView::Table
+    {
+        if let Some(code) = quick_compare_tables(left, right, &formats) {
+            return Ok(code);
+        }
+    }
     let vfs = VfsManager::local_only();
     quick_compare(
         &vfs,
@@ -563,6 +572,47 @@ pub fn quick_compare_files(
         mode,
         &formats,
     )
+}
+
+/// `/qc` 规则比较一对表格：字节相同或无差异 → `2`；只有不重要差异 → `12`；有重要差异、
+/// 单侧工作表或结构列 → `13`。表格读不了时为 `None`，由调用方退回文本/字节比较。
+fn quick_compare_tables(
+    left: &std::path::Path,
+    right: &std::path::Path,
+    formats: &FormatRegistry,
+) -> Option<ExitCode> {
+    use bc_engine_table::compare::Importance;
+    use bc_report::table::SheetComparison;
+    if let (Ok(l), Ok(r)) = (std::fs::read(left), std::fs::read(right)) {
+        if l == r {
+            return Some(ExitCode::RulesBasedSame);
+        }
+    }
+    let sheets = crate::table_report::compare(left, right, formats, false).ok()?;
+    let mut unimportant = false;
+    for sheet in &sheets {
+        match sheet {
+            SheetComparison::LeftOnly { .. } | SheetComparison::RightOnly { .. } => {
+                return Some(ExitCode::RulesBasedDifferent)
+            }
+            SheetComparison::Compared { map, .. } => {
+                let stats = map.statistics();
+                match stats.importance() {
+                    Importance::Important => return Some(ExitCode::RulesBasedDifferent),
+                    _ if stats.structural_columns > 0 => {
+                        return Some(ExitCode::RulesBasedDifferent)
+                    }
+                    Importance::Unimportant => unimportant = true,
+                    Importance::Same => {}
+                }
+            }
+        }
+    }
+    Some(if unimportant {
+        ExitCode::Similar
+    } else {
+        ExitCode::RulesBasedSame
+    })
 }
 
 /// One `/automerge` run: three input files, where to write, and the merge switches.

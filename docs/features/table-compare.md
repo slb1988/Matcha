@@ -33,6 +33,9 @@
   网格右键菜单按参考排列（Align With、Copy to Left/Right、Cut/Copy/Paste、插删行列、Modify…、Open/Save、Explorer），
   右键先选中所点格；Session Settings 为 Specs / Format / Columns / Alignment / Sheets 五页，OK / Cancel / Apply。
   工作簿一侧的信息行不显示分隔符。
+- 入口路由：两个文件按 `bc_formats::route` 统一判定（见 [gui-shell.md](gui-shell.md)「文件对的会话类型统一路由」），
+  xlsx/xlsm/csv/tsv/tab 与用户表格格式默认打开表格比较，先于二进制嗅探（xlsx 是 ZIP，此前会误进十六进制）；
+  文件夹比较里打开这类文件对时新开表格比较标签页。`/qc` 规则比较对表格按单元格比较（见 cli-and-scripting.md）。
 - 命令行：`matcha /report=summary a.xlsx b.xlsx`（xlsx 用 `/report=patch…` 也会自动改走）输出
   按 sheet / 行 / 单元格列出的文本差异报告，格式见 [reports.md](reports.md#表格差异报告table-report-layoutsummary)。
 
@@ -42,6 +45,7 @@
 |---|---|---|
 | 引擎 | `crates/bc-engine-table` | `Sheet`/`Cell`、`source`（读入）、`workbook`（xlsx）、`KeyAlign`、`TableRules`、写回/导出 |
 | CLI 报告 | `crates/bc-script/src/table_report.rs`、`crates/bc-report/src/table.rs` | 无窗口读取/按 sheet 比较 + 文本渲染 |
+| 路由 | `crates/bc-formats/src/route.rs` | 表格 → 十六进制 → 文本的唯一判定（`is_workbook`/`is_table`/`pair_view`） |
 | GUI | `crates/bc-gui/src/table/` | `details.rs`（Text Details 对照条绘制+交互，产出 `GridAction`；缩略图）、`view.rs`、`grid.rs`、`worker.rs`、`sorting.rs`、`find.rs`、`sheet_tabs.rs`、`settings_panel.rs` 等（含大量 `*_tests.rs`） |
 
 ## 关键语义

@@ -1,7 +1,8 @@
-//! Matcha-owned format masks and table options; never execute converters.
+//! Matcha-owned format registry and table options; never execute converters.
+//! Which comparison a path opens in is decided by `bc_formats::route`.
 use bc_core::CoreError;
 use bc_engine_table::source::ReadOptions;
-use bc_formats::{model::ConvertKind, registry::FormatRegistry, FormatKind};
+use bc_formats::registry::FormatRegistry;
 use std::path::Path;
 
 pub(crate) fn load_registry() -> Result<FormatRegistry, CoreError> {
@@ -11,40 +12,7 @@ pub(crate) fn load_registry() -> Result<FormatRegistry, CoreError> {
         Err(_) => Ok(FormatRegistry::with_builtins()),
     }
 }
-fn extension(path: &Path, names: &[&str]) -> bool {
-    path.extension()
-        .is_some_and(|e| names.iter().any(|name| e.eq_ignore_ascii_case(name)))
-}
-pub(crate) fn table_path(path: &Path, registry: &FormatRegistry) -> bool {
-    if extension(path, &["xlsx", "xlsm"]) {
-        return true; // Native workbook routing never invokes an external converter.
-    }
-    registry.resolve(path, None).map_or_else(
-        || extension(path, &["csv", "tsv"]),
-        |format| format.kind == FormatKind::Table,
-    )
-}
+/// 表格读取选项：与脚本报告/合并共用 [`bc_script::table_report::read_options`]。
 pub(crate) fn options(path: &Path, registry: &FormatRegistry) -> Result<ReadOptions, CoreError> {
-    if extension(path, &["xls", "ods"]) {
-        return Err(CoreError::Invalid(
-            "This workbook type is not supported; use XLSX/XLSM or CSV".into(),
-        ));
-    }
-    let mut options = ReadOptions::default();
-    if let Some(format) = registry.resolve(path, Some(FormatKind::Table)) {
-        if format
-            .convert
-            .is_some_and(|c| c != ConvertKind::MsExcel || !extension(path, &["xlsx", "xlsm"]))
-        {
-            return Err(CoreError::Invalid(
-                "Table external conversion is not supported".into(),
-            ));
-        }
-        options.format = format.table.clone().unwrap_or_default();
-    } else if extension(path, &["tsv"]) {
-        options.format.delimiters = vec!['\t'];
-    } else {
-        options.format.detect_delimiter = true;
-    }
-    Ok(options)
+    bc_script::table_report::read_options(path, registry).map_err(|e| CoreError::Invalid(e.message))
 }

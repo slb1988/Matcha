@@ -15,7 +15,6 @@ use bc_engine_table::{
 };
 use bc_formats::model::HeaderMode;
 use std::{
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -32,19 +31,10 @@ fn extension_is(path: &Path, names: &[&str]) -> bool {
         .is_some_and(|e| names.iter().any(|n| e.eq_ignore_ascii_case(n)))
 }
 
-/// xlsx/xlsm 工作簿：看扩展名，扩展名不认识时看文件头是否为 ZIP（版本控制工具的临时文件
-/// 名常带 `#版本` 之类后缀）。不存在的文件只看扩展名。
+/// xlsx/xlsm 工作簿（扩展名，或扩展名对不上但内容是 xlsx 包——版本控制工具的临时文件名
+/// 常带 `#版本` 之类后缀）；判定统一在 [`bc_formats::route::is_workbook`]。
 pub fn is_workbook(path: &Path) -> bool {
-    if extension_is(path, &["xlsx", "xlsm"]) {
-        return true;
-    }
-    if extension_is(path, &["csv", "tsv", "txt", "tab"]) {
-        return false;
-    }
-    let mut magic = [0u8; 4];
-    std::fs::File::open(path)
-        .and_then(|mut f| f.read_exact(&mut magic))
-        .is_ok_and(|_| magic == *b"PK\x03\x04")
+    bc_formats::route::is_workbook(path)
 }
 
 /// 合并调用的分派：三个输入都是工作簿 → 表格合并；都不是 → 文本合并，带 `/tablemerge` 时

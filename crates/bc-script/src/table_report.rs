@@ -47,13 +47,13 @@ fn has_extension(path: &Path, names: &[&str]) -> bool {
         .is_some_and(|e| names.iter().any(|name| e.eq_ignore_ascii_case(name)))
 }
 
-/// 原生读取的工作簿（xlsx/xlsm）。
+/// 原生读取的工作簿（xlsx/xlsm，含扩展名对不上的 xlsx 包）；判定见 [`bc_formats::route`]。
 pub fn is_workbook(path: &Path) -> bool {
-    has_extension(path, &["xlsx", "xlsm"])
+    bc_formats::route::is_workbook(path)
 }
 
-/// 与 GUI 相同的表格读取选项。
-pub(crate) fn read_options(path: &Path, registry: &FormatRegistry) -> Result<ReadOptions, TableError> {
+/// 表格读取选项（GUI 表格比较与脚本报告/合并共用这一份）。
+pub fn read_options(path: &Path, registry: &FormatRegistry) -> Result<ReadOptions, TableError> {
     if has_extension(path, &["xls", "ods"]) {
         return Err(TableError::other(format!(
             "{}: this workbook type is not supported; use XLSX/XLSM or CSV",
