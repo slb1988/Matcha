@@ -4,6 +4,10 @@
 
 ## 2026-11-17
 
+- **文本比较打开即定位到首个差异**（`docs/features/text-compare.md`）：打开文件对或换一侧文件后，
+  首次比较完成时自动跳到第一个差异区段（不再停在第 1 行、需要再按 Next Difference）；
+  尊重 Ignore Unimportant；比较完成前已编辑/移动光标则不跳，编辑后重新对齐不受影响。
+
 - **Compare Files Using 按文件决定可用项，三个视图统一**（`docs/features/gui-shell.md`）：
   此前各视图写死白名单——表格视图只能切 Text（xlsx 切过去打不开）、Hex 有实现却是灰的；文本视图切不了 Table。
   现在文本 / 表格 / 十六进制视图共用一个子菜单与规则：Hex 总可用，Table 要求表格或文本内容，Text 要求文本内容

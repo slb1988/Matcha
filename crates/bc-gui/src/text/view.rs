@@ -163,6 +163,8 @@ pub struct TextCompareView {
     displayed_sections: usize,
     /// 本帧点中的行号栏箭头（窗格、行、种类），行循环结束后执行。
     pub(crate) pending_gutter_copy: Option<(usize, usize, ArrowKind)>,
+    /// 打开/换文件后的首次比较完成时自动落到第一个差异（一次性；编辑或光标已移动则作废）。
+    land_on_first_diff: bool,
 }
 impl TextCompareView {
     fn registry() -> Result<FormatRegistry, CoreError> {
@@ -260,6 +262,7 @@ impl TextCompareView {
             path_sources: Default::default(),
             displayed_sections: 0,
             pending_gutter_copy: None,
+            land_on_first_diff: true,
         };
         view.rebuild_projection();
         view.recompare();
@@ -407,11 +410,30 @@ impl TextCompareView {
         self.nav.rebuild(&self.map);
         self.rebuild_projection();
         self.current_row = self.row_for_line(self.active, self.editors[self.active].caret.line);
+        if std::mem::take(&mut self.land_on_first_diff)
+            && self.editors.iter().all(|e| e.caret == Caret::default())
+        {
+            if let Some(row) = self.first_difference() {
+                self.goto_row(row);
+            }
+        }
+    }
+    /// 第一个可见差异区段的首行（与 First Difference 同口径，尊重 ignore-unimportant）。
+    fn first_difference(&self) -> Option<usize> {
+        self.sections
+            .iter()
+            .find(|s| {
+                s.importance
+                    .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                    != Importance::Same
+            })
+            .map(|s| s.rows.start)
     }
     pub(crate) fn edited(&mut self, old_line_count: usize) {
         if let Some(worker) = &self.worker {
             worker.cancel();
         }
+        self.land_on_first_diff = false;
         let new_count = self.content(self.active).lines.borrow().len();
         let range = if old_line_count != new_count || self.dirty.is_some() {
             0..self.map.row_count()
@@ -554,13 +576,17 @@ impl TextCompareView {
             self.message = "Wait for comparison before navigating differences".into();
             return;
         }
-        let target = if edge {
-            let mut iter = self.sections.iter().filter(|s| {
-                s.importance
-                    .with_ignore_unimportant(self.map.rules.ignore_unimportant)
-                    != Importance::Same
-            });
-            if next { iter.next() } else { iter.next_back() }.map(|s| s.rows.start)
+        let target = if edge && next {
+            self.first_difference()
+        } else if edge {
+            self.sections
+                .iter()
+                .rfind(|s| {
+                    s.importance
+                        .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                        != Importance::Same
+                })
+                .map(|s| s.rows.start)
         } else if next {
             self.map
                 .next_difference(self.current_row, Importance::Unimportant)
@@ -942,6 +968,7 @@ impl TextCompareView {
         self.recent.retain(|p| p != path);
         self.recent.insert(0, path.to_path_buf());
         self.recent.truncate(12);
+        self.land_on_first_diff = true;
         self.recompare();
         self.rebuild_projection();
         Ok(())

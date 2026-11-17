@@ -959,6 +959,8 @@ fn filtered_lines_separators_are_thin_rows_and_jumps_follow_them() {
 fn details_take_the_current_rows_difference_colors_and_caret_bar() {
     let ctx = egui::Context::default();
     let mut v = view("same\nleft\n", "same\nright\n");
+    // Opening lands on the first difference; start from the equal row.
+    v.goto_row(0);
     let details_rects = |out: &egui::FullOutput, below: f32| -> Vec<(egui::Rect, egui::Color32)> {
         out.shapes
             .iter()
@@ -1689,4 +1691,28 @@ fn comments_are_unimportant_by_default() {
     ready(&mut v);
     assert_eq!(v.counts.important, 0);
     assert_eq!(v.counts.unimportant, 1);
+}
+#[test]
+fn first_comparison_lands_on_first_difference() {
+    let v = view("a\nb\nc\nd\n", "a\nb\nX\nd\n");
+    assert_eq!(v.current_row, 2);
+    assert_eq!(v.editors[0].caret.line, 2);
+    assert_eq!(v.editors[1].caret.line, 2);
+}
+#[test]
+fn identical_files_stay_on_first_row() {
+    let v = view("a\nb\n", "a\nb\n");
+    assert_eq!(v.current_row, 0);
+    assert_eq!(v.editors[0].caret, Caret::default());
+}
+#[test]
+fn realign_after_edit_does_not_jump_to_first_difference() {
+    let mut v = view("a\nb\nc\n", "a\nb\nX\n");
+    v.goto_row(0);
+    v.active = 0;
+    v.editors[0].place(Caret { line: 0, byte: 0 }, false);
+    let lines = v.content(0).lines.borrow().len();
+    v.edited(lines);
+    ready(&mut v);
+    assert_eq!(v.current_row, 0);
 }
