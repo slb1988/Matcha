@@ -3,10 +3,10 @@
 //! 可测模型：[`GridLayout`] 按 cell packing 规则把显示的对齐行按需展开成带字节值与着色的
 //! 渲染模型（只为可见行生成），RawInput 回归直接断言它；`paint_pane` 只负责按模型落笔。
 
-use bc_engine_bin::hex::{HexMap, HexSummary};
-use std::ops::Range;
 use bc_core::DiffKind;
+use bc_engine_bin::hex::{HexMap, HexSummary};
 use eframe::egui;
+use std::ops::Range;
 
 /// 一个字节格的渲染模型。`None` 侧 = 斜纹占位格。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,12 +44,22 @@ enum LayoutKind {
     /// 对齐前的首屏：第 p 格 = 两侧第 p 字节（较短一侧尾部为占位格），不做差异着色。
     Provisional { left: usize, right: usize },
     /// 对齐后：显示的对齐行区间（All 为整段）；`starts[k]` = 区间 k 之前的格数。
-    Aligned { regions: Vec<Range<usize>>, starts: Vec<usize>, total: usize },
+    Aligned {
+        regions: Vec<Range<usize>>,
+        starts: Vec<usize>,
+        total: usize,
+    },
 }
 
 impl GridLayout {
     pub fn provisional(left_len: usize, right_len: usize, per_line: usize) -> Self {
-        Self { per_line: per_line.max(1), kind: LayoutKind::Provisional { left: left_len, right: right_len } }
+        Self {
+            per_line: per_line.max(1),
+            kind: LayoutKind::Provisional {
+                left: left_len,
+                right: right_len,
+            },
+        }
     }
 
     pub fn aligned(regions: Vec<Range<usize>>, per_line: usize) -> Self {
@@ -59,7 +69,14 @@ impl GridLayout {
             starts.push(total);
             total += region.len();
         }
-        Self { per_line: per_line.max(1), kind: LayoutKind::Aligned { regions, starts, total } }
+        Self {
+            per_line: per_line.max(1),
+            kind: LayoutKind::Aligned {
+                regions,
+                starts,
+                total,
+            },
+        }
     }
 
     pub fn is_provisional(&self) -> bool {
@@ -93,15 +110,25 @@ impl GridLayout {
         let mut push = |kind: DiffKind, l: Option<usize>, r: Option<usize>| {
             left_off = left_off.or(l);
             right_off = right_off.or(r);
-            cells.push(CellModel { kind, left: l.and_then(|i| lb.get(i).copied()), right: r.and_then(|i| rb.get(i).copied()) });
+            cells.push(CellModel {
+                kind,
+                left: l.and_then(|i| lb.get(i).copied()),
+                right: r.and_then(|i| rb.get(i).copied()),
+            });
         };
         match &self.kind {
             LayoutKind::Provisional { left, right } => {
                 for p in start..end {
-                    push(DiffKind::Same, (p < *left).then_some(p), (p < *right).then_some(p));
+                    push(
+                        DiffKind::Same,
+                        (p < *left).then_some(p),
+                        (p < *right).then_some(p),
+                    );
                 }
             }
-            LayoutKind::Aligned { regions, starts, .. } => {
+            LayoutKind::Aligned {
+                regions, starts, ..
+            } => {
                 let segments = map.align.segments();
                 let mut k = starts.partition_point(|&s| s <= start).saturating_sub(1);
                 let mut seg: Option<usize> = None;
@@ -113,7 +140,9 @@ impl GridLayout {
                     // 同一行内多为同段或下一段：先就近推进，跨过滤区间时再二分。
                     let ix = match seg {
                         Some(i) if segments[i].rows().contains(&row) => i,
-                        Some(i) if segments.get(i + 1).is_some_and(|s| s.rows().contains(&row)) => i + 1,
+                        Some(i) if segments.get(i + 1).is_some_and(|s| s.rows().contains(&row)) => {
+                            i + 1
+                        }
                         _ => match map.align.segment_of_row(row) {
                             Some(i) => i,
                             None => break,
@@ -141,7 +170,10 @@ impl GridLayout {
 
     /// 对齐行 → 网格行：落在显示区间内取其所在行；被过滤隐藏时取其后第一个显示区间的首行。
     pub fn row_of_align(&self, align_row: usize) -> Option<usize> {
-        let LayoutKind::Aligned { regions, starts, .. } = &self.kind else {
+        let LayoutKind::Aligned {
+            regions, starts, ..
+        } = &self.kind
+        else {
             return None;
         };
         if self.is_empty() {
@@ -160,14 +192,21 @@ impl GridLayout {
         if let LayoutKind::Provisional { .. } = self.kind {
             return (!self.is_empty()).then(|| offset.min(self.cells() - 1) / self.per_line);
         }
-        let align_row = if side == 0 { map.align.row_of_left(offset) } else { map.align.row_of_right(offset) };
+        let align_row = if side == 0 {
+            map.align.row_of_left(offset)
+        } else {
+            map.align.row_of_right(offset)
+        };
         self.row_of_align(align_row?)
     }
 
     /// 缩略图 bins：由差异游程直接映射（不逐行扫描）；对齐前无标刻。
     /// 每 bin 打包为 u32，0 = 无差异，否则 (lo+1)<<16 | (hi+1)。
     pub fn thumb_bins(&self, summary: &HexSummary, resolution: usize) -> Vec<u32> {
-        let LayoutKind::Aligned { regions, starts, .. } = &self.kind else {
+        let LayoutKind::Aligned {
+            regions, starts, ..
+        } = &self.kind
+        else {
             return Vec::new();
         };
         let total = self.len();
@@ -274,9 +313,15 @@ pub fn cell_colors(kind: DiffKind, dark: bool) -> Option<(egui::Color32, egui::C
         DiffKind::Same => None,
         DiffKind::Changed | DiffKind::LeftOnly | DiffKind::RightOnly => {
             let (bg, ink) = if dark {
-                (egui::Color32::from_rgb(110, 40, 40), egui::Color32::from_rgb(255, 150, 150))
+                (
+                    egui::Color32::from_rgb(110, 40, 40),
+                    egui::Color32::from_rgb(255, 150, 150),
+                )
             } else {
-                (egui::Color32::from_rgb(255, 227, 227), egui::Color32::from_rgb(180, 0, 0))
+                (
+                    egui::Color32::from_rgb(255, 227, 227),
+                    egui::Color32::from_rgb(180, 0, 0),
+                )
             };
             Some((bg, ink))
         }
@@ -352,9 +397,18 @@ pub fn thumbnail_geometry(
         column.min + egui::vec2(THUMB_INNER_X, 1.0),
         egui::vec2(THUMB_INNER_W, lines),
     );
-    let top_frac = if content_h > 0.0 { scroll / content_h } else { 0.0 };
-    let view_frac = if content_h > 0.0 { (view_h / content_h).min(1.0) } else { 1.0 };
-    let h = (view_frac * inner.height()).clamp(THUMB_VIEW_MIN_H.min(inner.height()), inner.height());
+    let top_frac = if content_h > 0.0 {
+        scroll / content_h
+    } else {
+        0.0
+    };
+    let view_frac = if content_h > 0.0 {
+        (view_h / content_h).min(1.0)
+    } else {
+        1.0
+    };
+    let h =
+        (view_frac * inner.height()).clamp(THUMB_VIEW_MIN_H.min(inner.height()), inner.height());
     let y = (inner.top() + top_frac.clamp(0.0, 1.0) * inner.height())
         .clamp(inner.top(), (inner.bottom() - h).max(inner.top()));
     let viewport = egui::Rect::from_min_size(
@@ -363,7 +417,13 @@ pub fn thumbnail_geometry(
     );
     let hit = inner.union(viewport).expand(1.0);
     let pointer_y = current.map(|f| inner.top() + f.clamp(0.0, 1.0) * inner.height());
-    ThumbnailGeometry { column, inner, viewport, hit, pointer_y }
+    ThumbnailGeometry {
+        column,
+        inner,
+        viewport,
+        hit,
+        pointer_y,
+    }
 }
 
 /// bin 解包为差异格列号区间（None = 该 bin 无差异）。
@@ -425,7 +485,10 @@ pub fn paint_thumbnail(
                 let x0 = geom.inner.left() + lo as f32 / per_line * geom.inner.width();
                 let x1 = geom.inner.left() + (hi as f32 + 1.0) / per_line * geom.inner.width();
                 painter.rect_filled(
-                    egui::Rect::from_min_max(egui::pos2(x0, y), egui::pos2(x1.max(x0 + 1.0), y + 1.0)),
+                    egui::Rect::from_min_max(
+                        egui::pos2(x0, y),
+                        egui::pos2(x1.max(x0 + 1.0), y + 1.0),
+                    ),
                     0.0,
                     red,
                 );
@@ -481,7 +544,11 @@ pub fn scrollbar_thumb(
     let thumb_h = (view_h / content_h * track.height()).clamp(20.0, track.height());
     let travel = (track.height() - thumb_h).max(1.0);
     let max_scroll = content_h - view_h;
-    let frac = if max_scroll > 0.0 { (scroll / max_scroll).clamp(0.0, 1.0) } else { 0.0 };
+    let frac = if max_scroll > 0.0 {
+        (scroll / max_scroll).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     Some(egui::Rect::from_min_size(
         egui::pos2(track.left() + 2.0, track.top() + travel * frac),
         egui::vec2((track.width() - 4.0).max(2.0), thumb_h),
@@ -489,7 +556,13 @@ pub fn scrollbar_thumb(
 }
 
 /// 滚动条点击/拖动 → 目标滚动偏移（滑块中心对齐指针；沿用文件夹视图的轨道定位约定）。
-pub fn scrollbar_scroll_at(pointer_y: f32, track: egui::Rect, thumb_h: f32, content_h: f32, view_h: f32) -> f32 {
+pub fn scrollbar_scroll_at(
+    pointer_y: f32,
+    track: egui::Rect,
+    thumb_h: f32,
+    content_h: f32,
+    view_h: f32,
+) -> f32 {
     let max_scroll = (content_h - view_h).max(0.0);
     let travel = (track.height() - thumb_h).max(1.0);
     let frac = ((pointer_y - track.top() - thumb_h / 2.0) / travel).clamp(0.0, 1.0);
@@ -551,15 +624,24 @@ pub fn paint_pane(
         egui::Color32::from_rgb(30, 30, 30)
     };
     let clip = ui.clip_rect();
-    let first = ((clip.top() - origin.y) / style.row_height).floor().max(0.0) as usize;
-    let last = (((clip.bottom() - origin.y) / style.row_height).ceil().max(0.0) as usize).min(layout.len());
+    let first = ((clip.top() - origin.y) / style.row_height)
+        .floor()
+        .max(0.0) as usize;
+    let last = (((clip.bottom() - origin.y) / style.row_height)
+        .ceil()
+        .max(0.0) as usize)
+        .min(layout.len());
     for row_ix in first..last {
         let row = layout.row(map, row_ix);
         let y = origin.y + row_ix as f32 * style.row_height;
         let mut x = origin.x;
         // 地址列
         if show_addresses {
-            let label = if side == 0 { &row.left_label } else { &row.right_label };
+            let label = if side == 0 {
+                &row.left_label
+            } else {
+                &row.right_label
+            };
             if let Some(label) = label {
                 painter.text(
                     egui::pos2(x, y),
@@ -577,7 +659,9 @@ pub fn paint_pane(
             + (row.cells.len().saturating_sub(1) / style.bytes_per_group) as f32 * style.group_gap
             + 12.0;
         for (ci, cell) in row.cells.iter().enumerate() {
-            let cx = x + ci as f32 * style.cell_pitch + (ci / style.bytes_per_group) as f32 * style.group_gap;
+            let cx = x
+                + ci as f32 * style.cell_pitch
+                + (ci / style.bytes_per_group) as f32 * style.group_gap;
             let cell_rect = egui::Rect::from_min_size(
                 egui::pos2(cx, y),
                 egui::vec2(style.cell_pitch - 4.0, style.row_height - 1.0),
@@ -609,8 +693,16 @@ pub fn paint_pane(
             // ASCII 列（同步着色）
             if let Some(b) = byte {
                 let pos = egui::pos2(ascii_x + ci as f32 * style.ascii_pitch, y);
-                let color = cell_colors(cell.kind, dark).map(|(_, fg)| fg).unwrap_or(ink);
-                painter.text(pos, egui::Align2::LEFT_TOP, ascii_char(b).to_string(), font.clone(), color);
+                let color = cell_colors(cell.kind, dark)
+                    .map(|(_, fg)| fg)
+                    .unwrap_or(ink);
+                painter.text(
+                    pos,
+                    egui::Align2::LEFT_TOP,
+                    ascii_char(b).to_string(),
+                    font.clone(),
+                    color,
+                );
             }
         }
     }

@@ -303,7 +303,8 @@ impl HomeView {
         // canonicalize 在 Windows 返回 `\\?\` verbatim 路径，先还原成常规写法，
         // 否则地址栏与 recent-text.txt 都会带上 `\\?\` 前缀。
         let left = simplified(std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf()));
-        let right = simplified(std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf()));
+        let right =
+            simplified(std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf()));
         let mut recent = load_recent();
         recent.retain(|p| p.left != left || p.right != right);
         recent.insert(
@@ -1030,7 +1031,11 @@ fn simplified(path: PathBuf) -> PathBuf {
     let head = match prefix.kind() {
         Prefix::VerbatimDisk(drive) => format!(r"{}:\", drive as char),
         Prefix::VerbatimUNC(server, share) => {
-            format!(r"\\{}\{}\", server.to_string_lossy(), share.to_string_lossy())
+            format!(
+                r"\\{}\{}\",
+                server.to_string_lossy(),
+                share.to_string_lossy()
+            )
         }
         _ => return path,
     };
@@ -1368,10 +1373,7 @@ mod tests {
             simplified(PathBuf::from(r"\\?\C:\Users\admin\a.txt")),
             PathBuf::from(r"C:\Users\admin\a.txt")
         );
-        assert_eq!(
-            simplified(PathBuf::from(r"\\?\D:\")),
-            PathBuf::from(r"D:\")
-        );
+        assert_eq!(simplified(PathBuf::from(r"\\?\D:\")), PathBuf::from(r"D:\"));
         assert_eq!(
             simplified(PathBuf::from(r"\\?\UNC\host\share\b.txt")),
             PathBuf::from(r"\\host\share\b.txt")

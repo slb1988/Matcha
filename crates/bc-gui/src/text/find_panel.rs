@@ -76,7 +76,12 @@ fn button(ui: &egui::Ui, painter: &egui::Painter, rect: Rect, default: bool, on:
     };
     painter.rect_filled(rect, theme::RADIUS_MD, fill);
     if let Some(edge) = edge {
-        painter.rect_stroke(rect, theme::RADIUS_MD, Stroke::new(1.0, edge), StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            theme::RADIUS_MD,
+            Stroke::new(1.0, edge),
+            StrokeKind::Inside,
+        );
     }
     ink
 }

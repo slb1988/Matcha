@@ -243,12 +243,8 @@ fn load(
             // Values/styles, formulas and merges are three independent
             // decompress+parse streams over the same zip entry; run them
             // concurrently (identical result to the serial sequence).
-            bc_engine_table::workbook::load_sheet_parallel(
-                path,
-                name,
-                Arc::new(ctx.cancel.clone()),
-            )
-            .map_err(error)?
+            bc_engine_table::workbook::load_sheet_parallel(path, name, Arc::new(ctx.cancel.clone()))
+                .map_err(error)?
         } else {
             Sheet::default()
         };

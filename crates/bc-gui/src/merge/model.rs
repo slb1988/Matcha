@@ -137,12 +137,16 @@ impl MergeModel {
             .cloned();
         let load = |path: &Path| -> Result<TextContent, String> {
             if path.is_dir() {
-                return Err(format!("{} is a folder; Text Merge needs three files", path.display()));
+                return Err(format!(
+                    "{} is a folder; Text Merge needs three files",
+                    path.display()
+                ));
             }
             if !path.is_file() {
                 return Err(format!("{} does not exist", path.display()));
             }
-            let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            let bytes =
+                std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             let mut content = TextContent::from_bytes(bytes, format.clone())
                 .map_err(|_| format!("{} is not a text file", path.display()))?;
             content.source = Some(bc_vfs::VfsPath::local(path));
@@ -159,7 +163,8 @@ impl MergeModel {
             favor: launch.favor,
             ..Default::default()
         };
-        let mut model = Self::from_contents(left, right, center, rules).map_err(|e| e.to_string())?;
+        let mut model =
+            Self::from_contents(left, right, center, rules).map_err(|e| e.to_string())?;
         model.target = Some(launch.spec.left.clone());
         model.mirror = launch.spec.output.clone();
         Ok(model)
@@ -465,7 +470,9 @@ impl MergeModel {
         let before = self.snapshot(editor.caret);
         let (first, last) = editor
             .selection()
-            .map_or((editor.caret.line, editor.caret.line), |(a, b)| (a.line, b.line));
+            .map_or((editor.caret.line, editor.caret.line), |(a, b)| {
+                (a.line, b.line)
+            });
         if !apply(editor, &mut self.output)? {
             return Ok(false);
         }
@@ -502,7 +509,10 @@ impl MergeModel {
                 row: row_at(i),
             })
             .collect();
-        let mut touched: Vec<usize> = before.meta[old_window.clone()].iter().map(|m| m.row).collect();
+        let mut touched: Vec<usize> = before.meta[old_window.clone()]
+            .iter()
+            .map(|m| m.row)
+            .collect();
         touched.extend(window.iter().map(|m| m.row));
         self.meta.splice(old_window, window);
         for row in touched {

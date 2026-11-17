@@ -8,9 +8,7 @@ use bc_engine_table::{demand::DemandSheet, store::SheetStore};
 use std::time::Instant;
 
 fn lazy_store_at(path: &std::path::Path) -> SheetStore {
-    SheetStore::Lazy(
-        DemandSheet::open(path, &ReadOptions::default(), &NeverCancel).unwrap(),
-    )
+    SheetStore::Lazy(DemandSheet::open(path, &ReadOptions::default(), &NeverCancel).unwrap())
 }
 
 fn large_enabled() -> bool {
@@ -45,7 +43,10 @@ fn needle_fixture(rows: usize) -> String {
     let mut right = left.clone();
     for i in 0..rows {
         left.push_str(&format!("{i},item{i},code{i}\n"));
-        right.push_str(&format!("{i},item{i},code{}\n", i + usize::from(i % 997 == 0)));
+        right.push_str(&format!(
+            "{i},item{i},code{}\n",
+            i + usize::from(i % 997 == 0)
+        ));
     }
     left
 }
@@ -115,7 +116,9 @@ fn lazy_find_matches_dense_hit_for_hit() {
             .map(|r| {
                 (0..sheet.column_count())
                     .filter(|&c| {
-                        sheet.display_at(r, c).is_some_and(|t| t.contains("REPLACED"))
+                        sheet
+                            .display_at(r, c)
+                            .is_some_and(|t| t.contains("REPLACED"))
                     })
                     .count()
             })
@@ -123,9 +126,7 @@ fn lazy_find_matches_dense_hit_for_hit() {
     };
     assert_eq!(count(&lazy, 0), count(&dense, 0));
     assert!(count(&lazy, 0) > 0);
-    eprintln!(
-        "[eval] find {rows} rows: lazy 4 presses {lazy_cost:?}, dense {dense_cost:?}"
-    );
+    eprintln!("[eval] find {rows} rows: lazy 4 presses {lazy_cost:?}, dense {dense_cost:?}");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -183,7 +184,10 @@ fn fit_all_cost_on_real_inputs() {
         let build = t.elapsed();
         let t = Instant::now();
         cache.fit_all(&output, &l, &r, &NeverCancel).unwrap();
-        eprintln!("[eval] fit-all 1M {name}: build={build:?} fit_all={:?}", t.elapsed());
+        eprintln!(
+            "[eval] fit-all 1M {name}: build={build:?} fit_all={:?}",
+            t.elapsed()
+        );
     }
 }
 
@@ -250,6 +254,10 @@ fn structural_ops_latency_on_real_inputs() {
         let t = Instant::now();
         v.undo(true);
         ready(&mut v);
-        eprintln!("[eval] {name} undo-sort {:?} redo-sort {:?}", undo, t.elapsed());
+        eprintln!(
+            "[eval] {name} undo-sort {:?} redo-sort {:?}",
+            undo,
+            t.elapsed()
+        );
     }
 }

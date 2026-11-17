@@ -999,7 +999,8 @@ pub fn paint_session(painter: &Painter, rect: Rect, icon: SessionIcon) {
             let cell = 5.0;
             for row in 0..5 {
                 for col in 0..2 {
-                    let tl = front.left_top() + Vec2::new(6.0 + col as f32 * 9.0, 8.0 + row as f32 * 8.0);
+                    let tl = front.left_top()
+                        + Vec2::new(6.0 + col as f32 * 9.0, 8.0 + row as f32 * 8.0);
                     painter.rect_stroke(
                         Rect::from_min_size(tl, Vec2::splat(cell)),
                         0.0,

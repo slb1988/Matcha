@@ -511,17 +511,35 @@ fn swap_mirrors_cached_sheet_summaries_left_right_counts() {
 fn switching_to_a_sheet_lands_on_its_first_difference() {
     let left = temp_xlsx(
         "land-left.xlsx",
-        &xlsx(&[("Data", "id,name
-7,apple"), ("Summary", "id,total,n
+        &xlsx(&[
+            (
+                "Data",
+                "id,name
+7,apple",
+            ),
+            (
+                "Summary",
+                "id,total,n
 1,10,5
-2,20,6")]),
+2,20,6",
+            ),
+        ]),
     );
     let right = temp_xlsx(
         "land-right.xlsx",
-        &xlsx(&[("Data", "id,name
-7,apple"), ("Summary", "id,total,n
+        &xlsx(&[
+            (
+                "Data",
+                "id,name
+7,apple",
+            ),
+            (
+                "Summary",
+                "id,total,n
 1,10,5
-2,20,9")]),
+2,20,9",
+            ),
+        ]),
     );
     let mut v = open_files(&left, &right);
     ready(&mut v);

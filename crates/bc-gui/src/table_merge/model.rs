@@ -184,7 +184,11 @@ impl TableMergeModel {
         if forward {
             changes.iter().map(|r| r.start).find(|&s| s > from)
         } else {
-            changes.iter().rev().find(|r| r.end <= from).map(|r| r.start)
+            changes
+                .iter()
+                .rev()
+                .find(|r| r.end <= from)
+                .map(|r| r.start)
         }
     }
 
@@ -194,7 +198,9 @@ impl TableMergeModel {
         if forward {
             (self.sheet + 1..n).find(|&i| !self.cache[i].changes.is_empty())
         } else {
-            (0..self.sheet).rev().find(|&i| !self.cache[i].changes.is_empty())
+            (0..self.sheet)
+                .rev()
+                .find(|&i| !self.cache[i].changes.is_empty())
         }
     }
 

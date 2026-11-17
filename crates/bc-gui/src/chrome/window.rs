@@ -165,11 +165,14 @@ impl<'open> Window<'open> {
                     Vec2::splat(CLOSE),
                 );
                 let response = ui
-                    .interact(rect, ui.scope_id().with("matcha-window-close"), Sense::click())
+                    .interact(
+                        rect,
+                        ui.scope_id().with("matcha-window-close"),
+                        Sense::click(),
+                    )
                     .on_hover_text("Close");
                 if response.hovered() {
-                    ui.painter()
-                        .rect_filled(rect, theme::RADIUS_MD, p.hover);
+                    ui.painter().rect_filled(rect, theme::RADIUS_MD, p.hover);
                 }
                 let c = rect.center();
                 let ink = if response.hovered() {
@@ -187,8 +190,8 @@ impl<'open> Window<'open> {
         });
         let shown = shown?;
         if closable && self.close_on_escape {
-            let focused_here = ctx.memory(|m| m.focused().is_none())
-                || shown.response.contains_pointer();
+            let focused_here =
+                ctx.memory(|m| m.focused().is_none()) || shown.response.contains_pointer();
             if focused_here
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
             {
@@ -213,17 +216,18 @@ mod tests {
         crate::chrome::test_frame(
             ctx,
             egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 600.0))),
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(800.0, 600.0),
+                )),
                 events,
                 ..Default::default()
             },
             |ui| {
-                rect = Window::new("Go To")
-                    .open(open)
-                    .show(ui.ctx(), |ui| {
-                        ui.label("Line number");
-                        ui.min_rect()
-                    });
+                rect = Window::new("Go To").open(open).show(ui.ctx(), |ui| {
+                    ui.label("Line number");
+                    ui.min_rect()
+                });
             },
         );
         rect
@@ -237,11 +241,15 @@ mod tests {
         let body = frame(&ctx, vec![], &mut open).expect("shown");
         // Centered horizontally on the 800 px viewport.
         assert!((body.center().x - 400.0).abs() < 160.0, "{body:?}");
-        let area = ctx.memory(|m| m.area_rect(egui::Id::unique(("matcha-window", "Go To".to_owned()))));
+        let area =
+            ctx.memory(|m| m.area_rect(egui::Id::unique(("matcha-window", "Go To".to_owned()))));
         let area = area.expect("window area");
         assert!(area.width() >= DEFAULT_MIN_WIDTH);
         // Click × (10 px from the right edge, header center).
-        let x = egui::pos2(area.right() - 10.0 - CLOSE / 2.0, area.top() + HEADER_HEIGHT / 2.0);
+        let x = egui::pos2(
+            area.right() - 10.0 - CLOSE / 2.0,
+            area.top() + HEADER_HEIGHT / 2.0,
+        );
         frame(
             &ctx,
             vec![

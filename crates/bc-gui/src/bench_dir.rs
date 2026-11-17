@@ -1,17 +1,30 @@
 //! Real native-window folder benchmark; timing includes App::ui, not just row painting.
 /// Small uncompressed BMP writer avoids an image-library dependency for test evidence.
-pub fn write_bmp(path:&std::path::Path,image:&crate::egui::ColorImage)->std::io::Result<()> {
+pub fn write_bmp(path: &std::path::Path, image: &crate::egui::ColorImage) -> std::io::Result<()> {
     use std::io::Write;
-    let width=image.size[0] as u32;let height=image.size[1] as u32;
-    let stride=(width*3+3)&!3;let bytes=stride*height;
-    let mut file=std::io::BufWriter::new(std::fs::File::create(path)?);
-    file.write_all(b"BM")?;file.write_all(&(54+bytes).to_le_bytes())?;file.write_all(&[0;4])?;file.write_all(&54u32.to_le_bytes())?;
-    file.write_all(&40u32.to_le_bytes())?;file.write_all(&width.to_le_bytes())?;file.write_all(&height.to_le_bytes())?;
-    file.write_all(&1u16.to_le_bytes())?;file.write_all(&24u16.to_le_bytes())?;file.write_all(&0u32.to_le_bytes())?;
-    file.write_all(&bytes.to_le_bytes())?;file.write_all(&[0;16])?;
-    let padding=vec![0;(stride-width*3) as usize];
+    let width = image.size[0] as u32;
+    let height = image.size[1] as u32;
+    let stride = (width * 3 + 3) & !3;
+    let bytes = stride * height;
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    file.write_all(b"BM")?;
+    file.write_all(&(54 + bytes).to_le_bytes())?;
+    file.write_all(&[0; 4])?;
+    file.write_all(&54u32.to_le_bytes())?;
+    file.write_all(&40u32.to_le_bytes())?;
+    file.write_all(&width.to_le_bytes())?;
+    file.write_all(&height.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?;
+    file.write_all(&24u16.to_le_bytes())?;
+    file.write_all(&0u32.to_le_bytes())?;
+    file.write_all(&bytes.to_le_bytes())?;
+    file.write_all(&[0; 16])?;
+    let padding = vec![0; (stride - width * 3) as usize];
     for y in (0..height as usize).rev() {
-        for x in 0..width as usize {let pixel=image.pixels[y*width as usize+x].to_array();file.write_all(&[pixel[2],pixel[1],pixel[0]])?;}
+        for x in 0..width as usize {
+            let pixel = image.pixels[y * width as usize + x].to_array();
+            file.write_all(&[pixel[2], pixel[1], pixel[0]])?;
+        }
         file.write_all(&padding)?;
     }
     file.flush()
@@ -39,19 +52,20 @@ impl Default for DirBench {
     }
 }
 impl DirBench {
-    pub fn drive(&mut self, view: &mut DirCompareView,ctx:&crate::egui::Context) {
+    pub fn drive(&mut self, view: &mut DirCompareView, ctx: &crate::egui::Context) {
         if view.busy() || !view.snapshot.complete {
             return;
         }
         self.frame += 1;
-        if self.frame==1 {
+        if self.frame == 1 {
             println!("bench.dir.ready=true");
             ctx.request_screenshot(|image| {
                 std::thread::spawn(move || {
-                    let path=std::env::temp_dir().join(format!("matcha-dir-bench-{}.bmp",std::process::id()));
-                    match write_bmp(&path,&image) {
-                        Ok(())=>println!("bench.dir.screenshot={}",path.display()),
-                        Err(error)=>eprintln!("benchmark screenshot: {error}"),
+                    let path = std::env::temp_dir()
+                        .join(format!("matcha-dir-bench-{}.bmp", std::process::id()));
+                    match write_bmp(&path, &image) {
+                        Ok(()) => println!("bench.dir.screenshot={}", path.display()),
+                        Err(error) => eprintln!("benchmark screenshot: {error}"),
                     }
                 });
             });

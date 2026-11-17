@@ -11,13 +11,13 @@ use crate::{
         tabstrip::{self, TabEvent, TabSpec},
     },
     dir_view::DirCompareView,
+    hex::{HexAction, HexCompareView},
     home::{HomeAction, HomeView, SessionKind},
     merge::{MergeAction, MergeView},
-    table_merge::TableMergeView,
     remote::{Completion, Outcome, RemoteInbox, RemoteOpen},
     sync_view::SyncView,
-    hex::{HexAction, HexCompareView},
     table::{TableAction, TableCompareView},
+    table_merge::TableMergeView,
     text::{TextCompareView, ViewAction},
     LaunchOptions,
 };
@@ -445,7 +445,9 @@ impl MatchaApp {
             if let Some(which) = forced {
                 let opened = match which {
                     "hex" => HexCompareView::open(l, r).map(|v| View::HexCompare(Box::new(v))),
-                    "table" => TableCompareView::open(l, r).map(|v| View::TableCompare(Box::new(v))),
+                    "table" => {
+                        TableCompareView::open(l, r).map(|v| View::TableCompare(Box::new(v)))
+                    }
                     _ => TextCompareView::open(l, r).map(|v| View::TextCompare(Box::new(v))),
                 };
                 return match opened {

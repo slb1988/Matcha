@@ -115,7 +115,11 @@ pub fn window<R>(
                     closed = response.clicked();
                     let client_rect =
                         Rect::from_min_size(rect.min + Vec2::new(1.0, TITLE_HEIGHT + 1.0), client);
-                    painter.hline(rect.x_range(), rect.top() + TITLE_HEIGHT, Stroke::new(1.0, p.line));
+                    painter.hline(
+                        rect.x_range(),
+                        rect.top() + TITLE_HEIGHT,
+                        Stroke::new(1.0, p.line),
+                    );
                     let bottom = radius - 1;
                     painter.rect_filled(
                         client_rect,

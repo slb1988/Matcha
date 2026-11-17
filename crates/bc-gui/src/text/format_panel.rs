@@ -109,8 +109,9 @@ impl FormatPanel {
                 match result {
                     Ok(n) => {
                         *registry = staging;
-                        self.message =
-                            format!("Saved {n} user format(s); select them in the pane format menu");
+                        self.message = format!(
+                            "Saved {n} user format(s); select them in the pane format menu"
+                        );
                     }
                     Err(e) => self.message = e.to_string(),
                 }

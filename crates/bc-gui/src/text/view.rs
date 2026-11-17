@@ -127,6 +127,8 @@ pub struct TextCompareView {
     pub(crate) font_size: f32,
     pub(crate) content_width: f32,
     pending_scroll: Option<usize>,
+    /// `pending_scroll` 目标行上方要留的上下文行数（落地时按窗格高度再封顶）。
+    pending_context: usize,
     pub(crate) filter: DisplayFilter,
     context: usize,
     expanded: Vec<Range<usize>>,
@@ -168,6 +170,8 @@ pub struct TextCompareView {
     /// 打开/换文件后的首次比较完成时自动落到第一个差异（一次性；编辑或光标已移动则作废）。
     land_on_first_diff: bool,
 }
+/// 打开时落到第一个差异，其上方保留的上下文行数。
+const LANDING_CONTEXT_ROWS: usize = 5;
 impl TextCompareView {
     fn registry() -> Result<FormatRegistry, CoreError> {
         match bc_formats::registry::user_formats_dir() {
@@ -230,6 +234,7 @@ impl TextCompareView {
             font_size: crate::chrome::theme::EDITOR_SIZE,
             content_width: 0.0,
             pending_scroll: None,
+            pending_context: 0,
             filter: DisplayFilter::All,
             context: 3,
             expanded: Vec::new(),
@@ -315,6 +320,12 @@ impl TextCompareView {
     }
     pub fn scroll_to_row(&mut self, row: usize) {
         self.pending_scroll = Some(row);
+        self.pending_context = 0;
+    }
+    /// 滚到 `row`，并在其上方尽量留 `context` 行上下文（不超过可见行数的三分之一）。
+    fn scroll_to_row_with_context(&mut self, row: usize, context: usize) {
+        self.pending_scroll = Some(row);
+        self.pending_context = context;
     }
     /// 关闭标签页：有未保存编辑时先弹保存确认，确认后产出 [`ViewAction::Close`]。
     pub fn request_close(&mut self) {
@@ -418,6 +429,10 @@ impl TextCompareView {
         {
             if let Some(row) = self.first_difference() {
                 self.goto_row(row);
+                self.scroll_to_row_with_context(
+                    self.projection.display_for(row),
+                    LANDING_CONTEXT_ROWS,
+                );
             }
         }
     }
@@ -1310,6 +1325,8 @@ impl TextCompareView {
         self.last_stats.rows_drawn = 0;
         let row_height = self.row_height();
         if let Some(row) = self.pending_scroll.take() {
+            let fits = (ui.available_height() / row_height.max(1.0)) as usize;
+            let row = row.saturating_sub(std::mem::take(&mut self.pending_context).min(fits / 3));
             self.scroll.y = self.projection.y_of(
                 row.min(self.projection.len().saturating_sub(1)),
                 super::projection::RowGeometry::for_row_height(row_height),

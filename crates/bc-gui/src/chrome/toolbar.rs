@@ -44,7 +44,12 @@ pub fn dropdown_menu(
         if open.as_ref() == Some(name) && super::popup::is_menu_open(ctx, id) {
             super::popup::close_menu(ctx, id);
         } else {
-            super::popup::open_menu(ctx, id, rect.left_bottom() + egui::vec2(0.0, 2.0), Some(rect));
+            super::popup::open_menu(
+                ctx,
+                id,
+                rect.left_bottom() + egui::vec2(0.0, 2.0),
+                Some(rect),
+            );
             ctx.data_mut(|d| d.insert_temp(name_id, name.clone()));
         }
     }
@@ -276,7 +281,9 @@ mod tests {
         let drop = click(&items, 65.0);
         assert_eq!(drop.clicked, None);
         assert_eq!(drop.dropdown.as_deref(), Some("split"));
-        assert!(drop.dropdown_rect.is_some_and(|r| r.contains(egui::pos2(65.0, 15.0))));
+        assert!(drop
+            .dropdown_rect
+            .is_some_and(|r| r.contains(egui::pos2(65.0, 15.0))));
     }
     #[test]
     fn injected_toggle_click_excludes_its_group_only() {
@@ -321,7 +328,11 @@ mod tests {
                     let response = show(ui, &items);
                     chosen = dropdown_menu(ui.ctx(), id, &response, |name| {
                         assert_eq!(name, "drop");
-                        vec![item::action("Home", "Home", true), item::separator(), item::action("Info", "Info", true)]
+                        vec![
+                            item::action("Home", "Home", true),
+                            item::separator(),
+                            item::action("Info", "Info", true),
+                        ]
                     });
                 },
             );

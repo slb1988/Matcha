@@ -114,7 +114,14 @@ mod tests {
             std::thread::yield_now();
         };
         map.set_alignment(output).unwrap();
-        assert_eq!(map.stats(), HexStats { same: 255, difference: 1, ..Default::default() });
+        assert_eq!(
+            map.stats(),
+            HexStats {
+                same: 255,
+                difference: 1,
+                ..Default::default()
+            }
+        );
     }
 
     /// 过期结果不污染视图模型：快照后编辑 → set_alignment 拒绝。

@@ -762,7 +762,9 @@ impl SyncView {
             METHODS
                 .iter()
                 .enumerate()
-                .map(|(index, label)| popup::item::radio(*label, index.to_string(), current == index))
+                .map(|(index, label)| {
+                    popup::item::radio(*label, index.to_string(), current == index)
+                })
                 .collect()
         })
         .and_then(|id| id.parse::<usize>().ok())
@@ -823,11 +825,7 @@ impl SyncView {
                 egui::Align2::CENTER_CENTER,
                 "Sync Now",
                 egui::FontId::proportional(theme::UI_SIZE),
-                if can_sync {
-                    theme::TEXT
-                } else {
-                    DISABLED_TEXT
-                },
+                if can_sync { theme::TEXT } else { DISABLED_TEXT },
             );
             icons::paint(
                 p,
@@ -1001,8 +999,7 @@ fn combo_edit(
         ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
         // 选区蓝底，与 chrome::pathbar 一致（stroke 是选中文字色，保持正文色）。
         ui.visuals_mut().selection.bg_fill = crate::chrome::theme::TEXT_SELECTION;
-        ui.visuals_mut().selection.stroke =
-            egui::Stroke::new(1.0, crate::chrome::theme::TEXT);
+        ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0, crate::chrome::theme::TEXT);
         let text_id = ui.make_persistent_id("path-text");
         crate::chrome::pathbar::clean_paste_events(ui.ctx(), text_id);
         let response = ui.add_sized(
@@ -1060,11 +1057,7 @@ fn labelled(painter: &egui::Painter, rect: egui::Rect, label: &str, enabled: boo
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(theme::UI_SIZE),
-        if enabled {
-            theme::TEXT
-        } else {
-            DISABLED_TEXT
-        },
+        if enabled { theme::TEXT } else { DISABLED_TEXT },
     );
 }
 /// Original two-arrow glyph of the operation method (green, 14×8).

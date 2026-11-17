@@ -31,12 +31,14 @@ impl FindDialog {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Side");
-                    widgets::Combo::new("find_side", ["Left", "Right", "Either"][self.side])
-                        .show(ui, |list| {
+                    widgets::Combo::new("find_side", ["Left", "Right", "Either"][self.side]).show(
+                        ui,
+                        |list| {
                             for (s, label) in ["Left", "Right", "Either"].iter().enumerate() {
                                 list.selectable_value(&mut self.side, s, *label);
                             }
-                        });
+                        },
+                    );
                 });
                 if let Some(error) = &self.error {
                     ui.colored_label(theme::palette(ui.ctx()).danger, error);

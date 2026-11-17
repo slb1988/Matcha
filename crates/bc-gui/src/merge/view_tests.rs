@@ -95,7 +95,10 @@ fn opens_on_the_first_conflict_with_four_panes() {
     let [l, c, r, o] = v.pane_rects;
     assert!(c.right() <= l.left() && l.right() <= r.left());
     assert!(o.top() >= l.bottom() - 0.5);
-    assert!(v.pane_rects.iter().all(|p| p.width() > 100.0 && p.height() > 100.0));
+    assert!(v
+        .pane_rects
+        .iter()
+        .all(|p| p.width() > 100.0 && p.height() > 100.0));
     // 定位：冲突行滚到视野上方附近。
     assert!(v.scroll.y > 0.0);
     assert_eq!((v.scroll.y / v.row_height()).round() as usize, 16);
@@ -114,7 +117,10 @@ fn commands_resolve_navigate_and_undo() {
     // Take Right 只动当前区段。
     frame(&ctx, &mut v, vec![key(egui::Key::R, true)]);
     assert_eq!(v.unresolved(), 2);
-    assert_eq!(text(&v), joined(&edit(&b, &[(5, "R5"), (33, "L33"), (35, "R35")])));
+    assert_eq!(
+        text(&v),
+        joined(&edit(&b, &[(5, "R5"), (33, "L33"), (35, "R35")]))
+    );
     // 下一改动（含冲突）：第 20 行 / 近距离冲突的两段 / 到头。
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 19);
@@ -137,12 +143,16 @@ fn commands_resolve_navigate_and_undo() {
     assert_eq!(v.current_row, 19);
     frame(&ctx, &mut v, vec![key(egui::Key::L, true)]);
     assert_eq!(v.unresolved(), 0);
-    assert!(text(&v).contains("L20
-"));
+    assert!(text(&v).contains(
+        "L20
+"
+    ));
     frame(&ctx, &mut v, vec![key(egui::Key::Z, true)]);
     assert_eq!(v.unresolved(), 1);
-    assert!(!text(&v).contains("L20
-"));
+    assert!(!text(&v).contains(
+        "L20
+"
+    ));
     frame(&ctx, &mut v, vec![key(egui::Key::Y, true)]);
     assert_eq!(v.unresolved(), 0);
     // 光标不在改动上时 Take 不做事。
@@ -177,7 +187,10 @@ fn typing_edits_the_output_only() {
     assert_eq!(v.current_row, 4);
     frame(&ctx, &mut v, vec![egui::Event::Text("y".into())]);
     assert_eq!(text(&v), edited);
-    assert_eq!(v.model.map.left.to_bytes().unwrap(), bytes(&edit(&b, &[(3, "L3")])));
+    assert_eq!(
+        v.model.map.left.to_bytes().unwrap(),
+        bytes(&edit(&b, &[(3, "L3")]))
+    );
 }
 
 #[test]
@@ -201,7 +214,10 @@ fn the_wheel_scrolls_every_pane_together() {
             },
         ],
     );
-    assert!(v.scroll.y > 0.0, "one scroll position shared by all four panes");
+    assert!(
+        v.scroll.y > 0.0,
+        "one scroll position shared by all four panes"
+    );
     // 滚不过末尾。
     v.pending_scroll = Some(100_000);
     frame(&ctx, &mut v, vec![]);
@@ -286,10 +302,19 @@ fn saving_without_a_target_asks_for_a_path() {
     let out = std::env::temp_dir().join(format!("matcha-merge-saveas-{}.txt", std::process::id()));
     let _ = std::fs::remove_file(&out);
     c.command("Save Output As...");
-    assert!(matches!(c.prompt, Some(Prompt::SaveAs { confirmed: false, .. })));
+    assert!(matches!(
+        c.prompt,
+        Some(Prompt::SaveAs {
+            confirmed: false,
+            ..
+        })
+    ));
     c.prompt = None;
     c.save_as(out.display().to_string(), None, false);
-    assert!(matches!(c.prompt, Some(Prompt::Conflicts { path: Some(_), .. })));
+    assert!(matches!(
+        c.prompt,
+        Some(Prompt::Conflicts { path: Some(_), .. })
+    ));
     assert!(!out.exists());
     frame(&ctx, &mut c, vec![]);
     c.prompt = None;
@@ -298,7 +323,9 @@ fn saving_without_a_target_asks_for_a_path() {
     assert_eq!(std::fs::read(&out).unwrap(), bytes(&b));
     assert_eq!(c.result_code(), 14);
     // 写不进去：留在对话框里。
-    let nowhere = std::env::temp_dir().join("matcha-no-such-folder").join("out.txt");
+    let nowhere = std::env::temp_dir()
+        .join("matcha-no-such-folder")
+        .join("out.txt");
     c.save_as(nowhere.display().to_string(), None, true);
     assert!(matches!(c.prompt, Some(Prompt::SaveAs { .. })));
     assert!(c.message.contains("cannot write"));

@@ -1,5 +1,5 @@
-use bc_core::{pattern::Pattern, CoreError};
 use crate::chrome::widgets;
+use bc_core::{pattern::Pattern, CoreError};
 use eframe::egui;
 #[derive(Default)]
 pub struct FindPanel {

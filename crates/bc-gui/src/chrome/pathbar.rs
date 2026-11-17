@@ -497,9 +497,11 @@ fn edit_menu(
             "Paste" => {
                 if let Some(text) = clipboard_text().map(|t| clean_pasted_path(&t)) {
                     path.replace_range(byte_of(path, start)..byte_of(path, end), &text);
-                    state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(
-                        start + text.chars().count(),
-                    ))));
+                    state
+                        .cursor
+                        .set_char_range(Some(CCursorRange::one(CCursor::new(
+                            start + text.chars().count(),
+                        ))));
                 }
             }
             "Delete" => {
@@ -714,7 +716,12 @@ mod tests {
     fn open_menu(ctx: &egui::Context, path: &mut String) {
         // 先空一帧：菜单关闭的那帧菜单仍参与命中测试，直接右键会被它吃掉。
         menu_frame(ctx, path, vec![], false);
-        menu_frame(ctx, path, click(RIGHT, egui::PointerButton::Secondary), false);
+        menu_frame(
+            ctx,
+            path,
+            click(RIGHT, egui::PointerButton::Secondary),
+            false,
+        );
         menu_frame(ctx, path, vec![], false);
     }
     #[test]
@@ -732,11 +739,21 @@ mod tests {
             pressed,
             modifiers: Default::default(),
         };
-        menu_frame(&ctx, &mut path, vec![egui::Event::PointerMoved(RIGHT)], false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            vec![egui::Event::PointerMoved(RIGHT)],
+            false,
+        );
         menu_frame(&ctx, &mut path, vec![press(true)], false); // 按下帧：折叠后应立即恢复
         menu_frame(&ctx, &mut path, vec![press(false)], false); // 释放帧：菜单打开
         menu_frame(&ctx, &mut path, vec![], false); // Area sizing pass
-        let out = menu_frame(&ctx, &mut path, click(COPY, egui::PointerButton::Primary), false);
+        let out = menu_frame(
+            &ctx,
+            &mut path,
+            click(COPY, egui::PointerButton::Primary),
+            false,
+        );
         assert!(out
             .platform_output
             .commands
@@ -751,7 +768,12 @@ mod tests {
         // 全选 + 聚焦；右键点在选区内，选区保留。
         menu_frame(&ctx, &mut path, vec![], true);
         open_menu(&ctx, &mut path);
-        let out = menu_frame(&ctx, &mut path, click(COPY, egui::PointerButton::Primary), false);
+        let out = menu_frame(
+            &ctx,
+            &mut path,
+            click(COPY, egui::PointerButton::Primary),
+            false,
+        );
         assert!(out
             .platform_output
             .commands
@@ -817,7 +839,10 @@ mod tests {
         menu_frame(
             &ctx,
             &mut path,
-            vec![egui::Event::PointerMoved(egui::pos2(30.0, 12.0)), button(true)],
+            vec![
+                egui::Event::PointerMoved(egui::pos2(30.0, 12.0)),
+                button(true),
+            ],
             false,
         );
         menu_frame(
@@ -839,11 +864,21 @@ mod tests {
         let mut path = "left.txt".to_string();
         menu_frame(&ctx, &mut path, vec![], true);
         open_menu(&ctx, &mut path);
-        menu_frame(&ctx, &mut path, click(CUT, egui::PointerButton::Primary), false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(CUT, egui::PointerButton::Primary),
+            false,
+        );
         assert_eq!(path, "");
         test_clipboard::set(Some("clip.txt".into()));
         open_menu(&ctx, &mut path);
-        menu_frame(&ctx, &mut path, click(PASTE, egui::PointerButton::Primary), false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(PASTE, egui::PointerButton::Primary),
+            false,
+        );
         assert_eq!(path, "clip.txt");
         open_menu(&ctx, &mut path);
         menu_frame(
@@ -853,7 +888,12 @@ mod tests {
             false,
         );
         open_menu(&ctx, &mut path);
-        menu_frame(&ctx, &mut path, click(DELETE, egui::PointerButton::Primary), false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(DELETE, egui::PointerButton::Primary),
+            false,
+        );
         assert_eq!(path, "");
     }
     /// 从帧输出里找指定文本的最后一个 TextShape（覆盖绘制在后，是最上层的显示）。
@@ -877,7 +917,10 @@ mod tests {
         // 全选后主光标在末尾，egui 滚动到末尾，偏移被记下。
         let focused = menu_frame(&ctx, &mut path, vec![], false);
         let focused_x = painted_text_x(&focused, LONG_PATH).unwrap();
-        assert!(focused_x < start_x - 40.0, "长路径应滚出开头: {focused_x} vs {start_x}");
+        assert!(
+            focused_x < start_x - 40.0,
+            "长路径应滚出开头: {focused_x} vs {start_x}"
+        );
         // 点击空白处失焦，再等一帧：显示不能跳回开头。
         menu_frame(
             &ctx,
@@ -960,7 +1003,12 @@ mod tests {
         menu_frame(&ctx, &mut path, vec![], true);
         open_menu(&ctx, &mut path);
         test_clipboard::set(Some(" \"D:/x y/b.txt\"\n".into()));
-        menu_frame(&ctx, &mut path, click(PASTE, egui::PointerButton::Primary), false);
+        menu_frame(
+            &ctx,
+            &mut path,
+            click(PASTE, egui::PointerButton::Primary),
+            false,
+        );
         assert_eq!(path, "D:/x y/b.txt");
     }
     #[test]
@@ -971,7 +1019,7 @@ mod tests {
         menu_frame(&ctx, &mut path, vec![], false); // feed "a" 为首个撤销点
         path.push('b'); // 模拟键入
         menu_frame(&ctx, &mut path, vec![], false); // flux 开始
-        // 时间越过 stable_time，"ab" 落定为新撤销点。
+                                                    // 时间越过 stable_time，"ab" 落定为新撤销点。
         crate::chrome::test_frame(
             &ctx,
             egui::RawInput {
@@ -1085,7 +1133,11 @@ mod tests {
         let ctx = egui::Context::default();
         let text = "C:/work/left.txt";
         open_readonly_menu(&ctx, text);
-        readonly_frame(&ctx, text, click(RO_SELECT_ALL, egui::PointerButton::Primary));
+        readonly_frame(
+            &ctx,
+            text,
+            click(RO_SELECT_ALL, egui::PointerButton::Primary),
+        );
         // 全选后再右键（点在刚选中的文本上）：选区保留，Copy 可用。
         open_readonly_menu(&ctx, text);
         let out = readonly_frame(&ctx, text, click(RO_COPY, egui::PointerButton::Primary));

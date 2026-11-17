@@ -17,7 +17,11 @@ impl PathsDialog {
             .min_width(420.0)
             .show(ctx, |ui| {
                 for side in 0..2 {
-                    ui.label(if side == 0 { "Left folder" } else { "Right folder" });
+                    ui.label(if side == 0 {
+                        "Left folder"
+                    } else {
+                        "Right folder"
+                    });
                     ui.horizontal(|ui| {
                         ui.push_id(("folder-path", side), |ui| {
                             let text = if side == 0 {

@@ -336,10 +336,7 @@ fn mark_layout(ui: &mut Ui, text: WidgetText, enabled: bool) -> (Rect, Response,
     } else {
         0.0
     };
-    let size = Vec2::new(
-        BOX + label_w,
-        galley.size().y.max(ROW_HEIGHT - 4.0),
-    );
+    let size = Vec2::new(BOX + label_w, galley.size().y.max(ROW_HEIGHT - 4.0));
     let (rect, response) = ui.allocate_exact_size(size, sense(enabled));
     (rect, response, galley)
 }
@@ -462,7 +459,9 @@ pub fn list_value<T: PartialEq>(
 /// Single-line text field, 28 px tall (global visuals give it the token
 /// fill, outline and accent focus ring).
 pub fn text_field(ui: &mut Ui, text: &mut String) -> Response {
-    let width = ui.available_width().min(ui.spacing().text_edit_width.max(200.0));
+    let width = ui
+        .available_width()
+        .min(ui.spacing().text_edit_width.max(200.0));
     text_field_width(ui, text, width)
 }
 /// [`text_field`] with an explicit width.
@@ -735,7 +734,9 @@ mod tests {
         let mut on = false;
         let mut changed = false;
         let mut rect = Rect::NOTHING;
-        frame(&ctx, vec![], |ui| rect = checkbox(ui, &mut on, "Enabled").rect);
+        frame(&ctx, vec![], |ui| {
+            rect = checkbox(ui, &mut on, "Enabled").rect
+        });
         frame(&ctx, click(rect.center()), |ui| {
             changed = checkbox(ui, &mut on, "Enabled").changed();
         });
@@ -790,9 +791,13 @@ mod tests {
         });
         // Primary is right-most: the last 84+ px of the row.
         let mut chosen = None;
-        frame(&ctx, click(egui::pos2(395.0 - 40.0, 8.0 + 12.0 + 16.0)), |ui| {
-            chosen = dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]);
-        });
+        frame(
+            &ctx,
+            click(egui::pos2(395.0 - 40.0, 8.0 + 12.0 + 16.0)),
+            |ui| {
+                chosen = dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]);
+            },
+        );
         assert_eq!(chosen, Some(1));
     }
 }

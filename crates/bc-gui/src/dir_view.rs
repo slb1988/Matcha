@@ -7135,13 +7135,19 @@ mod tests {
     fn tree_split_follows_the_persisted_splitter() {
         FOLDER_SPLIT_X.reset();
         // Default: even split (ceil), identical to the reference layout.
-        assert_eq!(DirCompareView::chrome_split(1384.0, CHROME_GAP), (665.0, 664.0));
+        assert_eq!(
+            DirCompareView::chrome_split(1384.0, CHROME_GAP),
+            (665.0, 664.0)
+        );
         FOLDER_SPLIT_X.store(400.0, 1329.0);
         let (left, right) = DirCompareView::chrome_split(1384.0, CHROME_GAP);
         assert_eq!((left, left + right), (400.0, 1329.0));
         // Same fraction in sync mode (wider centre column).
         let (left, right) = DirCompareView::chrome_split(1384.0, SYNC_GAP);
-        assert!((left - (400.0_f32 / 1329.0 * 1249.0).ceil()).abs() < 0.5, "{left} {right}");
+        assert!(
+            (left - (400.0_f32 / 1329.0 * 1249.0).ceil()).abs() < 0.5,
+            "{left} {right}"
+        );
         // Each tree keeps its minimum width.
         FOLDER_SPLIT_X.store(5.0, 1329.0);
         assert_eq!(DirCompareView::chrome_split(1384.0, CHROME_GAP).0, 120.0);

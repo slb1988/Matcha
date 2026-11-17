@@ -21,7 +21,10 @@ fn item(label: &str, shortcut: Option<&str>, children: Vec<MenuItem>) -> MenuIte
 }
 
 fn off(label: &str) -> MenuItem {
-    MenuItem { enabled: false, ..item(label, None, vec![]) }
+    MenuItem {
+        enabled: false,
+        ..item(label, None, vec![])
+    }
 }
 
 fn sep() -> MenuItem {
@@ -99,7 +102,11 @@ pub fn menus(view: &crate::hex::view::HexCompareView) -> Vec<MenuSpec> {
     let cursor_bytes = {
         let side = view.active_side;
         let at = view.cursor[side];
-        let bytes = if side == 0 { view.map.left.bytes() } else { view.map.right.bytes() };
+        let bytes = if side == 0 {
+            view.map.left.bytes()
+        } else {
+            view.map.right.bytes()
+        };
         bytes.get(at..).unwrap_or(&[]).to_vec()
     };
     vec![
@@ -121,7 +128,11 @@ pub fn menus(view: &crate::hex::view::HexCompareView) -> Vec<MenuSpec> {
                 sep(),
                 {
                     let mut using = crate::using::submenu(None);
-                    crate::using::refresh_item(&mut using, bc_formats::route::FileView::Hex, &view.paths());
+                    crate::using::refresh_item(
+                        &mut using,
+                        bc_formats::route::FileView::Hex,
+                        &view.paths(),
+                    );
                     using
                 },
                 off("Compare Parent Folders"),
@@ -174,12 +185,18 @@ pub fn menus(view: &crate::hex::view::HexCompareView) -> Vec<MenuSpec> {
             title: "View".into(),
             mnemonic: Some('v'),
             items: vec![
-                radio("Show All", view.filter == bc_engine_bin::hex::DisplayFilter::All),
+                radio(
+                    "Show All",
+                    view.filter == bc_engine_bin::hex::DisplayFilter::All,
+                ),
                 radio(
                     "Show Differences",
                     view.filter == bc_engine_bin::hex::DisplayFilter::Differences,
                 ),
-                radio("Show Same", view.filter == bc_engine_bin::hex::DisplayFilter::Same),
+                radio(
+                    "Show Same",
+                    view.filter == bc_engine_bin::hex::DisplayFilter::Same,
+                ),
                 sep(),
                 off(&format!("字节地址 = {:08X}", view.cursor[view.active_side])), // H28 动态标签
                 MenuItem {

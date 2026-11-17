@@ -245,7 +245,9 @@ impl FiltersBar {
                 presets
                     .iter()
                     .enumerate()
-                    .map(|(i, preset)| popup::item::action(preset.name.clone(), i.to_string(), true))
+                    .map(|(i, preset)| {
+                        popup::item::action(preset.name.clone(), i.to_string(), true)
+                    })
                     .collect()
             });
             if let Some(preset) = picked
@@ -263,37 +265,50 @@ impl FiltersBar {
             }
         });
         ui.horizontal(|ui| {
-            change.apply |= widgets::Combo::new("display_filter", display_label(self.options.display))
-                .show(ui, |list| {
-                    for value in DisplayFilter::ALL {
-                        if value == DisplayFilter::None && !self.show_none_option {
-                            continue;
+            change.apply |=
+                widgets::Combo::new("display_filter", display_label(self.options.display))
+                    .show(ui, |list| {
+                        for value in DisplayFilter::ALL {
+                            if value == DisplayFilter::None && !self.show_none_option {
+                                continue;
+                            }
+                            list.selectable_value(
+                                &mut self.options.display,
+                                value,
+                                display_label(value),
+                            );
                         }
-                        list.selectable_value(&mut self.options.display, value, display_label(value));
-                    }
-                })
-                .changed();
-            change.apply |= widgets::Combo::new("folder_filter", folder_label(self.options.folders))
-                .show(ui, |list| {
-                    for value in [
-                        FolderDisplay::AlwaysShow,
-                        FolderDisplay::FilesAndStructure,
-                        FolderDisplay::FilesOnly,
-                        FolderDisplay::Flatten,
-                    ] {
-                        if value == FolderDisplay::Flatten && !allow_flatten {
-                            continue;
+                    })
+                    .changed();
+            change.apply |=
+                widgets::Combo::new("folder_filter", folder_label(self.options.folders))
+                    .show(ui, |list| {
+                        for value in [
+                            FolderDisplay::AlwaysShow,
+                            FolderDisplay::FilesAndStructure,
+                            FolderDisplay::FilesOnly,
+                            FolderDisplay::Flatten,
+                        ] {
+                            if value == FolderDisplay::Flatten && !allow_flatten {
+                                continue;
+                            }
+                            list.selectable_value(
+                                &mut self.options.folders,
+                                value,
+                                folder_label(value),
+                            );
                         }
-                        list.selectable_value(&mut self.options.folders, value, folder_label(value));
-                    }
-                })
-                .changed();
+                    })
+                    .changed();
             change.apply |=
                 widgets::checkbox(ui, &mut self.options.suppress_filters, "Suppress filters")
                     .changed();
-            change.apply |=
-                widgets::checkbox(ui, &mut self.options.ignore_unimportant, "Ignore unimportant")
-                    .changed();
+            change.apply |= widgets::checkbox(
+                ui,
+                &mut self.options.ignore_unimportant,
+                "Ignore unimportant",
+            )
+            .changed();
             if ui
                 .add(widgets::Button::new("Other filters").selected(self.other_form))
                 .clicked()

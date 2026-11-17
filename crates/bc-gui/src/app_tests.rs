@@ -407,7 +407,10 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
 
 #[test]
 fn fv_hex_compare_opens_hex_view() {
-    let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+    let corpus = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/reference-parity/hex-compare/corpus/"
+    );
     let options = LaunchOptions {
         left: Some(PathBuf::from(format!("{corpus}l2.bin"))),
         right: Some(PathBuf::from(format!("{corpus}r2.bin"))),
@@ -451,7 +454,10 @@ fn command_line_workbooks_open_table_compare_not_hex() {
 
 #[test]
 fn bin_mask_routes_to_hex_compare_view() {
-    let corpus = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/");
+    let corpus = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/reference-parity/hex-compare/corpus/"
+    );
     let options = LaunchOptions {
         left: Some(PathBuf::from(format!("{corpus}l2.bin"))),
         right: Some(PathBuf::from(format!("{corpus}r2.bin"))),
@@ -748,7 +754,8 @@ fn escape_on_a_dirty_tab_prompts_and_escape_again_cancels() {
 fn escape_closes_the_find_bar_instead_of_exiting() {
     let ctx = egui::Context::default();
     let content = || TextContent::from_bytes(b"same\n".to_vec(), None).unwrap();
-    let view = TextCompareView::from_contents(content(), content(), FormatRegistry::with_builtins());
+    let view =
+        TextCompareView::from_contents(content(), content(), FormatRegistry::with_builtins());
     let mut app = MatchaApp::with_view(View::TextCompare(Box::new(view)));
     run(&ctx, &mut app, vec![]);
     ctrl(&ctx, &mut app, egui::Key::F);

@@ -1326,7 +1326,11 @@ fn pane_divider_drag_resizes_and_double_click_restores() {
     let to = line + egui::vec2(-200.0, 0.0);
     frame(&ctx, &mut v, vec![egui::Event::PointerMoved(line)]);
     frame(&ctx, &mut v, vec![pointer(line, true)]);
-    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(line + egui::vec2(-100.0, 0.0))]);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(line + egui::vec2(-100.0, 0.0))],
+    );
     frame(&ctx, &mut v, vec![egui::Event::PointerMoved(to)]);
     frame(&ctx, &mut v, vec![pointer(to, false)]);
     frame(&ctx, &mut v, vec![]);
@@ -1407,9 +1411,7 @@ fn gutter_arrow_kinds_and_disabled_states() {
     assert_eq!(kind(&v, 0), Some(ArrowKind::Selection));
     assert_eq!(kind(&v, 1), Some(ArrowKind::Selection));
     assert_eq!(kind(&v, 2), Some(ArrowKind::Section));
-    let mark = |v: &TextCompareView, row| {
-        v.gutter_arrow(0, row, selected.as_ref()).unwrap().mark
-    };
+    let mark = |v: &TextCompareView, row| v.gutter_arrow(0, row, selected.as_ref()).unwrap().mark;
     assert_eq!(mark(&v, 0), GutterMark::Arrow);
     assert_eq!(mark(&v, 1), GutterMark::Bracket { last: true });
     assert_eq!(kind(&v, 4), None);
@@ -1503,7 +1505,10 @@ fn clicking_gutter_arrows_copies_without_moving_caret() {
     // 区块首行（第 1 行）是箭头；其余行是括号线。
     let pos = arrow_pos(&v, 0, 1);
     let out = frame(&ctx, &mut v, vec![egui::Event::PointerMoved(pos)]);
-    assert_eq!(out.platform_output.cursor_icon, egui::CursorIcon::PointingHand);
+    assert_eq!(
+        out.platform_output.cursor_icon,
+        egui::CursorIcon::PointingHand
+    );
     click(&ctx, &mut v, pos);
     assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
     assert_eq!(
@@ -1517,9 +1522,11 @@ fn clicking_gutter_arrows_copies_without_moving_caret() {
 #[test]
 fn hovering_text_area_shows_ibeam_but_gutter_does_not() {
     let ctx = egui::Context::default();
-    let mut v = view("abc
+    let mut v = view(
+        "abc
 ", "abd
-");
+",
+    );
     frame(&ctx, &mut v, vec![]);
     let arrow = arrow_pos(&v, 0, 0);
     let text = arrow + egui::vec2(super::super::gutter::WIDTH + 20.0, 0.0);
@@ -1660,7 +1667,18 @@ fn diff_rows_keep_comment_style_but_ink_code() {
             bold: &bold,
             unimportant,
         };
-        let (job, _) = layout(text, 0, &tokens, &[], &Default::default(), 13.0, false, false, 4, &ink);
+        let (job, _) = layout(
+            text,
+            0,
+            &tokens,
+            &[],
+            &Default::default(),
+            13.0,
+            false,
+            false,
+            4,
+            &ink,
+        );
         job.sections
             .iter()
             .find(|s| s.byte_range.contains(&egui::text::ByteIndex(byte)))
@@ -1715,4 +1733,18 @@ fn realign_after_edit_does_not_jump_to_first_difference() {
     v.edited(lines);
     ready(&mut v);
     assert_eq!(v.current_row, 0);
+}
+#[test]
+fn first_difference_landing_keeps_context_rows_above() {
+    let ctx = egui::Context::default();
+    let left: String = (0..300).map(|i| format!("line {i}\n")).collect();
+    let right = left.replace("line 40\n", "changed\n");
+    let mut v = view(&left, &right);
+    assert_eq!(v.current_row, 40);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.top_row(v.row_height()), 40 - LANDING_CONTEXT_ROWS);
+    // Plain jumps still put the target row at the top.
+    v.scroll_to_row(60);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.top_row(v.row_height()), 60);
 }

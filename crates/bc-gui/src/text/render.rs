@@ -96,8 +96,10 @@ impl TextCompareView {
                 let end = ui.max_rect().top() + self.projection.height(geometry);
                 let clip = ui.clip_rect();
                 if end < clip.bottom() {
-                    let below =
-                        egui::Rect::from_min_max(egui::pos2(clip.left(), end.max(clip.top())), clip.max);
+                    let below = egui::Rect::from_min_max(
+                        egui::pos2(clip.left(), end.max(clip.top())),
+                        clip.max,
+                    );
                     crate::chrome::theme::paint_canvas(&ui.painter().with_clip_rect(below), below);
                 }
                 let mut min_row = self.projection.display_at(viewport.min.y, geometry);
@@ -233,7 +235,8 @@ impl TextCompareView {
                         // 同一区块的重要行仍为重要；行本身无分级时退回区块的重要性。
                         let mut importance = mapped.importance;
                         if importance == Importance::Same {
-                            if let Some(section) = mapped.section.and_then(|i| self.sections.get(i)) {
+                            if let Some(section) = mapped.section.and_then(|i| self.sections.get(i))
+                            {
                                 importance = section.importance;
                             }
                         }
@@ -602,13 +605,17 @@ impl TextCompareView {
             let end = (rect.top() + 2.0 + self.projection.height(geometry) - scroll.y)
                 .clamp(rect.top() + 1.0, rect.bottom());
             ui.painter().rect_filled(
-                egui::Rect::from_min_max(egui::pos2(bar_left, rect.top() + 1.0), egui::pos2(rect.right(), end)),
+                egui::Rect::from_min_max(
+                    egui::pos2(bar_left, rect.top() + 1.0),
+                    egui::pos2(rect.right(), end),
+                ),
                 0.0,
                 crate::chrome::theme::SURFACE,
             );
             let below = egui::Rect::from_min_max(egui::pos2(bar_left, end), rect.right_bottom());
             if below.is_positive() {
-                ui.painter().rect_filled(below, 0.0, crate::chrome::theme::CANVAS);
+                ui.painter()
+                    .rect_filled(below, 0.0, crate::chrome::theme::CANVAS);
             }
         }
         let status = egui::Rect::from_min_size(
@@ -704,10 +711,7 @@ pub(crate) fn layout(
         // 单侧差异行：不重要元素（默认是注释）用不重要差异色；`keep_on_diff` 的元素保留
         // 自身风格（注释被设为重要时仍可辨认）；其余用整行差异色。
         let color = match ink.diff {
-            Some(_)
-                if !ignore
-                    && token.is_some_and(|t| ink.unimportant.contains(&t.element)) =>
-            {
+            Some(_) if !ignore && token.is_some_and(|t| ink.unimportant.contains(&t.element)) => {
                 diff_ink(colors, Importance::Unimportant)
             }
             Some(diff) if !style.keep_on_diff => diff,

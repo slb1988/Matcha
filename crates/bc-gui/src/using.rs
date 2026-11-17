@@ -59,7 +59,10 @@ pub fn submenu(mnemonic: Option<char>) -> MenuItem {
 /// 命令 id 对应的已实现视图；不是 Compare Files Using 的命令为 `None`。
 pub fn view_of(action_id: &str) -> Option<FileView> {
     let label = action_id.strip_prefix(PREFIX)?;
-    VIEWS.iter().find(|(l, ..)| *l == label).and_then(|(.., v)| *v)
+    VIEWS
+        .iter()
+        .find(|(l, ..)| *l == label)
+        .and_then(|(.., v)| *v)
 }
 
 /// 命令 id → 切换请求；不是 Compare Files Using 的命令为 `None`。
@@ -98,8 +101,8 @@ pub fn refresh_item(item: &mut MenuItem, current: FileView, paths: &[Option<Path
     };
     let allowed = allowed(paths);
     for child in children.iter_mut() {
-        child.enabled = view_of(&child.action_id)
-            .is_some_and(|v| v != current && allowed[index(v)]);
+        child.enabled =
+            view_of(&child.action_id).is_some_and(|v| v != current && allowed[index(v)]);
     }
     item.enabled = children.iter().any(|c| c.enabled);
 }
@@ -148,7 +151,11 @@ fn allowed(paths: &[Option<PathBuf>; 2]) -> [bool; 3] {
             .iter()
             .all(|p| bc_formats::route::can_open(view, p, &registry))
     };
-    let value = [can(FileView::Text), can(FileView::Table), can(FileView::Hex)];
+    let value = [
+        can(FileView::Text),
+        can(FileView::Table),
+        can(FileView::Hex),
+    ];
     CACHE.with(|c| *c.borrow_mut() = Some((key, value)));
     value
 }

@@ -299,7 +299,9 @@ impl MergeView {
     }
 
     fn row_height(&self) -> f32 {
-        (self.font_size * 1.125).ceil().max(theme::EDITOR_LINE_HEIGHT)
+        (self.font_size * 1.125)
+            .ceil()
+            .max(theme::EDITOR_LINE_HEIGHT)
     }
     /// 把对齐行滚到视野内靠上的位置，并把光标放到它的第一行输出上。
     pub(crate) fn goto_row(&mut self, row: usize) {
@@ -450,8 +452,9 @@ impl MergeView {
             };
             let before = self.editor.caret;
             let result = if mutating {
-                self.model
-                    .edit(&mut self.editor, |editor, content| editor.event(content, &event, ctx))
+                self.model.edit(&mut self.editor, |editor, content| {
+                    editor.event(content, &event, ctx)
+                })
             } else {
                 self.editor.event(&mut self.model.output, &event, ctx)
             };
@@ -538,7 +541,10 @@ impl MergeView {
                 },
             );
         }
-        for x in [self.pane_rects[0].left() - 1.0, self.pane_rects[2].left() - 1.0] {
+        for x in [
+            self.pane_rects[0].left() - 1.0,
+            self.pane_rects[2].left() - 1.0,
+        ] {
             ui.painter().line_segment(
                 [egui::pos2(x, inputs.top()), egui::pos2(x, inputs.bottom())],
                 egui::Stroke::new(1.0, theme::LINE_STRONG),
@@ -555,7 +561,8 @@ impl MergeView {
         );
 
         // 整个视图一条纵向滚动条。
-        let bar = egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), status.right_top());
+        let bar =
+            egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), status.right_top());
         let last = (max_y / row_height).ceil() as usize;
         let mut top = (self.scroll.y / row_height).round() as usize;
         ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
@@ -638,8 +645,20 @@ impl MergeView {
                 "take",
                 self.model.state.in_conflict(self.current_row),
             ),
-            (Icon::Next, "Next Change", "Next Change Section", "nav", changes),
-            (Icon::Prev, "Prev Change", "Previous Change Section", "nav", changes),
+            (
+                Icon::Next,
+                "Next Change",
+                "Next Change Section",
+                "nav",
+                changes,
+            ),
+            (
+                Icon::Prev,
+                "Prev Change",
+                "Previous Change Section",
+                "nav",
+                changes,
+            ),
         ]
         .into_iter()
         .map(|(icon, label, action, group, enabled)| ToolItem {
@@ -669,11 +688,8 @@ impl MergeView {
             2 => (theme::MERGE_RIGHT_SOFT, theme::MERGE_RIGHT),
             _ => (theme::SURFACE, theme::TEXT_MUTED),
         };
-        let badge = painter.layout_no_wrap(
-            BADGES[pane].into(),
-            egui::FontId::proportional(9.5),
-            ink,
-        );
+        let badge =
+            painter.layout_no_wrap(BADGES[pane].into(), egui::FontId::proportional(9.5), ink);
         let chip = egui::Rect::from_min_size(
             rect.left_center() + egui::vec2(6.0, -8.0),
             egui::vec2(badge.size().x + 10.0, 16.0),
@@ -893,8 +909,12 @@ impl MergeView {
                     if (a.line..=b.line).contains(&line) {
                         let from = if line == a.line { a.byte } else { 0 };
                         let to = if line == b.line { b.byte } else { text.len() };
-                        let x1 = galley.pos_from_cursor(CCursor::new(char_for_byte(from))).left();
-                        let x2 = galley.pos_from_cursor(CCursor::new(char_for_byte(to))).left();
+                        let x1 = galley
+                            .pos_from_cursor(CCursor::new(char_for_byte(from)))
+                            .left();
+                        let x2 = galley
+                            .pos_from_cursor(CCursor::new(char_for_byte(to)))
+                            .left();
                         text_painter.rect_filled(
                             egui::Rect::from_min_max(
                                 origin + egui::vec2(x1, 0.0),
@@ -938,11 +958,12 @@ impl MergeView {
             }
             self.paint_gutter(&painter, line_rect, number, conflict, cell.row);
             // 弹出层盖在窗格上时，按下属于弹出层。
-            let covered = pointer
-                .is_some_and(|p| pressed && ui.ctx().layer_id_at(p).is_some_and(|l| l != ui.layer_id()));
-            if let Some(p) = pointer
-                .filter(|p| line_rect.contains(*p) && area.contains(*p) && !covered && ui.is_enabled())
-            {
+            let covered = pointer.is_some_and(|p| {
+                pressed && ui.ctx().layer_id_at(p).is_some_and(|l| l != ui.layer_id())
+            });
+            if let Some(p) = pointer.filter(|p| {
+                line_rect.contains(*p) && area.contains(*p) && !covered && ui.is_enabled()
+            }) {
                 if pressed {
                     self.active = pane;
                     self.current_row = cell.row;
@@ -1044,16 +1065,20 @@ impl MergeView {
             }
             Some(Prompt::Conflicts { then, path }) => {
                 let count = self.model.unresolved();
-                match Modal::new("merge-conflicts", Tone::Warning, "Save with unresolved conflicts?")
-                    .message(format!(
-                        "{count} conflict section(s) are still unresolved. The output will be \
+                match Modal::new(
+                    "merge-conflicts",
+                    Tone::Warning,
+                    "Save with unresolved conflicts?",
+                )
+                .message(format!(
+                    "{count} conflict section(s) are still unresolved. The output will be \
                          saved exactly as shown; no conflict markers are added."
-                    ))
-                    .items([output_item()])
-                    .action("Cancel", Role::Secondary)
-                    .action("Save Anyway", Role::Primary)
-                    .cancel(0)
-                    .show(ctx)
+                ))
+                .items([output_item()])
+                .action("Cancel", Role::Secondary)
+                .action("Save Anyway", Role::Primary)
+                .cancel(0)
+                .show(ctx)
                 {
                     Some(0) => {}
                     Some(1) => match path {
@@ -1071,22 +1096,21 @@ impl MergeView {
                 confirmed,
             }) => {
                 let (mut accept, mut cancel) = (false, false);
-                chrome::window::Window::new("Save merge output as")
-                    .show(ctx, |ui| {
-                        ui.label("Output file path");
-                        chrome::widgets::text_field_width(ui, &mut path, 420.0);
-                        match chrome::widgets::dialog_buttons(
-                            ui,
-                            &[
-                                ("Cancel", chrome::controls::Role::Secondary),
-                                ("Save", chrome::controls::Role::Primary),
-                            ],
-                        ) {
-                            Some(0) => cancel = true,
-                            Some(_) => accept = true,
-                            None => {}
-                        }
-                    });
+                chrome::window::Window::new("Save merge output as").show(ctx, |ui| {
+                    ui.label("Output file path");
+                    chrome::widgets::text_field_width(ui, &mut path, 420.0);
+                    match chrome::widgets::dialog_buttons(
+                        ui,
+                        &[
+                            ("Cancel", chrome::controls::Role::Secondary),
+                            ("Save", chrome::controls::Role::Primary),
+                        ],
+                    ) {
+                        Some(0) => cancel = true,
+                        Some(_) => accept = true,
+                        None => {}
+                    }
+                });
                 if accept && !path.trim().is_empty() {
                     self.save_as(path, then, confirmed);
                 } else if !cancel {

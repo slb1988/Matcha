@@ -5,7 +5,12 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 
 fn corpus(name: &str) -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference-parity/hex-compare/corpus/").to_owned() + name;
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/reference-parity/hex-compare/corpus/"
+    )
+    .to_owned()
+        + name;
     std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
 }
 
@@ -21,10 +26,15 @@ fn ready(v: &mut HexCompareView) {
 /// 跑一帧 egui（RawInput 注入），随后断言视图网格模型。
 fn frame(ctx: &egui::Context, v: &mut HexCompareView) {
     let input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
         ..Default::default()
     };
-    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui);
+    });
     out.textures_delta.clear();
 }
 
@@ -96,8 +106,18 @@ fn row_labels_track_first_real_byte_offsets() {
     assert_eq!(row.cells[0].kind, DiffKind::Changed);
     assert_ne!(row.cells[0].left, row.cells[0].right);
     // 删除段（左 0x5F0..0x610）行：左孤儿红、右占位。
-    let del_row = rows.iter().find(|r| r.cells.iter().any(|c| c.kind == DiffKind::LeftOnly)).unwrap();
-    assert!(del_row.cells.iter().filter(|c| c.kind == DiffKind::LeftOnly).count() > 0);
+    let del_row = rows
+        .iter()
+        .find(|r| r.cells.iter().any(|c| c.kind == DiffKind::LeftOnly))
+        .unwrap();
+    assert!(
+        del_row
+            .cells
+            .iter()
+            .filter(|c| c.kind == DiffKind::LeftOnly)
+            .count()
+            > 0
+    );
 }
 
 /// ASCII 列：不可打印字节显示为 `.`。
@@ -116,12 +136,20 @@ fn toolbar_filter_group_and_actions() {
     let mut v = HexCompareView::from_bytes(corpus("l2.bin"), corpus("r2.bin"));
     ready(&mut v);
     let items = v.toolbar_items();
-    let selected: Vec<&str> = items.iter().filter(|i| i.selected).map(|i| i.action_id.as_str()).collect();
+    let selected: Vec<&str> = items
+        .iter()
+        .filter(|i| i.selected)
+        .map(|i| i.action_id.as_str())
+        .collect();
     assert_eq!(selected, ["filter.all"]);
     frame(&ctx, &mut v); // 工具栏渲染
     v.toolbar_action("filter.diffs");
     let items = v.toolbar_items();
-    let selected: Vec<&str> = items.iter().filter(|i| i.selected).map(|i| i.action_id.as_str()).collect();
+    let selected: Vec<&str> = items
+        .iter()
+        .filter(|i| i.selected)
+        .map(|i| i.action_id.as_str())
+        .collect();
     assert_eq!(selected, ["filter.diffs"]);
 }
 
@@ -180,7 +208,10 @@ fn layout_fixed_width_packs_eight_per_line() {
     assert_eq!(rows.len(), 2053usize.div_ceil(8));
     assert_eq!(rows[0].cells.len(), 8);
     // 行标签规则不变：5 字节插入行相位依旧偏移。
-    let row = rows.iter().find(|r| r.cells.iter().any(|c| c.kind == DiffKind::RightOnly)).unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r.cells.iter().any(|c| c.kind == DiffKind::RightOnly))
+        .unwrap();
     assert_eq!(row.left_label, Some("00000120".to_owned()));
 }
 
@@ -188,7 +219,10 @@ fn layout_fixed_width_packs_eight_per_line() {
 
 fn key(ctx: &egui::Context, v: &mut HexCompareView, k: egui::Key, modifiers: egui::Modifiers) {
     let input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
         events: vec![egui::Event::Key {
             key: k,
             physical_key: None,
@@ -198,7 +232,9 @@ fn key(ctx: &egui::Context, v: &mut HexCompareView, k: egui::Key, modifiers: egu
         }],
         ..Default::default()
     };
-    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui);
+    });
     out.textures_delta.clear();
 }
 
@@ -433,7 +469,7 @@ fn differences_filter_packs_regions_with_context() {
     let rows = v.grid_rows_for_test(16);
     assert_eq!(rows[0].left_label, Some("000000F0".to_owned()));
     assert!(rows.len() < 260); // 远小于全量 260+ 行，中间大段相同被隐藏
-    // 每个差异字节都在模型中。
+                               // 每个差异字节都在模型中。
     let diff_cells = rows
         .iter()
         .flat_map(|r| &r.cells)
@@ -452,7 +488,10 @@ fn same_filter_shows_only_same_cells() {
     ready(&mut v);
     v.filter = bc_engine_bin::hex::DisplayFilter::Same;
     let rows = v.grid_rows_for_test(16);
-    assert!(rows.iter().flat_map(|r| &r.cells).all(|c| c.kind == DiffKind::Same));
+    assert!(rows
+        .iter()
+        .flat_map(|r| &r.cells)
+        .all(|c| c.kind == DiffKind::Same));
 }
 
 // ---- 任务 6.1：会话设置三页 ----
@@ -667,7 +706,10 @@ fn thumbnail_bins_compress_when_rows_exceed_resolution() {
 /// 缩略图几何：内框每行 1 px（超出列高压压缩），视口框反映可见占比。
 #[test]
 fn thumbnail_geometry_maps_rows_and_viewport() {
-    let column = egui::Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(render::THUMB_COL_W, 600.0));
+    let column = egui::Rect::from_min_size(
+        egui::pos2(0.0, 100.0),
+        egui::vec2(render::THUMB_COL_W, 600.0),
+    );
     // 行数少于列高：1 px/行。
     let g = render::thumbnail_geometry(column, 261, 0.0, 261.0 * 15.0, 600.0, None);
     assert_eq!(g.inner.height(), 261.0);
@@ -685,13 +727,19 @@ fn thumbnail_geometry_maps_rows_and_viewport() {
     assert!((g.viewport.height() - 600.0 / content_h * g.inner.height()).abs() < 1.0);
     let max_scroll = content_h - 600.0;
     let g = render::thumbnail_geometry(column, 500, max_scroll, content_h, 600.0, None);
-    assert!((g.viewport.bottom() - g.inner.bottom()).abs() < 1.0, "滚到底视口框贴底");
+    assert!(
+        (g.viewport.bottom() - g.inner.bottom()).abs() < 1.0,
+        "滚到底视口框贴底"
+    );
     // 可见占比极小时保持最小框高（大文件下不退化成横线），位置仍随滚动移动。
     let content_h = 5000.0 * 15.0;
     let g = render::thumbnail_geometry(column, 5000, 0.0, content_h, 600.0, None);
     assert_eq!(g.viewport.height(), render::THUMB_VIEW_MIN_H);
     let g = render::thumbnail_geometry(column, 5000, content_h - 600.0, content_h, 600.0, None);
-    assert!((g.viewport.bottom() - g.inner.bottom()).abs() < 1.0, "最小框高时滚到底仍贴底");
+    assert!(
+        (g.viewport.bottom() - g.inner.bottom()).abs() < 1.0,
+        "最小框高时滚到底仍贴底"
+    );
 }
 
 /// 缩略图与滚动条的点击/拖动 → 滚动偏移映射。
@@ -701,15 +749,24 @@ fn thumbnail_and_scrollbar_scroll_mapping() {
     // 缩略图：点顶部 = 0；点中部 = 视口中心对齐；点底部 = 到底。
     assert_eq!(render::thumbnail_scroll_at(0.0, content_h, view_h), 0.0);
     assert_eq!(render::thumbnail_scroll_at(0.5, content_h, view_h), 1700.0);
-    assert_eq!(render::thumbnail_scroll_at(1.0, content_h, view_h), content_h - view_h);
+    assert_eq!(
+        render::thumbnail_scroll_at(1.0, content_h, view_h),
+        content_h - view_h
+    );
     // 内容放得下时恒 0。
     assert_eq!(render::thumbnail_scroll_at(0.7, 500.0, 600.0), 0.0);
     // 滚动条：滑块比例高、定位往返一致。
     let track = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(16.0, 600.0));
-    assert!(render::scrollbar_thumb(track, 500.0, 600.0, 0.0).is_none(), "放得下不画滑块");
+    assert!(
+        render::scrollbar_thumb(track, 500.0, 600.0, 0.0).is_none(),
+        "放得下不画滑块"
+    );
     let thumb = render::scrollbar_thumb(track, content_h, view_h, 0.0).unwrap();
     assert_eq!(thumb.top(), track.top());
-    assert!((thumb.height() - 90.0).abs() < 1.0, "滑块高 = 可见占比 × 轨道高");
+    assert!(
+        (thumb.height() - 90.0).abs() < 1.0,
+        "滑块高 = 可见占比 × 轨道高"
+    );
     let max_scroll = content_h - view_h;
     let thumb = render::scrollbar_thumb(track, content_h, view_h, max_scroll).unwrap();
     assert!((thumb.bottom() - track.bottom()).abs() < 1.0);
@@ -717,7 +774,10 @@ fn thumbnail_and_scrollbar_scroll_mapping() {
     let thumb_h = thumb.height();
     let back = render::scrollbar_scroll_at(thumb.center().y, track, thumb_h, content_h, view_h);
     assert!((back - max_scroll).abs() < 1.0);
-    assert_eq!(render::scrollbar_scroll_at(track.top(), track, thumb_h, content_h, view_h), 0.0);
+    assert_eq!(
+        render::scrollbar_scroll_at(track.top(), track, thumb_h, content_h, view_h),
+        0.0
+    );
 }
 
 /// 状态栏加载时间格式对齐参考（`Load time: 0.05 seconds`）。
@@ -731,7 +791,10 @@ fn status_bar_load_time_in_seconds() {
     let mut v = HexCompareView::open(&lp, &rp).unwrap();
     ready(&mut v);
     let fields = v.status_fields();
-    let load = fields.iter().find(|f| f.text.starts_with("Load time: ")).expect("加载时间字段");
+    let load = fields
+        .iter()
+        .find(|f| f.text.starts_with("Load time: "))
+        .expect("加载时间字段");
     assert!(load.text.ends_with(" seconds"), "{}", load.text);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -739,16 +802,26 @@ fn status_bar_load_time_in_seconds() {
 /// 注入指针事件的帧（RawInput 回归：缩略图/滚动条拖动）。
 fn pointer_frame(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Event>) {
     let input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
         events,
         ..Default::default()
     };
-    let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui);
+    });
     out.textures_delta.clear();
 }
 
 fn primary(pos: egui::Pos2, pressed: bool) -> egui::Event {
-    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() }
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    }
 }
 
 /// 缩略图列：按下并拖动迷你图 → 视口中心跟随指针（“图形框拖动页面”）。
@@ -769,14 +842,22 @@ fn thumbnail_drag_scrolls_the_page() {
     let target = egui::pos2(start.x, geom.inner.top() + geom.inner.height() * 0.75);
     pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(target)]);
     let expect = render::thumbnail_scroll_at(0.75, layout.pane_h, layout.view_h);
-    assert!((v.scroll - expect).abs() < 2.0, "拖动后 scroll={} expect={expect}", v.scroll);
+    assert!(
+        (v.scroll - expect).abs() < 2.0,
+        "拖动后 scroll={} expect={expect}",
+        v.scroll
+    );
     assert!(v.visible_first_row > 0, "首可见行随滚动离开 0");
     pointer_frame(&ctx, &mut v, vec![primary(target, false)]);
     // 点击内框顶部 → 回到起点。
     let top = egui::pos2(start.x, geom.inner.top() + 1.0);
     pointer_frame(&ctx, &mut v, vec![primary(top, true)]);
     pointer_frame(&ctx, &mut v, vec![primary(top, false)]);
-    assert!(v.scroll.abs() < 2.0, "点击顶部回滚到 0，scroll={}", v.scroll);
+    assert!(
+        v.scroll.abs() < 2.0,
+        "点击顶部回滚到 0，scroll={}",
+        v.scroll
+    );
 }
 
 /// 每窗格右缘滚动条：点击轨道定位、拖动滑块跟随。
@@ -788,27 +869,52 @@ fn scrollbar_click_and_drag_scroll() {
     frame(&ctx, &mut v);
     let layout = v.last_layout;
     for (side, bar) in layout.bars.iter().enumerate() {
-        assert_eq!(bar.width(), render::SCROLLBAR_W, "滚动条宽 16（side={side}）");
+        assert_eq!(
+            bar.width(),
+            render::SCROLLBAR_W,
+            "滚动条宽 16（side={side}）"
+        );
     }
     let bar = layout.bars[1];
-    assert!(render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, 0.0).is_some(), "可滚动时有滑块");
+    assert!(
+        render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, 0.0).is_some(),
+        "可滚动时有滑块"
+    );
     // 点击轨道 60% 处 → 滑块中心对齐指针。
     let click = egui::pos2(bar.center().x, bar.top() + bar.height() * 0.6);
     pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(click)]);
     pointer_frame(&ctx, &mut v, vec![primary(click, true)]);
     pointer_frame(&ctx, &mut v, vec![primary(click, false)]);
     let thumb0 = render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, 0.0).unwrap();
-    let expect = render::scrollbar_scroll_at(click.y, bar, thumb0.height(), layout.pane_h, layout.view_h);
-    assert!((v.scroll - expect).abs() < 2.0, "点击定位 scroll={} expect={expect}", v.scroll);
+    let expect =
+        render::scrollbar_scroll_at(click.y, bar, thumb0.height(), layout.pane_h, layout.view_h);
+    assert!(
+        (v.scroll - expect).abs() < 2.0,
+        "点击定位 scroll={} expect={expect}",
+        v.scroll
+    );
     // 拖动滑块再下移 20% 轨道高。
     let thumb = render::scrollbar_thumb(bar, layout.pane_h, layout.view_h, v.scroll).unwrap();
     let grab = thumb.center();
     pointer_frame(&ctx, &mut v, vec![primary(grab, true)]);
     let drop_y = grab.y + bar.height() * 0.2;
-    pointer_frame(&ctx, &mut v, vec![egui::Event::PointerMoved(egui::pos2(grab.x, drop_y))]);
-    let expect2 = render::scrollbar_scroll_at(drop_y, bar, thumb.height(), layout.pane_h, layout.view_h);
-    assert!((v.scroll - expect2).abs() < 2.0, "拖动跟随 scroll={} expect={expect2}", v.scroll);
-    pointer_frame(&ctx, &mut v, vec![primary(egui::pos2(grab.x, drop_y), false)]);
+    pointer_frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(egui::pos2(grab.x, drop_y))],
+    );
+    let expect2 =
+        render::scrollbar_scroll_at(drop_y, bar, thumb.height(), layout.pane_h, layout.view_h);
+    assert!(
+        (v.scroll - expect2).abs() < 2.0,
+        "拖动跟随 scroll={} expect={expect2}",
+        v.scroll
+    );
+    pointer_frame(
+        &ctx,
+        &mut v,
+        vec![primary(egui::pos2(grab.x, drop_y), false)],
+    );
 }
 
 /// RawInput 注入用的拖放文件桩。
@@ -832,12 +938,17 @@ fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
     std::fs::write(&file, [9u8, 8, 7]).unwrap();
     let drop_at = |ctx: &egui::Context, v: &mut HexCompareView, pos: egui::Pos2| {
         let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
             events: vec![egui::Event::PointerMoved(pos)],
             dropped_files: vec![std::sync::Arc::new(DropPath(file.clone()))],
             ..Default::default()
         };
-        let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+        let mut out = ctx.run_ui(input, |ui| {
+            v.ui(ui);
+        });
         out.textures_delta.clear();
     };
     let ctx = egui::Context::default();
@@ -847,7 +958,10 @@ fn os_drop_replaces_side_under_pointer_and_keeps_dirty_edits() {
     v.active_side = 0;
     v.dirty[1] = true;
     drop_at(&ctx, &mut v, egui::pos2(1100.0, 500.0));
-    assert!(v.content(1).source().is_none(), "dirty right side must not be replaced");
+    assert!(
+        v.content(1).source().is_none(),
+        "dirty right side must not be replaced"
+    );
     v.dirty[1] = false;
     drop_at(&ctx, &mut v, egui::pos2(1100.0, 500.0));
     ready(&mut v);
@@ -868,9 +982,15 @@ fn os_drop_two_files_sets_left_and_right() {
     std::fs::write(&left, [1u8, 2, 3]).unwrap();
     std::fs::write(&right, [4u8, 5, 6]).unwrap();
     std::fs::write(&right2, [7u8, 8]).unwrap();
-    let drop_at = |ctx: &egui::Context, v: &mut HexCompareView, pos: egui::Pos2, paths: [&std::path::Path; 2]| {
+    let drop_at = |ctx: &egui::Context,
+                   v: &mut HexCompareView,
+                   pos: egui::Pos2,
+                   paths: [&std::path::Path; 2]| {
         let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
             events: vec![egui::Event::PointerMoved(pos)],
             dropped_files: vec![
                 std::sync::Arc::new(DropPath(paths[0].to_path_buf())),
@@ -878,7 +998,9 @@ fn os_drop_two_files_sets_left_and_right() {
             ],
             ..Default::default()
         };
-        let mut out = ctx.run_ui(input, |ui| { v.ui(ui); });
+        let mut out = ctx.run_ui(input, |ui| {
+            v.ui(ui);
+        });
         out.textures_delta.clear();
     };
     let ctx = egui::Context::default();
@@ -896,7 +1018,11 @@ fn os_drop_two_files_sets_left_and_right() {
     ready(&mut v);
     assert_eq!(v.content(0).source(), Some(left.as_path()));
     assert_eq!(v.content(1).source(), Some(right.as_path()));
-    assert!(v.message.contains("左"), "dirty side refusal message, got {}", v.message);
+    assert!(
+        v.message.contains("左"),
+        "dirty side refusal message, got {}",
+        v.message
+    );
     // 清除脏标记后再拖入：两侧一起更新。
     v.dirty[0] = false;
     drop_at(&ctx, &mut v, egui::pos2(300.0, 500.0), [&left, &right2]);
@@ -906,9 +1032,16 @@ fn os_drop_two_files_sets_left_and_right() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn frame_with(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Event>) -> egui::FullOutput {
+fn frame_with(
+    ctx: &egui::Context,
+    v: &mut HexCompareView,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
     let input = egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
         events,
         ..Default::default()
     };
@@ -918,7 +1051,12 @@ fn frame_with(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Eve
 }
 
 fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
-    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+    egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    }
 }
 
 /// 找到左侧地址栏编辑框：自上而下单击，首个让 egui 编辑框取得键盘焦点的 y。
@@ -933,9 +1071,17 @@ fn focus_left_path(ctx: &egui::Context, v: &mut HexCompareView) -> f32 {
             return y as f32;
         }
         // 点到别处（菜单等）后复位。
-        frame_with(ctx, v, vec![egui::Event::Key {
-            key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default(),
-        }]);
+        frame_with(
+            ctx,
+            v,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
     }
     panic!("path bar edit box not found");
 }
@@ -964,15 +1110,32 @@ fn path_bar_supports_mouse_selection_and_copy() {
     let y = focus_left_path(&ctx, &mut v);
     // 拖选：从路径框左端拖到中部。
     let (p0, p1) = (egui::pos2(14.0, y), egui::pos2(200.0, y));
-    frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(p0), pointer(p0, true)]);
-    frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(egui::pos2(100.0, y))]);
+    frame_with(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(p0), pointer(p0, true)],
+    );
+    frame_with(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(egui::pos2(100.0, y))],
+    );
     frame_with(&ctx, &mut v, vec![egui::Event::PointerMoved(p1)]);
     frame_with(&ctx, &mut v, vec![pointer(p1, false)]);
     let sel = path_selection(&ctx).expect("path edit focused");
-    assert!(sel.end > sel.start + 5, "drag should select text, got {sel:?}");
+    assert!(
+        sel.end > sel.start + 5,
+        "drag should select text, got {sel:?}"
+    );
     // Ctrl+A 全选路径；Ctrl+C 复制路径文本，不得改选十六进制字节或输出 hex dump。
     let ctrl = egui::Modifiers::COMMAND;
-    let key = |k| egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: ctrl };
+    let key = |k| egui::Event::Key {
+        key: k,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: ctrl,
+    };
     frame_with(&ctx, &mut v, vec![key(egui::Key::A)]);
     let out = frame_with(&ctx, &mut v, vec![key(egui::Key::C), egui::Event::Copy]);
     let copied: Vec<String> = out
@@ -1017,7 +1180,9 @@ fn over_under_panes_show_the_same_rows_and_follow_the_split() {
             .collect();
         texts.sort_by(|a, b| a.partial_cmp(b).unwrap());
         // First text and its offset below the pane's top edge.
-        texts.first().map(|t| (t.2.clone(), (t.0 - band.min).round()))
+        texts
+            .first()
+            .map(|t| (t.2.clone(), (t.0 - band.min).round()))
     };
     frame(&ctx, &mut v);
     let out = frame_with(&ctx, &mut v, vec![]);
@@ -1032,7 +1197,10 @@ fn over_under_panes_show_the_same_rows_and_follow_the_split() {
     let out = frame_with(&ctx, &mut v, vec![]);
     let bars = v.last_layout.bars;
     assert!((bars[0].height() - (even - 100.0)).abs() < 1.0, "{bars:?}");
-    assert_eq!(top_texts(&out, bars[0].y_range()), top_texts(&out, bars[1].y_range()));
+    assert_eq!(
+        top_texts(&out, bars[0].y_range()),
+        top_texts(&out, bars[1].y_range())
+    );
     super::HEX_SPLIT_Y.reset();
 }
 
@@ -1042,7 +1210,11 @@ fn lazy_layout_matches_engine_packing() {
     use bc_engine_bin::hex::{filtered_rows, pack_slice, DisplayFilter, HexCell};
     let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
     ready(&mut v);
-    for filter in [DisplayFilter::All, DisplayFilter::Differences, DisplayFilter::Same] {
+    for filter in [
+        DisplayFilter::All,
+        DisplayFilter::Differences,
+        DisplayFilter::Same,
+    ] {
         for per_line in [8u16, 16, 24] {
             v.filter = filter;
             let ours = v.grid_rows_for_test(per_line);
@@ -1050,7 +1222,11 @@ fn lazy_layout_matches_engine_packing() {
             let packed = pack_slice(&rows, per_line);
             assert_eq!(ours.len(), packed.len(), "{filter:?}/{per_line}");
             for (a, b) in ours.iter().zip(&packed) {
-                assert_eq!((a.left_off, a.right_off), (b.left_label, b.right_label), "{filter:?}/{per_line}");
+                assert_eq!(
+                    (a.left_off, a.right_off),
+                    (b.left_label, b.right_label),
+                    "{filter:?}/{per_line}"
+                );
                 assert_eq!(a.cells.len(), b.cells.len());
                 for (cell, packed_cell) in a.cells.iter().zip(&b.cells) {
                     let (kind, l, r) = match *packed_cell {
@@ -1078,18 +1254,29 @@ fn first_screen_shows_bytes_before_alignment_lands() {
     assert!(v.map.align.is_empty());
     let rows = v.grid_rows_for_test(16);
     assert_eq!(rows.len(), right.len().div_ceil(16));
-    assert!(rows.iter().flat_map(|r| &r.cells).all(|c| c.kind == DiffKind::Same), "对齐前不做差异着色");
+    assert!(
+        rows.iter()
+            .flat_map(|r| &r.cells)
+            .all(|c| c.kind == DiffKind::Same),
+        "对齐前不做差异着色"
+    );
     assert_eq!(rows[1].cells[0].left, Some(left[16]));
     assert_eq!(rows[1].cells[0].right, Some(right[16]));
     // 较短一侧尾部为占位格。
     let last = rows.last().unwrap();
     assert_eq!(last.left_off, None);
-    assert!(last.cells.iter().all(|c| c.left.is_none() && c.right.is_some()));
+    assert!(last
+        .cells
+        .iter()
+        .all(|c| c.left.is_none() && c.right.is_some()));
     assert!(v.thumb_bins_for_test(16, render::THUMB_BIN_MAX).is_empty());
     assert!(v.status_fields()[0].text.starts_with("Comparing"));
     ready(&mut v);
     let rows = v.grid_rows_for_test(16);
-    assert!(rows.iter().flat_map(|r| &r.cells).any(|c| c.kind == DiffKind::RightOnly));
+    assert!(rows
+        .iter()
+        .flat_map(|r| &r.cells)
+        .any(|c| c.kind == DiffKind::RightOnly));
     assert_eq!(v.stats().right_orphan, 5);
 }
 

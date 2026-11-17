@@ -17,9 +17,9 @@ use crate::chrome::toolbar::{self, ToolItem, ToolItemKind};
 use crate::chrome::{controls::Role, widgets, window::Window};
 
 use super::menu;
-use super::render::{self, GridLayout, GridStyle};
 #[cfg(test)]
 use super::render::GridRowModel;
+use super::render::{self, GridLayout, GridStyle};
 use super::worker::Worker;
 
 /// 视图上报给应用外壳的动作。
@@ -67,7 +67,7 @@ struct GridCache {
 #[derive(Debug)]
 struct EditRecord {
     at: usize,
-    removed: Vec<u8>,   // 编辑时被替换掉的原字节
+    removed: Vec<u8>,    // 编辑时被替换掉的原字节
     inserted_len: usize, // 编辑后新字节长度
 }
 
@@ -84,7 +84,12 @@ pub(crate) struct LastLayout {
 #[cfg(test)]
 impl Default for LastLayout {
     fn default() -> Self {
-        Self { thumb: None, bars: [egui::Rect::NOTHING; 2], pane_h: 0.0, view_h: 0.0 }
+        Self {
+            thumb: None,
+            bars: [egui::Rect::NOTHING; 2],
+            pane_h: 0.0,
+            view_h: 0.0,
+        }
     }
 }
 
@@ -151,7 +156,7 @@ pub struct HexCompareView {
     pub goto_side: usize,
     pub info_open: bool,
     /// 待滚动的纵向像素位置（导航目标滚入视野）。
-    pub pending_scroll: Option<usize>,  // 目标对齐行
+    pub pending_scroll: Option<usize>, // 目标对齐行
     /// 待写入系统剪贴板的文本（ui() 帧内 flush）。
     pub pending_copy_text: Option<String>,
     /// 上报动作（互切/Home/Close/Exit 等）。
@@ -364,7 +369,11 @@ impl HexCompareView {
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .unwrap_or_else(|| "<clipboard>".into())
         };
-        format!("{} <--> {} - Hex Compare", name(&self.map.left), name(&self.map.right))
+        format!(
+            "{} <--> {} - Hex Compare",
+            name(&self.map.left),
+            name(&self.map.right)
+        )
     }
 
     pub fn poll(&mut self) {
@@ -384,8 +393,11 @@ impl HexCompareView {
                         self.generation += 1;
                         self.cache = None;
                         if let Some(offset) = keep {
-                            self.pending_scroll =
-                                self.map.align.row_of_left(offset).or_else(|| self.map.align.row_of_right(offset));
+                            self.pending_scroll = self
+                                .map
+                                .align
+                                .row_of_left(offset)
+                                .or_else(|| self.map.align.row_of_right(offset));
                         }
                         // 状态栏常态显示四分类结论（参考工具：`Binary same`/`Binary differences`）。
                         self.message = self.summary.stats.summary().to_owned();
@@ -418,7 +430,8 @@ impl HexCompareView {
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
         let per_line = self.per_line(&style, pane_width);
         let revisions = (self.map.left.revision(), self.map.right.revision());
-        let (filter, context, generation) = (self.filter, self.map.rules.context_count, self.generation);
+        let (filter, context, generation) =
+            (self.filter, self.map.rules.context_count, self.generation);
         let stale = self.cache.as_ref().is_none_or(|c| {
             c.revisions != revisions
                 || c.per_line != per_line
@@ -429,7 +442,15 @@ impl HexCompareView {
         if stale {
             let layout = self.build_layout(per_line);
             let thumb_bins = layout.thumb_bins(&self.summary, render::THUMB_BIN_MAX);
-            self.cache = Some(GridCache { revisions, per_line, filter, context, generation, layout, thumb_bins });
+            self.cache = Some(GridCache {
+                revisions,
+                per_line,
+                filter,
+                context,
+                generation,
+                layout,
+                thumb_bins,
+            });
         }
         &self.cache.as_ref().unwrap().layout
     }
@@ -441,7 +462,11 @@ impl HexCompareView {
         if self.map.align.is_empty() && left.max(right) > 0 {
             return GridLayout::provisional(left, right, per_line);
         }
-        GridLayout::aligned(self.summary.regions(self.filter, self.map.rules.context_count), per_line)
+        GridLayout::aligned(
+            self.summary
+                .regions(self.filter, self.map.rules.context_count),
+            per_line,
+        )
     }
 
     /// 每行格数：Fit 开启时按宽度算；否则 bytes_per_group × groups_per_item。
@@ -449,7 +474,8 @@ impl HexCompareView {
         if self.fit_to_window {
             style.fit_per_line(pane_width)
         } else {
-            usize::from(self.map.rules.bytes_per_group.max(1)) * usize::from(self.groups_per_item.max(1))
+            usize::from(self.map.rules.bytes_per_group.max(1))
+                * usize::from(self.groups_per_item.max(1))
         }
     }
 
@@ -570,12 +596,20 @@ impl HexCompareView {
                 if self.content(side).source().is_some() {
                     self.save_side(side);
                 } else {
-                    self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                    self.file_dialog = Some(HexFileDialog {
+                        side,
+                        save_as: true,
+                        path: String::new(),
+                    });
                 }
             }
             Some("browse" | "history") => {
                 self.active_side = side;
-                self.file_dialog = Some(HexFileDialog { side, save_as: false, path: String::new() });
+                self.file_dialog = Some(HexFileDialog {
+                    side,
+                    save_as: false,
+                    path: String::new(),
+                });
             }
             _ => {}
         }
@@ -604,7 +638,11 @@ impl HexCompareView {
             }
             "Close Tab" => self.request_close(),
             "Open File..." => {
-                self.file_dialog = Some(HexFileDialog { side: self.active_side, save_as: false, path: String::new() });
+                self.file_dialog = Some(HexFileDialog {
+                    side: self.active_side,
+                    save_as: false,
+                    path: String::new(),
+                });
             }
             "Open Clipboard" => self.clipboard_side = Some(self.active_side),
             "Save File" => {
@@ -612,11 +650,19 @@ impl HexCompareView {
                 if self.content(side).source().is_some() {
                     self.save_side(side);
                 } else {
-                    self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                    self.file_dialog = Some(HexFileDialog {
+                        side,
+                        save_as: true,
+                        path: String::new(),
+                    });
                 }
             }
             "Save File As..." => {
-                self.file_dialog = Some(HexFileDialog { side: self.active_side, save_as: true, path: String::new() });
+                self.file_dialog = Some(HexFileDialog {
+                    side: self.active_side,
+                    save_as: true,
+                    path: String::new(),
+                });
             }
             "Undo" => {
                 let _ = self.undo(self.active_side);
@@ -626,12 +672,14 @@ impl HexCompareView {
             }
             "Cut" => {
                 if let Some(bytes) = self.cut(self.active_side) {
-                    self.pending_copy_text = Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                    self.pending_copy_text =
+                        Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
                 }
             }
             "Copy" => {
                 if let Some(bytes) = self.copy_selection(self.active_side) {
-                    self.pending_copy_text = Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
+                    self.pending_copy_text =
+                        Some(bytes.iter().map(|b| format!("{b:02X} ")).collect());
                 }
             }
             "Paste" => self.paste_pending = true,
@@ -665,15 +713,22 @@ impl HexCompareView {
         self.cache = None;
     }
 
-
     // ---- 任务 5.1：差异导航与定位（H23/H26） ----
 
     fn content(&self, side: usize) -> &HexContent {
-        if side == 0 { &self.map.left } else { &self.map.right }
+        if side == 0 {
+            &self.map.left
+        } else {
+            &self.map.right
+        }
     }
 
     fn content_mut(&mut self, side: usize) -> &mut HexContent {
-        if side == 0 { &mut self.map.left } else { &mut self.map.right }
+        if side == 0 {
+            &mut self.map.left
+        } else {
+            &mut self.map.right
+        }
     }
 
     /// 该侧字节偏移所在的对齐行。
@@ -688,7 +743,11 @@ impl HexCompareView {
     /// 与指定侧字节配对的对侧字节偏移（若配对存在）。
     fn paired_offset(&self, side: usize, offset: usize) -> Option<usize> {
         let row = self.map.align.row(self.align_row_of(side, offset)?)?;
-        if side == 0 { row.right } else { row.left }
+        if side == 0 {
+            row.right
+        } else {
+            row.left
+        }
     }
 
     /// 定位光标并跨侧同步到同一逻辑字节（spec：光标跨侧同步）。
@@ -727,7 +786,11 @@ impl HexCompareView {
                 self.pending_scroll = Some(row);
             }
             None => {
-                self.message = if forward { "最后一个差异之后".into() } else { "第一个差异之前".into() };
+                self.message = if forward {
+                    "最后一个差异之后".into()
+                } else {
+                    "第一个差异之前".into()
+                };
             }
         }
     }
@@ -768,7 +831,10 @@ impl HexCompareView {
             }
             (0..hex.len())
                 .step_by(2)
-                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| format!("无效 hex: {}&{}", &hex[i..i + 1], &hex[i + 1..i + 2])))
+                .map(|i| {
+                    u8::from_str_radix(&hex[i..i + 2], 16)
+                        .map_err(|_| format!("无效 hex: {}&{}", &hex[i..i + 1], &hex[i + 1..i + 2]))
+                })
                 .collect()
         } else if self.find_case {
             Ok(text.as_bytes().to_vec())
@@ -788,13 +854,17 @@ impl HexCompareView {
             if self.find_hex || self.find_case {
                 seg == needle
             } else {
-                seg.iter().zip(needle).all(|(a, b)| a.to_ascii_lowercase() == *b)
+                seg.iter()
+                    .zip(needle)
+                    .all(|(a, b)| a.to_ascii_lowercase() == *b)
             }
         };
         if forward {
             (from..=hay.len() - needle.len()).find(|&at| matches(at))
         } else {
-            (0..=from.min(hay.len() - needle.len())).rev().find(|&at| matches(at))
+            (0..=from.min(hay.len() - needle.len()))
+                .rev()
+                .find(|&at| matches(at))
         }
     }
 
@@ -809,7 +879,9 @@ impl HexCompareView {
         };
         let side = self.active_side;
         // 光标位于上次命中起点时从其邻位继续，否则从光标处（含）开始。
-        let at_hit = self.selection[side].as_ref().is_some_and(|r| r.start == self.cursor[side]);
+        let at_hit = self.selection[side]
+            .as_ref()
+            .is_some_and(|r| r.start == self.cursor[side]);
         let from = if at_hit {
             if forward {
                 self.cursor[side].saturating_add(1)
@@ -842,8 +914,16 @@ impl HexCompareView {
         let replacement = if self.replace_input.trim().is_empty() {
             Vec::new()
         } else if self.find_hex {
-            let hex: String = self.replace_input.chars().filter(|c| !c.is_whitespace()).collect();
-            match (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16)).collect::<Result<Vec<_>, _>>() {
+            let hex: String = self
+                .replace_input
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            match (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+                .collect::<Result<Vec<_>, _>>()
+            {
                 Ok(bytes) => bytes,
                 Err(_) => {
                     self.message = "替换内容不是有效 hex".into();
@@ -861,12 +941,26 @@ impl HexCompareView {
     // ---- 任务 5.3：字节编辑（H19–H22） ----
 
     /// 统一的编辑写入口：记录 Undo 逆操作、置脏、触发重对齐。
-    fn apply_edit(&mut self, side: usize, range: std::ops::Range<usize>, with: &[u8]) -> Result<(), String> {
-        let removed = self.content(side).bytes().get(range.clone()).unwrap_or(&[]).to_vec();
+    fn apply_edit(
+        &mut self,
+        side: usize,
+        range: std::ops::Range<usize>,
+        with: &[u8],
+    ) -> Result<(), String> {
+        let removed = self
+            .content(side)
+            .bytes()
+            .get(range.clone())
+            .unwrap_or(&[])
+            .to_vec();
         self.content_mut(side)
             .replace(range.clone(), with)
             .map_err(|e| e.to_string())?;
-        self.undo[side].push(EditRecord { at: range.start, removed, inserted_len: with.len() });
+        self.undo[side].push(EditRecord {
+            at: range.start,
+            removed,
+            inserted_len: with.len(),
+        });
         self.redo[side].clear();
         self.dirty[side] = true;
         self.selection[side] = None;
@@ -926,7 +1020,11 @@ impl HexCompareView {
         self.content_mut(side)
             .replace(rec.at..rec.at + rec.inserted_len, &reinsert)
             .map_err(|e| e.to_string())?;
-        self.redo[side].push(EditRecord { at: rec.at, removed: current, inserted_len: rec.removed.len() });
+        self.redo[side].push(EditRecord {
+            at: rec.at,
+            removed: current,
+            inserted_len: rec.removed.len(),
+        });
         self.dirty[side] = true;
         self.recompare();
         Ok(())
@@ -942,7 +1040,11 @@ impl HexCompareView {
         self.content_mut(side)
             .replace(rec.at..rec.at + rec.inserted_len, &redo_bytes)
             .map_err(|e| e.to_string())?;
-        self.undo[side].push(EditRecord { at: rec.at, removed: current, inserted_len: rec.removed.len() });
+        self.undo[side].push(EditRecord {
+            at: rec.at,
+            removed: current,
+            inserted_len: rec.removed.len(),
+        });
         self.dirty[side] = true;
         self.recompare();
         Ok(())
@@ -959,7 +1061,12 @@ impl HexCompareView {
         let (mut start, mut end) = (usize::MAX, 0usize);
         for offset in range.clone() {
             if let Some(row) = self.align_row_of(from, offset) {
-                if let Some(paired) = self.map.align.row(row).and_then(|r| if from == 0 { r.right } else { r.left }) {
+                if let Some(paired) =
+                    self.map
+                        .align
+                        .row(row)
+                        .and_then(|r| if from == 0 { r.right } else { r.left })
+                {
                     start = start.min(paired);
                     end = end.max(paired + 1);
                 }
@@ -1031,9 +1138,24 @@ impl HexCompareView {
             group: None,
         };
         vec![
-            toggle("All", "filter.all", Icon::All, self.filter == DisplayFilter::All),
-            toggle("Diffs", "filter.diffs", Icon::Diffs, self.filter == DisplayFilter::Differences),
-            toggle("Same", "filter.same", Icon::Same, self.filter == DisplayFilter::Same),
+            toggle(
+                "All",
+                "filter.all",
+                Icon::All,
+                self.filter == DisplayFilter::All,
+            ),
+            toggle(
+                "Diffs",
+                "filter.diffs",
+                Icon::Diffs,
+                self.filter == DisplayFilter::Differences,
+            ),
+            toggle(
+                "Same",
+                "filter.same",
+                Icon::Same,
+                self.filter == DisplayFilter::Same,
+            ),
             normal("Rules", "session.rules", Icon::Rules),
             normal("Format", "session.format", Icon::Format),
             normal("Copy", "edit.copy", Icon::Copy),
@@ -1094,7 +1216,11 @@ impl HexCompareView {
 
     /// File Info 头单行文本（时间戳与字节数）。
     pub fn file_info_label(&self, side: usize) -> String {
-        let content = if side == 0 { &self.map.left } else { &self.map.right };
+        let content = if side == 0 {
+            &self.map.left
+        } else {
+            &self.map.right
+        };
         let size = format!("{} bytes", content.len());
         let time = content
             .modified()
@@ -1112,11 +1238,26 @@ impl HexCompareView {
     /// 状态栏字段（结论 / Insert / Load time / 每侧光标地址）。
     pub fn status_fields(&self) -> Vec<StatusField> {
         let stats = self.stats();
-        let conclusion = if self.is_ready() { stats.summary() } else { "Comparing…" };
-        let headline = if self.message.is_empty() { conclusion.to_owned() } else { self.message.clone() };
+        let conclusion = if self.is_ready() {
+            stats.summary()
+        } else {
+            "Comparing…"
+        };
+        let headline = if self.message.is_empty() {
+            conclusion.to_owned()
+        } else {
+            self.message.clone()
+        };
         let mut fields = vec![
             StatusField::flexible(headline),
-            StatusField::fixed(if self.insert_mode { "Insert" } else { "Overwrite" }, 70.0),
+            StatusField::fixed(
+                if self.insert_mode {
+                    "Insert"
+                } else {
+                    "Overwrite"
+                },
+                70.0,
+            ),
         ];
         if let Some(ms) = self.map.left.load_millis().or(self.map.right.load_millis()) {
             fields.push(StatusField::fixed(
@@ -1132,7 +1273,11 @@ impl HexCompareView {
     /// 缩略图条标刻：差异行在全文件中的纵向位置（0.0–1.0）。
     pub fn thumbnail_marks(&self) -> Vec<f32> {
         let total = self.summary.rows.max(1) as f32;
-        self.summary.runs.iter().map(|run| run.rows.start as f32 / total).collect()
+        self.summary
+            .runs
+            .iter()
+            .map(|run| run.rows.start as f32 / total)
+            .collect()
     }
 
     // ---- 任务 4.3：布局对话框与显示开关 ----
@@ -1162,7 +1307,10 @@ impl HexCompareView {
                 ui.horizontal(|ui| {
                     ui.label("Context count:");
                     let mut v = self.map.rules.context_count as u32;
-                    if ui.add(egui::DragValue::new(&mut v).range(0..=1024)).changed() {
+                    if ui
+                        .add(egui::DragValue::new(&mut v).range(0..=1024))
+                        .changed()
+                    {
                         self.map.rules.context_count = v as usize;
                     }
                 });
@@ -1185,7 +1333,8 @@ impl HexCompareView {
     /// 测试口：按指定行宽与分辨率取缩略图 bins。
     #[cfg(test)]
     pub fn thumb_bins_for_test(&self, per_line: u16, resolution: usize) -> Vec<u32> {
-        self.build_layout(usize::from(per_line)).thumb_bins(&self.summary, resolution)
+        self.build_layout(usize::from(per_line))
+            .thumb_bins(&self.summary, resolution)
     }
 
     /// 键盘命令（模态打开时让位）。修饰键沿用 text 视图的 `command`（macOS Cmd / 其它 Ctrl）。
@@ -1195,7 +1344,9 @@ impl HexCompareView {
         let text_focus = ctx.egui_wants_keyboard_input();
         let events = ctx.input(|i| i.events.clone());
         for event in events {
-            if text_focus && !(matches!(event, egui::Event::Paste(_)) && self.clipboard_side.is_some()) {
+            if text_focus
+                && !(matches!(event, egui::Event::Paste(_)) && self.clipboard_side.is_some())
+            {
                 continue;
             }
             if let egui::Event::Paste(text) = &event {
@@ -1208,7 +1359,13 @@ impl HexCompareView {
                 }
                 continue;
             }
-            let egui::Event::Key { key, pressed: true, modifiers, .. } = &event else {
+            let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = &event
+            else {
                 continue;
             };
             let cmd = modifiers.command;
@@ -1268,10 +1425,16 @@ impl HexCompareView {
             ui.label("Find:");
             ui.add(widgets::field(&mut self.find_input).desired_width(220.0));
             ui.spacing_mut().item_spacing.x = 4.0;
-            if ui.add(widgets::Button::new("Hex").selected(self.find_hex)).clicked() {
+            if ui
+                .add(widgets::Button::new("Hex").selected(self.find_hex))
+                .clicked()
+            {
                 self.find_hex = true;
             }
-            if ui.add(widgets::Button::new("Text").selected(!self.find_hex)).clicked() {
+            if ui
+                .add(widgets::Button::new("Text").selected(!self.find_hex))
+                .clicked()
+            {
                 self.find_hex = false;
             }
             ui.spacing_mut().item_spacing.x = 8.0;
@@ -1325,7 +1488,10 @@ impl HexCompareView {
                     widgets::radio_value(ui, &mut self.goto_side, 0, "Left");
                     widgets::radio_value(ui, &mut self.goto_side, 1, "Right");
                 });
-                match widgets::dialog_buttons(ui, &[("Cancel", Role::Secondary), ("OK", Role::Primary)]) {
+                match widgets::dialog_buttons(
+                    ui,
+                    &[("Cancel", Role::Secondary), ("OK", Role::Primary)],
+                ) {
                     Some(0) => self.goto_open = false,
                     Some(1) => self.goto_apply(),
                     _ => {}
@@ -1386,7 +1552,11 @@ impl HexCompareView {
                                 self.save_side(side);
                             } else {
                                 // 无来源侧先另存；完成后再关。
-                                self.file_dialog = Some(HexFileDialog { side, save_as: true, path: String::new() });
+                                self.file_dialog = Some(HexFileDialog {
+                                    side,
+                                    save_as: true,
+                                    path: String::new(),
+                                });
                             }
                         }
                     }
@@ -1459,7 +1629,8 @@ impl HexCompareView {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<HexAction> {
         self.poll();
         if self.worker.is_some() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
         }
         // 菜单栏（BC 会话菜单结构；命令分派见 command()）。
         if let Some(id) = menubar::show(ui, &menu::menus(self)) {
@@ -1477,7 +1648,8 @@ impl HexCompareView {
         }
         if self.paste_pending {
             self.paste_pending = false;
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         }
         if let Some(text) = self.pending_copy_text.take() {
             ui.ctx().copy_text(text);
@@ -1490,31 +1662,47 @@ impl HexCompareView {
         }
         // 地址栏（每侧路径；对齐 text 视图 header）。
         self.sync_path_edits();
-        let history: Vec<String> = self.recent.iter().map(|p| p.display().to_string()).collect();
+        let history: Vec<String> = self
+            .recent
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
         // 地址栏矩形：拖放落点判定的目标之一（over-under 时两条地址栏都叠在上窗格之上）。
         let mut header_rects = [egui::Rect::NOTHING; 2];
         let mut header = |this: &mut Self, ui: &mut egui::Ui, side: usize| {
             let top = ui.cursor().min;
             // 每侧独立 id 作用域：columns 子 ui 的 id 相同，不隔开会让两条编辑框 id 冲突，
             // 命中测试失效（点击/拖选都进不了编辑框）。
-            ui.push_id(("hex-path", side), |ui| this.path_header(ui, side, &history));
+            ui.push_id(("hex-path", side), |ui| {
+                this.path_header(ui, side, &history)
+            });
             header_rects[side] =
                 egui::Rect::from_min_max(top, egui::pos2(ui.max_rect().right(), ui.cursor().top()));
         };
         if self.side_by_side {
             // 两条地址栏跟随窗格分隔线：左栏 = 缩略图列 + 左窗格 + 其滚动条。
             let full = ui.available_rect_before_wrap();
-            let thumb_w = if self.show_thumbnail { render::THUMB_COL_W } else { 0.0 };
+            let thumb_w = if self.show_thumbnail {
+                render::THUMB_COL_W
+            } else {
+                0.0
+            };
             let sb = render::SCROLLBAR_W;
             let panes_w = (full.width() - thumb_w - 2.0 * sb).max(80.0);
             let split_x = full.left() + thumb_w + HEX_SPLIT_X.first(panes_w) + sb;
             let row_top = ui.cursor().min.y;
             let mut bottom = row_top;
             for side in 0..2 {
-                let (left, right) = if side == 0 { (full.left(), split_x) } else { (split_x, full.right()) };
+                let (left, right) = if side == 0 {
+                    (full.left(), split_x)
+                } else {
+                    (split_x, full.right())
+                };
                 let rect = egui::Rect::from_x_y_ranges(left..=right, row_top..=full.bottom());
                 let mut column = ui.new_child(
-                    egui::UiBuilder::new().max_rect(rect).id_salt(("hex-path-column", side)),
+                    egui::UiBuilder::new()
+                        .max_rect(rect)
+                        .id_salt(("hex-path-column", side)),
                 );
                 header(self, &mut column, side);
                 bottom = bottom.max(column.min_rect().bottom());
@@ -1530,7 +1718,11 @@ impl HexCompareView {
         }
         self.find_bar(ui);
         // 布局：最左缩略图列（52 px，自地址栏下缘起，对齐参考工具）+ 每窗格右缘滚动条（16 px）。
-        let thumb_w = if self.show_thumbnail { render::THUMB_COL_W } else { 0.0 };
+        let thumb_w = if self.show_thumbnail {
+            render::THUMB_COL_W
+        } else {
+            0.0
+        };
         let region_top = ui.available_rect_before_wrap().top();
         if self.show_file_info {
             ui.horizontal(|ui| {
@@ -1546,7 +1738,10 @@ impl HexCompareView {
         let available = ui.available_rect_before_wrap();
         let body = egui::Rect::from_min_max(
             available.min,
-            egui::pos2(available.right(), (available.bottom() - 26.0).max(available.top() + 60.0)),
+            egui::pos2(
+                available.right(),
+                (available.bottom() - 26.0).max(available.top() + 60.0),
+            ),
         );
         let content = egui::Rect::from_min_max(body.min + egui::vec2(thumb_w, 0.0), body.max);
         let sb = render::SCROLLBAR_W;
@@ -1557,32 +1752,42 @@ impl HexCompareView {
             let w0 = HEX_SPLIT_X.first(panes_w);
             let w1 = panes_w - w0;
             let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w0, content.height()));
-            let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, content.height()));
-            let pane1 = egui::Rect::from_min_size(bar0.right_top(), egui::vec2(w1, content.height()));
-            let bar1 = egui::Rect::from_min_size(pane1.right_top(), egui::vec2(sb, content.height()));
+            let bar0 =
+                egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, content.height()));
+            let pane1 =
+                egui::Rect::from_min_size(bar0.right_top(), egui::vec2(w1, content.height()));
+            let bar1 =
+                egui::Rect::from_min_size(pane1.right_top(), egui::vec2(sb, content.height()));
             ([pane0, pane1], [bar0, bar1])
         } else {
             let h = HEX_SPLIT_Y.first(content.height());
             let w = (content.width() - sb).max(40.0);
             let pane0 = egui::Rect::from_min_size(content.min, egui::vec2(w, h));
             let bar0 = egui::Rect::from_min_size(pane0.right_top(), egui::vec2(sb, h));
-            let pane1 = egui::Rect::from_min_max(pane0.left_bottom(), content.max - egui::vec2(sb, 0.0));
+            let pane1 =
+                egui::Rect::from_min_max(pane0.left_bottom(), content.max - egui::vec2(sb, 0.0));
             let bar1 = egui::Rect::from_min_max(pane1.right_top(), content.max);
             ([pane0, pane1], [bar0, bar1])
         };
         let style = GridStyle::new(ui, self.map.rules.bytes_per_group);
         // 两侧每行字节数相同（行对齐）：取较窄窗格可容纳的数目。
-        let row_count = self.grid_layout(panes[0].width().min(panes[1].width()), ui).len();
+        let row_count = self
+            .grid_layout(panes[0].width().min(panes[1].width()), ui)
+            .len();
         // 待滚动目标换算为像素（需在取出 cache 前完成借用）。
         let pending_row = self.pending_scroll.take();
-        if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height)) {
+        if let Some(y) = pending_row.and_then(|row| self.grid_y_of_align_row(row, style.row_height))
+        {
             self.scroll = y;
         }
         // 缩略图当前位置指针：活动侧光标所在网格行的内容比例（需在取出 cache 前换算）。
         let cursor_frac = self
             .cache
             .as_ref()
-            .and_then(|c| c.layout.row_of_offset(&self.map, self.active_side, self.cursor[self.active_side]))
+            .and_then(|c| {
+                c.layout
+                    .row_of_offset(&self.map, self.active_side, self.cursor[self.active_side])
+            })
             .map(|row| row as f32 / (row_count as f32).max(1.0));
         let cache = self.cache.take().unwrap();
         let pane_h = row_count as f32 * style.row_height;
@@ -1600,9 +1805,23 @@ impl HexCompareView {
 
         // 缩略图列：点击/拖动迷你图定位页面（“图形框拖动页面”）。
         let thumb_geom = if self.show_thumbnail {
-            let column = egui::Rect::from_min_max(region.min, egui::pos2(region.left() + thumb_w, region.bottom()));
-            let geom = render::thumbnail_geometry(column, row_count, self.scroll, pane_h, view_h, cursor_frac);
-            let r = overlay.interact(geom.hit, overlay.scope_id().with("thumbnail"), egui::Sense::click_and_drag());
+            let column = egui::Rect::from_min_max(
+                region.min,
+                egui::pos2(region.left() + thumb_w, region.bottom()),
+            );
+            let geom = render::thumbnail_geometry(
+                column,
+                row_count,
+                self.scroll,
+                pane_h,
+                view_h,
+                cursor_frac,
+            );
+            let r = overlay.interact(
+                geom.hit,
+                overlay.scope_id().with("thumbnail"),
+                egui::Sense::click_and_drag(),
+            );
             if (r.clicked() || r.dragged()) && max_scroll > 0.0 {
                 if let Some(pos) = r.interact_pointer_pos() {
                     let f = ((pos.y - geom.inner.top()) / geom.inner.height()).clamp(0.0, 1.0);
@@ -1635,14 +1854,22 @@ impl HexCompareView {
         // 双窗格绘制（各自裁剪到窗格，互不越界）。
         let top = content.min - egui::vec2(0.0, self.scroll);
         let origins = if self.side_by_side {
-            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y)]
+            [
+                egui::pos2(panes[0].left(), top.y),
+                egui::pos2(panes[1].left(), top.y),
+            ]
         } else {
             // 上下布局：两窗格显示同一段行，下窗格原点随其顶边下移。
-            [egui::pos2(panes[0].left(), top.y), egui::pos2(panes[1].left(), top.y + panes[1].top() - panes[0].top())]
+            [
+                egui::pos2(panes[0].left(), top.y),
+                egui::pos2(panes[1].left(), top.y + panes[1].top() - panes[0].top()),
+            ]
         };
         for side in 0..2 {
             let mut pane_ui = ui.new_child(
-                egui::UiBuilder::new().max_rect(body).id_salt(("hex-pane", side)),
+                egui::UiBuilder::new()
+                    .max_rect(body)
+                    .id_salt(("hex-pane", side)),
             );
             pane_ui.set_clip_rect(panes[side].intersect(ui.clip_rect()));
             let first = render::paint_pane(
@@ -1661,7 +1888,13 @@ impl HexCompareView {
         }
         // 缩略图列与滚动条落笔（hover/drag 时滑块加深）。
         if let Some(geom) = thumb_geom {
-            render::paint_thumbnail(overlay.painter(), &geom, &cache.thumb_bins, cache.per_line, dark);
+            render::paint_thumbnail(
+                overlay.painter(),
+                &geom,
+                &cache.thumb_bins,
+                cache.per_line,
+                dark,
+            );
         }
         for side in 0..2 {
             let thumb = render::scrollbar_thumb(bars[side], pane_h, view_h, self.scroll);
@@ -1670,7 +1903,12 @@ impl HexCompareView {
         }
         #[cfg(test)]
         {
-            self.last_layout = LastLayout { thumb: thumb_geom, bars, pane_h, view_h };
+            self.last_layout = LastLayout {
+                thumb: thumb_geom,
+                bars,
+                pane_h,
+                view_h,
+            };
         }
         self.cache = Some(cache);
         // 系统文件拖放：单文件按落点（窗格/滚动条/地址栏）替换对应一侧；同时拖入
@@ -1680,7 +1918,8 @@ impl HexCompareView {
             if dropped.len() >= 2 {
                 self.drop_pair(&dropped[0], &dropped[1]);
             } else {
-                let targets = (0..2).flat_map(|s| [(s, panes[s]), (s, bars[s]), (s, header_rects[s])]);
+                let targets =
+                    (0..2).flat_map(|s| [(s, panes[s]), (s, bars[s]), (s, header_rects[s])]);
                 let side = crate::chrome::drop::side_at(
                     crate::chrome::drop::drop_pos(ui.ctx()),
                     targets,

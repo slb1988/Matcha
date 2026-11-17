@@ -19,7 +19,10 @@ pub(crate) fn insert(base: &[String], after: usize, lines: &[&str]) -> Vec<Strin
     out
 }
 pub(crate) fn bytes(lines: &[String]) -> Vec<u8> {
-    lines.iter().flat_map(|l| format!("{l}\n").into_bytes()).collect()
+    lines
+        .iter()
+        .flat_map(|l| format!("{l}\n").into_bytes())
+        .collect()
 }
 pub(crate) fn model_of(left: Vec<u8>, right: Vec<u8>, center: Vec<u8>) -> MergeModel {
     let content = |b: Vec<u8>| TextContent::from_bytes(b, None).unwrap();
@@ -73,7 +76,10 @@ fn opens_with_the_default_merge_and_origins() {
     let right = insert(&b, 10, &["r new 1", "r new 2"]);
     let m = model(&left, &right, &b);
     check(&m);
-    assert_eq!(text(&m), joined(&insert(&left, 10, &["r new 1", "r new 2"])));
+    assert_eq!(
+        text(&m),
+        joined(&insert(&left, 10, &["r new 1", "r new 2"]))
+    );
     assert_eq!(m.out_line(4).unwrap().origin, OutOrigin::Left);
     assert_eq!(m.out_line(10).unwrap().origin, OutOrigin::Right);
     assert_eq!(m.out_line(0).unwrap().origin, OutOrigin::Center);
@@ -184,12 +190,44 @@ fn inserted_and_joined_lines_keep_the_grid_consistent() {
     // 行尾回车：新行附着在第 3 个对齐行上，输入窗格在那里多一个空隙行。
     type_at(&mut m, &mut editor, 2, 6, "\nextra");
     assert_eq!(m.output.lines.borrow().len(), 9);
-    assert_eq!(m.out_line(2).unwrap(), OutLine { origin: OutOrigin::Center, row: 2 });
-    assert_eq!(m.out_line(3).unwrap(), OutLine { origin: OutOrigin::Manual, row: 2 });
-    assert_eq!(m.out_line(4).unwrap(), OutLine { origin: OutOrigin::Center, row: 3 });
+    assert_eq!(
+        m.out_line(2).unwrap(),
+        OutLine {
+            origin: OutOrigin::Center,
+            row: 2
+        }
+    );
+    assert_eq!(
+        m.out_line(3).unwrap(),
+        OutLine {
+            origin: OutOrigin::Manual,
+            row: 2
+        }
+    );
+    assert_eq!(
+        m.out_line(4).unwrap(),
+        OutLine {
+            origin: OutOrigin::Center,
+            row: 3
+        }
+    );
     assert_eq!(m.grid().len(), 9);
-    assert_eq!(m.grid()[2], GridRow { row: 2, own: true, out: Some(2) });
-    assert_eq!(m.grid()[3], GridRow { row: 2, own: false, out: Some(3) });
+    assert_eq!(
+        m.grid()[2],
+        GridRow {
+            row: 2,
+            own: true,
+            out: Some(2)
+        }
+    );
+    assert_eq!(
+        m.grid()[3],
+        GridRow {
+            row: 2,
+            own: false,
+            out: Some(3)
+        }
+    );
     // 在行首插入一行：新行挂在上一行所属的对齐行后面，输入窗格在那里是空隙。
     type_at(&mut m, &mut editor, 6, 0, "above\n");
     let at = m.grid_row_of_out(6);
@@ -199,8 +237,22 @@ fn inserted_and_joined_lines_keep_the_grid_consistent() {
     assert!(m.undo(&mut editor));
     // 插在文件最前面：没有上一行可挂，输入窗格仍与原来的第一行对齐。
     type_at(&mut m, &mut editor, 0, 0, "top\n");
-    assert_eq!(m.grid()[0], GridRow { row: 0, own: false, out: Some(0) });
-    assert_eq!(m.grid()[1], GridRow { row: 0, own: true, out: Some(1) });
+    assert_eq!(
+        m.grid()[0],
+        GridRow {
+            row: 0,
+            own: false,
+            out: Some(0)
+        }
+    );
+    assert_eq!(
+        m.grid()[1],
+        GridRow {
+            row: 0,
+            own: true,
+            out: Some(1)
+        }
+    );
     assert!(m.undo(&mut editor));
     // 行首退格：与上一行合并。
     editor.place(Caret { line: 6, byte: 0 }, false);
@@ -268,7 +320,11 @@ fn save_writes_the_buffer_and_tracks_the_result_code() {
     let rows = m.section_at(4).unwrap();
     m.take(rows, Side::Right, &mut editor);
     assert!(m.is_dirty());
-    assert_eq!(m.result_code(), 14, "the file on disk still has the conflict");
+    assert_eq!(
+        m.result_code(),
+        14,
+        "the file on disk still has the conflict"
+    );
     m.save(&target).unwrap();
     assert_eq!(m.result_code(), 0);
     assert_eq!(std::fs::read(&target).unwrap(), bytes(&right));
@@ -283,12 +339,21 @@ fn save_writes_the_buffer_and_tracks_the_result_code() {
     // 打不开的输入。
     let mut bad = launch.clone();
     bad.spec.left = dir.join("missing.txt");
-    assert!(MergeModel::load(&bad).err().unwrap().contains("does not exist"));
+    assert!(MergeModel::load(&bad)
+        .err()
+        .unwrap()
+        .contains("does not exist"));
     bad.spec.left = dir.clone();
-    assert!(MergeModel::load(&bad).err().unwrap().contains("is a folder"));
+    assert!(MergeModel::load(&bad)
+        .err()
+        .unwrap()
+        .contains("is a folder"));
     std::fs::write(dir.join("b.bin"), [0u8, 1, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0]).unwrap();
     bad.spec.left = dir.join("b.bin");
-    assert!(MergeModel::load(&bad).err().unwrap().contains("not a text file"));
+    assert!(MergeModel::load(&bad)
+        .err()
+        .unwrap()
+        .contains("not a text file"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
