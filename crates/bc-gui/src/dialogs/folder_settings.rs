@@ -194,8 +194,8 @@ impl FolderSettings {
                 widgets::hint(
                     ui,
                     "Examples: timestamp:2sec;IgnoreDST size / CRC / binary / rules-based / \
-                     skip-quick-same. Rules-based uses the default text rules; add \
-                     comments-unimportant to ignore comment edits.",
+                     skip-quick-same. Rules-based uses the default text rules (comment \
+                     edits are unimportant); add comments-important to count them.",
                 );
                 ui.add_space(8.0);
                 widgets::section(ui, "Alignment");

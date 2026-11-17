@@ -4,6 +4,12 @@
 
 ## 2026-11-17
 
+- **注释默认不重要，差异按行着色**（`docs/features/text-compare.md`）：与参考默认一致，
+  比较规则默认把注释（Comment）的差异视为不重要——GUI、CLI/脚本与文件夹规则比较共用；
+  只改注释的文件在文件夹规则比较中为“相似”而非“不同”。文件夹规则比较新增 `comments-important`
+  开关改回旧行为（`comments-unimportant` 仍可解析，等同默认）；文本比较可在 Session Settings > Importance 勾回。
+  差异区块改为按行着色：只有注释改动的行淡紫底蓝字，代码改动行粉底红字（此前整块按最高重要性着色）。
+
 - **文本比较：不可覆盖的箭头变灰、显示只读标记、语法风格按语言抽象**（`docs/features/text-compare.md`）：
   目标侧只读（文件带只读属性，如 Perforce 未 checkout 的文件）时，指向该侧的复制箭头改为灰色，
   该侧信息栏显示可点击的 **Read-only**（打开 File properties 取消只读）；此前箭头仍为黄色、点击无反应难以理解。

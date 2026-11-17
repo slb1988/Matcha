@@ -46,9 +46,11 @@ pub struct ElementImportance {
 }
 
 impl Default for ElementImportance {
+    /// 与参考默认一致：注释的差异不重要（参考对 C/C++ 等格式默认把注释标为不重要，
+    /// 界面上显示为淡紫底蓝字）；其余元素重要。
     fn default() -> Self {
         Self {
-            unimportant: Vec::new(),
+            unimportant: vec![ElementKind::Comment],
             leading_whitespace_unimportant: false,
             embedded_whitespace_unimportant: false,
             trailing_whitespace_unimportant: false,

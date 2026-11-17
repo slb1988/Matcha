@@ -15,8 +15,8 @@
   差异行是否保留），`SyntaxStyle::base()` 为对齐参考的基础风格——正文纯黑、注释灰、预处理指令栗色、
   字符串深绿、**关键字黑色粗体**（Consolas Bold，与常规体等宽，列位置不变；未安装时退回常规体）、环境变量紫色；
   按语言的覆盖写在 `LANGUAGE_OVERRIDES`（按格式名，如 HTML 标签用深蓝常规体），新增语言只加一行。
-  单侧行（只有本侧有内容的差异行）整行用差异色着墨，但 `keep_on_diff` 的元素（注释）保留自身风格，
-  一眼可辨"这是注释"。
+  单侧行（只有本侧有内容的差异行）整行用差异色着墨：不重要元素（默认注释）用不重要差异色，
+  `keep_on_diff` 的元素（注释）在被设为重要时保留自身风格，一眼可辨"这是注释"。
   全局字形 gamma（`theme::TEXT_GAMMA` = 0.7）加重笔画，使 egui 灰度抗锯齿的文字接近参考 GDI 渲染的粗细。
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - 鼠标点窗格任意位置（包括只有对侧有内容的空隙行）都会把焦点和活动侧切到该窗格；
@@ -43,7 +43,12 @@
 ## 关键语义
 
 - **重要性三态**：`Same / Unimportant / Important`；块级传播规则见 spec §6 与
-  `docs/decisions/003-smart-scoring.md`。
+  `docs/decisions/003-smart-scoring.md`。**默认注释不重要**（与参考默认一致；`ElementImportance::default()`
+  的 `unimportant = [Comment]`，GUI、CLI/脚本、文件夹规则比较共用）：只改了注释的行/文件是"不重要差异"。
+  可在 Session Settings > Importance 把 Comment 勾回重要；文件夹规则比较用 `comments-important` 开关。
+- **差异着色按行**：区块内每行按自身重要性着色（不重要行淡紫底、重要行粉底），与参考一致；
+  行本身无分级时退回区块重要性。单侧差异行里，不重要元素（默认注释）的文字用不重要差异色（蓝），
+  其余用重要差异色（红）。
 - Live `TextContent` 只在 UI 线程；后台 worker 只拿 `snapshot()`（Send/Sync），
   过期修订号的结果直接丢弃。
 - diff 显示经过 Myers  packing 与词吸附：见 ADR 005、006。

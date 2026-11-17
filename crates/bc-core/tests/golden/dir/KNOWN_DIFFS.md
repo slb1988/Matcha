@@ -10,9 +10,10 @@ rules-comments 的 example.cpp ↔ example.cpp 得到 Different，与原生 XML 
 knownDiff="rules-unavailable" 注记；为不改动带 provenance 的生成器与语料字节，没有重写它，
 测试也不再据此放行任何行。
 
-两份输入只有行注释文字不同；保留本机参考工具实际报告的 diff。默认文本规则下注释是重要的；
-`criteria rules-based comments-unimportant` 时同一对为“相似”，开启 ignore-unimportant 视为相同
-（引擎单测覆盖）。原生 XML 状态不区分重要/不重要差异，因此这一点没有原生 oracle。
+两份输入只有行注释文字不同；保留本机参考工具实际报告的 diff。默认文本规则下注释不重要
+（2026-11-17 起，与参考文本比较界面的默认一致），同一对为“相似”，开启 ignore-unimportant 视为相同；
+`criteria rules-based comments-important` 时为 Different（引擎单测覆盖）。原生 XML 状态不区分
+重要/不重要差异（“相似”同样报告为 diff），因此这一点没有原生 oracle。
 
 ## 采集限制（不是候选状态不一致，不计入上述 1 条）
 

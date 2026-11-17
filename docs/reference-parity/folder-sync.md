@@ -95,7 +95,7 @@ Scope/确认、日志、进度和取消共用 Wave B，不存在另一个绕过�
 | Comparison：size / timestamps / tolerance / DST / timezone | 已实现 | 共享 Criteria，详见比较清单与 golden 采集限制 |
 | Filename case / attributes / different extension / NFC | 已实现 | 共享配对/快速准则 |
 | CRC / binary / skip quick same / version / override | 已实现 | 共享内容 job，不把跳过当作已读相等 |
-| Rules-based | 已实现 | 共享内容 job；默认文本规则，可选 comments-unimportant |
+| Rules-based | 已实现 | 共享内容 job；默认文本规则（注释不重要），可选 comments-important |
 | Include/Exclude files/folders | 已实现 | 四组 NameFilter |
 | Other filters：date/size/text/attributes/protected | 已实现 | 共用 OtherFilters |
 | Alignment overrides | 已实现 | 共享规则与手动对齐 |

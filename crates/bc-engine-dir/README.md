@@ -36,7 +36,8 @@ sync is described below.
 compare), bc-engine-bin (safe PE resource reader). No GUI or async runtime.
 No bc-core or bc-jobs changes were needed. Content jobs use CancelCheck and Crc32.
 RulesBased reads both files and runs bc-engine-text's Align2Job with `Criteria::rules`
-(default text rules; `comments-unimportant` script switch), the format resolved from each file
+(default text rules, where comments are unimportant; `comments-important` script switch
+restores them, `comments-unimportant` is accepted as the explicit default), the format resolved from each file
 name: Same / SimilarUnimportant / Different, cancellable; binary input falls back to bytes.
 
 ContentResult carries NodeId + revision, content status, bytes_read and version result;

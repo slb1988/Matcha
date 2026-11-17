@@ -85,24 +85,41 @@ fn rules_based_uses_the_text_engine_default_rules() {
         job(l, r, ContentCompare::RulesBased)
     };
     let rules = |task: ContentCompareJob| task.compare(&|| false).unwrap();
-    // Default text rules keep comments important (the native golden reports "diff").
+    // Default text rules make comments unimportant (reference default): a comment-only
+    // edit is "similar" (the native XML reports both as "diff").
     let comment = pair(
         "example.cpp",
         b"int value = 1; // left comment\n",
         b"int value = 1; // right comment\n",
     );
     let result = rules(comment);
-    assert_eq!(result.status, CompareStatus::Different);
+    assert_eq!(result.status, CompareStatus::SimilarUnimportant);
     assert_eq!(result.bytes_read, [31, 32]);
-    // Spec scenario: with comments unimportant the same pair is only "similar", and
-    // Ignore Unimportant then treats it as the same.
+    // `comments-important` restores comments as important differences.
     let mut comment = pair(
         "example.cpp",
         b"int value = 1; // left comment\n",
         b"int value = 1; // right comment\n",
     );
-    comment.criteria = Criteria::parse_script("rules-based comments-unimportant").unwrap();
-    assert_eq!(rules(comment).status, CompareStatus::SimilarUnimportant);
+    comment.criteria = Criteria::parse_script("rules-based comments-important").unwrap();
+    assert_eq!(rules(comment).status, CompareStatus::Different);
+    let script = Criteria::parse_script("rules-based comments-important")
+        .unwrap()
+        .to_script();
+    assert!(script.contains("comments-important"), "{script}");
+    assert_eq!(
+        Criteria::parse_script(&script).unwrap().rules,
+        Criteria::parse_script("rules-based comments-important").unwrap().rules
+    );
+    assert!(!Criteria::parse_script("rules-based")
+        .unwrap()
+        .to_script()
+        .contains("comments"));
+    // The legacy explicit switch still parses and equals the default.
+    assert_eq!(
+        Criteria::parse_script("rules-based comments-unimportant").unwrap().rules,
+        Criteria::parse_script("rules-based").unwrap().rules
+    );
     let mut ignoring = Criteria::parse_script("rules-based comments-unimportant").unwrap();
     assert_eq!(
         ignoring.combine(CompareStatus::Same, Some(CompareStatus::SimilarUnimportant), None),

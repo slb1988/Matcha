@@ -152,7 +152,7 @@ Left Side / Right Side / Both Sides 子选项在对应命令行中列出；帮�
 | Align Unicode normalization forms | 已实现 | Windows NFC；非 Windows 明确 Unsupported |
 | Compare contents：CRC | 已实现 | 流式，可取消；列数据可按需缓存 |
 | Compare contents：Binary | 已实现 | 分块早停；不同内容保留快测较新方向 |
-| Rules-based comparison | 已实现 | 合并后经 bc-engine-text：默认文本规则 + 按文件名选格式；仅不重要差异为“相似”；`comments-unimportant` 扩展开关；二进制回退字节结果 |
+| Rules-based comparison | 已实现 | 合并后经 bc-engine-text：默认文本规则 + 按文件名选格式；仅不重要差异为“相似”；默认注释不重要（同文本比较默认），`comments-important` 扩展开关改回重要（`comments-unimportant` 仍可解析）；二进制回退字节结果 |
 | Skip if quick tests same | 已实现 | 自动比较可零读跳过；不显示虚假的内容相等图标 |
 | Compare versions | 已实现 | PE 资源，size 模式也能调度版本测试 |
 | Override quick test results | 已实现 | 内容相同可覆盖快测；内容不同不抹掉 newer 方向 |

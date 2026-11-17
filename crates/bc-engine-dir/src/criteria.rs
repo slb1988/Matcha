@@ -199,11 +199,20 @@ impl Criteria {
                 "no-size" => result.compare_size = false,
                 "skip-quick-same" => result.skip_content_if_quick_same = true,
                 "no-content-override" => result.content_overrides_quick = false,
+                // 注释默认已不重要；`comments-unimportant` 保留为显式写法（旧脚本兼容），
+                // `comments-important` 把注释改回重要。
                 "comments-unimportant" => {
                     let unimportant = &mut result.rules.importance.unimportant;
                     if !unimportant.contains(&ElementKind::Comment) {
                         unimportant.push(ElementKind::Comment);
                     }
+                }
+                "comments-important" => {
+                    result
+                        .rules
+                        .importance
+                        .unimportant
+                        .retain(|e| *e != ElementKind::Comment);
                 }
                 "size" | "crc" | "binary" | "rules-based" => {
                     if content_seen {
@@ -304,11 +313,12 @@ impl Criteria {
             (self.skip_content_if_quick_same, "skip-quick-same"),
             (!self.content_overrides_quick, "no-content-override"),
             (
-                self.rules
+                !self
+                    .rules
                     .importance
                     .unimportant
                     .contains(&ElementKind::Comment),
-                "comments-unimportant",
+                "comments-important",
             ),
         ] {
             if enabled {

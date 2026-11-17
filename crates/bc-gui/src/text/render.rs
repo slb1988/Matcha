@@ -229,10 +229,11 @@ impl TextCompareView {
                             .map(|b| std::str::from_utf8(b).unwrap())
                             .unwrap_or_default();
                         let ending = line.and_then(|i| snapshot.lines.ending(i));
+                        // 与参考一致按行着色：区块内只有注释等不重要差异的行显示为不重要（淡紫底蓝字），
+                        // 同一区块的重要行仍为重要；行本身无分级时退回区块的重要性。
                         let mut importance = mapped.importance;
-                        // A mixed difference section is important, while each inline span retains its own importance.
-                        if let Some(section) = mapped.section {
-                            if let Some(section) = self.sections.get(section) {
+                        if importance == Importance::Same {
+                            if let Some(section) = mapped.section.and_then(|i| self.sections.get(i)) {
                                 importance = section.importance;
                             }
                         }
@@ -359,6 +360,7 @@ impl TextCompareView {
                                 diff: orphan_ink.then(|| diff_ink(&prefs.colors, importance)),
                                 syntax: &syntax,
                                 bold: &bold,
+                                unimportant: &self.map.rules.comparison.importance.unimportant,
                             },
                         );
                         let galley = ui.painter().layout_job(job);
@@ -675,6 +677,8 @@ pub(crate) struct LineInk<'a> {
     pub syntax: &'a SyntaxStyle,
     /// 粗体字体（[`crate::chrome::theme::editor_bold`]）。
     pub bold: &'a egui::FontId,
+    /// 差异不重要的语法元素（比较规则；默认是注释）。
+    pub unimportant: &'a [bc_formats::ElementKind],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -697,7 +701,15 @@ pub(crate) fn layout(
         let byte = start + offset;
         let token = tokens.iter().find(|t| t.span.contains(&byte));
         let style = token.map_or(ElementStyle::PLAIN, |t| ink.syntax.get(t.element));
+        // 单侧差异行：不重要元素（默认是注释）用不重要差异色；`keep_on_diff` 的元素保留
+        // 自身风格（注释被设为重要时仍可辨认）；其余用整行差异色。
         let color = match ink.diff {
+            Some(_)
+                if !ignore
+                    && token.is_some_and(|t| ink.unimportant.contains(&t.element)) =>
+            {
+                diff_ink(colors, Importance::Unimportant)
+            }
             Some(diff) if !style.keep_on_diff => diff,
             _ => style.color.unwrap_or(ink.normal),
         };

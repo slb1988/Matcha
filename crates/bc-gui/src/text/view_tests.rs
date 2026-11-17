@@ -1650,12 +1650,13 @@ fn diff_rows_keep_comment_style_but_ink_code() {
     let syntax = SyntaxStyle::base();
     let bold = egui::FontId::monospace(13.0);
     let red = egui::Color32::RED;
-    let color_at = |diff: Option<egui::Color32>, byte: usize| {
+    let color_at_with = |diff: Option<egui::Color32>, byte: usize, unimportant: &[ElementKind]| {
         let ink = LineInk {
             normal: EDITOR_TEXT,
             diff,
             syntax: &syntax,
             bold: &bold,
+            unimportant,
         };
         let (job, _) = layout(text, 0, &tokens, &[], &Default::default(), 13.0, false, false, 4, &ink);
         job.sections
@@ -1666,11 +1667,26 @@ fn diff_rows_keep_comment_style_but_ink_code() {
             .color
     };
     let grey = egui::Color32::from_rgb(128, 128, 128);
+    let color_at = |diff, byte| color_at_with(diff, byte, &[ElementKind::Comment]);
     // 普通行：关键字正文色，注释灰。
     assert_eq!(color_at(None, 0), EDITOR_TEXT);
     assert_eq!(color_at(None, 9), grey);
-    // 单侧差异行：代码用差异色，注释保留注释风格。
+    // 单侧差异行（默认注释不重要）：代码用差异色，注释用不重要差异色（参考的蓝字）。
     assert_eq!(color_at(Some(red), 0), red);
     assert_eq!(color_at(Some(red), 4), red);
-    assert_eq!(color_at(Some(red), 9), grey);
+    assert_eq!(color_at(Some(red), 9), egui::Color32::BLUE);
+    // 注释被设为重要时：注释保留注释风格，仍可辨认。
+    assert_eq!(color_at_with(Some(red), 9, &[]), grey);
+}
+
+#[test]
+fn comments_are_unimportant_by_default() {
+    let mut v = view("a\nint x;\nc\n", "a\nint x;\n// added note\nc\n");
+    let cpp = v.registry.get(FormatKind::Text, "CPP").unwrap().clone();
+    v.map.left.set_format(Some(cpp.clone())).unwrap();
+    v.map.right.set_format(Some(cpp)).unwrap();
+    v.recompare();
+    ready(&mut v);
+    assert_eq!(v.counts.important, 0);
+    assert_eq!(v.counts.unimportant, 1);
 }
