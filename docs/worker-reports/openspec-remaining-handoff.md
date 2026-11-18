@@ -5,7 +5,7 @@
 - **5 个已完成的 change 已于 2026-11-15 归档**：`text-compare-core`、`folder-compare-sync`、`table-compare-xlsx`、`text-patch-reports`、`hex-compare` → `openspec/changes/archive/2026-11-15-*`；22 个 capability 主 spec 已建立在 `openspec/specs/`（全部纯 ADDED 合并，无 MODIFIED/REMOVED）。
 - **table-merge 已于 2026-11-15 归档**（`openspec/changes/archive/2026-11-15-table-merge`，新建主 spec `table-merge-cli`/`-engine`/`-view`，共 25 个主 spec）。
 - **text-merge 已于 2026-11-15 带 4 项未完成归档**（用户决定暂不推进；`openspec/changes/archive/2026-11-15-text-merge`，新建主 spec `text-merge-cli`/`-engine`/`-view`、`three-way-alignment`，共 29 个主 spec）。
-- **visual-parity 已收口（23/23，待归档）**：按“结构对齐参考、样式走设计系统”（design D9）补齐右键菜单、Session Settings 统一框架、sheet 标签、操作对话框文字化，见其 tasks.md「收口记录」。
+- **visual-parity 已于 2026-11-18 归档**（23/23，`openspec/changes/archive/2026-11-18-visual-parity`，新建主 spec 6 个，共 35 个）：按“结构对齐参考、样式走设计系统”（design D9）补齐右键菜单、Session Settings 统一框架、sheet 标签、操作对话框文字化，见其 tasks.md「收口记录」。
 - table-merge 已收口（见 §1）；text-merge 剩的全是验证类（2 项被参考工具阻塞）；visual-parity 剩的全是用户明确后置的范围。
 - 工作目录 `D:\Github\Matcha`，分支 `master`。归档操作本身未单独提交（openspec 文件移动 + 本文档 + CHANGELOGS 一条），随下一次代码提交或用户指示处理。
 
@@ -32,7 +32,7 @@ text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为
 
 **Feature 文档状态**：`docs/features/text-merge.md` 已写明"未经参考样本确认"，与 1.3 阻塞注记一致，解除阻塞后需同步更新。
 
-## 3. visual-parity（23/23，待归档）
+## 3. visual-parity（23/23，2026-11-18 已归档）
 
 **2026-11-15**：已按 design D9 收口，下文为收口前的状态记录。
 
@@ -47,4 +47,4 @@ text-merge-cli 的"一律按文本合并"已直接在 text-merge delta 里改为
 ## 归档后续
 
 - 主 specs 与归档结果一致性已随 `openspec archive` 内建验证通过；`openspec list` 确认活跃 change 仅剩 3 个。
-- `text-merge-cli` 的按格式分派已写进 text-merge delta，两者归档无顺序依赖；visual-parity 归档与否等用户定范围。
+- `text-merge-cli` 的按格式分派已写进 text-merge delta，两者归档无顺序依赖；visual-parity 已于 2026-11-18 归档，`openspec list` 无活跃 change。

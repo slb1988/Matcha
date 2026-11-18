@@ -11,7 +11,7 @@ sheet 标签共享组件、文件操作对话框文字化。tasks 23/23，详见
 
 ## 1. 目标与范围
 
-- 需求：Matcha 外观尽量一比一复刻参考工具（默认英文、浅色、100% 缩放、默认偏好）。真源：`openspec/changes/visual-parity/`（proposal、design D1–D8、tasks）。
+- 需求：Matcha 外观尽量一比一复刻参考工具（默认英文、浅色、100% 缩放、默认偏好）。真源：`openspec/changes/archive/2026-11-18-visual-parity/`（proposal、design D1–D9、tasks；已归档，主 spec 见 `openspec/specs/*-appearance`、`ui-chrome-theme`、`visual-reference-harness`）。
 - 用户方向（必须遵守）：
   - **抓大放小**：只做比较时始终可见的核心 UI；琐碎像素不打磨，做不到列为已知差异。
   - **串行**：一次只派一个实施 worker（共享桌面焦点与 CPU）。
@@ -64,7 +64,7 @@ sheet 标签共享组件、文件操作对话框文字化。tasks 23/23，详见
 
 ## 6. 关键文件
 
-- 规格：`openspec/changes/visual-parity/{proposal,design,tasks}.md`、`specs/*/spec.md`
+- 规格：`openspec/changes/archive/2026-11-18-visual-parity/{proposal,design,tasks}.md`、主 spec `openspec/specs/*/spec.md`
 - 外观真源：`docs/visual-parity/tokens.json`、`tokens.md`、`reference/*.png`、`supplemental/`
 - 工具：`tools/visual/compare.ps1 -Reference <png> -Actual <png> -Scene <name>`、`snap-matcha.ps1 [-Scene|-All] [-Verify]`（场景列表取自 `matcha /?` 的注册表，2026-11-15 起 28 个；用 `pwsh` 运行——从 Git Bash 启动的 Windows PowerShell 5.1 会因 PSModulePath 继承自 PS7 而找不到 `Get-FileHash`）、`manual-verify-*.py`（元素级测量）
 - 代码：`crates/bc-gui/src/chrome/`（含 wave4 `wheel.rs`、wave6 `popup.rs`、wave7 `dialog.rs`）、`snapshot.rs`、`text/`、`table/`、`dir_view.rs`、`sync_view.rs`、`home.rs`、`dialogs/`、`app.rs`

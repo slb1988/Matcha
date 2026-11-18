@@ -2,6 +2,13 @@
 
 本文件记录 Matcha 的用户可感知变动（功能、行为、修复）。每次变动追加一条，最新在最上。
 
+## 2026-11-18
+
+- **visual-parity 变更归档**（文档/规格，无行为变化）：23/23 完成的 visual-parity 移入
+  `openspec/changes/archive/2026-11-18-visual-parity`，新建 6 个主 spec（`ui-chrome-theme`、`text-view-appearance`、
+  `folder-view-appearance`、`home-table-appearance`、`dialog-appearance`、`visual-reference-harness`）；
+  功能索引中 GUI 外壳状态改为"已实现"。至此无活跃 openspec change。
+
 ## 2026-11-17
 
 - **Options 设置重启后保留**（`docs/features/gui-shell.md`「偏好持久化」）：此前 Tools › Options 里的差异颜色、
