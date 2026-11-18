@@ -203,6 +203,22 @@ fn local_day(time: SystemTime) -> i64 {
 fn day_group(today: i64, when: SystemTime) -> usize {
     (today - local_day(when)).clamp(0, DAY_GROUPS as i64 - 1) as usize
 }
+/// 会话树行的悬停提示：类型、两侧完整路径（缺一侧显示 `(none)`）与可选的打开时刻。
+pub(crate) fn path_tip(kind: &str, left: &str, right: &str, opened: Option<SystemTime>) -> String {
+    fn side(p: &str) -> &str {
+        if p.is_empty() {
+            "(none)"
+        } else {
+            p
+        }
+    }
+    let mut tip = format!("{kind}\nLeft:  {}\nRight: {}", side(left), side(right));
+    if let Some(when) = opened {
+        let t = bc_script::platform::local(when);
+        tip += &format!("\nOpened: {} {:02}:{:02}", t.date(), t.hour, t.minute);
+    }
+    tip
+}
 /// 一条最近比较：会话类型、左右路径与最后一次打开的时刻。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Recent {
@@ -214,6 +230,16 @@ struct Recent {
 }
 /// 最近比较保留的条数。
 const MAX_RECENT: usize = 50;
+impl Recent {
+    fn tip(&self) -> String {
+        path_tip(
+            self.kind.label(),
+            &self.left.display().to_string(),
+            &self.right.display().to_string(),
+            Some(self.when),
+        )
+    }
+}
 /// Session-type cards per page: as many as fit the canvas (all five on a
 /// normal window); narrower windows page with round chevron buttons.
 fn per_page(canvas_width: f32) -> usize {
@@ -805,11 +831,20 @@ impl HomeView {
             let folder = matches!(node, Node::SavedEntry(i) if self.saved[i].session.is_none());
             let indent = depth as f32 * 19.0;
             let cy = top + TREE_ROW / 2.0;
-            let response = ui.interact(
+            let mut response = ui.interact(
                 span(0.0, top, tree_w, top + TREE_ROW),
                 egui::Id::unique(("home-tree", index)),
                 Sense::click(),
             );
+            // 条目只显示文件名：悬停给出类型与两侧完整路径。
+            let tip = match node {
+                Node::Recent(i) => Some(self.recent[i].tip()),
+                Node::SavedEntry(i) => self.saved[i].tip.clone(),
+                _ => None,
+            };
+            if let Some(tip) = tip {
+                response = response.on_hover_text(tip);
+            }
             if group {
                 // Expander chevron ">" (open: "v") and the dotted stub.
                 let open = match node {
@@ -1726,6 +1761,31 @@ mod tests {
         }
         click(&ctx, &mut home, Pos2::new(100.0, 271.0));
         assert_eq!(home.selected, Node::Recent(1));
+    }
+    #[test]
+    fn tree_rows_tip_the_kind_and_full_paths() {
+        let when = SystemTime::now();
+        let t = bc_script::platform::local(when);
+        let item = Recent {
+            kind: SessionKind::FolderCompare,
+            left: PathBuf::from(r"C:\work\Angelscript"),
+            right: PathBuf::from(r"D:\MainDev\Angelscript"),
+            when,
+        };
+        assert_eq!(
+            item.tip(),
+            format!(
+                "Folder Compare\nLeft:  C:\\work\\Angelscript\nRight: D:\\MainDev\\Angelscript\n\
+                 Opened: {} {:02}:{:02}",
+                t.date(),
+                t.hour,
+                t.minute
+            )
+        );
+        assert_eq!(
+            path_tip("Text Compare", "a.txt", "", None),
+            "Text Compare\nLeft:  a.txt\nRight: (none)"
+        );
     }
     #[test]
     fn recent_entries_reopen_with_their_recorded_kind() {

@@ -218,6 +218,8 @@ pub struct Entry {
     pub session: Option<String>,
     /// 过滤用的全文（名称与两侧路径）。
     pub haystack: String,
+    /// 悬停提示：会话类型与两侧完整路径；文件夹为 `None`。
+    pub tip: Option<String>,
 }
 
 /// 树中的命名文件夹与命名会话（深度优先、文件内顺序）。无名文件夹（参考工具内部的
@@ -233,6 +235,7 @@ pub fn entries(root: &SessionFolder) -> Vec<Entry> {
                             label: name.clone(),
                             session: None,
                             haystack: name.to_lowercase(),
+                            tip: None,
                         });
                         walk(f, depth + 1, out);
                     }
@@ -242,16 +245,18 @@ pub fn entries(root: &SessionFolder) -> Vec<Entry> {
                         let side = |p: &Option<bc_vfs::VfsPath>| {
                             p.as_ref().map(ToString::to_string).unwrap_or_default()
                         };
+                        let (left, right) = (side(&s.specs.left), side(&s.specs.right));
                         out.push(Entry {
                             depth,
                             label: name.clone(),
                             session: Some(name.clone()),
-                            haystack: format!(
-                                "{name} {} {}",
-                                side(&s.specs.left),
-                                side(&s.specs.right)
-                            )
-                            .to_lowercase(),
+                            haystack: format!("{name} {left} {right}").to_lowercase(),
+                            tip: Some(crate::home::path_tip(
+                                s.kind.force_view_name(),
+                                &left,
+                                &right,
+                                None,
+                            )),
                         });
                     }
                 }
