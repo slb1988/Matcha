@@ -1151,6 +1151,59 @@ fn details_scrollbar_moves_both_rows_without_scrolling_either_editor() {
 }
 
 #[test]
+fn resize_reflows_panes_and_recalculates_the_detail_scroll_range() {
+    let ctx = egui::Context::default();
+    // A line that fits a wide details strip but not a narrow one.
+    let line = "0123456789".repeat(15);
+    let text = format!("{line}\n{}", "short\n".repeat(150));
+    let mut v = view(&text, &text);
+    let run = |v: &mut TextCompareView, w, h| {
+        let size = egui::vec2(w, h);
+        let bounds = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(bounds),
+                ..Default::default()
+            },
+            |ui| {
+                v.ui(ui, &mut Prefs::default());
+                assert!(
+                    ui.min_rect().right() <= bounds.right() + 1.0,
+                    "mustn't grow the host"
+                );
+            },
+        );
+        out.textures_delta.clear();
+        assert!(
+            (v.pane_rects[1].right() - w).abs() < 1.0,
+            "{:?}",
+            v.pane_rects
+        );
+        assert!((v.pane_rects[1].bottom() + 19.0 + 49.0 + 25.0 - h).abs() < 1.0);
+        out
+    };
+    for stacked in [false, true] {
+        v.stacked = stacked;
+        run(&mut v, 1450.0, 950.0);
+        let wide = v.pane_rects;
+        let rows = v.visible.len();
+        v.details_scroll_x = f32::MAX;
+        let out = run(&mut v, 740.0, 540.0);
+        assert!(v.pane_rects[0].width() < wide[0].width());
+        assert!(v.visible.len() < rows);
+        assert!(v.details_scroll_x > 0.0);
+        // At the clamped end the last marker sits at the NEW right edge, not hidden outside it.
+        assert!(text_shapes(&out).into_iter().any(|(t, r)| t == "↵"
+            && r.top() > v.pane_rects[1].bottom()
+            && (r.right() - 740.0).abs() < 1.0));
+        run(&mut v, 1450.0, 950.0);
+        assert_eq!(v.details_scroll_x, 0.0);
+        assert_eq!(v.pane_rects, wide);
+        assert_eq!(v.current_row, 0);
+    }
+}
+
+#[test]
 fn details_long_preview_ends_at_a_utf8_boundary_and_marks_truncation() {
     let ctx = egui::Context::default();
     let prefix = "a".repeat(4095);

@@ -1295,7 +1295,14 @@ impl TextCompareView {
         };
         format!("{} <--> {} - Text Compare - Matcha", name(0), name(1))
     }
-    pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<ViewAction> {
+    pub fn ui(&mut self, parent: &mut egui::Ui, prefs: &mut Prefs) -> Option<ViewAction> {
+        // Only the host knows the client size (including in a folder compare's floating
+        // window). Fixed-width chrome must not enlarge the reported size of this view.
+        let bounds = parent.available_rect_before_wrap();
+        let mut child = parent.new_child(egui::UiBuilder::new().max_rect(bounds));
+        child.set_clip_rect(bounds.intersect(parent.clip_rect()));
+        parent.advance_cursor_after_rect(bounds);
+        let ui = &mut child;
         self.poll();
         // 编辑器字号来自全局偏好（Options › Appearance › Editor font，持久化）。
         if let Some(pt) = self.font_request.take() {
@@ -1364,12 +1371,12 @@ impl TextCompareView {
             self.scroll.x = (self.scroll.x - delta.x).max(0.0);
             self.scroll.y = (self.scroll.y - delta.y).max(0.0);
         }
-        let available = ui.available_rect_before_wrap();
+        let available = ui.available_rect_before_wrap().intersect(bounds);
         let body = egui::Rect::from_min_max(
             available.min,
             egui::pos2(
                 available.right(),
-                (available.bottom() - 74.0).max(available.top() + 120.0),
+                (available.bottom() - 74.0).max(available.top()),
             ),
         );
         let nav_rect = egui::Rect::from_min_size(body.min, egui::vec2(52.0, body.height()));
@@ -1512,8 +1519,6 @@ impl TextCompareView {
                 ],
             );
         });
-        // Bottom slots are reserved independently of document length and filtering.
-        ui.allocate_rect(available, egui::Sense::hover());
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.dragging = None;
         }
@@ -1616,7 +1621,7 @@ impl TextCompareView {
             group: Some(group.into()),
         })
         .collect();
-        let response = toolbar::show(ui, &items);
+        let response = toolbar::show_wrapped(ui, &items);
         if let Some(action) = response.clicked.clone() {
             self.command(&action, ui.ctx(), prefs);
         }
@@ -2196,6 +2201,13 @@ impl TextCompareView {
         use crate::chrome::pathbar;
         let top = ui.cursor().min;
         let width = ui.available_width();
+        // A long timestamp/path or format combo may exceed a narrow pane. Keep their
+        // layout in the 53 px header, not in the ScrollArea's available width.
+        let header_rect = egui::Rect::from_min_size(top, egui::vec2(width, 53.0));
+        let mut header = ui.new_child(egui::UiBuilder::new().max_rect(header_rect));
+        header.set_clip_rect(header_rect.intersect(ui.clip_rect()));
+        ui.advance_cursor_after_rect(header_rect);
+        let ui = &mut header;
         if self.path_sources[s] != self.files[s].path {
             self.path_sources[s] = self.files[s].path.clone();
             self.path_edits[s] = self.files[s]
@@ -2350,10 +2362,6 @@ impl TextCompareView {
                     ui.label(super::status_bar::ending_label(self.content(s)));
                 });
             },
-        );
-        ui.allocate_rect(
-            egui::Rect::from_min_size(top, egui::vec2(width, 53.0)),
-            egui::Sense::hover(),
         );
     }
     fn file_options(&mut self, ui: &mut egui::Ui, s: usize, prefs: &Prefs) {

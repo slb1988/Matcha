@@ -86,8 +86,15 @@ pub fn apply_toggle(items: &mut [ToolItem], action_id: &str) {
 }
 /// 普通和 Toggle 返回 `clicked`；Dropdown 及 Split 箭头返回 `dropdown`。
 pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
+    show_impl(ui, items, false)
+}
+/// Keep all tools accessible when the host narrows, without widening the content below it.
+pub(crate) fn show_wrapped(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
+    show_impl(ui, items, true)
+}
+fn show_impl(ui: &mut egui::Ui, items: &[ToolItem], wrap: bool) -> ToolbarResponse {
     let mut output = ToolbarResponse::default();
-    ui.horizontal(|ui| {
+    let add = |ui: &mut egui::Ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         for (index, item) in items.iter().enumerate() {
             if index > 0 && item.group != items[index - 1].group {
@@ -220,7 +227,12 @@ pub fn show(ui: &mut egui::Ui, items: &[ToolItem]) -> ToolbarResponse {
                 output.dropdown_rect = Some(rect);
             }
         }
-    });
+    };
+    if wrap {
+        ui.horizontal_wrapped(add);
+    } else {
+        ui.horizontal(add);
+    }
     output
 }
 
