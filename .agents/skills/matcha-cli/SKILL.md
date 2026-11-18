@@ -1,215 +1,59 @@
 ---
 name: matcha-cli
-version: 1.0.0
-description: Matcha 命令行速查与使用引导：matcha.exe / matcha.com / matcha-comp.exe 三件套分工、/report 无窗口 diff 输出（文本 patch 四种布局、xlsx/CSV 表格差异报告）、/qc 快速比较、/automerge 自动合并与 P4V 配置、退出码、@script 脚本模式、GUI 启动方式。当用户问 matcha 命令行怎么用、matcha.com 是什么、如何用命令行比较或合并文件/输出 diff、或在 CI/脚本里集成文件比较时使用。
+version: 1.2.0
+description: 本项目 Tools/matcha/ 内置的 Matcha 文件对比/合并工具速查，项目内做文件 diff 优先用它：三件套分工、/report 无窗口 diff（文本 patch、xlsx/CSV 单元格级表格报告）、/qc 退出码（xlsx 按单元格判定）、/automerge 三方合并与 P4V 合并工具配置、@script 脚本模式、资源管理器右键比较。对比任意文件、审查 RawData Excel 的 P4 变动、判断两文件是否相同、合并 xlsx/文本冲突、CI 集成、问 matcha 用法时使用。
 ---
 
 # Matcha 命令行速查
 
-发行产物在 `target/dist/matcha-<version>-windows-x86_64/`（由 `cargo xtask dist` 生成）。
-下文 `matcha` 均指把该目录加入 PATH 后直接调用；未加 PATH 时用全路径。
+项目内对比文件优先用随 P4 同步的 `Tools/matcha/`。cmd/PowerShell 将该目录加入 PATH 后，下面的 `matcha` 会命中 `matcha.com`；Git Bash 在仓库根目录写全 `Tools/matcha/matcha.com`，开关用 `-` 前缀。
+启动器说明见 `Tools/matcha/README.txt`，当前版本的完整开关表以 `matcha /?`（cmd）为准。
 
-## 三件套分工
+## 选择启动器
 
-| 文件 | 子系统 | 行为 | 用途 |
-|---|---|---|---|
-| `matcha.exe` | GUI | 主程序，全部比较逻辑 | 双击打开 GUI |
-| `matcha-comp.exe` | GUI | 转交给主程序后**立即返回** | VCS 比较集成（git difftool 等），不闪控制台；**不能用于合并** |
-| `matcha.com` | 控制台 | 转发参数给旁边的 `matcha.exe`，**等待比较结束并传播退出码** | 命令行交互、CI/脚本 |
-
-关键点：
-
-- cmd/PowerShell 里敲 `matcha ...` 经 PATHEXT（`.com` 先于 `.exe`）自动命中 `matcha.com` —— 即默认就是"等待+退出码"语义。
-- 启动器不解析参数，原样转发；找不到旁边的 `matcha.exe` 报退出码 103。
-- `matcha /?` 输出完整帮助（由 matcha.com 打印）。
-- **合并调用总是等待**：`matcha.exe` 本身也等待，不依赖启动器标记；转交已有实例时等合并标签页关闭。
-  自己成为首个实例或 `/solo` 时要等整个窗口关闭（仅合并一页时关页即关窗）；无窗口合并等执行完成。
-
-## 位置参数推断（无开关时）
-
-```
-matcha                          → Home 视图
-matcha <dir> <dir>              → 文件夹比较
-matcha <file> <file>            → 按文件格式选视图（或 /fv 强制）
-matcha <base> <theirs> <yours> [<output>] → 三方合并（P4V 顺序）（xlsx/xlsm 为表格合并，其余文本合并；可带输出文件）
-matcha <name>                   → 已保存的会话 / 工作区
-matcha @<script> [args…]        → 脚本模式（无界面执行）
-matcha <file.bcpkg>             → 导入设置包
-matcha <file.diff|.patch>       → Text Patch
-matcha -                        → 从 stdin 读入一个文件
-```
-
-## 文本三方合并
-
-```bat
-matcha <base> <theirs> <yours>
-matcha <base> <theirs> <yours> <output>
-matcha /center=<file> [/mergeoutput=<path>] <left> <right>
-matcha /automerge base.txt theirs.txt yours.txt result.txt
-matcha /automerge /reviewconflicts base.txt theirs.txt yours.txt result.txt
-```
-
-非工作簿按行文本合并（CSV/TSV 也是，除非加 `/tablemerge`）；三个输入都是 xlsx/xlsm 时走下方表格合并，
-混合格式报错 100。`/mergeoutput=` 优先于第 4 个位置参数。
-`/automerge` 在发起进程内执行、从不转交已有实例，必须有输出目标；写同目录临时文件再替换，不建备份，
-不读旧输出，输出可等于某个输入。结果写 stdout 一行，`/silent` 或无标准输出时不写、不为结果弹框；
-错误写 stderr（无控制台时为消息框）。界面保存按当前输出写出，**不会插入冲突标记**。
-
-P4V：Application 用 `matcha.exe`，Arguments 用 `%b %1 %2 %r`（base / theirs / yours / result → BASE / RIGHT / LEFT / OUTPUT；
-界面三栏为 BASE | LEFT | RIGHT，保存写 LEFT 即本地文件并同步 `%r`）；要“无冲突不开窗”用 `/automerge /reviewconflicts %b %1 %2 %r`。不要配置 `matcha-comp.exe`。
-合并语义**未经参考样本确认**；界面快捷键与验收见 `docs/features/text-merge.md`。
-
-## 表格三方合并（xlsx/xlsm 自动，CSV/TSV 加 /tablemerge）
-
-```bat
-matcha base.xlsx theirs.xlsx yours.xlsx result.xlsx
-matcha /automerge base.xlsx theirs.xlsx yours.xlsx result.xlsx
-matcha /automerge /keys=1 base.xlsx theirs.xlsx yours.xlsx result.xlsx
-matcha /automerge /reviewconflicts base.xlsx theirs.xlsx yours.xlsx result.xlsx
-matcha /tablemerge /automerge base.csv theirs.csv yours.csv result.csv
-```
-
-行按键列对齐（`/keys=` 1 起列号 > 自动推断 > 整行作键），逐单元格合并：两侧改同行不同列不冲突，同格异值、
-一侧删行另一侧改行、两侧新增同键异内容是冲突。`/automerge` 退出码 0（已写出）/ 101（有冲突未写出）/ 100（错误）；
-**`/force` 报错 100**（单元格放不下冲突标记）。结果行带实际键列，如 `Success (keys: 1 (inferred))`。
-xlsx 输出以 center 工作簿为模板，只重写单元格数据：样式、列宽、合并单元格、图表、批注、宏原样保留，行增删后公式等行引用随行重定位；模板写出失败才退回不带样式的新写并警告。CSV 输出保真写回。
-P4V 参数与文本合并相同（`%b %1 %2 %r`），扩展名不是 xlsx 的临时文件按 ZIP 文件头识别。详见 `docs/features/table-merge.md`。
-
-## 三个最常用形态（均已实测）
-
-### 1. GUI 比较并等待结果
-
-```bat
-matcha D:\Temp\bctest\a.txt D:\Temp\bctest\b.txt
-```
-
-打开文本比较窗口，**阻塞到你关闭标签页**，退出码反映比较结果（见退出码表）。
-
-### 2. 无窗口输出 diff 到控制台（Matcha 扩展）
-
-```bat
-matcha /report=patch-unified a.txt b.txt            :: 输出到 stdout
-matcha /report=patch-unified /reportfile=out.patch a.txt b.txt
-```
-
-`/report=` 布局：`patch`（与 `patch-normal` 相同，`diff -r` 风格，是默认格式）、
-`patch-context`、`patch-unified`（`@@`，与 `git diff` 的 hunk 正文逐字节一致，默认 6 行上下文）。
-`/reportoptions=ignore-unimportant` 可忽略不重要差异。
-
-输出头形如 `--- <绝对路径>\t<时间戳>` / `+++ ...`，可直接给 `patch`/`git apply` 用（注意改成相对路径）。
-
-### 3. 表格（xlsx/xlsm/CSV）差异报告
-
-```bat
-matcha /report=summary left.xlsx right.xlsx          :: 表格差异报告到 stdout
-matcha /report=patch-unified left.xlsx right.xlsx    :: 工作簿上 patch* 自动改为同一报告
-matcha /report=summary a.csv b.csv                   :: CSV/TSV 也可（CSV 用 patch* 仍是文本 patch）
-```
-
-输出首行 `MATCHA-TABLE-REPORT 1`，逐 sheet → 行 → 单元格列出差异，自带图例：
-
-```text
-=== sheet "Data": different
-key: id
-rows: 1 changed, 0 unimportant, 0 left-only, 0 right-only, 1 same
-~ id=1  (left row 2, right row 2)
-    price (C2): 1 -> 1.5
-```
-
-`~` 改动行、`-` 仅左、`+` 仅右；键列自动推断（推断不出时 `key: (none; …)`，改动行会显示成
-`-`/`+` 一对）。格式细节见 `docs/features/reports.md`。
-
-表头没被识别时列名是字母（`A=4069`、`F (F70): …`）。加 `/reportoptions=title-row:1` 把第 1 行
-（Excel 行号）的内容附在列名后：`~ A[ID]=4069  (…)`；单元格行直接写标题：`    Name (F70): old -> new`。
-可与其他选项逗号连用：`/reportoptions=ignore-unimportant,title-row:1`。
-
-### 3. 只要退出码不要输出（CI 判断两个文件是否相同）
-
-```bat
-matcha /qc a.txt b.txt          :: rules-based（默认），打印一行结论
-matcha /qc=binary a.txt b.txt   :: 还有 size / crc
-```
-
-## 退出码（对应参考工具约定）
-
-| 码 | 含义 |
+| 入口 | 何时使用 |
 |---|---|
-| 0 | 成功；无窗口自动合并：无冲突且已写出；界面合并：最后一次保存时无未解决冲突 |
-| 1 | 二进制相同 |
-| 2 | 规则相同（rules-based same） |
-| 11 | 二进制不同 |
-| 12 | 相似（只有不重要差异） |
-| 13 | 规则不同 |
-| 14 | 无窗口自动合并：有冲突，带 `/force` 且已带标记写出；界面合并：最后一次保存时仍有未解决冲突 |
-| 100 | 错误；合并时为参数、输入或写出错误，或合并视图打不开 |
-| 101 | 无窗口自动合并：有冲突且未写出，既有输出保持原样；界面合并：从未保存 |
-| 102 / 103 | 启动器无法等待 / 找不到 matcha.exe |
-| 104~107 | 试用过期 / 脚本加载、语法、文件加载错误 |
+| `matcha.com` | 命令行、CI、脚本：等待比较结束，输出报告并返回退出码。 |
+| `matcha.exe` | GUI 主程序；P4V 的合并工具用它，等待合并结束。 |
+| `matcha-comp.exe` | 右键菜单、VCS difftool：把比较交给 GUI 后立即返回。 |
 
-**`/report` 模式退出码恒为 0**（报告生成成功即 0），要拿"是否不同"必须改用 `/qc`。
+## 比较：按所需结果选命令
 
-## 常用开关速查（`/` 或 `-` 前缀均可）
+| 目标 | 命令（cmd） | 看什么 |
+|---|---|---|
+| 交互比较 | `matcha left.txt right.txt` | 打开时定位首个差异，关闭标签页后返回。 |
+| 文本 patch | `matcha /report=patch-unified a.txt b.txt` | 统一差异写 stdout；加 `/reportfile=out.patch` 存盘。 |
+| xlsx/xlsm 或 CSV/TSV 逐格比较 | `matcha /report=summary /reportoptions=title-row:1 old.xlsx new.xlsx` | `result:` 给结论，再按 sheet、行、列看旧值 → 新值；表头在第 1 行时用 `title-row:1`。 |
+| 只判断是否相同 | `matcha /qc old.xlsx new.xlsx` | 按规则比较，xlsx 按单元格判定：2 为相同，13 为不同。按字节比较用 `/qc=binary`。 |
 
-```
-/fv=<type>        强制视图类型，如 "Text Compare"
-/ro /ro1 /ro2     只读（全部/左/右）
-/edit             编辑模式打开
-/iu               合并时需带 /automerge 或 /reviewconflicts：不重要差异按相同处理
-/solo             强制新实例（不转交给已运行的 matcha）
-/silent           自动合并不写结果行并禁用 /reviewconflicts；错误仍报告
-/title1..4=<t>    左/右/中/输出窗格标题；前两个兼作冲突标记标签（默认文件名）
-/filters=<masks>  文件夹会话的文件过滤
-/automerge        发起进程内无窗口自动合并，必须有输出目标
-/reviewconflicts  配合 /automerge：无冲突写出并返回 0，有冲突先不写并进入界面；优先于 /force，/silent 时失效
-/force            仅 /automerge：有冲突也带标记写出（14）；界面保存不加标记
-/favorleft /favorright  带 /automerge 或 /reviewconflicts 且有 /iu：被忽略的不重要冲突取指定侧而非 center；两者互斥
-/mergeoutput=<path>  合并输出目标，优先于第 4 个位置参数
-/center=<file>    两个输入文件配此开关成为三方合并（共同祖先）
-/tablemerge       CSV/TSV 三方调用按表格（键对齐逐格）合并；xlsx/xlsm 不需要
-/keys=<n,...>     表格合并的键列（1 起，按顺序为优先级），越界/重复/0 报错
-/sync             以 Folder Sync 打开
-/vcs1..4=<path>   VCS 路径占位
-/savetarget=<f>   保存目标
-```
+**`/report` 返回 0 只表示报告生成成功。** CI 需要按差异分支时，读取 `/qc` 的[退出码](references/cli-reference.md#退出码)。
+CSV/TSV 用 `summary` 看单元格，`patch*` 看文本；工作簿的 `patch*` 自动转为表格报告。见[报告示例、键列与 unified diff 解读](references/compare-reports.md)。
 
-合并调用里 `/ro`、`/ro1`、`/ro2`、`/nobackups`、`/savetarget=`、`/vcs1..4` 接受但无效果；
-输入窗格恒只读，`/iu` 与 favor 可由 `/reviewconflicts` 带入界面会话。
-`/automerge /force` 的冲突标记为 `<<<<<<< <left 标签>`、left 各行、`=======`、right 各行、`>>>>>>> <right 标签>`。
+审查 `Main/RawData`：用 `p4 print -q -o` 导出前后两个 revision，再用 `/qc` 判定、`/report=summary` 定位改动。
+见[可复制的 P4 配方](references/compare-reports.md#rawdata-的-p4-历史对比)和[历史实测报告](references/test-rawdata-xlsx-20261112.md)。
 
-## @script 脚本模式
+## 三方合并
+
+位置参数顺序为 `base theirs yours [output]`。无窗口自动合并需给出输出文件：
 
 ```bat
-matcha @script.txt        :: 无界面顺序执行脚本命令
+matcha /automerge base.xlsx theirs.xlsx yours.xlsx result.xlsx
 ```
 
-脚本命令一览：`load`、`text-report`、`folder-report`、`hex-report`、`table-report`、
-`file-report`、`select`、`compare [crc|binary|rules-based]`、`copy`、`copyto`、`move`、
-`delete`、`rename`、`sync (update|mirror):<dir>`、`criteria`、`filter`、`expand`、`collapse`、
-`log [none|normal|verbose]`、`option confirm:…`、`snapshot`、`beep`。
+三个工作簿按键逐格合并，CSV/TSV 加 `/tablemerge` 才按表格合并。`/automerge` 无冲突时写出结果（0），有冲突时保留既有输出（101）；要交由人工处理可加 `/reviewconflicts`。
+P4V 使用 `matcha.exe`，参数 `%b %1 %2 %r`。保存会写入本地文件（yours）并同步 `%r`。详见[合并规则、键列与 P4V 配置](references/merge.md)。
 
-脚本里写报告：`text-report layout:patch options:patch-unified output-to:- <left> <right>`
-（`output-to:-` = stdout；`output-to:<file>` 写文件）。表格：
-`table-report layout:summary output-to:- <left.xlsx> <right.xlsx>`（`data-report` 同义）。
+## 脚本与桌面集成
 
-## 已知坑（实测踩过）
+`matcha @script.txt`（cmd）按顺序无界面执行脚本命令。位置参数、通用开关、脚本报告语法和资源管理器右键操作见 [CLI 速查](references/cli-reference.md)。
 
-1. **Git Bash / MSYS 里必须用 `-` 前缀**：`/report=...` 会被路径转换吃掉，变成位置参数，
-   可能被误判为三方合并并报输入错误。cmd/PowerShell 下 `/` 和 `-` 都行。
-2. **`/report` 退出码恒 0**，判断差异用 `/qc`。
-3. patch 上下文是 **6 行**（参考工具风格，`bc-report/src/patch.rs` 的 `CONTEXT = 6`），
-   比 `git diff` 默认 3 行的 hunk 大。
-4. `side-by-side` / `summary` / `interleaved` / `statistics` / `xml` 布局已定义但**未实现**，
-   会报 `the side-by-side layout is not supported yet`。
-5. 报告写 stdout 需要进程有控制台——用 `matcha.com`（而不是 `matcha-comp.exe`）调，
-   或加 `/reportfile=` / `output-to:<file>`。
+## 按症状排查
 
-## 读懂 unified diff 输出
+先核对启动器和当前 shell 的开关前缀，再按症状查对应章节：
 
-```
-@@ -旧起始行,旧行数 +新起始行,新行数 @@     行数为 1 时省略（-1 即 -1,1）
- 空格前缀 = 上下文行（定位用）   - = 删除   + = 新增
-```
-
-patch 定位靠「hunk 头行号粗定位 + 上下文行精确纠偏」：文件行号偏移时工具会搜索上下文自动
-对位（offset）；但触及第 1 行 / 文件尾的 hunk 会锚定，不允许偏移。`git apply` 无 fuzz，
-GNU `patch` 默认允许两端 2 行上下文不匹配。
+| 症状 | 章节 |
+|---|---|
+| Git Bash 把 `/report` 当作输入文件 | [命令被当作路径](references/pitfalls.md#命令被当作路径) |
+| 有差异却返回 0、stdout 为空、布局不支持或 hunk 偏长 | [报告输出](references/pitfalls.md#报告输出) |
+| xlsx 单行过长、`same` 数与物理行数不同 | [表格行与计数](references/pitfalls.md#表格行与计数) |
+| P4V 提前返回、表格合并加 `/force` 报错 | [合并异常](references/pitfalls.md#合并异常) |
