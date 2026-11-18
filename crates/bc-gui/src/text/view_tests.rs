@@ -1748,3 +1748,38 @@ fn first_difference_landing_keeps_context_rows_above() {
     frame(&ctx, &mut v, vec![]);
     assert_eq!(v.top_row(v.row_height()), 60);
 }
+
+/// Hosted in a resizable floating window (folder view's "Text Compare —
+/// selected files"), the view must not report more content than the window
+/// gives it: egui grows the window to the content size every frame.
+#[test]
+fn floating_window_height_is_stable() {
+    let ctx = egui::Context::default();
+    let text: String = (0..35).map(|i| format!("line {i}\n")).collect();
+    let mut v = view(&text, &text);
+    let id = egui::Id::new("probe-floating-text");
+    let mut heights = Vec::new();
+    for _ in 0..8 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 1000.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            crate::chrome::window::Window::new("probe")
+                .id(id)
+                .default_size([1150.0, 650.0])
+                .show(ui.ctx(), |ui| {
+                    v.ui(ui, &mut Prefs::default());
+                });
+        });
+        out.textures_delta.clear();
+        heights.push(ctx.memory(|m| m.area_rect(id)).unwrap().height());
+    }
+    assert!(
+        heights.windows(2).skip(2).all(|w| (w[1] - w[0]).abs() < 0.5),
+        "window keeps growing: {heights:?}"
+    );
+}

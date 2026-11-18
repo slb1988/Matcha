@@ -32,13 +32,21 @@ impl StatusField {
 }
 
 /// Draw recessed fields. Fixed widths stay stable while `None` fields stretch.
+///
+/// The bar is at most [`STATUS_HEIGHT`](super::theme::STATUS_HEIGHT) tall and
+/// never taller than the slot it is given (text/table/merge views reserve the
+/// reference's 25 px): content that pokes past the slot makes a resizable
+/// host window grow to fit it, a pixel more every frame.
 pub fn show(ui: &mut egui::Ui, fields: &[StatusField]) {
     let widths = field_widths(fields, ui.available_width(), ui.spacing().item_spacing.x);
+    let height = super::theme::STATUS_HEIGHT
+        .min(ui.available_height())
+        .max(0.0);
     ui.horizontal(|ui| {
         for (index, field) in fields.iter().enumerate() {
             let width = widths[index];
             let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(width, super::theme::STATUS_HEIGHT),
+                egui::vec2(width, height),
                 egui::Sense::hover(),
             );
             ui.painter()
