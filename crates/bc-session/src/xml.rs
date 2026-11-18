@@ -87,7 +87,10 @@ fn read_items(nodes: &[Node]) -> Vec<FolderItem> {
 fn folder_from_node(node: &Node) -> SessionFolder {
     SessionFolder {
         name: node.value.clone(),
-        items: node.child(ITEMS).map(|i| read_items(&i.children)).unwrap_or_default(),
+        items: node
+            .child(ITEMS)
+            .map(|i| read_items(&i.children))
+            .unwrap_or_default(),
     }
 }
 
@@ -114,7 +117,11 @@ pub fn session_from_node(node: &Node) -> Result<Session, SessionError> {
                 }
                 session.rules_node = Some(child.clone());
             }
-            STATE => session.state = SessionState { values: child.children.clone() },
+            STATE => {
+                session.state = SessionState {
+                    values: child.children.clone(),
+                }
+            }
             _ => session.unknown.push(child.clone()),
         }
     }
@@ -215,7 +222,10 @@ fn rules_to_node(session: &Session) -> Option<Node> {
         .unwrap_or_else(|| value_node(RULES, session.rules.bc_class()));
     let keys = [
         (ALIGN_KIND, align_kind_name(alignment.strategy).to_string()),
-        (NEVER_ALIGN, delphi_bool(alignment.never_align_differences).to_string()),
+        (
+            NEVER_ALIGN,
+            delphi_bool(alignment.never_align_differences).to_string(),
+        ),
         (SKEW, alignment.skew_tolerance.to_string()),
         (CLOSENESS, delphi_bool(alignment.use_closeness).to_string()),
     ];
@@ -237,7 +247,8 @@ pub fn session_to_node(session: &Session) -> Node {
     let mut node = Node::new(session.kind.bc_class());
     node.value = session.name.clone();
     if let Some(stamp) = session.last_modified {
-        node.children.push(value_node(LAST_MODIFIED, stamp.to_string()));
+        node.children
+            .push(value_node(LAST_MODIFIED, stamp.to_string()));
     }
     let specs = &session.specs;
     let sides = [&specs.left, &specs.right, &specs.center, &specs.output];

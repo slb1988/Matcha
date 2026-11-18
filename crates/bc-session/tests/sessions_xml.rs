@@ -42,7 +42,14 @@ fn reads_tree_kinds_specs_rules_and_state() {
     assert_eq!(quick.kind, SessionKind::TextCompare);
     assert_eq!(
         quick.last_modified,
-        Some(Stamp { year: 2026, month: 11, day: 6, hour: 1, minute: 0, second: 0 })
+        Some(Stamp {
+            year: 2026,
+            month: 11,
+            day: 6,
+            hour: 1,
+            minute: 0,
+            second: 0
+        })
     );
     let alignment = quick.rules.alignment().unwrap();
     assert_eq!(alignment.strategy, AlignStrategy::Quick);
@@ -50,7 +57,10 @@ fn reads_tree_kinds_specs_rules_and_state() {
     assert_eq!(alignment.skew_tolerance, 2000);
 
     let chinese = tree.find("报告 - 副本.md <--> 报告.md").unwrap();
-    assert_eq!(chinese.specs.left.as_ref().unwrap().as_str(), r"D:\docs\报告 - 副本.md");
+    assert_eq!(
+        chinese.specs.left.as_ref().unwrap().as_str(),
+        r"D:\docs\报告 - 副本.md"
+    );
     assert_eq!(chinese.state.get_bool("ShowContext"), Some(true));
 
     let dir = tree.find("source <--> source").unwrap();
@@ -73,7 +83,10 @@ fn reads_tree_kinds_specs_rules_and_state() {
     let defaults: Vec<_> = outer.sessions().map(|s| (s.kind, s.name.clone())).collect();
     assert_eq!(
         defaults,
-        [(SessionKind::FolderCompare, None), (SessionKind::TextCompare, None)]
+        [
+            (SessionKind::FolderCompare, None),
+            (SessionKind::TextCompare, None)
+        ]
     );
 }
 
@@ -86,10 +99,19 @@ fn changed_alignment_rewrites_only_modelled_keys() {
     standard.rules.alignment_mut().unwrap().strategy = AlignStrategy::Patience;
     let written = write_sessions(&tree);
     assert!(written.contains("<AlignKind Value=\"alignPatience\"/>"));
-    assert!(written.contains("<FutureKey Value=\"kept\"/>"), "unmodelled rule key kept");
+    assert!(
+        written.contains("<FutureKey Value=\"kept\"/>"),
+        "unmodelled rule key kept"
+    );
     assert!(written.contains("<Bookmarks Value=\"unmodelled element\"/>"));
     let back = read_sessions(&written).unwrap();
-    let strategy = back.find("standard-align").unwrap().rules.alignment().unwrap().strategy;
+    let strategy = back
+        .find("standard-align")
+        .unwrap()
+        .rules
+        .alignment()
+        .unwrap()
+        .strategy;
     assert_eq!(strategy, AlignStrategy::Patience);
 }
 
@@ -103,7 +125,8 @@ fn new_session_writes_minimal_element() {
     );
     session.last_modified = Stamp::parse("2026-11-18 09:05:00");
     let mut root = bc_session::SessionFolder::default();
-    root.items.push(FolderItem::Session(Box::new(session.clone())));
+    root.items
+        .push(FolderItem::Session(Box::new(session.clone())));
     let written = write_sessions(&root);
     assert_eq!(
         normalise(&written),
@@ -120,7 +143,10 @@ fn new_session_writes_minimal_element() {
             "</BCSessions>\n",
         ))
     );
-    assert_eq!(read_sessions(&written).unwrap().find("a & b"), Some(&session));
+    assert_eq!(
+        read_sessions(&written).unwrap().find("a & b"),
+        Some(&session)
+    );
 
     // Non-default alignment on a fresh session creates the `<Rules>` element.
     let mut text = Session::new(SessionKind::TextCompare);
@@ -134,7 +160,13 @@ fn new_session_writes_minimal_element() {
 #[test]
 fn stamp_parse_rejects_malformed() {
     assert!(Stamp::parse("2026-11-18 09:05:00").is_some());
-    for bad in ["", "2026-11-18", "2026-13-01 00:00:00", "2026-11-18 24:00:00", "x-1-1 0:0:0"] {
+    for bad in [
+        "",
+        "2026-11-18",
+        "2026-13-01 00:00:00",
+        "2026-11-18 24:00:00",
+        "x-1-1 0:0:0",
+    ] {
         assert_eq!(Stamp::parse(bad), None, "{bad:?}");
     }
 }
@@ -151,7 +183,10 @@ fn rejects_other_root_and_keeps_unreadable_children() {
     assert_eq!(session.last_modified, None);
     assert_eq!(session.unknown[0].value_str(), Some("yesterday"));
     // Unreadable rules: typed defaults, element written back untouched.
-    assert_eq!(session.rules.alignment().unwrap().strategy, AlignStrategy::Smart);
+    assert_eq!(
+        session.rules.alignment().unwrap().strategy,
+        AlignStrategy::Smart
+    );
     assert!(write_sessions(&tree).contains("alignWeird"));
 }
 
@@ -183,11 +218,27 @@ fn manager_upsert_remove_and_save() {
     assert_eq!(loaded.root.sessions().count(), 0);
     let work = loaded.root.folders().next().unwrap();
     assert_eq!(work.name.as_deref(), Some("Work"));
-    assert_eq!(work.find("one").unwrap().specs.right.as_ref().unwrap().as_str(), r"C:\r3.txt");
+    assert_eq!(
+        work.find("one")
+            .unwrap()
+            .specs
+            .right
+            .as_ref()
+            .unwrap()
+            .as_str(),
+        r"C:\r3.txt"
+    );
     assert!(loaded.remove("two"));
     assert!(!loaded.remove("two"));
     loaded.save().unwrap();
-    assert_eq!(SessionManager::load(&path).unwrap().root.all_sessions().len(), 1);
+    assert_eq!(
+        SessionManager::load(&path)
+            .unwrap()
+            .root
+            .all_sessions()
+            .len(),
+        1
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -208,10 +259,17 @@ fn local_reference_samples_round_trip() {
             } else if path.file_name().is_some_and(|n| n == "BCSessions.xml") {
                 let text = std::fs::read_to_string(&path).unwrap();
                 let tree = read_sessions(&text).unwrap();
-                assert_eq!(normalise(&write_sessions(&tree)), normalise(&text), "{path:?}");
+                assert_eq!(
+                    normalise(&write_sessions(&tree)),
+                    normalise(&text),
+                    "{path:?}"
+                );
                 checked += 1;
             }
         }
     }
-    assert!(checked > 0, "no BCSessions.xml under MATCHA_SESSION_SAMPLES");
+    assert!(
+        checked > 0,
+        "no BCSessions.xml under MATCHA_SESSION_SAMPLES"
+    );
 }

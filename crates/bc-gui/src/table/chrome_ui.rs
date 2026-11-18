@@ -41,6 +41,8 @@ const EXTRAS: [(usize, &[&str]); 4] = [
 ];
 const ENABLED: &[&str] = &[
     "Session Settings...",
+    "Save Session",
+    "Save Session As...",
     "New Tab",
     "Close Tab",
     "Swap Sides",
@@ -269,6 +271,10 @@ impl TableCompareView {
             "Home" => self.action = Some(super::TableAction::Home),
             "Close Tab" => self.request(Pending::Close),
             "New Tab" => self.action = Some(super::TableAction::NewTab),
+            "Save Session" => self.action = Some(super::TableAction::SaveSession { as_new: false }),
+            "Save Session As..." => {
+                self.action = Some(super::TableAction::SaveSession { as_new: true })
+            }
             "Exit" => self.request(Pending::Exit),
             "Session Settings..." => self.settings_open(),
             "Swap Sides" => self.swap(),

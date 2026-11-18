@@ -29,6 +29,7 @@
 | [cli-and-scripting.md](cli-and-scripting.md) | 命令行三件套、脚本引擎、退出码（FR-S1/S2） | 无窗口子集已实现 | `bc-script` + `apps/` |
 | [reports.md](reports.md) | 报告输出（patch 四种布局等，FR-R1） | patch 布局已实现 | `bc-report` |
 | [sessions-and-formats.md](sessions-and-formats.md) | 会话 / 工作区、文件格式库（FR-X1） | 数据模型与格式库已实现 | `bc-session`、`bc-formats` |
+| [saved-sessions.md](saved-sessions.md) | 命名会话：Save Session / Save Session As、Home「Saved」、`matcha "<会话名>"` | 已实现（单元测试 + app 流程测试） | `bc-session`、`bc-gui` |
 | [resizable-splitters.md](resizable-splitters.md) | 窗格分隔线可拖动（左右 / 上下），位置写盘、重启保持 | 已实现（单元测试 + 快照对比） | `bc-gui` |
 | [gui-shell.md](gui-shell.md) | GUI 外壳与各视图架构（FR-G1） | 已实现（视图群落地；visual-parity 已归档：结构对齐参考、样式走设计系统） | `bc-gui` |
 

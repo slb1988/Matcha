@@ -1,7 +1,7 @@
 //! Session/File/Edit/Search/View 菜单（命令逐项对照 `docs/reference-parity/hex-compare.md` H01–H34）。
 //!
 //! 数据驱动（chrome::menubar）；动作语义在 [`super::view::HexCompareView::command`]。
-//! 已批准后置项（会话持久化、报告、父文件夹联动、外部程序、全局字体）置灰展示。
+//! 已批准后置项（报告、父文件夹联动、外部程序、全局字体）置灰展示。
 
 use crate::chrome::menubar::{MenuItem, MenuItemKind, MenuSpec};
 
@@ -114,7 +114,8 @@ pub fn menus(view: &crate::hex::view::HexCompareView) -> Vec<MenuSpec> {
             title: "Session".into(),
             mnemonic: Some('s'),
             items: vec![
-                off("Save Session"),
+                item("Save Session", Some("Shift+Ctrl+S"), vec![]),
+                item("Save Session As...", None, vec![]),
                 item("Session Settings...", None, vec![]),
                 off("Locked"),
                 off("Clear Session"),

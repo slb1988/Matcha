@@ -28,6 +28,7 @@ pub mod log_panel;
 pub mod merge;
 pub mod perf;
 pub mod remote;
+pub mod sessions;
 pub mod settings;
 pub mod snapshot;
 pub mod sync_view;
@@ -47,6 +48,8 @@ pub struct LaunchOptions {
     pub merge: Option<merge::MergeLaunch>,
     /// `/fv=<type>` 强制会话类型（hex-compare 起生效；None = 按格式路由）。
     pub force_view: Option<bc_session::SessionKind>,
+    /// 命令行 `matcha "<会话名>"`：打开该已保存会话（见 `sessions`）。
+    pub session: Option<String>,
     /// Run the scroll benchmark and exit.
     pub bench: Option<bench::BenchOptions>,
     /// Run the 600-frame two-dimensional table benchmark.

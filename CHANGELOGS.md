@@ -4,6 +4,13 @@
 
 ## 2026-11-18
 
+- **命名会话：保存、Home 重开、命令行按名称打开**（`docs/features/saved-sessions.md`）：
+  文本 / 表格 / 十六进制 / 文件夹比较 / 文件夹同步视图的 Session › **Save Session**（Shift+Ctrl+S）与
+  **Save Session As...** 此前一直是灰的，现在可用：首次保存弹起名框（默认名为标签标题），已命名的标签页再次保存直接覆盖；
+  保存类型、两侧路径，文本比较另存对齐规则与 Show Context。Home 会话树新增 **Saved** 分组，双击重开，
+  选中后按 **−** 并确认即可删除。命令行 `matcha "<会话名>"` 打开该会话（此前报 not supported），
+  常驻实例存在时转交为新标签页。
+
 - **会话文件读写落地**（`docs/features/sessions-and-formats.md`）：`bc-session` 此前的会话持久化全是占位，
   现可读写参考工具格式的 `BCSessions.xml`（嵌套文件夹、按类型默认会话、`LastModified`、Specs、
   文本对齐规则、State），未知类与元素原位保留；本机 34 份参考工具真实会话文件逐字节往返。

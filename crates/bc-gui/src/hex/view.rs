@@ -31,6 +31,10 @@ pub enum HexAction {
     Exit,
     /// Compare Files Using 互切（H10）：同一对文件以 Text/Table Compare 原位重开。
     Using(crate::using::Reopen),
+    /// Session › Save Session（`as_new` = Save Session As…）。
+    SaveSession {
+        as_new: bool,
+    },
 }
 
 /// 退出/关闭确认对话框的状态。
@@ -619,6 +623,8 @@ impl HexCompareView {
     pub fn command(&mut self, id: &str) {
         match id {
             "Session Settings..." => self.settings_open = true,
+            "Save Session" => self.action = Some(HexAction::SaveSession { as_new: false }),
+            "Save Session As..." => self.action = Some(HexAction::SaveSession { as_new: true }),
             "Swap Sides" => self.swap(),
             "Reload Files" => {
                 if self.is_dirty() {

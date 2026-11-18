@@ -139,6 +139,8 @@ fn extras() -> Vec<(usize, MenuItem)> {
 /// Inventory items wired to existing actions; everything else stays disabled.
 const ENABLED: &[&str] = &[
     "Session Settings...",
+    "Save Session",
+    "Save Session As...",
     "New Tab",
     "Close Tab",
     "Swap Sides",
@@ -399,7 +401,8 @@ impl SyncView {
             return None;
         }
         match id {
-            "Close Tab" | "New Tab" => self.folder.folder_command(id),
+            "Close Tab" | "New Tab" | "Save Session" => self.folder.folder_command(id),
+            "Save Session As..." => self.folder.folder_command("Save Session As"),
             "Session Settings..." | "Session Settings" => {
                 self.folder.folder_command("Session Settings")
             }

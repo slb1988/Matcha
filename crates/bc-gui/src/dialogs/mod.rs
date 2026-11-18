@@ -3,6 +3,7 @@ pub mod folder_settings;
 pub mod operation;
 pub mod options;
 pub mod paths;
+pub mod save_session;
 pub mod scope;
 use crate::egui;
 use bc_jobs::Confirmation;

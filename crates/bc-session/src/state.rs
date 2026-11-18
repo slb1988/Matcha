@@ -28,7 +28,10 @@ impl SessionState {
 
     /// `Value` of key `name`.
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.values.iter().find(|n| n.name == name).and_then(Node::value_str)
+        self.values
+            .iter()
+            .find(|n| n.name == name)
+            .and_then(Node::value_str)
     }
 
     /// Delphi boolean (`True`/`False`, case-insensitive); anything else is `None`.

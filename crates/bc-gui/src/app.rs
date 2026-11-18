@@ -172,6 +172,8 @@ pub struct Tab {
     exit_cleared: bool,
     /// 转交来的等待型会话：本页关闭（或随应用退出）时通知等待方。
     on_close: Option<Completion>,
+    /// 已保存会话的名称（Save Session 直接覆盖它；标签标题显示它）。
+    pub session: Option<String>,
 }
 impl Tab {
     fn new(view: View) -> Self {
@@ -180,6 +182,16 @@ impl Tab {
             exit_asked: false,
             exit_cleared: false,
             on_close: None,
+            session: None,
+        }
+    }
+    fn caption(&self) -> String {
+        self.session.clone().unwrap_or_else(|| self.view.caption())
+    }
+    fn window_title(&self) -> String {
+        match &self.session {
+            Some(name) => format!("{name} - {} - Matcha", self.view.kind()),
+            None => self.view.window_title(),
         }
     }
 }
@@ -228,6 +240,10 @@ pub struct MatchaApp {
     remote: Option<RemoteInbox>,
     /// Home 的 Tools > Options（比较视图各自持有自己的对话框）。
     options: crate::dialogs::options::OptionsDialog,
+    /// Session › Save Session As… 的起名对话框。
+    save_dialog: crate::dialogs::save_session::SaveSessionDialog,
+    /// 起名对话框要保存的会话：(标签页下标, 打开时的标签页数, 会话)；标签页变化即作废。
+    save_target: Option<(usize, usize, bc_session::Session)>,
 }
 impl MatchaApp {
     pub fn new(
@@ -274,6 +290,9 @@ impl MatchaApp {
         let bench_dir = options.bench_dir.then(DirBench::default);
         crate::perf::mark("app:view-created");
         let mut app = Self::with_view(view);
+        if !matches!(app.tabs[0].view, View::Home(_)) {
+            app.tabs[0].session = options.session.clone();
+        }
         app.saved_prefs = prefs.clone();
         app.prefs = prefs;
         app.bench = bench;
@@ -320,6 +339,8 @@ impl MatchaApp {
             frame_log: crate::perf::frames_enabled().then(Default::default),
             remote: None,
             options: Default::default(),
+            save_dialog: Default::default(),
+            save_target: None,
         }
     }
     /// 把"启动标签页"的结果交给 `slot`：该页关闭（或随应用退出）时写入其结果码；合并
@@ -357,8 +378,31 @@ impl MatchaApp {
             left,
             right,
             merge,
+            session,
             done,
         } = request;
+        if let Some(name) = session {
+            match Self::saved_view(ctx, &name) {
+                Ok(view) => {
+                    self.bench = None;
+                    self.open_tab(view);
+                    self.tabs[self.active].session = Some(name);
+                    self.tabs[self.active].on_close = done;
+                }
+                Err(message) => {
+                    self.go_home();
+                    if let View::Home(home) = self.view_mut() {
+                        home.set_error(format!("Cannot open: {message}"));
+                    }
+                    if let Some(done) = done {
+                        done(Outcome::Failed(message));
+                    }
+                }
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            return;
+        }
         if let Some(launch) = merge {
             match Self::merge_view(*launch) {
                 Ok(view) => {
@@ -412,6 +456,100 @@ impl MatchaApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
+    /// 已保存会话的视图（文件对同时记入最近比较）。
+    fn saved_view(ctx: &egui::Context, name: &str) -> Result<View, String> {
+        let session = crate::sessions::find(name)
+            .ok_or_else(|| format!("no saved session named {name:?}"))?;
+        let view = crate::sessions::open_view(ctx, &session)?;
+        if !session.kind.is_folder() {
+            if let Some((left, right)) = crate::sessions::pair(&session) {
+                HomeView::record(&left, &right);
+            }
+        }
+        Ok(view)
+    }
+    /// Home 双击已保存会话：新标签页打开，失败把错误写回 Home。
+    fn open_saved(&mut self, ctx: &egui::Context, name: String) {
+        match Self::saved_view(ctx, &name) {
+            Ok(view) => {
+                self.open_tab(view);
+                self.tabs[self.active].session = Some(name);
+            }
+            Err(e) => {
+                if let View::Home(home) = self.view_mut() {
+                    home.set_error(format!("Cannot open: {e}"));
+                }
+            }
+        }
+    }
+    /// Session › Save Session（`as_new` = Save Session As…）：已命名的标签页直接覆盖，
+    /// 否则弹起名对话框（默认名为标签标题 "左 <--> 右"）。
+    pub fn save_session(&mut self, as_new: bool) {
+        let tab = &self.tabs[self.active];
+        let current = tab.session.clone();
+        let Some(session) = crate::sessions::from_view(&tab.view, current.as_deref().unwrap_or(""))
+        else {
+            return;
+        };
+        let suggested = tab.caption();
+        if current.is_some() && !as_new {
+            match crate::sessions::store(session.clone()) {
+                Ok(()) => return,
+                Err(e) => {
+                    self.ask_session_name(suggested, session);
+                    self.save_dialog.error = Some(e);
+                    return;
+                }
+            }
+        }
+        self.ask_session_name(suggested, session);
+    }
+    fn ask_session_name(&mut self, suggested: String, session: bc_session::Session) {
+        let existing = crate::sessions::load()
+            .root
+            .all_sessions()
+            .into_iter()
+            .filter_map(|s| s.name.clone())
+            .collect();
+        self.save_target = Some((self.active, self.tabs.len(), session));
+        self.save_dialog.show(suggested, existing);
+    }
+    /// 起名对话框确认：写入会话库，成功后标签页记住该名称。
+    fn finish_save(&mut self, name: String) {
+        let Some((tab, count, mut session)) = self.save_target.take() else {
+            return;
+        };
+        session.name = Some(name.clone());
+        match crate::sessions::store(session.clone()) {
+            Ok(()) => {
+                self.save_dialog.open = false;
+                self.tabs[tab].session = Some(name);
+            }
+            Err(e) => {
+                self.save_dialog.error = Some(e);
+                self.save_target = Some((tab, count, session));
+            }
+        }
+    }
+    /// 起名对话框：标签页已关闭或切换时作废，否则绘制并处理确认。
+    fn save_dialog_ui(&mut self, ctx: &egui::Context) {
+        if !self.save_dialog.open {
+            self.save_target = None;
+            return;
+        }
+        let stale = self
+            .save_target
+            .as_ref()
+            .is_none_or(|(tab, count, _)| *tab != self.active || *count != self.tabs.len());
+        if stale {
+            self.save_dialog.open = false;
+            self.save_target = None;
+            return;
+        }
+        if let Some(name) = self.save_dialog.ui(ctx) {
+            self.finish_save(name);
+        }
+    }
     /// 合并视图：`launch.table` 为表格合并，否则文本合并。
     fn merge_view(launch: crate::merge::MergeLaunch) -> Result<View, String> {
         if launch.table {
@@ -423,6 +561,13 @@ impl MatchaApp {
     /// 命令行给了两个路径时直接打开比较（唯一标签页，不附带 Home）；否则为 Home。
     fn launch_view(ctx: &egui::Context, options: &LaunchOptions) -> View {
         let home = HomeView::new;
+        if let Some(name) = &options.session {
+            return Self::saved_view(ctx, name).unwrap_or_else(|e| {
+                let mut home = home();
+                home.set_error(format!("Cannot open: {e}"));
+                View::Home(home)
+            });
+        }
         // 合并调用：表格合并（路由已按格式判定）或文本合并。
         if let Some(launch) = &options.merge {
             return match Self::merge_view(launch.clone()) {
@@ -788,7 +933,7 @@ impl MatchaApp {
             .tabs
             .iter()
             .map(|t| TabSpec {
-                title: t.view.caption(),
+                title: t.caption(),
                 icon: Some(t.view.icon()),
             })
             .collect();
@@ -825,13 +970,20 @@ impl MatchaApp {
             self.step_exit(&ctx);
         }
         // Ctrl+T / Ctrl+W 属于标签页容器，先于视图消费，避免视图各自处理。
-        let (new_tab, close_tab) = ctx.input_mut(|i| {
+        let (new_tab, close_tab, save_session) = ctx.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::T),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::W),
+                i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::S,
+                ),
             )
         });
         if !self.exiting {
+            if save_session && !self.save_dialog.open {
+                self.save_session(false);
+            }
             if new_tab {
                 self.open_tab(View::Home(HomeView::new()));
             }
@@ -905,7 +1057,7 @@ impl MatchaApp {
         if !self.has_own_chrome() {
             self.top_bar(ui);
         }
-        let title = self.active_view().window_title();
+        let title = self.tabs[self.active].window_title();
         if self.window_title != title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.window_title = title;
@@ -965,20 +1117,27 @@ impl MatchaApp {
         };
         let prefs = &mut self.prefs;
         let home_modal = self.options.open;
-        panel.show(ui, |ui| match &mut self.tabs[self.active].view {
-            View::Home(home) => {
-                if home_modal {
-                    ui.disable();
-                }
-                home_action = home.ui(ui);
+        let save_modal = self.save_dialog.open;
+        panel.show(ui, |ui| {
+            // 起名对话框打开时，底下的会话不响应指针与焦点。
+            if save_modal {
+                ui.disable();
             }
-            View::TextCompare(view) => view_action = view.ui(ui, prefs),
-            View::TableCompare(view) => table_action = view.ui(ui, prefs),
-            View::HexCompare(view) => hex_action = view.ui(ui),
-            View::FolderCompare(view) => folder_switch = view.ui(ui),
-            View::FolderSync(view) => folder_switch = view.ui(ui),
-            View::TextMerge(view) => merge_action = view.ui(ui, prefs),
-            View::TableMerge(view) => merge_action = view.ui(ui, prefs),
+            match &mut self.tabs[self.active].view {
+                View::Home(home) => {
+                    if home_modal {
+                        ui.disable();
+                    }
+                    home_action = home.ui(ui);
+                }
+                View::TextCompare(view) => view_action = view.ui(ui, prefs),
+                View::TableCompare(view) => table_action = view.ui(ui, prefs),
+                View::HexCompare(view) => hex_action = view.ui(ui),
+                View::FolderCompare(view) => folder_switch = view.ui(ui),
+                View::FolderSync(view) => folder_switch = view.ui(ui),
+                View::TextMerge(view) => merge_action = view.ui(ui, prefs),
+                View::TableMerge(view) => merge_action = view.ui(ui, prefs),
+            }
         });
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.tabs[self.active].view {
@@ -1055,6 +1214,7 @@ impl MatchaApp {
             _ => None,
         };
         let mut folder_open = None;
+        let mut save_request = None;
         if let Some(view) = folder {
             folder_open = view.take_open_request();
             if view.take_exit_request() {
@@ -1066,6 +1226,7 @@ impl MatchaApp {
             if view.take_new_tab_request() {
                 commands.push(TabCommand::NewTab);
             }
+            save_request = view.take_save_session_request();
             if view.take_close_request() {
                 commands.push(TabCommand::Close);
             }
@@ -1078,6 +1239,7 @@ impl MatchaApp {
             Some(HomeAction::Options) => self
                 .options
                 .show(&self.prefs, crate::chrome::dialog::Placement::Window),
+            Some(HomeAction::OpenSession(name)) => self.open_saved(&ctx, name),
             Some(action) => self.open_comparison(&ctx, action),
             None => {}
         }
@@ -1110,6 +1272,10 @@ impl MatchaApp {
                 TableAction::NewTab => Some(TabCommand::NewTab),
                 TableAction::Exit => Some(TabCommand::Exit(true)),
                 TableAction::Using(reopen) => Self::reopen_using(reopen),
+                TableAction::SaveSession { as_new } => {
+                    save_request = Some(as_new);
+                    None
+                }
             };
             commands.extend(command);
         }
@@ -1135,6 +1301,10 @@ impl MatchaApp {
                     }
                 }
                 ViewAction::Using(reopen) => Self::reopen_using(reopen),
+                ViewAction::SaveSession { as_new } => {
+                    save_request = Some(as_new);
+                    None
+                }
             });
         }
         if let Some(action) = hex_action {
@@ -1144,9 +1314,17 @@ impl MatchaApp {
                 HexAction::NewTab => Some(TabCommand::NewTab),
                 HexAction::Exit => Some(TabCommand::Exit(true)),
                 HexAction::Using(reopen) => Self::reopen_using(reopen),
+                HexAction::SaveSession { as_new } => {
+                    save_request = Some(as_new);
+                    None
+                }
             };
             commands.extend(command);
         }
+        if let Some(as_new) = save_request {
+            self.save_session(as_new);
+        }
+        self.save_dialog_ui(&ctx);
         if let Some((sync, paths)) = folder_switch {
             // 比较/同步互切沿用原位替换（同一会话换类型）。
             commands.push(TabCommand::Replace(if sync {

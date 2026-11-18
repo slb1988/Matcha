@@ -36,6 +36,8 @@ pub enum HomeAction {
         kind: SessionKind,
         left: Option<PathBuf>,
     },
+    /// 会话树双击已保存会话：按名称打开（见 `crate::sessions`）。
+    OpenSession(String),
     NewTab,
     CloseTab,
     /// Tools > Options（应用层持有对话框与偏好）。
@@ -130,6 +132,10 @@ impl SessionKind {
 enum Node {
     #[default]
     New,
+    /// 已保存的命名会话（`BCSessions.xml`）分组。
+    Saved,
+    /// [`HomeView::saved`] 的下标：命名文件夹或会话。
+    SavedEntry(usize),
     AutoSaved,
     Kind(usize),
     /// Auto-saved 下的日期分组（[`DAY_GROUPS`] 下标）。
@@ -202,6 +208,11 @@ const SAVED_DRAWER: (Color32, Color32) = (
 pub struct HomeView {
     error: Option<String>,
     recent: Vec<Recent>,
+    /// 已保存会话的树行（文件夹与会话，带深度）。
+    saved: Vec<crate::sessions::Entry>,
+    saved_open: bool,
+    /// "−" 删除已保存会话前的确认（会话名）。
+    delete_confirm: Option<String>,
     selected: Node,
     new_open: bool,
     auto_open: bool,
@@ -221,6 +232,9 @@ impl Default for HomeView {
         Self {
             error: None,
             recent: Vec::new(),
+            saved: Vec::new(),
+            saved_open: true,
+            delete_confirm: None,
             selected: Node::New,
             new_open: true,
             auto_open: true,
@@ -268,6 +282,7 @@ impl HomeView {
     pub fn new() -> Self {
         Self {
             recent: load_recent(),
+            saved: crate::sessions::entries(&crate::sessions::load().root),
             ..Default::default()
         }
     }
@@ -295,6 +310,37 @@ impl HomeView {
         if matches!(self.selected, Node::Recent(i) if i >= self.recent.len()) {
             self.selected = Node::AutoSaved;
         }
+        self.refresh_saved();
+    }
+    /// 重读已保存会话（其他标签页可能刚保存了会话）。
+    pub fn refresh_saved(&mut self) {
+        self.saved = crate::sessions::entries(&crate::sessions::load().root);
+        if matches!(self.selected, Node::SavedEntry(i) if i >= self.saved.len()) {
+            self.selected = Node::Saved;
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn saved_names(&self) -> Vec<String> {
+        self.saved
+            .iter()
+            .filter_map(|e| e.session.clone())
+            .collect()
+    }
+    /// 选中已保存会话并按 "−"（测试用：跳过绘制）。
+    #[cfg(test)]
+    pub(crate) fn request_delete(&mut self, name: &str) {
+        if let Some(i) = self
+            .saved
+            .iter()
+            .position(|e| e.session.as_deref() == Some(name))
+        {
+            self.selected = Node::SavedEntry(i);
+            self.delete_confirm = Some(name.to_string());
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn delete_pending(&self) -> Option<&str> {
+        self.delete_confirm.as_deref()
     }
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.error = Some(message.into());
@@ -502,6 +548,32 @@ impl HomeView {
                 full.x_range(),
             );
         }
+        if let Some(name) = self.delete_confirm.clone() {
+            use crate::chrome::{
+                controls::Role,
+                modal::{Modal, Tone},
+            };
+            match Modal::new("home-delete-session", Tone::Warning, "Delete saved session")
+                .message(format!(
+                    "Delete the saved session \u{201c}{name}\u{201d}? The compared files are not affected."
+                ))
+                .action("Cancel", Role::Secondary)
+                .action("Delete", Role::Destructive)
+                .cancel(0)
+                .width(420.0)
+                .show(ui.ctx())
+            {
+                Some(1) => {
+                    self.delete_confirm = None;
+                    if let Err(e) = crate::sessions::remove(&name) {
+                        self.set_error(e);
+                    }
+                    self.refresh_saved();
+                }
+                Some(_) => self.delete_confirm = None,
+                None => {}
+            }
+        }
         if self.about {
             use crate::chrome::{
                 controls::Role,
@@ -571,6 +643,18 @@ impl HomeView {
                     .map(|(i, kind)| (Node::Kind(i), 1, kind.label().into())),
             );
         }
+        if !self.saved.is_empty() {
+            rows.push((Node::Saved, 0, "Saved".into()));
+            if self.saved_open || !filter.is_empty() {
+                for (i, entry) in self.saved.iter().enumerate() {
+                    if filter.is_empty() {
+                        rows.push((Node::SavedEntry(i), entry.depth + 1, entry.label.clone()));
+                    } else if entry.session.is_some() && entry.haystack.contains(&filter) {
+                        rows.push((Node::SavedEntry(i), 1, entry.label.clone()));
+                    }
+                }
+            }
+        }
         rows.push((Node::AutoSaved, 0, "Auto-saved".into()));
         if auto_open {
             let name = |p: &PathBuf| {
@@ -600,8 +684,15 @@ impl HomeView {
             }
         }
         let clip = painter.with_clip_rect(span(0.0, HEADER_BOTTOM + 1.0, tree_w, toolbar_top));
+        let folder_rows: Vec<bool> = self.saved.iter().map(|e| e.session.is_none()).collect();
         let glyph = |node: Node, indent: f32, cy: f32| match node {
-            Node::New | Node::AutoSaved | Node::Day(_) => {
+            Node::SavedEntry(i) if folder_rows[i] => icons::paint_drawer(
+                &clip,
+                span(23.0 + indent, cy - 5.5, 37.0 + indent, cy + 5.5),
+                SAVED_DRAWER.0,
+                SAVED_DRAWER.1,
+            ),
+            Node::New | Node::Saved | Node::AutoSaved | Node::Day(_) => {
                 let (fill, handle) = if node == Node::New {
                     NEW_DRAWER
                 } else {
@@ -619,14 +710,18 @@ impl HomeView {
                 span(14.0 + indent, cy - 16.0, 46.0 + indent, cy + 16.0),
                 KINDS[i].icon(),
             ),
-            Node::Recent(_) => {}
+            Node::Recent(_) | Node::SavedEntry(_) => {}
         };
         for (index, (node, depth, label)) in rows.into_iter().enumerate() {
             let top = HEADER_BOTTOM + 1.0 + index as f32 * TREE_ROW;
             if top + TREE_ROW > toolbar_top {
                 break;
             }
-            let group = matches!(node, Node::New | Node::AutoSaved | Node::Day(_));
+            let group = matches!(
+                node,
+                Node::New | Node::Saved | Node::AutoSaved | Node::Day(_)
+            );
+            let folder = matches!(node, Node::SavedEntry(i) if self.saved[i].session.is_none());
             let indent = depth as f32 * 19.0;
             let cy = top + TREE_ROW / 2.0;
             let response = ui.interact(
@@ -638,6 +733,7 @@ impl HomeView {
                 // Expander chevron ">" (open: "v") and the dotted stub.
                 let open = match node {
                     Node::New => self.new_open,
+                    Node::Saved => self.saved_open || !filter.is_empty(),
                     Node::Day(g) => self.day_open[g] || !filter.is_empty(),
                     _ => auto_open,
                 };
@@ -659,7 +755,7 @@ impl HomeView {
             }
             let ink = if self.selected == node {
                 theme::ACCENT_PRESSED
-            } else if group {
+            } else if group || folder {
                 theme::TEXT
             } else {
                 theme::TEXT_MUTED
@@ -685,7 +781,12 @@ impl HomeView {
             }
             if response.double_clicked() {
                 match node {
-                    Node::New | Node::AutoSaved | Node::Day(_) => self.toggle(node),
+                    Node::New | Node::Saved | Node::AutoSaved | Node::Day(_) => self.toggle(node),
+                    Node::SavedEntry(i) => {
+                        if let Some(name) = self.saved[i].session.clone() {
+                            *action = Some(HomeAction::OpenSession(name));
+                        }
+                    }
                     Node::Kind(i) => *action = Some(KINDS[i].new_session(None)),
                     Node::Recent(i) => {
                         let item = self.recent[i].clone();
@@ -699,13 +800,15 @@ impl HomeView {
     fn toggle(&mut self, node: Node) {
         match node {
             Node::New => self.new_open = !self.new_open,
+            Node::Saved => self.saved_open = !self.saved_open,
             Node::AutoSaved => self.auto_open = !self.auto_open,
             Node::Day(g) => self.day_open[g] = !self.day_open[g],
             _ => {}
         }
     }
     /// "+" (new session for the selected type) / "−" (forget the selected
-    /// recent comparison) and the tree filter box.
+    /// recent comparison, or delete the selected saved session after a
+    /// confirmation) and the tree filter box.
     fn session_toolbar(
         &mut self,
         ui: &mut egui::Ui,
@@ -720,7 +823,11 @@ impl HomeView {
         let bt = toolbar_top + 6.0;
         let plus = span(6.0, bt, 36.0, bt + 28.0);
         let minus = span(38.0, bt, 67.0, bt + 28.0);
-        let removable = matches!(self.selected, Node::Recent(_));
+        let removable = match self.selected {
+            Node::Recent(_) => true,
+            Node::SavedEntry(i) => self.saved[i].session.is_some(),
+            _ => false,
+        };
         let hover = ui.ctx().pointer_hover_pos();
         for (rect, enabled, cross) in [(plus, true, true), (minus, removable, false)] {
             let ink = if enabled {
@@ -753,8 +860,10 @@ impl HomeView {
                 .interact(minus, id.with("home-minus"), Sense::click())
                 .clicked()
         {
-            if let Node::Recent(i) = self.selected {
-                self.forget(i);
+            match self.selected {
+                Node::Recent(i) => self.forget(i),
+                Node::SavedEntry(i) => self.delete_confirm = self.saved[i].session.clone(),
+                _ => {}
             }
         }
         let search = span(73.0, bt + 1.0, 266.0, bt + 27.0);

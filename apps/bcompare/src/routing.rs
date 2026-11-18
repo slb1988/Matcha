@@ -44,6 +44,7 @@ impl DevFlags {
             right,
             merge,
             force_view,
+            session: None,
             bench: self.bench,
             bench_table: self.bench_table,
             bench_dir: self.bench_dir,
@@ -262,8 +263,8 @@ pub fn unsupported(cli: &CliArgs) -> Option<String> {
         | Invocation::Folders(..)
         | Invocation::Merge3 { .. }
         | Invocation::Merge4 { .. }
-        | Invocation::Single(_) => return None,
-        Invocation::Session(name) => format!("opening saved session {name:?}"),
+        | Invocation::Single(_)
+        | Invocation::Session(_) => return None,
         Invocation::Workspace(name) => format!("opening workspace {name:?}"),
         Invocation::Script { .. } => {
             return Some("scripts run in the starting process and cannot be handed off".into())
@@ -308,6 +309,14 @@ pub fn review_args(args: &[String]) -> Vec<String> {
         })
         .cloned()
         .collect()
+}
+
+/// `matcha "<会话名>"`：按名称打开的已保存会话（界面里查找；找不到时 Home 显示错误）。
+pub fn saved_session(invocation: &Invocation) -> Option<String> {
+    match invocation {
+        Invocation::Session(name) => Some(name.clone()),
+        _ => None,
+    }
 }
 
 /// 两侧路径（文件或文件夹）；其余调用（Home、单个路径）没有比较可开。
@@ -413,7 +422,6 @@ mod tests {
             &["/qc", "a"][..],
             &["/qc", "a", "b", "c"],
             &["/report=patch", "a"],
-            &["MySession"],
             &["x.patch"],
             &["-"],
         ] {
@@ -422,6 +430,16 @@ mod tests {
                 "{args:?} should be unsupported"
             );
         }
+    }
+
+    #[test]
+    fn a_bare_name_opens_the_saved_session_in_the_gui() {
+        assert_eq!(routed(&["MySession"]), Route::SingleInstance);
+        let cli = CliArgs::parse_in(["MySession"], Path::new(".")).unwrap();
+        assert_eq!(saved_session(&cli.invocation).as_deref(), Some("MySession"));
+        assert_eq!(unsupported(&cli), None);
+        let cli = CliArgs::parse_in(["a", "b"], Path::new(".")).unwrap();
+        assert_eq!(saved_session(&cli.invocation), None);
     }
 
     #[test]

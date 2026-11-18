@@ -38,6 +38,8 @@ pub enum TableAction {
     Exit,
     /// Session › Compare Files Using：原位以另一类视图重开。
     Using(crate::using::Reopen),
+    /// Session › Save Session（`as_new` = Save Session As…）。
+    SaveSession { as_new: bool },
 }
 #[derive(Clone)]
 pub(super) enum Pending {

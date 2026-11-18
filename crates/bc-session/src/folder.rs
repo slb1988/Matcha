@@ -86,7 +86,8 @@ impl SessionFolder {
             .iter()
             .position(|i| matches!(i, FolderItem::Folder(f) if f.name.as_deref() == Some(first)))
             .unwrap_or_else(|| {
-                self.items.push(FolderItem::Folder(SessionFolder::named(first.clone())));
+                self.items
+                    .push(FolderItem::Folder(SessionFolder::named(first.clone())));
                 self.items.len() - 1
             });
         match &mut self.items[index] {
@@ -180,9 +181,11 @@ impl SessionManager {
         let name = session.name.clone();
         let folder = self.root.folder_mut(folder_path);
         if let Some(name) = name.as_deref() {
-            if let Some(slot) = folder.items.iter_mut().find(
-                |i| matches!(i, FolderItem::Session(s) if s.name.as_deref() == Some(name)),
-            ) {
+            if let Some(slot) = folder
+                .items
+                .iter_mut()
+                .find(|i| matches!(i, FolderItem::Session(s) if s.name.as_deref() == Some(name)))
+            {
                 *slot = FolderItem::Session(Box::new(session));
                 return;
             }

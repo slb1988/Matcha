@@ -159,16 +159,16 @@ fn main() -> ExitCode {
             if !dev.any() && !perf_env {
                 sync_shell_menu();
             }
-            run_gui(dev.into_launch_with(pair, merge, cli.force_view()), None)
+            let mut launch = dev.into_launch_with(pair, merge, cli.force_view());
+            launch.session = routing::saved_session(&cli.invocation);
+            run_gui(launch, None)
         }
         Route::SingleInstance => {
             // 合并调用总是等待：调用方（P4V 等）靠进程退出判断合并结束。
             let wait = wait || merge.is_some();
-            single_instance(
-                dev.into_launch_with(pair, merge, cli.force_view()),
-                args,
-                wait,
-            )
+            let mut launch = dev.into_launch_with(pair, merge, cli.force_view());
+            launch.session = routing::saved_session(&cli.invocation);
+            single_instance(launch, args, wait)
         }
     }
 }
@@ -489,6 +489,7 @@ fn accept(sender: &RemoteSender, request: Request, responder: Responder) {
         left,
         right,
         merge: merge.map(Box::new),
+        session: routing::saved_session(&cli.invocation),
         done,
     }) {
         Ok(()) => {

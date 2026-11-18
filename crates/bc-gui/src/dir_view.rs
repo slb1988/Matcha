@@ -1905,6 +1905,8 @@ pub struct DirCompareView {
     close_after_text: bool,
     close_requested: bool,
     new_tab_requested: bool,
+    /// Session › Save Session（`Some(true)` = Save Session As…），由应用层取走。
+    save_session_requested: Option<bool>,
     /// 打开的文件对是表格或十六进制比较：由应用在新标签页打开（内嵌窗口只有文本）。
     open_requested: Option<crate::home::HomeAction>,
     compare_to: bool,
@@ -2010,6 +2012,7 @@ impl DirCompareView {
             close_after_text: false,
             close_requested: false,
             new_tab_requested: false,
+            save_session_requested: None,
             open_requested: None,
             compare_to: false,
             align_to: false,
@@ -2364,6 +2367,10 @@ impl DirCompareView {
     /// True once Session > New Tab was chosen.
     pub fn take_new_tab_request(&mut self) -> bool {
         std::mem::take(&mut self.new_tab_requested)
+    }
+    /// Session › Save Session was chosen: `Some(as_new)`.
+    pub fn take_save_session_request(&mut self) -> Option<bool> {
+        self.save_session_requested.take()
     }
     /// 状态栏提示（应用层回报新标签页打开失败等）。
     pub(crate) fn set_message(&mut self, message: impl Into<String>) {
@@ -2787,6 +2794,10 @@ impl DirCompareView {
                 view.request_close();
             }
             match action {
+                // 内嵌文本窗口的 Save Session 保存所在的文件夹会话。
+                Some(ViewAction::SaveSession { as_new }) => {
+                    self.save_session_requested = Some(as_new)
+                }
                 Some(ViewAction::Close) => {
                     self.text = None;
                     self.close_requested = std::mem::take(&mut self.close_after_text);
@@ -3978,6 +3989,8 @@ fn update_folder_items(items: &mut [MenuItem], flags: &MenuFlags) {
         let mut enabled = true;
         match item.action_id.as_str() {
             "Session Settings"
+            | "Save Session"
+            | "Save Session As"
             | "Swap Sides"
             | "browse-left"
             | "browse-right"
@@ -4350,6 +4363,8 @@ impl DirCompareView {
             "Home" => self.home_requested = true,
             "Close Tab" => self.request_tab_close(),
             "New Tab" => self.new_tab_requested = true,
+            "Save Session" => self.save_session_requested = Some(false),
+            "Save Session As" => self.save_session_requested = Some(true),
             "Session Settings" => self.open_settings(),
             "Swap Sides" => self.reload([self.paths.right.clone(), self.paths.left.clone()], true),
             "Back" => {
@@ -4716,7 +4731,7 @@ impl DirCompareView {
                 item::action("Home", "Home", true),
                 item::action("Session Settings...", "Session Settings", true),
                 item::action("Open Session", "Open Session", false),
-                item::action("Save Session", "Save Session", false),
+                item::action("Save Session", "Save Session", true),
             ],
             "Show Differences" => [
                 ("Show All", D::All),

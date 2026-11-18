@@ -35,6 +35,11 @@ fn persist() -> bool {
     PERSIST.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// `false` in snapshot / benchmark runs and unit tests: user files are neither read nor written.
+pub(crate) fn persistence_enabled() -> bool {
+    persist()
+}
+
 /// Deterministic runs (snapshots, benchmarks): defaults only, never read or write the file.
 pub fn disable_persistence() {
     PERSIST.store(false, std::sync::atomic::Ordering::Relaxed);

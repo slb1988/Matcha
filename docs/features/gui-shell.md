@@ -10,6 +10,8 @@
   按本地日期分组（Today / Yesterday / N days ago / More than 6 days ago，仅 Today 默认展开），
   条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matcha\recent-text.txt`（v2：首行
   `# matcha recent v2`，每行 `纪元秒	左	右`；旧的两行一对格式以文件修改时间读入）。
+  有已保存会话时，New 与 Auto-saved 之间多一个 **Saved** 分组（命名会话，见 [saved-sessions.md](saved-sessions.md)）；
+  已命名的标签页标题显示会话名。
   记录与读入时统一还原 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，地址栏只见常规路径。
 - 比较视图（文本/表格/Hex/文件夹/同步）：把文件从资源管理器拖到哪一侧就替换哪一侧（按落点判定，
   与当前活动侧无关）。

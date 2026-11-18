@@ -90,12 +90,17 @@ impl SessionKind {
     }
 
     pub fn from_force_view_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|k| k.force_view_name().eq_ignore_ascii_case(name.trim()))
+        Self::ALL
+            .into_iter()
+            .find(|k| k.force_view_name().eq_ignore_ascii_case(name.trim()))
     }
 
     /// Folder-based kinds use `TDirRules`; the rest are file sessions.
     pub fn is_folder(self) -> bool {
-        matches!(self, SessionKind::FolderCompare | SessionKind::FolderMerge | SessionKind::FolderSync)
+        matches!(
+            self,
+            SessionKind::FolderCompare | SessionKind::FolderMerge | SessionKind::FolderSync
+        )
     }
 
     /// Default rules of a new session of this kind.

@@ -347,6 +347,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
         left: Some(pair[0].clone()),
         right: Some(pair[1].clone()),
         merge: None,
+        session: None,
         done,
     };
 
@@ -364,6 +365,7 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
             left: None,
             right: None,
             merge: None,
+            session: None,
             done: done(&outcomes),
         })
         .is_ok());
@@ -556,6 +558,7 @@ fn handed_off_merges_open_tabs_and_answer_with_the_merge_result() {
         left: None,
         right: None,
         merge: Some(Box::new(launch.clone())),
+        session: None,
         done,
     };
     let ctx = egui::Context::default();
@@ -649,6 +652,7 @@ fn table_merge_launch_and_hand_off_report_result_codes() {
             left: None,
             right: None,
             merge: Some(Box::new(launch.clone())),
+            session: None,
             done: Some(Box::new(move |o| outcomes.lock().unwrap().push(o))),
         }
     };
@@ -772,4 +776,187 @@ fn escape_closes_the_find_bar_instead_of_exiting() {
     assert!(!app.exiting && !app.exit_confirmed);
     esc(&ctx, &mut app);
     assert!(app.exit_confirmed);
+}
+
+fn session_files(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("matcha-saved-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), b"one\ntwo\n").unwrap();
+    std::fs::write(dir.join("b.txt"), b"one\nthree\n").unwrap();
+    dir
+}
+fn clear_sessions() {
+    for s in crate::sessions::load().root.all_sessions() {
+        if let Some(name) = &s.name {
+            crate::sessions::remove(name).unwrap();
+        }
+    }
+}
+
+#[test]
+fn save_session_as_names_the_tab_and_reopens_with_its_alignment() {
+    clear_sessions();
+    let dir = session_files("text");
+    let ctx = egui::Context::default();
+    let mut view = TextCompareView::open(&dir.join("a.txt"), &dir.join("b.txt")).unwrap();
+    let quick = bc_engine_text::rules::AlignmentRules {
+        strategy: bc_core::align::AlignStrategy::Quick,
+        ..Default::default()
+    };
+    view.apply_saved(quick.clone(), Some(false));
+    let mut app = MatchaApp::with_view(View::TextCompare(Box::new(view)));
+    run(&ctx, &mut app, vec![]);
+
+    // Unnamed tab: Save Session asks for a name, suggesting the tab caption.
+    app.save_session(false);
+    assert!(app.save_dialog.open);
+    assert_eq!(app.save_dialog.name, "a.txt <--> b.txt");
+    // egui windows lay out on the first frames before drawing their contents.
+    run(&ctx, &mut app, vec![]);
+    run(&ctx, &mut app, vec![]);
+    let out = run(&ctx, &mut app, vec![]);
+    click(&ctx, &mut app, text_at(&out, "Save"));
+    assert!(!app.save_dialog.open);
+    assert_eq!(app.tabs[0].session.as_deref(), Some("a.txt <--> b.txt"));
+
+    let saved = crate::sessions::find("a.txt <--> b.txt").unwrap();
+    assert_eq!(saved.kind, bc_session::SessionKind::TextCompare);
+    assert_eq!(saved.rules.alignment(), Some(&quick));
+    assert_eq!(saved.state.get_bool("ShowContext"), Some(false));
+    assert_eq!(crate::sessions::pair(&saved).unwrap().1, dir.join("b.txt"));
+
+    // Save Session As with a new name; the tab follows the new name.
+    app.save_session(true);
+    app.finish_save("Work pair".into());
+    assert_eq!(app.tabs[0].caption(), "Work pair");
+    assert_eq!(
+        app.tabs[0].window_title(),
+        "Work pair - Text Compare - Matcha"
+    );
+    // Named tab: Shift+Ctrl+S overwrites without asking.
+    run(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::S,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        }],
+    );
+    assert!(!app.save_dialog.open);
+    assert_eq!(
+        HomeView::new().saved_names(),
+        ["a.txt <--> b.txt", "Work pair"]
+    );
+
+    // Home double-click → new tab named after the session, rules re-applied.
+    app.open_saved(&ctx, "Work pair".into());
+    assert_eq!(app.tab_count(), 2);
+    assert_eq!(app.tabs[1].session.as_deref(), Some("Work pair"));
+    let View::TextCompare(view) = app.active_view() else {
+        panic!("saved text session opens Text Compare")
+    };
+    assert_eq!(view.saved_settings(), (quick, false));
+
+    // `matcha "Work pair"` and an unknown name.
+    let options = LaunchOptions {
+        session: Some("Work pair".into()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        MatchaApp::launch_view(&ctx, &options),
+        View::TextCompare(_)
+    ));
+    let options = LaunchOptions {
+        session: Some("nope".into()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        MatchaApp::launch_view(&ctx, &options),
+        View::Home(_)
+    ));
+    clear_sessions();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn hex_and_folder_views_save_their_kind_and_paths() {
+    clear_sessions();
+    let dir = session_files("kinds");
+    let ctx = egui::Context::default();
+    let hex = HexCompareView::open(&dir.join("a.txt"), &dir.join("b.txt")).unwrap();
+    let session = crate::sessions::from_view(&View::HexCompare(Box::new(hex)), "h").unwrap();
+    assert_eq!(session.kind, bc_session::SessionKind::HexCompare);
+    let (l, r) = (dir.join("l"), dir.join("r"));
+    std::fs::create_dir_all(&l).unwrap();
+    std::fs::create_dir_all(&r).unwrap();
+    let folder = DirCompareView::open(&ctx, &l, &r, false, false);
+    let session = crate::sessions::from_view(&View::FolderCompare(Box::new(folder)), "f").unwrap();
+    assert_eq!(session.kind, bc_session::SessionKind::FolderCompare);
+    assert_eq!(
+        crate::sessions::pair(&session),
+        Some((l.clone(), r.clone()))
+    );
+    crate::sessions::store(session).unwrap();
+    assert!(matches!(
+        MatchaApp::saved_view(&ctx, "f"),
+        Ok(View::FolderCompare(_))
+    ));
+    // Home and merge views have nothing to save.
+    assert!(crate::sessions::from_view(&View::Home(HomeView::default()), "x").is_none());
+    clear_sessions();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn home_lists_saved_sessions_and_deletes_after_confirmation() {
+    clear_sessions();
+    let dir = session_files("home");
+    let session = crate::sessions::session(
+        bc_session::SessionKind::TextCompare,
+        "Keep me",
+        [Some(dir.join("a.txt")), Some(dir.join("b.txt"))],
+    );
+    crate::sessions::store(session).unwrap();
+    let ctx = egui::Context::default();
+    let mut app = MatchaApp::with_view(View::Home(HomeView::new()));
+    let out = run(&ctx, &mut app, vec![]);
+    text_at(&out, "Saved");
+    let row = text_at(&out, "Keep me");
+    // Double-click opens the session in a new, named tab.
+    run(&ctx, &mut app, vec![egui::Event::PointerMoved(row)]);
+    for pressed in [true, false, true, false] {
+        run(&ctx, &mut app, vec![press(row, pressed)]);
+    }
+    assert_eq!(app.tab_count(), 2);
+    assert_eq!(app.tabs[1].session.as_deref(), Some("Keep me"));
+
+    app.activate(0);
+    let View::Home(home) = app.view_mut() else {
+        unreachable!()
+    };
+    home.request_delete("Keep me");
+    let out = run(&ctx, &mut app, vec![]);
+    // Escape cancels; the session stays.
+    esc(&ctx, &mut app);
+    let View::Home(home) = app.active_view() else {
+        unreachable!()
+    };
+    assert_eq!(home.delete_pending(), None);
+    assert!(crate::sessions::exists("Keep me"));
+    let View::Home(home) = app.view_mut() else {
+        unreachable!()
+    };
+    home.request_delete("Keep me");
+    let out2 = run(&ctx, &mut app, vec![]);
+    let _ = out;
+    click(&ctx, &mut app, text_at(&out2, "Delete"));
+    assert!(!crate::sessions::exists("Keep me"));
+    let View::Home(home) = app.active_view() else {
+        unreachable!()
+    };
+    assert!(home.saved_names().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -66,6 +66,10 @@ pub enum ViewAction {
     },
     /// Session › Compare Files Using：原位以另一类视图重开。
     Using(crate::using::Reopen),
+    /// Session › Save Session（`as_new` = Save Session As…）。
+    SaveSession {
+        as_new: bool,
+    },
 }
 #[derive(Clone)]
 enum Pending {
@@ -1123,6 +1127,24 @@ impl TextCompareView {
         }
         Ok(())
     }
+    /// What a saved session keeps of this view: text alignment and Show Context.
+    pub(crate) fn saved_settings(&self) -> (bc_engine_text::rules::AlignmentRules, bool) {
+        (self.map.rules.alignment.clone(), self.context_enabled)
+    }
+    /// Re-apply a saved session's alignment rules and Show Context after opening.
+    pub(crate) fn apply_saved(
+        &mut self,
+        alignment: bc_engine_text::rules::AlignmentRules,
+        show_context: Option<bool>,
+    ) {
+        if self.map.rules.alignment != alignment {
+            self.map.rules.alignment = alignment;
+            self.recompare();
+        }
+        if show_context.is_some_and(|c| c != self.context_enabled) {
+            self.toggle_context();
+        }
+    }
     /// Current session state as a Session Settings draft.
     pub(crate) fn session_draft(&self) -> SessionDraft {
         let side = |s: usize| self.content(s);
@@ -1779,6 +1801,8 @@ impl TextCompareView {
                             | "New Tab"
                             | "Close Tab"
                             | "Exit"
+                            | "Save Session"
+                            | "Save Session As..."
                             | "Swap Sides"
                             | "Reload Files"
                             | "Recompare Files"
@@ -1906,6 +1930,19 @@ impl TextCompareView {
         ctx.memory_mut(|m| m.request_focus(editor_id(s)));
         self.command(id, ctx, prefs);
     }
+    fn toggle_context(&mut self) {
+        self.context_enabled = !self.context_enabled;
+        if matches!(
+            self.filter,
+            DisplayFilter::Context | DisplayFilter::Differences
+        ) {
+            self.filter = if self.context_enabled {
+                DisplayFilter::Context
+            } else {
+                DisplayFilter::Differences
+            };
+        }
+    }
     fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
         let old_filter = self.filter;
         match id {
@@ -1924,6 +1961,8 @@ impl TextCompareView {
             "Home" => self.action = Some(ViewAction::Home),
             "Close Tab" => self.request_close(),
             "New Tab" => self.action = Some(ViewAction::NewTab),
+            "Save Session" => self.action = Some(ViewAction::SaveSession { as_new: false }),
+            "Save Session As..." => self.action = Some(ViewAction::SaveSession { as_new: true }),
             "Exit" => self.request_exit(),
             "First difference" => self.navigate(true, true),
             "Last difference" => self.navigate(false, true),
@@ -2055,19 +2094,7 @@ impl TextCompareView {
                 }
             }
             "Show Same" => self.filter = DisplayFilter::Same,
-            "Show Context" => {
-                self.context_enabled = !self.context_enabled;
-                if matches!(
-                    self.filter,
-                    DisplayFilter::Context | DisplayFilter::Differences
-                ) {
-                    self.filter = if self.context_enabled {
-                        DisplayFilter::Context
-                    } else {
-                        DisplayFilter::Differences
-                    };
-                }
-            }
+            "Show Context" => self.toggle_context(),
             "Ignore Unimportant Differences" => {
                 self.map.rules.ignore_unimportant = !self.map.rules.ignore_unimportant;
                 self.after_alignment();

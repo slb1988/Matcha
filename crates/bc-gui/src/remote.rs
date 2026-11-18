@@ -25,6 +25,8 @@ pub struct RemoteOpen {
     pub left: Option<PathBuf>,
     pub right: Option<PathBuf>,
     pub merge: Option<Box<crate::merge::MergeLaunch>>,
+    /// 按名称打开已保存会话（`matcha "<会话名>"`）；有它时不看 `left` / `right`。
+    pub session: Option<String>,
     pub done: Option<Completion>,
 }
 
