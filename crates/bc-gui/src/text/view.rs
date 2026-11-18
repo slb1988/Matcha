@@ -1385,6 +1385,12 @@ impl TextCompareView {
         use crate::chrome::splitter;
         let width = TEXT_SPLIT_X.first(panes.width());
         let height = TEXT_SPLIT_Y.first(panes.height());
+        // Scrollbars pan the view, not the editor. egui normally surrenders
+        // keyboard focus on a click outside the focused widget (including a bar).
+        let editor_focus = ctx
+            .memory(|m| m.focused())
+            .filter(|&id| id == editor_id(self.active));
+        let mut on_scrollbar = false;
         for s in 0..2 {
             let rect = if self.stacked {
                 if s == 0 {
@@ -1403,7 +1409,7 @@ impl TextCompareView {
                     .max_rect(rect),
                 |ui| {
                     ui.set_clip_rect(rect.intersect(ui.clip_rect()));
-                    self.pane(ui, s, rect.height(), prefs);
+                    on_scrollbar |= self.pane(ui, s, rect.height(), prefs);
                 },
             );
         }
@@ -1448,7 +1454,7 @@ impl TextCompareView {
             })
         };
         let inline = self.detail_segments(prefs);
-        status_bar::details(
+        let detail_bar = status_bar::details(
             ui,
             details,
             [
@@ -1460,6 +1466,14 @@ impl TextCompareView {
             self.active,
             &mut self.details_scroll_x,
         );
+        on_scrollbar |= detail_bar.is_some_and(|bar| bar.interact_pointer_pos().is_some());
+        if on_scrollbar
+            && ctx.input(|i| i.pointer.primary_pressed() || i.pointer.primary_released())
+        {
+            if let Some(id) = editor_focus {
+                ctx.memory_mut(|m| m.request_focus(id));
+            }
+        }
         let status = egui::Rect::from_min_size(
             egui::pos2(available.left(), details.bottom()),
             egui::vec2(available.width(), 25.0),

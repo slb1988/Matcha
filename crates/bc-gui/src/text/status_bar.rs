@@ -92,7 +92,7 @@ pub(super) fn details(
     inline: [Option<DetailSegments>; 2],
     active: usize,
     scroll_x: &mut f32,
-) {
+) -> Option<egui::Response> {
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
     // 参考行详情：左侧 160 边、两条内容行（白底/灰白底文本框）、底部白色高光。
@@ -158,7 +158,7 @@ pub(super) fn details(
         .iter()
         .map(|(g, _, w, _, _)| g.size().x + w)
         .fold(0.0, f32::max);
-    if width > view {
+    let scrollbar = if width > view {
         if ui.is_enabled() && ui.rect_contains_pointer(rect) {
             let delta = crate::chrome::wheel::delta(ui.ctx(), &[rect]);
             *scroll_x -= delta.x + delta.y;
@@ -167,14 +167,14 @@ pub(super) fn details(
             rect.min + egui::vec2(0.0, 32.0),
             egui::vec2(rect.width(), 16.0),
         );
-        crate::chrome::scrollbar::show_horizontal_px(
+        Some(crate::chrome::scrollbar::show_horizontal_px(
             ui,
             band,
             ui.make_persistent_id("text_details_scroll"),
             width,
             view,
             scroll_x,
-        );
+        ))
     } else {
         *scroll_x = 0.0;
         // When both rows fit, retain the reference's inactive band.
@@ -183,7 +183,8 @@ pub(super) fn details(
             0.0,
             DASH,
         );
-    }
+        None
+    };
     let text_x = left - *scroll_x;
     for (s, (galley, marker, marker_w, ending, caret)) in rows.into_iter().enumerate() {
         let top = rect.top() + s as f32 * 16.0;
@@ -277,6 +278,7 @@ pub(super) fn details(
             row_painter.galley(egui::pos2(marker_x, top + 2.0), marker, MARKER);
         }
     }
+    scrollbar
 }
 /// Details caret bar and equal-row box edge.
 const CARET: egui::Color32 = egui::Color32::from_rgb(0xC0, 0xC0, 0xC0);

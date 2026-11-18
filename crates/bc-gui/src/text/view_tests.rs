@@ -994,6 +994,74 @@ fn details_take_the_current_rows_difference_colors_and_caret_bar() {
 }
 
 #[test]
+fn pane_scrollbars_pan_without_changing_the_selected_row_or_keyboard_focus() {
+    let ctx = egui::Context::default();
+    let long = "1234567890".repeat(28);
+    let text = (0..120)
+        .map(|n| format!("row {n}: {long}\n"))
+        .collect::<String>();
+    let mut v = view(&text, &text);
+    for _ in 0..3 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    let panes = v.pane_rects;
+    // A real drag selection in the right editor.
+    let p = panes[1].min + egui::vec2(100.0, 68.0);
+    let q = p + egui::vec2(35.0, 0.0);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(p), pointer(p, true)],
+    );
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(q)]);
+    frame(&ctx, &mut v, vec![pointer(q, false)]);
+    let selection = v.editors[1].selection();
+    assert!(selection.is_some());
+    let row = v.current_row;
+    let carets = v.editors.each_ref().map(|e| e.caret);
+    let assert_owner = |v: &TextCompareView| {
+        assert_eq!(v.active, 1);
+        assert_eq!(v.current_row, row);
+        assert_eq!(v.editors.each_ref().map(|e| e.caret), carets);
+        assert_eq!(v.editors[1].selection(), selection);
+        assert!(ctx.memory(|m| m.has_focus(editor_id(1))));
+    };
+    // Opposite horizontal track overlaps an overscan row; the vertical
+    // track of the active pane can pan the selection entirely off screen.
+    click(
+        &ctx,
+        &mut v,
+        panes[0].right_bottom() - egui::vec2(60.0, 9.0),
+    );
+    assert!(v.scroll.x > 0.0);
+    assert_owner(&v);
+    click(
+        &ctx,
+        &mut v,
+        egui::pos2(panes[1].right() - 9.0, panes[1].center().y),
+    );
+    assert!(v.scroll.y > 0.0);
+    assert_owner(&v);
+    let out = frame(&ctx, &mut v, vec![]);
+    let detail_line = format!("row {row}: {long}");
+    assert_eq!(
+        text_shapes(&out)
+            .into_iter()
+            .filter(|(t, r)| t == &detail_line && r.top() > panes[1].bottom())
+            .count(),
+        2
+    );
+    // Details have their own scroll offset, but shouldn't steal editor focus either.
+    click(
+        &ctx,
+        &mut v,
+        panes[1].right_bottom() + egui::vec2(-8.0, 59.0),
+    );
+    assert!(v.details_scroll_x > 0.0);
+    assert_owner(&v);
+}
+
+#[test]
 fn details_scrollbar_moves_both_rows_without_scrolling_either_editor() {
     let ctx = egui::Context::default();
     // Only the inactive side overflows. Include tab and multibyte text in the width.

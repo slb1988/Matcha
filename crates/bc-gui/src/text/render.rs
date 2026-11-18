@@ -20,7 +20,8 @@ use eframe::egui::{
 };
 
 impl TextCompareView {
-    pub(crate) fn pane(&mut self, ui: &mut egui::Ui, s: usize, height: f32, prefs: &Prefs) {
+    /// Returns whether the pointer is over the pane's scrollbar band, outside the text viewport.
+    pub(crate) fn pane(&mut self, ui: &mut egui::Ui, s: usize, height: f32, prefs: &Prefs) -> bool {
         let top = ui.cursor().top();
         self.header(ui, s, prefs);
         let remaining = (height - (ui.cursor().top() - top) - 19.0).max(40.0);
@@ -36,10 +37,6 @@ impl TextCompareView {
         );
         let id = editor_id(s);
         let response = ui.interact(rect, id, egui::Sense::click());
-        if response.clicked() {
-            self.active = s;
-            response.request_focus();
-        }
         ui.memory_mut(|m| {
             m.set_focus_lock_filter(
                 id,
@@ -61,6 +58,7 @@ impl TextCompareView {
             .min((self.projection.height(geometry) - remaining + 16.0).max(0.0));
         let scroll = self.scroll;
         ui.spacing_mut().item_spacing.y = 0.0;
+        ui.spacing_mut().scroll.floating = false;
         ui.spacing_mut().scroll.bar_width = 16.0;
         ui.spacing_mut().scroll.bar_inner_margin = 1.0;
         ui.spacing_mut().scroll.bar_outer_margin = 1.0;
@@ -477,7 +475,9 @@ impl TextCompareView {
                         });
                         if let Some(p) = pointer.filter(|p| {
                             viewport_rect.contains(*p)
-                                && self.pane_rects[s].contains(*p)
+                                // Overscan rows can be painted underneath the horizontal bar.
+                                // Only their clipped (interactive) portion is selectable.
+                                && response.interact_rect.contains(*p)
                                 && !covered
                                 // 在箭头上按下属于箭头（拖选经过箭头区仍照常扩展）。
                                 && !((pressed || secondary)
@@ -572,6 +572,14 @@ impl TextCompareView {
                 })
                 .inner
             });
+        if response.clicked()
+            && response
+                .interact_pointer_pos()
+                .is_some_and(|p| output.inner_rect.contains(p))
+        {
+            self.active = s;
+            response.request_focus();
+        }
         // Row interactions sit above the pane's focus registration. Restore the
         // editor owner on mouse release after egui's click-elsewhere processing.
         // 拖选途中指针可能离开起始行（甚至窗格），光标保持 I 形。
@@ -628,6 +636,13 @@ impl TextCompareView {
             self.scroll = offset;
             ui.ctx().request_repaint();
         }
+        ui.is_enabled()
+            && ui.rect_contains_pointer(rect)
+            && ui.input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !output.inner_rect.contains(p))
+            })
     }
     pub(super) fn ensure_inline(&mut self, row: usize) {
         if self.map.is_stale() || self.inline.contains_key(&row) {

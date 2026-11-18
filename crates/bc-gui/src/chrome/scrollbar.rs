@@ -193,15 +193,34 @@ fn horizontal_frame(
     }
     let thumb_width = thumb(track.width().max(0.0));
     let travel = track.width() - thumb_width;
-    let x = track.left() + travel * position.clamp(0.0, 1.0);
-    let thumb = Rect::from_min_size(egui::pos2(x, track.top()), egui::vec2(thumb_width, 16.0));
-    let r = ui.interact(track, id.with("track"), Sense::click_and_drag());
+    let thumb_at = |fraction: f32| {
+        Rect::from_min_size(
+            egui::pos2(track.left() + travel * fraction, track.top()),
+            egui::vec2(thumb_width, 16.0),
+        )
+    };
+    let r = ui.interact(track, id.with("track"), Sense::CLICK | Sense::DRAG);
+    let grab_id = id.with("thumb_grab");
     let mut ratio = None;
-    if (r.clicked() || r.dragged()) && travel > 0.0 {
-        if let Some(pos) = r.interact_pointer_pos() {
-            ratio = Some(((pos.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0));
-        }
+    if let Some(pos) = r.interact_pointer_pos().filter(|_| travel > 0.0) {
+        // Keep the grab point on the thumb; only a press on the bare track centers it.
+        let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(pos);
+        let thumb = thumb_at(position);
+        let grab = ui.data_mut(|d| {
+            *d.get_temp_mut_or_insert_with(grab_id, || {
+                if thumb.contains(origin) {
+                    (origin.x - thumb.left()) / thumb_width
+                } else {
+                    0.5
+                }
+            })
+        });
+        ratio = Some(((pos.x - track.left() - grab * thumb_width) / travel).clamp(0.0, 1.0));
     }
+    if !r.is_pointer_button_down_on() {
+        ui.data_mut(|d| d.remove::<f32>(grab_id));
+    }
+    let thumb = thumb_at(ratio.unwrap_or(position));
     ui.painter().rect_filled(
         thumb.shrink2(egui::vec2(1.0, 4.0)),
         4.0,
@@ -269,6 +288,37 @@ mod tests {
         run(&mut offset, press(end, true));
         run(&mut offset, press(end, false));
         assert_eq!(offset, 800.0);
+        // When only 20 px overflow the thumb nearly fills a 184 px track.
+        // A small drag from its LEFT edge must move at once, not wait until
+        // the pointer passes the thumb's centre.
+        let mut near = 0.0;
+        let p = rect.left_center() + egui::vec2(19.0, 0.0);
+        let q = p + egui::vec2(8.0, 0.0);
+        for events in [
+            vec![],
+            press(p, true),
+            vec![egui::Event::PointerMoved(q)],
+            press(q, false),
+        ] {
+            let _ = crate::chrome::test_frame(
+                &ctx,
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    super::show_horizontal_px(
+                        ui,
+                        rect,
+                        egui::Id::unique("near"),
+                        220.0,
+                        200.0,
+                        &mut near,
+                    );
+                },
+            );
+        }
+        assert!((near - 8.0 * 220.0 / 184.0).abs() < 0.1, "{near}");
         // Content that fits: offset stays 0.
         let mut fits = 30.0;
         let _ = crate::chrome::test_frame(&ctx, Default::default(), |ui| {
