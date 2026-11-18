@@ -4,6 +4,8 @@
 
 ## 2026-11-18
 
+- **发布 [Matcha v0.1.0](https://github.com/slb1988/Matcha/releases/tag/v0.1.0)**：Windows x64 发行包已可下载；下一次发布的版本号为 `0.1.1`。
+
 - **应用图标：抹茶叶**（`docs/features/gui-shell.md`）：一片抹茶叶，中间叶脉即左右两栏的分隔线，
   两侧侧脉逐对对齐、唯独右侧一条错位并标橙——寓意找出差异（*Match*·a / 抹茶 ≈ 抹差）。
   `matcha.exe`、`matcha-comp.exe`、`matcha-compc.exe`（含 `matcha.com`）内嵌多尺寸图标，资源管理器与任务栏显示；
