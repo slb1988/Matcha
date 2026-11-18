@@ -10,11 +10,10 @@ use bc_engine_table::{
     Sheet, SheetStore, TableRules,
 };
 use bc_formats::model::HeaderMode;
-use bc_jobs::{CancelToken, Job, JobContext, JobError, JobId, JobResult, Progress, ProgressSink};
+use bc_jobs::{Job, JobContext, JobError, JobResult};
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex, OnceLock},
-    thread::JoinHandle,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 /// Controlled experimental entry (default off): bind delimited text sources to
@@ -522,70 +521,5 @@ impl Job for ScanJob {
         Ok(Box::new(Output::Scanned(states)))
     }
 }
-#[derive(Default)]
-struct State(Mutex<String>);
-impl ProgressSink for State {
-    fn report(&self, _: JobId, p: &Progress) {
-        if let Ok(mut text) = self.0.lock() {
-            text.clone_from(&p.message);
-        }
-    }
-}
-pub struct Worker {
-    cancel: CancelToken,
-    handle: Option<JoinHandle<Result<Output, JobError>>>,
-    progress: Arc<State>,
-}
-impl Worker {
-    pub fn spawn(job: Box<dyn Job>) -> Self {
-        let cancel = CancelToken::new();
-        let progress = Arc::new(State::default());
-        let ctx = JobContext {
-            id: JobId(1),
-            cancel: cancel.clone(),
-            progress: progress.clone(),
-            interaction: None,
-        };
-        let handle = std::thread::spawn(move || {
-            job.run(&ctx)?
-                .downcast::<Output>()
-                .map(|o| *o)
-                .map_err(|_| JobError::Failed("unexpected worker payload".into()))
-        });
-        Self {
-            cancel,
-            progress,
-            handle: Some(handle),
-        }
-    }
-    pub fn poll(&mut self) -> Option<Result<Output, JobError>> {
-        if !self.handle.as_ref()?.is_finished() {
-            return None;
-        }
-        Some(
-            self.handle
-                .take()
-                .unwrap()
-                .join()
-                .unwrap_or_else(|_| Err(JobError::Failed("table worker panicked".into()))),
-        )
-    }
-    pub fn cancel(&self) {
-        self.cancel.cancel();
-    }
-    pub fn progress(&self) -> String {
-        self.progress
-            .0
-            .try_lock()
-            .map(|s| s.clone())
-            .unwrap_or_else(|_| "Comparing".into())
-    }
-}
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.cancel.cancel();
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
+/// 后台读取 / 对齐 / 扫描 job（`bc_jobs::Worker`，ADR 008）：drop 时取消并 join。
+pub type Worker = bc_jobs::Worker<Output>;

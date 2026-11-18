@@ -1,6 +1,6 @@
 [package]
 name = "bc-jobs"
-description = "Background job framework: cancellation, progress, dependencies, priority queue, worker threads and resource pools (BC TJob*). std::thread + crossbeam, no async runtime."
+description = "Background job framework: the Job trait, cooperative cancellation, progress and a per-job std::thread Worker (BC TJob*). No async runtime."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,4 +8,3 @@ publish.workspace = true
 
 [dependencies]
 bc-core = { workspace = true }
-crossbeam-channel = { workspace = true }

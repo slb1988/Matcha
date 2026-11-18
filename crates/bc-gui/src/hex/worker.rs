@@ -1,89 +1,13 @@
-//! 每视图一个可取消的 std worker；与 text 视图同约定：保存/卸载前 join，绝不泄漏 mmap 快照。
-use bc_engine_bin::hex::{HexAlignJob, HexAlignOutput};
-use bc_jobs::{CancelToken, Job, JobContext, JobError, JobId, Progress, ProgressSink};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-
-#[derive(Default)]
-pub struct ProgressState(Mutex<String>);
-impl ProgressSink for ProgressState {
-    fn report(&self, _: JobId, p: &Progress) {
-        if let Ok(mut s) = self.0.lock() {
-            s.clone_from(&p.message);
-        }
-    }
-}
-
-/// 后台对齐 worker：携带 revision 的快照 job（过期结果由 `HexMap::set_alignment` 拒绝）。
-pub struct Worker {
-    cancel: CancelToken,
-    handle: Option<JoinHandle<Result<HexAlignOutput, JobError>>>,
-    progress: Arc<ProgressState>,
-}
-
-impl Worker {
-    pub fn spawn(job: HexAlignJob) -> Self {
-        let cancel = CancelToken::new();
-        let progress = Arc::new(ProgressState::default());
-        let context = JobContext {
-            id: JobId(1),
-            cancel: cancel.clone(),
-            progress: progress.clone(),
-            interaction: None,
-        };
-        let handle = std::thread::spawn(move || {
-            Box::new(job)
-                .run(&context)?
-                .downcast::<HexAlignOutput>()
-                .map(|o| *o)
-                .map_err(|_| JobError::Failed("unexpected alignment output".into()))
-        });
-        Self {
-            cancel,
-            handle: Some(handle),
-            progress,
-        }
-    }
-
-    pub fn progress(&self) -> String {
-        self.progress
-            .0
-            .try_lock()
-            .map(|s| s.clone())
-            .unwrap_or_else(|_| "Comparing".into())
-    }
-
-    pub fn poll(&mut self) -> Option<Result<HexAlignOutput, JobError>> {
-        if !self.handle.as_ref()?.is_finished() {
-            return None;
-        }
-        Some(
-            self.handle
-                .take()
-                .unwrap()
-                .join()
-                .unwrap_or_else(|_| Err(JobError::Failed("comparison worker panicked".into()))),
-        )
-    }
-
-    pub fn cancel(&self) {
-        self.cancel.cancel();
-    }
-}
-
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.cancel.cancel();
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
+//! 每视图一个可取消的后台对齐 job（`bc_jobs::Worker`，ADR 008）；与 text 视图同约定：
+//! 保存/卸载前 join，绝不泄漏 mmap 快照。
+//!
+//! 携带 revision 的快照 job：过期结果由 `HexMap::set_alignment` 拒绝。
+pub type Worker = bc_jobs::Worker<bc_engine_bin::hex::HexAlignOutput>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bc_engine_bin::hex::{HexContent, HexMap, HexStats};
+    use bc_engine_bin::hex::{HexAlignJob, HexContent, HexMap, HexStats};
 
     /// 后台执行 → poll 收取 → set_alignment 回填（revision 一致时）。
     #[test]
@@ -106,7 +30,7 @@ mod tests {
             ..Default::default()
         };
         let job = HexAlignJob::from_map(&map);
-        let mut worker = Worker::spawn(job);
+        let mut worker = Worker::spawn(Box::new(job));
         let output = loop {
             if let Some(result) = worker.poll() {
                 break result.unwrap();
@@ -133,7 +57,7 @@ mod tests {
             ..Default::default()
         };
         let job = HexAlignJob::from_map(&map);
-        let mut worker = Worker::spawn(job);
+        let mut worker = Worker::spawn(Box::new(job));
         map.right.replace(0..0, &[0xFF]).unwrap(); // 编辑触发 revision 前进
         let output = loop {
             if let Some(result) = worker.poll() {

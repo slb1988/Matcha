@@ -56,7 +56,7 @@ crates/
   bc-core/                 line model, diff/align traits, undo stack, hashing, encoding, Delphi-XML persistence
   bc-formats/              format registry; build.rs converts bcfileformats.xml → embedded JSON
   bc-vfs/                  Vfs trait + LocalFs skeleton + VfsManager
-  bc-jobs/                 Job/JobManager/ThreadPool/ResourcePool (std::thread + crossbeam)
+  bc-jobs/                 Job trait, cancellation, progress, per-job Worker thread (ADR 008)
   bc-engine-text/          TextMap, rules, importance, inline diff, merge, align jobs
   bc-engine-dir/           DirTree, criteria, filters, sync plan, file ops, jobs
   bc-engine-table/         TableModel, KeyAlign, TableRules
@@ -83,7 +83,7 @@ apps → bc-gui / bc-script → bc-report → bc-session → bc-engine-{text,dir
 
 `bc-engine-dir` additionally uses `bc-engine-text` (rules-based content compare).
 No engine crate depends on `bc-gui`; `bc-gui` is the only crate with a GUI dependency.
-`bc-jobs` uses only `std::thread` and `crossbeam-channel` (no async runtime).
+`bc-jobs` uses only `std::thread` (no async runtime); each job runs on its own thread owned by the view that started it (ADR 008).
 
 ## Build, test, run
 

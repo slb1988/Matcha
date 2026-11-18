@@ -1,38 +1,32 @@
 //! # bc-jobs
 //!
-//! Background task framework – BC `TJob` / `TJobManager` / `TJobThreadPool` /
-//! `TJobResourcePool` / `TJobContext` / `TJobPriorityQueue` / `TJobDependencyArray`.
+//! Background task framework – BC `TJob` / `TJobContext`.
 //!
 //! All I/O and comparison work in the application runs as jobs so the UI thread only
-//! renders and edits (spec §7). Implementation constraint: `std::thread` + crossbeam
-//! channels only – no async runtime.
+//! renders and edits (spec §7). Each job runs on its own `std` thread owned by the code
+//! that started it ([`Worker`]); there is no shared pool or scheduler (ADR 008). No async
+//! runtime.
 //!
 //! | type | BC class |
 //! |---|---|
-//! | [`Job`] | `TJob`, `TThreadJob`, `TSimpleJob`, `TResourceJob` |
+//! | [`Job`] | `TJob`, `TThreadJob`, `TSimpleJob` |
 //! | [`JobContext`] / [`CancelToken`] / [`Progress`] | `TJobContext`, `TJobWaitForBlocker` |
-//! | [`JobManager`] / [`JobHandle`] | `TJobManager` (`TAsyncThreadSynchronizer`), `TJobArray` |
-//! | [`pool::ThreadPool`] | `TJobThreadPool`, `TJobWorkerThread`, `TJobPriorityQueue` |
-//! | [`resource::ResourcePool`] | `TJobResourcePool`, `TJobResource`, `TJobResourceThread` |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
+//! | [`Worker`] | `TThreadJob` run on a dedicated thread |
 #![forbid(unsafe_code)]
 
-pub mod manager;
-pub mod pool;
-pub mod resource;
+pub mod worker;
 
-pub use manager::{JobHandle, JobManager, JobManagerConfig};
-pub use resource::{ResourceKey, ResourceLease, ResourcePool};
+pub use worker::Worker;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Unique job identifier within a [`JobManager`].
+/// Job identifier reported to [`ProgressSink`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct JobId(pub u64);
 
-/// Scheduling priority (`TJobPriorityQueue`). Interactive jobs (loading the visible
-/// pane) outrank bulk content comparison.
+/// Declared priority (`TJobPriorityQueue`): interactive jobs (loading the visible pane)
+/// outrank bulk content comparison. Informational while every job has its own thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum Priority {
     Low,
@@ -43,23 +37,10 @@ pub enum Priority {
     Interactive,
 }
 
-/// Lifecycle state visible through [`JobHandle::status`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JobStatus {
-    /// Queued, possibly waiting on dependencies.
-    Pending,
-    Running,
-    Completed,
-    Failed(String),
-    Cancelled,
-}
-
 /// Error returned by a job.
 #[derive(Debug)]
 pub enum JobError {
     Cancelled,
-    /// Dependency failed, so this job never ran.
-    DependencyFailed(JobId),
     Failed(String),
     Io(std::io::Error),
 }
@@ -68,7 +49,6 @@ impl std::fmt::Display for JobError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JobError::Cancelled => f.write_str("cancelled"),
-            JobError::DependencyFailed(id) => write!(f, "dependency {id:?} failed"),
             JobError::Failed(m) => f.write_str(m),
             JobError::Io(e) => write!(f, "io: {e}"),
         }
@@ -173,11 +153,6 @@ pub trait Job: Send + 'static {
 
     fn priority(&self) -> Priority {
         Priority::Normal
-    }
-
-    /// Resources this job must lease before running (connections, disks) – `TResourceJob`.
-    fn resources(&self) -> Vec<ResourceKey> {
-        Vec::new()
     }
 
     /// Execute. Must poll `ctx.cancel` regularly.

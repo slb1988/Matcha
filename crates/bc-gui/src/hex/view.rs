@@ -208,7 +208,7 @@ impl HexCompareView {
             None
         } else {
             // 对齐在后台进行；期间网格以对齐前布局（两侧按偏移并排）立即可浏览。
-            Some(Worker::spawn(HexAlignJob::from_map(&map)))
+            Some(Worker::spawn(Box::new(HexAlignJob::from_map(&map))))
         };
         let mut view = Self {
             summary: HexSummary::of(&map.align, map.left.bytes(), map.right.bytes()),
@@ -416,7 +416,7 @@ impl HexCompareView {
     /// 丢弃对齐结果并按当前内容重算（H07 Recompare / 编辑后重对齐）。
     pub fn recompare(&mut self) {
         drop(self.worker.take()); // Drop 先 cancel 再 join
-        self.worker = Some(Worker::spawn(HexAlignJob::from_map(&self.map)));
+        self.worker = Some(Worker::spawn(Box::new(HexAlignJob::from_map(&self.map))));
         self.message = "Comparing…".into();
     }
 
