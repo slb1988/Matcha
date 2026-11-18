@@ -96,10 +96,14 @@ pub fn run_with_remote(
     } else {
         [1400.0, 900.0]
     });
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size(size)
+        .with_title("Matcha");
+    if let Some(icon) = app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let native = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(size)
-            .with_title("Matcha"),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -125,6 +129,22 @@ pub fn run_with_remote(
     // 快照运行只关心 PNG 是否写出；会话结果码只对真实的合并调用有意义。
     let code = launch_result.lock().unwrap().take();
     Ok(if snapshot_mode { 0 } else { code.unwrap_or(0) })
+}
+
+/// 窗口图标（标题栏 / 任务栏 / Alt-Tab）：抹茶叶，与 exe 内嵌的 `matcha.ico` 同源
+/// （`tools/icon/gen_icon.py`）。解码失败只回退到 eframe 默认图标。
+fn app_icon() -> Option<egui::IconData> {
+    const PNG: &[u8] = include_bytes!("../../../assets/icon/matcha-256.png");
+    eframe::icon_data::from_png_bytes(PNG).ok()
+}
+
+#[cfg(test)]
+mod app_icon_tests {
+    #[test]
+    fn embedded_icon_decodes() {
+        let icon = super::app_icon().expect("assets/icon/matcha-256.png decodes");
+        assert_eq!((icon.width, icon.height), (256, 256));
+    }
 }
 
 pub use eframe::egui;

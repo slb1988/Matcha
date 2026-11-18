@@ -56,6 +56,11 @@
 - 内容画布：表格空白区/行详情区与文本末行以下为灰色画布 + 点阵底纹，数据区白底；
   窗格上方文件信息行按文字实际宽度流式排列（不再用固定像素槽位）。
 - Home：会话类型以卡片一行排开（窗口过窄时才分页，圆形箭头翻页）；侧栏扁平，选中为圆角胶囊。
+- **应用图标**（抹茶叶）：一片抹茶叶，中间叶脉就是左右两栏的分隔线，两侧侧脉是被比较的“行”，
+  逐对镜像对齐；只有右侧一条错位并标为橙色——Matcha 找出的差异。名字双关：*Match*·a（匹配）、
+  抹茶 ≈ 抹差（抹平差异）。`matcha.exe`、`matcha-comp.exe`、`matcha-compc.exe`（及其副本 `matcha.com`）
+  内嵌 `assets/icon/matcha.ico`（16–256 px，小尺寸减少侧脉、加粗线条单独绘制），资源管理器、快捷方式与
+  任务栏显示该图标；窗口标题栏 / Alt-Tab 由 `ViewportBuilder::with_icon` 设置同源的 256 px PNG。
 - 基准与截图：`--bench=SECONDS`、`--bench-dir`、`--screenshot=target/x.bmp`
   （应用自身 framebuffer，BMP 直写）。
 
@@ -74,6 +79,9 @@
 | `crates/bc-gui/src/chrome/widgets.rs`、`chrome/window.rs` | 流式布局控件（Button/Checkbox/Radio/ListRow/Combo/text_field/menu_button/dialog_buttons）；浮动窗口 |
 | `crates/bc-gui/src/chrome/popup.rs`、`chrome/toolbar.rs` | 共享弹出菜单与打开状态（`menu`/`menu_below`/`context_menu`、`item::*`）；工具栏下拉 `dropdown_menu` |
 | `crates/bc-instance`、`crates/bc-shell` | 单实例交接、Explorer 菜单 |
+| `tools/icon/gen_icon.py` → `assets/icon/` | 应用图标生成（`python -I tools/icon/gen_icon.py`）：`matcha.ico`、`matcha-256.png`、`matcha-1024.png` |
+| `apps/bcompare/build.rs`、`apps/bcomp/build.rs`、`*/matcha.rc` | `embed-resource` 把 `matcha.ico` 编进 Windows exe（需 Windows SDK `rc.exe`；其他平台空操作） |
+| `crates/bc-gui/src/lib.rs` `app_icon` | 窗口图标（`include_bytes!` 256 px PNG） |
 
 ## 关键语义
 
@@ -147,6 +155,8 @@
 cargo run --release -p bcompare -- <left> <right>
 cargo run --release -p bcompare -- <left> <right> --bench=60 --screenshot=target/text.bmp
 cargo test -p bc-gui --lib
+# 应用图标：改 tools/icon/gen_icon.py 后重新生成；exe 图标可用 [System.Drawing.Icon]::ExtractAssociatedIcon 提取核对
+python -I tools/icon/gen_icon.py --preview   # 另写 tmp/icon-preview.png 各尺寸对照
 # 视觉检查（快照模式会屏蔽鼠标键盘输入，仅用于截图）
 target/debug/matcha.exe --snapshot=text-unsaved-modal --snapshot-out=target/visual/modal.png
 # 组件库陈列（Window + 全部 widgets + 展开的下拉菜单）

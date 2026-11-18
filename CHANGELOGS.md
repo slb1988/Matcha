@@ -4,6 +4,11 @@
 
 ## 2026-11-18
 
+- **应用图标：抹茶叶**（`docs/features/gui-shell.md`）：一片抹茶叶，中间叶脉即左右两栏的分隔线，
+  两侧侧脉逐对对齐、唯独右侧一条错位并标橙——寓意找出差异（*Match*·a / 抹茶 ≈ 抹差）。
+  `matcha.exe`、`matcha-comp.exe`、`matcha-compc.exe`（含 `matcha.com`）内嵌多尺寸图标，资源管理器与任务栏显示；
+  窗口标题栏 / Alt-Tab 也换成同一图标（此前为 eframe 默认图标）。图标由 `tools/icon/gen_icon.py` 生成。
+
 - **Home 会话树悬停显示路径详情**（`docs/features/gui-shell.md`）：Auto-saved 条目只显示文件名，
   此前要双击打开才知道比的是哪两个路径；现在悬停即显示会话类型、左右完整路径与最后打开时间。
   Saved 分组中的命名会话悬停同样显示类型与两侧完整路径。

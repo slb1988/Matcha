@@ -17,6 +17,9 @@ path = "src/bin/matcha-comp.rs"
 name = "matcha-compc"
 path = "src/bin/matcha-compc.rs"
 
+[build-dependencies]
+embed-resource = { workspace = true }
+
 [dependencies]
 bc-script = { workspace = true }
 bc-instance = { workspace = true }

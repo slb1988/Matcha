@@ -42,5 +42,8 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # clipboard 必须开启：否则 egui-winit 退化为进程内假剪贴板，复制/粘贴不经过系统剪贴板。
 eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "glow", "wayland", "x11"] }
 
+# 构建期：把 assets/icon/matcha.ico 编进 Windows 可执行文件（其他平台为空操作）。
+embed-resource = "3"
+
 [profile.release]
 debug = 1
