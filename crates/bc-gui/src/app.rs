@@ -90,6 +90,19 @@ impl View {
             View::TableMerge(v) => v.paths().map(|p| p.as_deref().map(name)),
         }
     }
+    /// 记入 Home Auto-saved 的会话：类型与两侧路径（两侧都已加载才有）。
+    fn recent_entry(&self) -> Option<(SessionKind, PathBuf, PathBuf)> {
+        let files = |kind, [l, r]: [Option<PathBuf>; 2]| Some((kind, l?, r?));
+        let folders = |kind, paths: Option<[PathBuf; 2]>| paths.map(|[l, r]| (kind, l, r));
+        match self {
+            View::TextCompare(v) => files(SessionKind::TextCompare, v.paths()),
+            View::TableCompare(v) => files(SessionKind::TableCompare, v.paths()),
+            View::HexCompare(v) => files(SessionKind::HexCompare, v.paths()),
+            View::FolderCompare(v) => folders(SessionKind::FolderCompare, v.loaded_paths()),
+            View::FolderSync(v) => folders(SessionKind::FolderSync, v.folder.loaded_paths()),
+            View::Home(_) | View::TextMerge(_) | View::TableMerge(_) => None,
+        }
+    }
     /// 标签页标题：会话为 "左 <--> 右"，空会话为类型名。
     fn caption(&self) -> String {
         match self.side_names() {
@@ -174,6 +187,8 @@ pub struct Tab {
     on_close: Option<Completion>,
     /// 已保存会话的名称（Save Session 直接覆盖它；标签标题显示它）。
     pub session: Option<String>,
+    /// 上次检查过的 [`View::recent_entry`]：变化时才记入最近比较。
+    recorded: Option<(SessionKind, PathBuf, PathBuf)>,
 }
 impl Tab {
     fn new(view: View) -> Self {
@@ -183,6 +198,7 @@ impl Tab {
             exit_cleared: false,
             on_close: None,
             session: None,
+            recorded: None,
         }
     }
     fn caption(&self) -> String {
@@ -456,17 +472,11 @@ impl MatchaApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
-    /// 已保存会话的视图（文件对同时记入最近比较）。
+    /// 已保存会话的视图。
     fn saved_view(ctx: &egui::Context, name: &str) -> Result<View, String> {
         let session = crate::sessions::find(name)
             .ok_or_else(|| format!("no saved session named {name:?}"))?;
-        let view = crate::sessions::open_view(ctx, &session)?;
-        if !session.kind.is_folder() {
-            if let Some((left, right)) = crate::sessions::pair(&session) {
-                HomeView::record(&left, &right);
-            }
-        }
-        Ok(view)
+        crate::sessions::open_view(ctx, &session)
     }
     /// Home 双击已保存会话：新标签页打开，失败把错误写回 Home。
     fn open_saved(&mut self, ctx: &egui::Context, name: String) {
@@ -596,10 +606,7 @@ impl MatchaApp {
                     _ => TextCompareView::open(l, r).map(|v| View::TextCompare(Box::new(v))),
                 };
                 return match opened {
-                    Ok(view) => {
-                        HomeView::record(l, r);
-                        view
-                    }
+                    Ok(view) => view,
                     Err(e) => {
                         let mut home = home();
                         home.set_error(format!("Cannot open: {e}"));
@@ -627,12 +634,7 @@ impl MatchaApp {
                 DirCompareView::open(ctx, l, r, false, options.bench_dir),
             )),
             (Some(l), Some(r)) if file_view == FileView::Hex => match HexCompareView::open(l, r) {
-                Ok(v) => {
-                    if options.snapshot.is_none() {
-                        HomeView::record(l, r);
-                    }
-                    View::HexCompare(Box::new(v))
-                }
+                Ok(v) => View::HexCompare(Box::new(v)),
                 Err(e) => {
                     let mut home = home();
                     home.set_error(format!("Cannot open: {e}"));
@@ -644,9 +646,6 @@ impl MatchaApp {
                     Ok(mut v) => {
                         if options.snapshot.is_some() {
                             v.snapshot_options();
-                        }
-                        if options.snapshot.is_none() {
-                            HomeView::record(l, r);
                         }
                         View::TableCompare(Box::new(v))
                     }
@@ -661,9 +660,6 @@ impl MatchaApp {
                 Ok(mut v) => {
                     if options.snapshot.is_some() {
                         v.snapshot_rules();
-                    }
-                    if options.snapshot.is_none() {
-                        HomeView::record(l, r);
                     }
                     View::TextCompare(Box::new(v))
                 }
@@ -693,6 +689,28 @@ impl MatchaApp {
         // 其他标签页可能刚记录了新的最近比较。
         if let View::Home(home) = self.view_mut() {
             home.refresh_recent();
+        }
+    }
+    /// 各标签页的会话一旦两侧都已加载（或换了路径/类型）就记入 Home Auto-saved：
+    /// 覆盖命令行、Home、已保存会话、路径栏输入、Compare Files Using 等所有入口。
+    /// 截图与基准运行不记录。
+    fn record_recent(&mut self) {
+        if self.snapshot.is_some() || self.bench.is_some() || self.bench_dir.is_some() {
+            return;
+        }
+        for tab in &mut self.tabs {
+            let entry = tab.view.recent_entry();
+            if entry.is_none() || entry == tab.recorded {
+                continue;
+            }
+            tab.recorded = entry;
+            if let Some((kind, left, right)) = &tab.recorded {
+                let folders = matches!(kind, SessionKind::FolderCompare | SessionKind::FolderSync);
+                // 加载失败的文件夹路径（拼错、不存在）不记。
+                if !folders || (left.is_dir() && right.is_dir()) {
+                    HomeView::record(*kind, left, right);
+                }
+            }
         }
     }
     /// 追加一个标签页并激活。
@@ -871,22 +889,13 @@ impl MatchaApp {
     fn comparison_view(ctx: &egui::Context, action: HomeAction) -> Option<Result<View, String>> {
         Some(match action {
             HomeAction::OpenTextCompare { left, right } => TextCompareView::open(&left, &right)
-                .map(|v| {
-                    HomeView::record(&left, &right);
-                    View::TextCompare(Box::new(v))
-                })
+                .map(|v| View::TextCompare(Box::new(v)))
                 .map_err(|e| e.to_string()),
             HomeAction::OpenTableCompare { left, right } => TableCompareView::open(&left, &right)
-                .map(|v| {
-                    HomeView::record(&left, &right);
-                    View::TableCompare(Box::new(v))
-                })
+                .map(|v| View::TableCompare(Box::new(v)))
                 .map_err(|e| e.to_string()),
             HomeAction::OpenHexCompare { left, right } => HexCompareView::open(&left, &right)
-                .map(|v| {
-                    HomeView::record(&left, &right);
-                    View::HexCompare(Box::new(v))
-                })
+                .map(|v| View::HexCompare(Box::new(v)))
                 .map_err(|e| e.to_string()),
             HomeAction::OpenFolderCompare { left, right } => Ok(View::FolderCompare(Box::new(
                 DirCompareView::open(ctx, &left, &right, false, false),
@@ -1354,6 +1363,7 @@ impl MatchaApp {
                 }
             }
         }
+        self.record_recent();
         // 页面级 Esc：菜单 / 对话框 / 查找条 / 单元格编辑器等弹层已在上方各自
         // 消费 Esc；帧末仍未被消费的 Esc 关闭当前标签页（等价于 Ctrl+W：脏页先弹
         // 保存确认），关闭最后一页即退出进程——多标签时一次 Esc 只关一页。

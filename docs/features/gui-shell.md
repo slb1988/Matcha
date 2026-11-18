@@ -6,10 +6,18 @@
 ## 功能简介
 
 - 唯一依赖 GUI 工具包的 crate：`bc-gui`（eframe 0.37，glow 后端）；引擎 crate 全部平台中性。
-- Home：路径框、双文件/文件夹拖放、最近文件对。会话树默认展开 New 与 Auto-saved；Auto-saved 下
+- Home：路径框、双文件/文件夹拖放、最近比较。会话树默认展开 New 与 Auto-saved；Auto-saved 下
   按本地日期分组（Today / Yesterday / N days ago / More than 6 days ago，仅 Today 默认展开），
-  条目显示为 `left <--> right`。最近记录存于 `%APPDATA%\Matcha\recent-text.txt`（v2：首行
-  `# matcha recent v2`，每行 `纪元秒	左	右`；旧的两行一对格式以文件修改时间读入）。
+  条目显示为会话类型图标 + `left <--> right`，双击按记录时的类型重开。
+  - **记录时机**：任一标签页的会话两侧都已加载（或换了路径/类型）时记一条，覆盖所有入口——命令行、
+    Home 拖放与双击、已保存会话、空会话在路径栏填好两侧、Compare Files Using、文件夹比较/同步互切；
+    五种类型（Folder Compare / Folder Sync / Text / Table / Hex）都记。文件夹会话以真正加载的基准
+    文件夹为准（路径栏输入中的文字不算），不存在的文件夹不记；截图与基准运行不记。
+  - 同类型同路径只留一条（移到最前），最多 50 条；行数超出时会话树可用滚轮按整行滚动。
+  - 存于 `%APPDATA%\Matcha\recent.txt`（v3：首行 `# matcha recent v3`，每行
+    `纪元秒	类型	左	右`，类型为 `folder` / `sync` / `text` / `table` / `hex`）。
+    该文件不存在时读入旧版 `recent-text.txt`（v2 `纪元秒	左	右`，或更早的两行一对格式，
+    以文件修改时间为准），按路径推断类型后迁移写入 `recent.txt`；旧文件保留不动。
   有已保存会话时，New 与 Auto-saved 之间多一个 **Saved** 分组（命名会话，见 [saved-sessions.md](saved-sessions.md)）；
   已命名的标签页标题显示会话名。
   记录与读入时统一还原 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，地址栏只见常规路径。

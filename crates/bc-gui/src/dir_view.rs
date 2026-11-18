@@ -1886,6 +1886,8 @@ pub struct DirCompareView {
     paths: PathsDialog,
     history: Vec<[String; 2]>,
     history_at: usize,
+    /// 最近一次真正加载的两侧基准文件夹（路径栏输入中的文字不算）。
+    loaded: Option<[String; 2]>,
     pub log_panel: LogPanel,
     columns: Vec<Column>,
     palette: FolderColors,
@@ -1990,6 +1992,7 @@ impl DirCompareView {
             paths: PathsDialog::default(),
             history: Vec::new(),
             history_at: 0,
+            loaded: None,
             log_panel: LogPanel::default(),
             columns: vec![Column::Size, Column::Modified],
             palette: FolderColors::default(),
@@ -2173,6 +2176,7 @@ impl DirCompareView {
             self.history.push(paths.clone());
             self.history_at = self.history.len() - 1;
         }
+        self.loaded = Some(paths.clone());
         self.send(Command::Load(paths));
     }
     /// OS file drop: a folder dropped on the left/right half (split at the
@@ -4193,6 +4197,12 @@ impl DirCompareView {
     /// Base folder texts of both sides (sync paths area).
     pub(crate) fn path_texts(&self) -> [String; 2] {
         [self.paths.left.clone(), self.paths.right.clone()]
+    }
+    /// Base folders of the last load (Home Auto-saved records these).
+    pub(crate) fn loaded_paths(&self) -> Option<[PathBuf; 2]> {
+        self.loaded
+            .as_ref()
+            .map(|p| p.clone().map(|p| PathBuf::from(p.trim())))
     }
     /// Load new base folders (sync paths area Enter / history).
     pub(crate) fn open_paths(&mut self, paths: [String; 2]) {

@@ -282,6 +282,68 @@ fn home_tree_expansion_survives_a_tab_round_trip() {
 }
 
 #[test]
+fn every_session_type_is_auto_saved_once_both_sides_load() {
+    let tag = format!("matcha-app-autosave-{}", std::process::id());
+    let root = std::env::temp_dir().join(&tag);
+    let (left, right) = (root.join("l"), root.join("r"));
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("a.bin"), [0u8, 1, 2]).unwrap();
+    std::fs::write(right.join("a.bin"), [0u8, 1, 3]).unwrap();
+    let mine = || -> Vec<SessionKind> {
+        HomeView::recorded()
+            .into_iter()
+            .filter(|(_, l, _)| l.to_string_lossy().contains(&tag))
+            .map(|(kind, ..)| kind)
+            .collect()
+    };
+    {
+        let ctx = egui::Context::default();
+        // Empty Folder Compare: nothing recorded until both folders load from the path bar.
+        let folder = DirCompareView::empty(&ctx, false, false);
+        let mut app = MatchaApp::with_view(View::FolderCompare(Box::new(folder)));
+        run(&ctx, &mut app, vec![]);
+        assert!(mine().is_empty());
+        if let View::FolderCompare(v) = &mut app.tabs[0].view {
+            v.open_paths([left.display().to_string(), String::new()]);
+        }
+        run(&ctx, &mut app, vec![]);
+        assert!(mine().is_empty());
+        if let View::FolderCompare(v) = &mut app.tabs[0].view {
+            v.open_paths([left.display().to_string(), right.display().to_string()]);
+        }
+        run(&ctx, &mut app, vec![]);
+        assert_eq!(mine(), [SessionKind::FolderCompare]);
+        // Folder Sync and Hex Compare tabs add their own typed records, newest first;
+        // a folder path that does not exist is not recorded.
+        app.open_tab(View::FolderSync(Box::new(SyncView::open(
+            &ctx, &left, &right,
+        ))));
+        app.open_tab(View::HexCompare(Box::new(
+            HexCompareView::open(&left.join("a.bin"), &right.join("a.bin")).unwrap(),
+        )));
+        app.open_tab(View::FolderCompare(Box::new(DirCompareView::open(
+            &ctx,
+            &left.join("missing"),
+            &right,
+            false,
+            false,
+        ))));
+        run(&ctx, &mut app, vec![]);
+        run(&ctx, &mut app, vec![]);
+        assert_eq!(
+            mine(),
+            [
+                SessionKind::HexCompare,
+                SessionKind::FolderSync,
+                SessionKind::FolderCompare
+            ]
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn empty_sessions_load_once_paths_are_entered() {
     let root = std::env::temp_dir().join(format!("matcha-app-empty-{}", std::process::id()));
     let (left, right) = (root.join("l"), root.join("r"));

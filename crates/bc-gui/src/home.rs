@@ -58,14 +58,18 @@ pub fn hex_paths(left: &std::path::Path, right: &std::path::Path) -> bool {
     file_view(left, right) == bc_formats::route::FileView::Hex
 }
 pub(crate) fn routed(left: PathBuf, right: PathBuf) -> HomeAction {
+    route_kind(&left, &right).open(left, right)
+}
+/// 一对路径按内容路由到的会话类型（两侧文件夹 → Folder Compare；文件对表格 → 十六进制 → 文本）。
+fn route_kind(left: &std::path::Path, right: &std::path::Path) -> SessionKind {
     use bc_formats::route::FileView;
     if left.is_dir() && right.is_dir() {
-        return HomeAction::OpenFolderCompare { left, right };
+        return SessionKind::FolderCompare;
     }
-    match file_view(&left, &right) {
-        FileView::Table => HomeAction::OpenTableCompare { left, right },
-        FileView::Hex => HomeAction::OpenHexCompare { left, right },
-        FileView::Text => HomeAction::OpenTextCompare { left, right },
+    match file_view(left, right) {
+        FileView::Table => SessionKind::TableCompare,
+        FileView::Hex => SessionKind::HexCompare,
+        FileView::Text => SessionKind::TextCompare,
     }
 }
 /// Session types offered on Home, in icon-grid order.
@@ -100,6 +104,40 @@ impl SessionKind {
             (Self::Auto, None) => Self::FolderCompare,
             (kind, _) => kind,
         }
+    }
+    /// 以本类型打开一对路径；Auto 按路径路由（[`routed`]）。
+    fn open(self, left: PathBuf, right: PathBuf) -> HomeAction {
+        match self {
+            Self::Auto => routed(left, right),
+            Self::FolderCompare => HomeAction::OpenFolderCompare { left, right },
+            Self::FolderSync => HomeAction::OpenFolderSync { left, right },
+            Self::TextCompare => HomeAction::OpenTextCompare { left, right },
+            Self::TableCompare => HomeAction::OpenTableCompare { left, right },
+            Self::HexCompare => HomeAction::OpenHexCompare { left, right },
+        }
+    }
+    /// 最近比较文件里的类型标记。
+    fn token(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::FolderCompare => "folder",
+            Self::FolderSync => "sync",
+            Self::TextCompare => "text",
+            Self::TableCompare => "table",
+            Self::HexCompare => "hex",
+        }
+    }
+    fn from_token(token: &str) -> Option<Self> {
+        [
+            Self::Auto,
+            Self::FolderCompare,
+            Self::FolderSync,
+            Self::TextCompare,
+            Self::TableCompare,
+            Self::HexCompare,
+        ]
+        .into_iter()
+        .find(|kind| kind.token() == token)
     }
     fn new_session(self, left: Option<PathBuf>) -> HomeAction {
         HomeAction::NewSession {
@@ -165,13 +203,17 @@ fn local_day(time: SystemTime) -> i64 {
 fn day_group(today: i64, when: SystemTime) -> usize {
     (today - local_day(when)).clamp(0, DAY_GROUPS as i64 - 1) as usize
 }
-/// 一条最近比较：左右路径与最后一次打开的时刻。
+/// 一条最近比较：会话类型、左右路径与最后一次打开的时刻。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Recent {
+    /// 打开时的会话类型；旧格式记录读入时为 Auto（按路径推断）。
+    kind: SessionKind,
     left: PathBuf,
     right: PathBuf,
     when: SystemTime,
 }
+/// 最近比较保留的条数。
+const MAX_RECENT: usize = 50;
 /// Session-type cards per page: as many as fit the canvas (all five on a
 /// normal window); narrower windows page with round chevron buttons.
 fn per_page(canvas_width: f32) -> usize {
@@ -219,6 +261,9 @@ pub struct HomeView {
     /// 各日期分组的展开状态（默认仅 Today 展开）。
     day_open: [bool; DAY_GROUPS],
     filter: String,
+    /// 会话树滚动：首个可见行与未满一行的滚轮累计（像素）。
+    tree_first: usize,
+    tree_wheel: f32,
     page: usize,
     hide_tree: bool,
     hide_panel: bool,
@@ -240,6 +285,8 @@ impl Default for HomeView {
             auto_open: true,
             day_open,
             filter: String::new(),
+            tree_first: 0,
+            tree_wheel: 0.0,
             page: 0,
             hide_tree: false,
             hide_panel: false,
@@ -292,6 +339,7 @@ impl HomeView {
             recent: recent
                 .into_iter()
                 .map(|(left, right)| Recent {
+                    kind: route_kind(&left, &right),
                     left,
                     right,
                     when: SystemTime::now(),
@@ -299,6 +347,14 @@ impl HomeView {
                 .collect(),
             ..Default::default()
         }
+    }
+    /// 最近比较文件里的（类型, 左, 右）。
+    #[cfg(test)]
+    pub(crate) fn recorded() -> Vec<(SessionKind, PathBuf, PathBuf)> {
+        load_recent()
+            .into_iter()
+            .map(|r| (r.kind, r.left, r.right))
+            .collect()
     }
     #[cfg(test)]
     pub(crate) fn new_open(&self) -> bool {
@@ -345,23 +401,25 @@ impl HomeView {
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.error = Some(message.into());
     }
-    pub fn record(left: &std::path::Path, right: &std::path::Path) {
+    /// 记入一条最近比较（同类型同路径的旧记录移到最前）。
+    pub fn record(kind: SessionKind, left: &std::path::Path, right: &std::path::Path) {
         // canonicalize 在 Windows 返回 `\\?\` verbatim 路径，先还原成常规写法，
-        // 否则地址栏与 recent-text.txt 都会带上 `\\?\` 前缀。
+        // 否则地址栏与 recent.txt 都会带上 `\\?\` 前缀。
         let left = simplified(std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf()));
         let right =
             simplified(std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf()));
         let mut recent = load_recent();
-        recent.retain(|p| p.left != left || p.right != right);
+        recent.retain(|p| p.kind != kind || p.left != left || p.right != right);
         recent.insert(
             0,
             Recent {
+                kind,
                 left,
                 right,
                 when: SystemTime::now(),
             },
         );
-        recent.truncate(12);
+        recent.truncate(MAX_RECENT);
         save_recent(&recent);
     }
     /// Remove one recent pair (session toolbar "−").
@@ -683,8 +741,26 @@ impl HomeView {
                 }
             }
         }
+        // 行多于可见高度时滚轮按整行滚动。
+        let visible = ((toolbar_top - HEADER_BOTTOM - 1.0) / TREE_ROW)
+            .floor()
+            .max(0.0) as usize;
+        let max_first = rows.len().saturating_sub(visible);
+        let tree_area = span(0.0, HEADER_BOTTOM, tree_w, toolbar_top);
+        self.tree_wheel += crate::chrome::wheel::delta(ui.ctx(), &[tree_area]).y;
+        while self.tree_wheel <= -TREE_ROW {
+            self.tree_wheel += TREE_ROW;
+            self.tree_first += 1;
+        }
+        while self.tree_wheel >= TREE_ROW {
+            self.tree_wheel -= TREE_ROW;
+            self.tree_first = self.tree_first.saturating_sub(1);
+        }
+        self.tree_first = self.tree_first.min(max_first);
+        let first = self.tree_first;
         let clip = painter.with_clip_rect(span(0.0, HEADER_BOTTOM + 1.0, tree_w, toolbar_top));
         let folder_rows: Vec<bool> = self.saved.iter().map(|e| e.session.is_none()).collect();
+        let recent_kinds: Vec<SessionKind> = self.recent.iter().map(|r| r.kind).collect();
         let glyph = |node: Node, indent: f32, cy: f32| match node {
             Node::SavedEntry(i) if folder_rows[i] => icons::paint_drawer(
                 &clip,
@@ -710,10 +786,15 @@ impl HomeView {
                 span(14.0 + indent, cy - 16.0, 46.0 + indent, cy + 16.0),
                 KINDS[i].icon(),
             ),
-            Node::Recent(_) | Node::SavedEntry(_) => {}
+            Node::Recent(i) => icons::paint_session(
+                &clip.with_clip_rect(span(23.0 + indent, cy - 7.0, 37.0 + indent, cy + 7.0)),
+                span(14.0 + indent, cy - 16.0, 46.0 + indent, cy + 16.0),
+                recent_kinds[i].icon(),
+            ),
+            Node::SavedEntry(_) => {}
         };
-        for (index, (node, depth, label)) in rows.into_iter().enumerate() {
-            let top = HEADER_BOTTOM + 1.0 + index as f32 * TREE_ROW;
+        for (index, (node, depth, label)) in rows.into_iter().enumerate().skip(first) {
+            let top = HEADER_BOTTOM + 1.0 + (index - first) as f32 * TREE_ROW;
             if top + TREE_ROW > toolbar_top {
                 break;
             }
@@ -790,7 +871,7 @@ impl HomeView {
                     Node::Kind(i) => *action = Some(KINDS[i].new_session(None)),
                     Node::Recent(i) => {
                         let item = self.recent[i].clone();
-                        *action = Some(routed(item.left, item.right));
+                        *action = Some(item.kind.open(item.left, item.right));
                     }
                 }
             }
@@ -1103,7 +1184,10 @@ impl HomeView {
         }
     }
 }
-/// `recent-text.txt` v2：首行标记，之后每条一行 `纪元秒\t左\t右`（路径不含制表符）。
+/// `recent.txt` v3：首行标记，之后每条一行 `纪元秒\t类型\t左\t右`（路径不含制表符；
+/// 类型见 [`SessionKind::token`]）。
+const RECENT_V3: &str = "# matcha recent v3";
+/// 旧版 `recent-text.txt` v2：`纪元秒\t左\t右`，没有类型。
 const RECENT_V2: &str = "# matcha recent v2";
 fn save_recent(recent: &[Recent]) {
     if let Some(file) = recent_path() {
@@ -1114,14 +1198,15 @@ fn save_recent(recent: &[Recent]) {
     }
 }
 fn format_recent(recent: &[Recent]) -> String {
-    let mut text = format!("{RECENT_V2}\n");
+    let mut text = format!("{RECENT_V3}\n");
     for item in recent {
         let seconds = item
             .when
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         text += &format!(
-            "{seconds}\t{}\t{}\n",
+            "{seconds}\t{}\t{}\t{}\n",
+            item.kind.token(),
             item.left.display(),
             item.right.display()
         );
@@ -1156,18 +1241,38 @@ fn simplified(path: PathBuf) -> PathBuf {
     out
 }
 fn recent_path() -> Option<PathBuf> {
-    // 单元测试会经 app 流程记录比较，不能写进用户的真实最近列表。
+    // 单元测试会经 app 流程记录比较，不能写进用户的真实最近列表；
+    // 按线程分文件，并行测试互不覆盖。
     if cfg!(test) {
-        return Some(
-            std::env::temp_dir().join(format!("matcha-test-recent-{}.txt", std::process::id())),
-        );
+        let thread = format!("{:?}", std::thread::current().id());
+        let thread: String = thread.chars().filter(char::is_ascii_digit).collect();
+        return Some(std::env::temp_dir().join(format!(
+            "matcha-test-recent-{}-{thread}.txt",
+            std::process::id()
+        )));
+    }
+    bc_formats::registry::user_formats_dir()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.join("recent.txt")))
+}
+/// 旧版只记文件对的 `recent-text.txt`：新文件不存在时读入一次并迁移。
+fn legacy_recent_path() -> Option<PathBuf> {
+    if cfg!(test) {
+        return None;
     }
     bc_formats::registry::user_formats_dir()
         .ok()
         .and_then(|p| p.parent().map(|p| p.join("recent-text.txt")))
 }
 fn load_recent() -> Vec<Recent> {
-    let Some(file) = recent_path() else {
+    let Some(current) = recent_path() else {
+        return Vec::new();
+    };
+    let (file, legacy) = if current.exists() {
+        (current, false)
+    } else if let Some(old) = legacy_recent_path().filter(|p| p.exists()) {
+        (old, true)
+    } else {
         return Vec::new();
     };
     let Ok(text) = std::fs::read_to_string(&file) else {
@@ -1177,25 +1282,40 @@ fn load_recent() -> Vec<Recent> {
     let modified = std::fs::metadata(&file)
         .and_then(|m| m.modified())
         .unwrap_or_else(|_| SystemTime::now());
-    parse_recent(&text, modified)
+    let mut recent = parse_recent(&text, modified);
+    // 旧记录没有类型：按路径推断一次（文件夹 → Folder Compare，文件按格式路由）。
+    for item in recent.iter_mut().filter(|i| i.kind == SessionKind::Auto) {
+        item.kind = route_kind(&item.left, &item.right);
+    }
+    if legacy {
+        save_recent(&recent);
+    }
+    recent
 }
 fn parse_recent(text: &str, legacy_time: SystemTime) -> Vec<Recent> {
     let mut lines = text.lines();
-    if text.starts_with(RECENT_V2) {
+    let typed = text.starts_with(RECENT_V3);
+    if typed || text.starts_with(RECENT_V2) {
         lines.next();
         return lines
             .filter_map(|line| {
-                let mut parts = line.splitn(3, '\t');
+                let mut parts = line.splitn(if typed { 4 } else { 3 }, '\t');
                 let seconds = parts.next()?.parse::<u64>().ok()?;
+                let kind = if typed {
+                    SessionKind::from_token(parts.next()?).unwrap_or(SessionKind::Auto)
+                } else {
+                    SessionKind::Auto
+                };
                 let (left, right) = (parts.next()?, parts.next()?);
                 Some(Recent {
+                    kind,
                     // 旧版本可能存过带 `\\?\` 前缀的路径，读入时一并清理。
                     left: simplified(left.into()),
                     right: simplified(right.into()),
                     when: std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds),
                 })
             })
-            .take(12)
+            .take(MAX_RECENT)
             .collect();
     }
     let lines: Vec<_> = lines.collect();
@@ -1203,8 +1323,9 @@ fn parse_recent(text: &str, legacy_time: SystemTime) -> Vec<Recent> {
         .as_chunks::<2>()
         .0
         .iter()
-        .take(12)
+        .take(MAX_RECENT)
         .map(|p| Recent {
+            kind: SessionKind::Auto,
             left: simplified(p[0].into()),
             right: simplified(p[1].into()),
             when: legacy_time,
@@ -1501,6 +1622,7 @@ mod tests {
         assert_eq!(
             items,
             vec![Recent {
+                kind: SessionKind::Auto,
                 left: PathBuf::from(r"C:\Temp\a.txt"),
                 right: PathBuf::from(r"C:\Temp\b.txt"),
                 when: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
@@ -1531,18 +1653,45 @@ mod tests {
                 "More than 6 days ago"
             ]
         );
-        // v2 round trip keeps whole seconds; the legacy two-line format takes
-        // the file time.
+        // v3 round trip keeps the session type and whole seconds; v2 lines and
+        // the legacy two-line format have no type (Auto, inferred on load), and
+        // the latter takes the file time.
         let when = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
-        let items = vec![Recent {
+        let items: Vec<Recent> = [
+            SessionKind::TableCompare,
+            SessionKind::FolderCompare,
+            SessionKind::FolderSync,
+            SessionKind::TextCompare,
+            SessionKind::HexCompare,
+        ]
+        .into_iter()
+        .map(|kind| Recent {
+            kind,
             left: PathBuf::from(r"C:\a b\left.xlsx"),
             right: PathBuf::from(r"C:\right.xlsx"),
             when,
-        }];
-        assert_eq!(parse_recent(&format_recent(&items), now), items);
+        })
+        .collect();
+        let text = format_recent(&items);
+        assert!(text.starts_with("# matcha recent v3\n1700000000\ttable\tC:\\a b\\left.xlsx\t"));
+        assert_eq!(parse_recent(&text, now), items);
+        assert_eq!(
+            parse_recent("# matcha recent v3\n1\tnope\ta\tb\n", now)[0].kind,
+            SessionKind::Auto
+        );
+        assert_eq!(
+            parse_recent("# matcha recent v2\n1700000000\ta.txt\tb.txt\n", now),
+            vec![Recent {
+                kind: SessionKind::Auto,
+                left: "a.txt".into(),
+                right: "b.txt".into(),
+                when
+            }]
+        );
         assert_eq!(
             parse_recent("a.txt\nb.txt\n", when),
             vec![Recent {
+                kind: SessionKind::Auto,
                 left: "a.txt".into(),
                 right: "b.txt".into(),
                 when
@@ -1554,6 +1703,7 @@ mod tests {
         use std::time::Duration;
         let now = SystemTime::now();
         let pair = |l: &str, r: &str, when| Recent {
+            kind: SessionKind::TableCompare,
             left: l.into(),
             right: r.into(),
             when,
@@ -1576,5 +1726,113 @@ mod tests {
         }
         click(&ctx, &mut home, Pos2::new(100.0, 271.0));
         assert_eq!(home.selected, Node::Recent(1));
+    }
+    #[test]
+    fn recent_entries_reopen_with_their_recorded_kind() {
+        let (l, r) = (PathBuf::from("left"), PathBuf::from("right"));
+        for (kind, expected) in [
+            (
+                SessionKind::FolderSync,
+                HomeAction::OpenFolderSync {
+                    left: l.clone(),
+                    right: r.clone(),
+                },
+            ),
+            (
+                SessionKind::FolderCompare,
+                HomeAction::OpenFolderCompare {
+                    left: l.clone(),
+                    right: r.clone(),
+                },
+            ),
+            (
+                SessionKind::HexCompare,
+                HomeAction::OpenHexCompare {
+                    left: l.clone(),
+                    right: r.clone(),
+                },
+            ),
+            (
+                SessionKind::TableCompare,
+                HomeAction::OpenTableCompare {
+                    left: l.clone(),
+                    right: r.clone(),
+                },
+            ),
+        ] {
+            assert_eq!(kind.open(l.clone(), r.clone()), expected);
+            assert_eq!(SessionKind::from_token(kind.token()), Some(kind));
+        }
+        // Double-clicking a Folder Sync record (row 8 under Today) reopens Folder Sync.
+        let mut home = HomeView {
+            recent: vec![Recent {
+                kind: SessionKind::FolderSync,
+                left: l.clone(),
+                right: r.clone(),
+                when: SystemTime::now(),
+            }],
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut home, vec![]);
+        let pos = Pos2::new(100.0, 231.0);
+        let press = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(&ctx, &mut home, vec![egui::Event::PointerMoved(pos)]);
+        let mut action = None;
+        for pressed in [true, false, true, false] {
+            action = action.or(frame(&ctx, &mut home, vec![press(pressed)]));
+        }
+        assert_eq!(
+            action,
+            Some(HomeAction::OpenFolderSync { left: l, right: r })
+        );
+    }
+    #[test]
+    fn tree_scrolls_by_whole_rows_when_records_overflow() {
+        let now = SystemTime::now();
+        let mut home = HomeView {
+            recent: (0..MAX_RECENT)
+                .map(|i| Recent {
+                    kind: SessionKind::TextCompare,
+                    left: format!("l{i}.txt").into(),
+                    right: format!("r{i}.txt").into(),
+                    when: now,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        // One wheel notch is 40pt = two 20px rows.
+        let wheel = |lines: f32| {
+            vec![
+                egui::Event::PointerMoved(Pos2::new(100.0, 300.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: Vec2::new(0.0, lines),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Default::default(),
+                    source: egui::MouseWheelSource::Wheel,
+                },
+            ]
+        };
+        frame(&ctx, &mut home, vec![]);
+        assert_eq!(home.tree_first, 0);
+        frame(&ctx, &mut home, wheel(-3.0));
+        assert_eq!(home.tree_first, 6);
+        // 58 rows (New + 5, Auto-saved, Today, 50 records) stop at the last
+        // full page: more wheel does not move past it.
+        frame(&ctx, &mut home, wheel(-100.0));
+        let last = home.tree_first;
+        let rows = 1 + KINDS.len() + 2 + MAX_RECENT;
+        assert!(last > 6 && last < rows, "tree scrolled to {last}");
+        frame(&ctx, &mut home, wheel(-10.0));
+        assert_eq!(home.tree_first, last);
+        frame(&ctx, &mut home, wheel(100.0));
+        assert_eq!(home.tree_first, 0);
     }
 }

@@ -4,6 +4,13 @@
 
 ## 2026-11-18
 
+- **Home Auto-saved 记录所有会话类型**（`docs/features/gui-shell.md`）：此前只有文件对比较会记入
+  Auto-saved，文件夹比较 / 文件夹同步从不记录；从空会话在路径栏填路径打开的比较也不记录；
+  记录里也没有类型，表格 / 十六进制比较重开时按扩展名重新猜。现在任一标签页两侧加载完成即按类型记录
+  （五种类型、所有打开入口），条目前显示类型图标，双击按原类型重开；上限由 12 条提高到 50 条，
+  会话树超出时可用滚轮滚动。记录改存 `recent.txt`（v3，带类型），首次启动自动从旧的
+  `recent-text.txt` 迁移。
+
 - **文本合并：顺序 Take、按行 Take、按选区 Take、输出窗格右键菜单**（`docs/features/text-merge.md`）：
   Edit 菜单新增 **Take Left Then Right / Take Right Then Left**（冲突两边都要时按顺序保留两侧各行）与
   **Take Left / Center / Right Line**（Shift+Ctrl+L / B / R，只换光标所在一行；多行冲突区段仍保持未解决）。
