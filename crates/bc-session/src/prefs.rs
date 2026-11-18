@@ -1,6 +1,6 @@
-//! Global preferences subset – BC `TBcPrefs` (`TPrefs`, `BCPreferences.xml`
-//! `<BCPreferences><TBcPrefs>…`). Only values the engines need are modelled; everything
-//! else is retained as raw nodes for write-through.
+//! Global preferences subset – BC `TBcPrefs` (`TPrefs`). Only values the engines and
+//! views need are modelled. Matcha persists them in its own `settings.txt`
+//! (`bc-gui::settings`); importing the reference's `BCPreferences.xml` is not supported.
 
 use bc_core::persist::Node;
 
@@ -92,16 +92,4 @@ pub struct Prefs {
     pub default_tab_size: u32,
     /// Unmodelled subtree retained verbatim.
     pub unknown: Vec<Node>,
-}
-
-impl Prefs {
-    /// Read `BCPreferences.xml` (missing file = defaults).
-    pub fn read(xml: &str) -> Result<Prefs, crate::SessionError> {
-        todo!("bc-session::prefs: parse TBcPrefs subset")
-    }
-
-    /// Write back, merging with retained unknown nodes.
-    pub fn write(&self) -> Result<String, crate::SessionError> {
-        todo!("bc-session::prefs: serialise")
-    }
 }

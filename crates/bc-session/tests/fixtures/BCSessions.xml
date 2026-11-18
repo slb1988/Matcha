@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Produced by Beyond Compare 5 from Scooter Software -->
+<BCSessions Version="2" MinVersion="2">
+	<TTextCompareSession Value="quick-align">
+		<LastModified Value="2026-11-06 01:00:00"/>
+		<Specs>
+			<Left Value="C:\work\probe\left.txt"/>
+			<Right Value="C:\work\probe\right.txt"/>
+		</Specs>
+		<Rules Value="TTextRules">
+			<AlignKind Value="alignQuick"/>
+			<NeverAlignDiffs Value="False"/>
+			<SkewTolerance Value="2000"/>
+			<UseCloseness Value="False"/>
+		</Rules>
+	</TTextCompareSession>
+	<TTextCompareSession Value="standard-align">
+		<LastModified Value="2026-11-06 01:00:00"/>
+		<Specs>
+			<Left Value="C:\work\probe\left.txt"/>
+			<Right Value="C:\work\probe\right.txt"/>
+		</Specs>
+		<Rules Value="TTextRules">
+			<AlignKind Value="alignSmart"/>
+			<NeverAlignDiffs Value="False"/>
+			<SkewTolerance Value="2000"/>
+			<UseCloseness Value="True"/>
+			<FutureKey Value="kept"/>
+		</Rules>
+		<Bookmarks Value="unmodelled element"/>
+	</TTextCompareSession>
+	<TSessionFolder>
+		<Items>
+			<TSessionFolder>
+				<Items>
+					<TTextCompareSession Value="报告 - 副本.md &lt;--> 报告.md">
+						<LastModified Value="2026-10-30 20:47:37"/>
+						<Specs>
+							<Left Value="D:\docs\报告 - 副本.md"/>
+							<Right Value="D:\docs\报告.md"/>
+						</Specs>
+						<State>
+							<ShowContext Value="True"/>
+						</State>
+					</TTextCompareSession>
+					<TDirCompareSession Value="source &lt;--> source">
+						<LastModified Value="2026-10-14 22:05:46"/>
+						<Specs>
+							<Left Value="D:\a\source"/>
+							<Right Value="e:\b\source\"/>
+						</Specs>
+						<State>
+							<DirHandling Value="dirCompareFilesOnly"/>
+							<SortSide Value="dsRight"/>
+							<DisplayFilter Value="[showLeftMod, showRightMod, showDiffMod]"/>
+						</State>
+					</TDirCompareSession>
+					<TTableCompareSession Value="a.csv &lt;--> b.csv">
+						<LastModified Value="2025-12-24 16:57:09"/>
+						<Specs>
+							<Left Value="D:\t\a.csv"/>
+							<Right Value="D:\t\b.csv"/>
+						</Specs>
+					</TTableCompareSession>
+					<THexCompareSession Value="a.bin &lt;--> b.bin">
+						<LastModified Value="2025-12-20 09:00:01"/>
+						<Specs>
+							<Left Value="D:\h\a.bin"/>
+							<Right Value="D:\h\b.bin"/>
+						</Specs>
+					</THexCompareSession>
+					<TPixCompareSession Value="a.png &lt;--> b.png">
+						<LastModified Value="2025-12-19 08:00:00"/>
+						<Specs>
+							<Left Value="D:\p\a.png"/>
+							<Right Value="D:\p\b.png"/>
+						</Specs>
+					</TPixCompareSession>
+					<TExternalSession Value="unknown class">
+						<Specs>
+							<Left Value="D:\x\a"/>
+						</Specs>
+					</TExternalSession>
+				</Items>
+			</TSessionFolder>
+			<TDirCompareSession>
+				<State>
+					<DirHandling Value="dirCompareFilesOnly"/>
+				</State>
+			</TDirCompareSession>
+			<TTextCompareSession>
+				<State>
+					<ShowContext Value="True"/>
+				</State>
+			</TTextCompareSession>
+		</Items>
+	</TSessionFolder>
+</BCSessions>

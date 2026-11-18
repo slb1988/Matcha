@@ -11,7 +11,6 @@
 //! | [`workspace`] | `TWorkspaceItem`, `TWorkspaceList` |
 //! | [`xml`] | `BCSessions.xml` reader/writer on top of `bc_core::persist` |
 //! | [`prefs`] | `TBcPrefs` (`TPrefs`) subset used by the engines |
-#![allow(unused_variables)] // scaffold: bodies are `todo!()`; remove once implemented
 #![forbid(unsafe_code)]
 
 pub mod folder;
@@ -21,8 +20,8 @@ pub mod state;
 pub mod workspace;
 pub mod xml;
 
-pub use folder::{SessionFolder, SessionManager};
-pub use session::{Session, SessionKind, SessionRules, SessionSpecs};
+pub use folder::{FolderItem, SessionFolder, SessionManager};
+pub use session::{Session, SessionKind, SessionRules, SessionSpecs, Stamp};
 pub use state::SessionState;
 pub use workspace::{Workspace, WorkspaceItem};
 

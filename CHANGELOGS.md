@@ -4,6 +4,12 @@
 
 ## 2026-11-18
 
+- **会话文件读写落地**（`docs/features/sessions-and-formats.md`）：`bc-session` 此前的会话持久化全是占位，
+  现可读写参考工具格式的 `BCSessions.xml`（嵌套文件夹、按类型默认会话、`LastModified`、Specs、
+  文本对齐规则、State），未知类与元素原位保留；本机 34 份参考工具真实会话文件逐字节往返。
+  会话库位于 `%APPDATA%\Matcha\BCSessions.xml`，支持插入/替换（名称全树唯一）、删除与原子写盘。
+  界面与命令行入口随后接入。
+
 - **visual-parity 变更归档**（文档/规格，无行为变化）：23/23 完成的 visual-parity 移入
   `openspec/changes/archive/2026-11-18-visual-parity`，新建 6 个主 spec（`ui-chrome-theme`、`text-view-appearance`、
   `folder-view-appearance`、`home-table-appearance`、`dialog-appearance`、`visual-reference-harness`）；
