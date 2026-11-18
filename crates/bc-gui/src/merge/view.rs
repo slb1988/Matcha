@@ -139,6 +139,11 @@ fn menus() -> Vec<MenuSpec> {
                 menu_item("Take Left", Some("Ctrl+L")),
                 menu_item("Take Center", Some("Ctrl+B")),
                 menu_item("Take Right", Some("Ctrl+R")),
+                menu_item("Take Left Then Right", None),
+                menu_item("Take Right Then Left", None),
+                menu_item("Take Left Line", Some("Shift+Ctrl+L")),
+                menu_item("Take Center Line", Some("Shift+Ctrl+B")),
+                menu_item("Take Right Line", Some("Shift+Ctrl+R")),
                 menu_item("Accept Current Content", Some("Ctrl+K")),
             ],
         ),
@@ -325,6 +330,23 @@ impl MergeView {
         }
     }
 
+    /// Take 的作用范围：输出窗格有选区时为选中行（选区止于行首时不含该行），
+    /// 否则为光标所在区段（参考：Takes selected lines or current section）。
+    fn take_rows(&mut self) -> Option<std::ops::Range<usize>> {
+        if let Some((start, end)) = self.editor.selection() {
+            let last = if end.byte == 0 && end.line > start.line {
+                end.line - 1
+            } else {
+                end.line
+            };
+            let row = |line: usize| self.model.out_line(line).map(|m| m.row);
+            if let (Some(first), Some(last)) = (row(start.line), row(last)) {
+                return Some(first..last + 1);
+            }
+        }
+        self.section()
+    }
+
     /// 当前区段：光标所在的冲突区段，否则改动段。
     fn section(&mut self) -> Option<std::ops::Range<usize>> {
         let section = self.model.section_at(self.current_row);
@@ -364,16 +386,35 @@ impl MergeView {
                     self.caret_moved();
                 }
             }
-            "Take Left" | "Take Center" | "Take Right" => {
+            "Take Left"
+            | "Take Center"
+            | "Take Right"
+            | "Take Left Then Right"
+            | "Take Right Then Left" => {
+                let sides: &[Side] = match id {
+                    "Take Left" => &[Side::Left],
+                    "Take Center" => &[Side::Center],
+                    "Take Right" => &[Side::Right],
+                    "Take Left Then Right" => &[Side::Left, Side::Right],
+                    _ => &[Side::Right, Side::Left],
+                };
+                if let Some(rows) = self.take_rows() {
+                    let start = rows.start;
+                    self.model.take_sides(rows, sides, &mut self.editor);
+                    self.goto_row(start);
+                }
+            }
+            // 只取光标所在的一行（对齐行），光标留在原处便于逐行处理。
+            "Take Left Line" | "Take Center Line" | "Take Right Line" => {
                 let side = match id {
-                    "Take Left" => Side::Left,
-                    "Take Center" => Side::Center,
+                    "Take Left Line" => Side::Left,
+                    "Take Center Line" => Side::Center,
                     _ => Side::Right,
                 };
-                if let Some(rows) = self.section() {
-                    let start = rows.start;
-                    self.model.take(rows, side, &mut self.editor);
-                    self.goto_row(start);
+                let row = self.current_row;
+                if row < self.model.map.row_count() {
+                    self.model.take_line(row, side, &mut self.editor);
+                    self.goto_row(row);
                 }
             }
             "Accept Current Content" => {
@@ -413,6 +454,9 @@ impl MergeView {
             } = &event
             {
                 let command = match (*key, modifiers.command, modifiers.shift) {
+                    (egui::Key::L, true, true) => Some("Take Left Line"),
+                    (egui::Key::B, true, true) => Some("Take Center Line"),
+                    (egui::Key::R, true, true) => Some("Take Right Line"),
                     (egui::Key::S, true, _) => Some("Save Output"),
                     (egui::Key::F12, _, _) => Some("Save Output As..."),
                     (egui::Key::Z, true, false) => Some("Undo"),
@@ -726,6 +770,67 @@ impl MergeView {
     }
 
     /// 一个窗格：标题条 + 可见的网格行。
+    /// 输出窗格右键菜单：Edit 菜单的 Take 系列与剪贴板命令。
+    pub(crate) fn context_items(&self) -> Vec<MenuItem> {
+        use crate::chrome::popup::item;
+        let on_change = self.model.section_at(self.current_row).is_some();
+        let selection = self.editor.selection().is_some();
+        let takes = on_change || selection;
+        vec![
+            item::action("Take Left", "Take Left", takes),
+            item::action("Take Center", "Take Center", takes),
+            item::action("Take Right", "Take Right", takes),
+            item::action("Take Left Then Right", "Take Left Then Right", takes),
+            item::action("Take Right Then Left", "Take Right Then Left", takes),
+            item::separator(),
+            item::action("Take Left Line", "Take Left Line", true),
+            item::action("Take Center Line", "Take Center Line", true),
+            item::action("Take Right Line", "Take Right Line", true),
+            item::separator(),
+            item::action(
+                "Accept Current Content",
+                "Accept Current Content",
+                on_change,
+            ),
+            item::separator(),
+            item::action("Cut", "Cut", selection),
+            item::action("Copy", "Copy", selection),
+            item::action("Paste", "Paste", true),
+            item::separator(),
+            item::action("Select All", "Select All", true),
+        ]
+    }
+
+    /// 右键菜单的剪贴板命令：合成与快捷键相同的编辑事件交给输出编辑器。
+    fn clipboard(&mut self, id: &str, ctx: &egui::Context) {
+        if id == "Paste" {
+            ctx.memory_mut(|m| m.request_focus(pane_id(OUT)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            return;
+        }
+        let event = match id {
+            "Cut" => egui::Event::Cut,
+            "Copy" => egui::Event::Copy,
+            _ => egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            },
+        };
+        let result = if id == "Cut" {
+            self.model.edit(&mut self.editor, |editor, content| {
+                editor.event(content, &event, ctx)
+            })
+        } else {
+            self.editor.event(&mut self.model.output, &event, ctx)
+        };
+        if let Err(e) = result {
+            self.message = e.to_string();
+        }
+    }
+
     fn pane(&mut self, ui: &mut egui::Ui, pane: usize, rect: egui::Rect) {
         let header = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), HEADER));
         self.header(ui, pane, header);
@@ -736,6 +841,20 @@ impl MergeView {
         if response.clicked() || response.drag_started() {
             self.active = pane;
             response.request_focus();
+        }
+        if pane == OUT {
+            if response.secondary_clicked() {
+                self.active = OUT;
+                response.request_focus();
+            }
+            if let Some(command) =
+                crate::chrome::popup::context_menu(&response, || self.context_items())
+            {
+                match command.as_str() {
+                    "Cut" | "Copy" | "Paste" | "Select All" => self.clipboard(&command, ui.ctx()),
+                    other => self.command(other),
+                }
+            }
         }
         // 输出窗格可编辑：文本区（行号栏右侧）悬停或拖选时显示 I 形插入光标。
         if pane == OUT

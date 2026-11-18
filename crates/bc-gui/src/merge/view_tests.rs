@@ -336,3 +336,90 @@ fn saving_without_a_target_asks_for_a_path() {
     assert_eq!(frame(&ctx, &mut v, vec![]), Some(MergeAction::Close));
     assert_eq!(v.result_code(), 101);
 }
+
+fn shift_ctrl(key: egui::Key) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            ctrl: true,
+            command: true,
+            shift: true,
+            ..Default::default()
+        },
+    }
+}
+
+#[test]
+fn line_takes_ordered_takes_and_selected_rows() {
+    let b = base(40);
+    let left = edit(&b, &[(5, "L5"), (6, "L6")]);
+    let right = edit(&b, &[(5, "R5"), (6, "R6")]);
+    let mut v = view(&left, &right, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.current_row, 4);
+    // Shift+Ctrl+L takes only the cursor's line; the two-row conflict stays open.
+    frame(&ctx, &mut v, vec![shift_ctrl(egui::Key::L)]);
+    assert!(text(&v).contains("L5\n") && !text(&v).contains("L6\n"));
+    assert_eq!(v.unresolved(), 1);
+    frame(&ctx, &mut v, vec![key(egui::Key::Z, true)]);
+
+    // Take Right Then Left: the whole section, right lines first.
+    v.command("Take Right Then Left");
+    assert_eq!(
+        text(&v),
+        joined(&insert(&right, 6, &["L5", "L6"])),
+        "right block followed by the left block"
+    );
+    assert_eq!(v.unresolved(), 0);
+    frame(&ctx, &mut v, vec![key(egui::Key::Z, true)]);
+    assert_eq!(v.unresolved(), 1);
+
+    // A selection limits Take to the selected rows (ending at a line start
+    // excludes that line).
+    v.editor.place(Caret { line: 4, byte: 0 }, false);
+    v.editor.place(Caret { line: 5, byte: 0 }, true);
+    v.command("Take Left");
+    assert!(text(&v).contains("L5\n") && !text(&v).contains("L6\n"));
+}
+
+#[test]
+fn output_context_menu_offers_takes_and_clipboard() {
+    let b = base(20);
+    let mut v = view(&edit(&b, &[(5, "L5")]), &edit(&b, &[(5, "R5")]), &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let enabled = |v: &MergeView, id: &str| {
+        v.context_items()
+            .iter()
+            .find(|i| i.action_id == id)
+            .unwrap_or_else(|| panic!("{id} missing"))
+            .enabled
+    };
+    // On the conflict: every Take is available; nothing selected → no Cut/Copy.
+    for id in [
+        "Take Left",
+        "Take Center",
+        "Take Right",
+        "Take Left Then Right",
+        "Take Right Then Left",
+        "Take Left Line",
+        "Accept Current Content",
+        "Paste",
+        "Select All",
+    ] {
+        assert!(enabled(&v, id), "{id}");
+    }
+    assert!(!enabled(&v, "Copy") && !enabled(&v, "Cut"));
+    // Off any change: section takes and Accept are disabled, line takes stay.
+    v.goto_row(0);
+    assert!(!enabled(&v, "Take Left") && !enabled(&v, "Accept Current Content"));
+    assert!(enabled(&v, "Take Right Line"));
+    // Select All through the menu path selects the output; Copy becomes available.
+    v.clipboard("Select All", &ctx);
+    assert!(v.editor.selection().is_some());
+    assert!(enabled(&v, "Copy") && enabled(&v, "Take Left"));
+}

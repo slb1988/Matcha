@@ -4,6 +4,12 @@
 
 ## 2026-11-18
 
+- **文本合并：顺序 Take、按行 Take、按选区 Take、输出窗格右键菜单**（`docs/features/text-merge.md`）：
+  Edit 菜单新增 **Take Left Then Right / Take Right Then Left**（冲突两边都要时按顺序保留两侧各行）与
+  **Take Left / Center / Right Line**（Shift+Ctrl+L / B / R，只换光标所在一行；多行冲突区段仍保持未解决）。
+  Take 系列现在作用于输出窗格的选中行，没有选区时仍为当前区段。输出窗格新增右键菜单，
+  集中提供各 Take、Accept Current Content 与剪切 / 复制 / 粘贴 / 全选。
+
 - **命名会话：保存、Home 重开、命令行按名称打开**（`docs/features/saved-sessions.md`）：
   文本 / 表格 / 十六进制 / 文件夹比较 / 文件夹同步视图的 Session › **Save Session**（Shift+Ctrl+S）与
   **Save Session As...** 此前一直是灰的，现在可用：首次保存弹起名框（默认名为标签标题），已命名的标签页再次保存直接覆盖；

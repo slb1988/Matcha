@@ -413,23 +413,37 @@ impl MergeModel {
     /// Take：把 `rows` 的输出整体换成 `side`（left / right / center）在这些行上的内容，
     /// 覆盖手工行，并清除涉及的冲突标记。
     pub fn take(&mut self, rows: Range<usize>, side: Side, editor: &mut Editor) {
+        self.take_sides(rows, &[side], editor);
+    }
+
+    /// Take Left Then Right / Take Right Then Left：依次取 `sides` 各自在 `rows` 上的内容。
+    /// 后取的一侧排在前一侧之后，显示在区段末行之下（输入窗格对应位置为空隙）。
+    pub fn take_sides(&mut self, rows: Range<usize>, sides: &[Side], editor: &mut Editor) {
+        let Some(&first) = sides.first() else {
+            return;
+        };
         let before = self.snapshot(editor.caret);
         let fallback = self.output.lines.borrow().dominant_ending();
         let mut bytes = Vec::new();
         let mut meta = Vec::new();
-        for row in rows.clone() {
-            if let Some((text, ending)) = self.side_line(side, row) {
-                bytes.extend_from_slice(&text);
-                // 来源行可能是其文件的无行尾末行；替换块内部不能留下无行尾的行。
-                bytes.extend_from_slice(if ending == LineEnding::None {
-                    fallback.as_bytes()
-                } else {
-                    ending.as_bytes()
-                });
-                meta.push(OutLine {
-                    origin: origin_of(side),
-                    row,
-                });
+        // 网格要求输出行的对齐行号不递减：后取一侧的行挂在已用到的最后一个对齐行上。
+        let mut last = rows.start;
+        for &side in sides {
+            for row in rows.clone() {
+                if let Some((text, ending)) = self.side_line(side, row) {
+                    bytes.extend_from_slice(&text);
+                    // 来源行可能是其文件的无行尾末行；替换块内部不能留下无行尾的行。
+                    bytes.extend_from_slice(if ending == LineEnding::None {
+                        fallback.as_bytes()
+                    } else {
+                        ending.as_bytes()
+                    });
+                    last = last.max(row);
+                    meta.push(OutLine {
+                        origin: origin_of(side),
+                        row: last,
+                    });
+                }
             }
         }
         let lo = self.meta.partition_point(|m| m.row < rows.start);
@@ -439,7 +453,7 @@ impl MergeModel {
             .borrow_mut()
             .replace_range(lo..hi, &LineList::from_bytes(bytes));
         self.meta.splice(lo..hi, meta);
-        self.state.take(rows, side);
+        self.state.take(rows, first);
         self.rebuild_grid();
         self.record(before);
         editor.place(
@@ -450,6 +464,19 @@ impl MergeModel {
             false,
         );
         editor.clamp(&self.output);
+    }
+
+    /// Take Left / Center / Right Line：只换对齐行 `row`。参考按行记冲突，这里按区段记：
+    /// 所在冲突区段多于一行时保持未解决（其余行仍待处理），单行区段随之解决。
+    pub fn take_line(&mut self, row: usize, side: Side, editor: &mut Editor) {
+        let open = self.state.in_conflict(row);
+        let section = self.section_at(row);
+        self.take_sides(row..row + 1, &[side], editor);
+        if let (true, Some(section)) = (open, section) {
+            if section.len() > 1 {
+                self.state.set_resolved(&section, false);
+            }
+        }
     }
 
     /// 接受当前内容：不改输出，只把涉及的冲突区段标为已解决。

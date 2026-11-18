@@ -1,7 +1,7 @@
 # 文本合并（Text Merge）
 
 > 三方合并：left / right 两个版本相对共同祖先 center 的改动合并到输出文件，可无窗口自动合并，也可在界面里解决冲突。
-> 状态：**已实现（引擎、命令行、界面；合并语义未经参考样本确认）**（2026-11-14 更新）。
+> 状态：**已实现（引擎、命令行、界面；合并语义未经参考样本确认）**（2026-11-18 更新）。
 > 参考依据与样本采集阻塞见 [reference-parity/text-merge.md](../reference-parity/text-merge.md)。
 
 ## 功能简介
@@ -126,9 +126,14 @@ cargo test -p bc-gui --lib merge
 | Save Output As... | `F12` | 另存输出 |
 | Undo | `Ctrl+Z` | 撤销 Take、接受或编辑 |
 | Redo | `Ctrl+Y` | 重做 |
-| Take Left | `Ctrl+L` | 当前区段取左侧 |
-| Take Center | `Ctrl+B` | 当前区段取共同祖先 |
-| Take Right | `Ctrl+R` | 当前区段取右侧 |
+| Take Left | `Ctrl+L` | 选中行或当前区段取左侧 |
+| Take Center | `Ctrl+B` | 选中行或当前区段取共同祖先 |
+| Take Right | `Ctrl+R` | 选中行或当前区段取右侧 |
+| Take Left Then Right | — | 选中行或当前区段：先左侧各行，再右侧各行 |
+| Take Right Then Left | — | 选中行或当前区段：先右侧各行，再左侧各行 |
+| Take Left Line | `Shift+Ctrl+L` | 只换光标所在的一行为左侧 |
+| Take Center Line | `Shift+Ctrl+B` | 只换光标所在的一行为共同祖先 |
+| Take Right Line | `Shift+Ctrl+R` | 只换光标所在的一行为右侧 |
 | Accept Current Content | `Ctrl+K` | 不改输出，清除当前区段冲突标记，然后跳到下一个冲突 |
 | Next Change Section | `Ctrl+N` | 下一个改动区段（含冲突） |
 | Previous Change Section | `Ctrl+P` | 上一个改动区段（含冲突） |
@@ -136,7 +141,15 @@ cargo test -p bc-gui --lib merge
 | Close Tab | `Ctrl+W` | 关闭当前标签页 |
 | Exit | `Ctrl+Q` | 退出 |
 
-Take 与接受作用于光标所在区段：冲突区段优先，否则为改动段，不是按选中行操作。
+Take 系列作用于输出窗格的选中行（选区止于某行行首时不含该行）；没有选区时作用于光标所在区段
+（冲突区段优先，否则为改动段），与参考 "Takes selected lines or current section" 一致。接受只看光标所在区段。
+Take Left Then Right / Right Then Left 的后一侧各行排在前一侧之后，显示在区段末行之下（输入窗格对应位置为空隙）。
+按行 Take 只换一行；参考按行记冲突、本项目按区段记，所以多行冲突区段按行 Take 后仍为未解决（继续 Take 或接受），
+单行冲突区段随之解决。
+
+输出窗格右键菜单：Take Left / Center / Right、Take Left Then Right / Right Then Left、Take Left / Center / Right Line、
+Accept Current Content、Cut / Copy / Paste、Select All（区段 Take 与 Accept 在光标不在改动上且无选区时禁用；
+Cut / Copy 需要选区）。条目取自参考 Edit 菜单（无参考截图，样式走设计系统）。
 验收时可依次 Take、手工增行、接受、撤销/重做，核对四窗格行网格、冲突数、来源色与保存结果；
 分别在无冲突保存、带冲突保存、从未保存后关闭，核对退出码 0 / 14 / 101。
 
@@ -145,7 +158,7 @@ Take 与接受作用于光标所在区段：冲突区段优先，否则为改动
 - 输入窗格编辑，以及输入窗格的选择与复制；会话内改规则。
 - 合并的命名会话与 Home 合并入口（比较视图的命名会话见 [saved-sessions.md](saved-sessions.md)）；显示过滤、语法着色、行内差异高亮。
 - 横向滚动条（可用 Shift+滚轮横向滚动）。
-- Take Left Then Right、按行 Take、右键菜单、查找替换。
+- 查找替换。
 
 ## 深入阅读
 

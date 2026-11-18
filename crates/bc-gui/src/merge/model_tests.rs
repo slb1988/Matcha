@@ -382,3 +382,73 @@ fn empty_inputs_still_accept_typed_lines() {
     assert_eq!(text(&m).replace("\r\n", "\n"), "hello\nworld");
     assert!(m.is_dirty());
 }
+
+#[test]
+fn take_left_then_right_stacks_both_sides_after_the_section() {
+    let b = base(12);
+    let left = insert(&b, 5, &["left 1", "left 2", "left 3"]);
+    let right = insert(&b, 5, &["right 1"]);
+    let mut m = model(&left, &right, &b);
+    let mut editor = Editor::default();
+    let rows = m.section_at(5).unwrap();
+    m.take_sides(rows.clone(), &[Side::Left, Side::Right], &mut editor);
+    check(&m);
+    assert_eq!(
+        text(&m),
+        joined(&insert(&b, 5, &["left 1", "left 2", "left 3", "right 1"]))
+    );
+    assert_eq!(m.unresolved(), 0);
+    let origins: Vec<_> = (5..9).map(|i| m.out_line(i).unwrap().origin).collect();
+    assert_eq!(
+        origins,
+        [
+            OutOrigin::Left,
+            OutOrigin::Left,
+            OutOrigin::Left,
+            OutOrigin::Right
+        ]
+    );
+    // The right line hangs under the section's last row: inputs show a gap there.
+    assert_eq!(m.out_line(8).unwrap().row, 7);
+    assert_eq!(m.grid().len(), m.map.row_count() + 1);
+    m.take_sides(rows, &[Side::Right, Side::Left], &mut editor);
+    check(&m);
+    assert_eq!(
+        text(&m),
+        joined(&insert(&b, 5, &["right 1", "left 1", "left 2", "left 3"]))
+    );
+    assert!(m.undo(&mut editor));
+    check(&m);
+    assert!(text(&m).contains("left 3\nright 1"));
+}
+
+#[test]
+fn take_line_replaces_one_row_and_keeps_a_longer_conflict_open() {
+    let b = base(12);
+    let left = edit(&b, &[(5, "L5"), (6, "L6")]);
+    let right = edit(&b, &[(5, "R5"), (6, "R6")]);
+    let mut m = model(&left, &right, &b);
+    let mut editor = Editor::default();
+    // `edit` numbers lines from 1: the conflict covers rows 4 and 5.
+    assert_eq!(m.section_at(4), Some(4..6));
+    m.take_line(4, Side::Left, &mut editor);
+    check(&m);
+    assert_eq!(m.out_line(4).unwrap().origin, OutOrigin::Left);
+    assert_ne!(m.out_line(5).unwrap().origin, OutOrigin::Left);
+    assert!(text(&m).contains("L5\n"));
+    assert!(!text(&m).contains("L6\n"));
+    assert_eq!(
+        m.unresolved(),
+        1,
+        "the other conflict row still needs a decision"
+    );
+    m.take_line(5, Side::Right, &mut editor);
+    assert!(text(&m).contains("L5\nR6\n"));
+    // A one-row conflict is resolved by its line take.
+    let left = edit(&b, &[(3, "L3")]);
+    let right = edit(&b, &[(3, "R3")]);
+    let mut m = model(&left, &right, &b);
+    assert_eq!(m.unresolved(), 1);
+    m.take_line(2, Side::Right, &mut editor);
+    assert_eq!(m.unresolved(), 0);
+}
