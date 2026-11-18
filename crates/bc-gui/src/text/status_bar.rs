@@ -81,17 +81,17 @@ pub fn pane(ui: &mut egui::Ui, rect: egui::Rect, content: &TextContent, editor: 
 }
 /// A line index and its character-level difference segments (byte range, ink).
 pub type DetailSegments = (usize, Vec<(std::ops::Range<usize>, egui::Color32)>);
-pub fn details(
+// As in the panes, cap a single text layout at 4 KiB (on a UTF-8 boundary).
+const DETAIL_PREVIEW_BYTES: usize = 4096;
+
+pub(super) fn details(
     ui: &mut egui::Ui,
     rect: egui::Rect,
-    contents: [&TextContent; 2],
-    editors: &[Editor; 2],
-    // Current row's difference (fill, ink); `None` for an equal row.
+    sides: [(&TextContent, &Editor); 2],
     style: Option<(egui::Color32, egui::Color32)>,
-    // Per side: (line, character-level difference segments with their ink). When the
-    // caret is on that line only the segments take difference ink, the rest is black.
     inline: [Option<DetailSegments>; 2],
     active: usize,
+    scroll_x: &mut f32,
 ) {
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(rect, 0.0, crate::chrome::theme::PANEL_BG);
@@ -107,7 +107,85 @@ pub fn details(
         ],
         egui::Stroke::new(1.0, egui::Color32::WHITE),
     );
-    for s in 0..2 {
+    const GUTTER: f32 = 19.0;
+    let left = rect.left() + GUTTER;
+    let view = (rect.right() - left).max(0.0);
+    let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
+    let ink = style.map_or(egui::Color32::BLACK, |(_, ink)| ink);
+    // Use the reference's integer cell advance in the text layout itself so the
+    // scrollbar extent, caret and ending agree with the painted glyphs.
+    let advance = ui.fonts_mut(|fonts| fonts.glyph_width(&font, '0'));
+    let spacing = advance.round() - advance;
+    // Measure what is actually painted (including tabs, fallback glyphs and the line ending),
+    // not the byte length or the scroll extent of the panes above.
+    let rows = [0, 1].map(|s| {
+        let (content, editor) = sides[s];
+        let lines = content.lines.borrow();
+        let line = editor.caret.line;
+        let text = std::str::from_utf8(lines.line_bytes(line).unwrap_or_default()).unwrap();
+        let mut limit = text.len().min(DETAIL_PREVIEW_BYTES);
+        while !text.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        let truncated = limit < text.len();
+        let ending = if truncated { None } else { lines.ending(line) };
+        let end = match ending {
+            Some(LineEnding::Lf) => "\u{21b5}",
+            Some(LineEnding::Cr) => "\u{2190}",
+            _ if truncated => "…",
+            _ => "",
+        };
+        let marker = painter.layout_no_wrap(end.to_owned(), font.clone(), MARKER);
+        let marker_w = if ending == Some(LineEnding::CrLf) {
+            7.0
+        } else {
+            marker.size().x
+        };
+        let segments = inline[s]
+            .as_ref()
+            .filter(|(at, _)| *at == line)
+            .map(|(_, seg)| seg.as_slice());
+        let text = &text[..limit];
+        let galley = painter.layout_job(detail_job(text, &font, spacing, ink, segments));
+        let caret = (s == active && editor.caret.byte <= limit).then(|| {
+            text.char_indices()
+                .take_while(|(b, _)| *b < editor.caret.byte)
+                .count()
+        });
+        (galley, marker, marker_w, ending, caret)
+    });
+    let width = rows
+        .iter()
+        .map(|(g, _, w, _, _)| g.size().x + w)
+        .fold(0.0, f32::max);
+    if width > view {
+        if ui.is_enabled() && ui.rect_contains_pointer(rect) {
+            let delta = crate::chrome::wheel::delta(ui.ctx(), &[rect]);
+            *scroll_x -= delta.x + delta.y;
+        }
+        let band = egui::Rect::from_min_size(
+            rect.min + egui::vec2(0.0, 32.0),
+            egui::vec2(rect.width(), 16.0),
+        );
+        crate::chrome::scrollbar::show_horizontal_px(
+            ui,
+            band,
+            ui.make_persistent_id("text_details_scroll"),
+            width,
+            view,
+            scroll_x,
+        );
+    } else {
+        *scroll_x = 0.0;
+        // When both rows fit, retain the reference's inactive band.
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min + egui::vec2(18.0, 39.0), egui::vec2(17.0, 2.0)),
+            0.0,
+            DASH,
+        );
+    }
+    let text_x = left - *scroll_x;
+    for (s, (galley, marker, marker_w, ending, caret)) in rows.into_iter().enumerate() {
         let top = rect.top() + s as f32 * 16.0;
         if s == 1 {
             painter.line_segment(
@@ -125,47 +203,16 @@ pub fn details(
                 egui::Stroke::new(1.0, egui::Color32::WHITE),
             );
         }
-        let lines = contents[s].lines.borrow();
-        let line = editors[s].caret.line;
-        let text = std::str::from_utf8(lines.line_bytes(line).unwrap_or_default()).unwrap();
-        let ending = lines.ending(line);
-        // CRLF uses the drawn box marker; other endings keep a text glyph.
-        let end = match ending {
-            Some(LineEnding::Lf) => "\u{21b5}",
-            Some(LineEnding::Cr) => "\u{2190}",
-            _ => "",
-        };
-        let mut limit = text.len().min(4096);
-        while !text.is_char_boundary(limit) {
-            limit -= 1;
-        }
-        let font = egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE);
-        let ink = style.map_or(egui::Color32::BLACK, |(_, ink)| ink);
-        let segments = inline[s]
-            .as_ref()
-            .filter(|(at, _)| *at == line)
-            .map(|(_, segments)| segments.as_slice());
-        let galley = painter.layout_job(detail_job(&text[..limit], &font, ink, segments));
-        let marker = painter.layout_no_wrap(end.to_string(), font.clone(), MARKER);
-        // Reference: text ink starts 20 px in, one row below the box top.
-        let text_x = rect.left() + 19.0;
-        // Snap to the hinted cell grid: GDI renders this monospace font at a
-        // whole-pixel advance (7 px), egui at ~7.33 px.
-        let advance = painter
-            .layout_no_wrap("0".to_string(), font.clone(), ink)
-            .size()
-            .x
-            .max(1.0);
-        let cell = advance.round() / advance;
-        let marker_x = (text_x + galley.size().x * cell).round();
-        let marker_w = if ending == Some(LineEnding::CrLf) {
-            7.0
-        } else {
-            marker.size().x
-        };
+        // The gutter arrows and the row separators stay fixed; everything from the
+        // text box through its end marker moves together and is clipped at the gutter.
+        let row_painter = painter.with_clip_rect(egui::Rect::from_min_max(
+            egui::pos2(left, top),
+            egui::pos2(rect.right(), top + 16.0),
+        ));
+        let marker_x = text_x + galley.size().x;
         // 收缩包裹的文本框：第一行纯白，第二行 #FCFCFC；右缘紧贴行尾符。
         let box_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + 19.0, top),
+            egui::pos2(text_x, top),
             egui::pos2(marker_x + marker_w, (top + 15.0).min(rect.bottom())),
         );
         // Equal rows: white / #FCFCFC with a #C0C0C0 left edge; difference
@@ -183,9 +230,9 @@ pub fn details(
                 fill.b().min(base.b()),
             )
         });
-        painter.rect_filled(box_rect, 0.0, fill);
+        row_painter.rect_filled(box_rect, 0.0, fill);
         if style.is_none() {
-            painter.line_segment(
+            row_painter.line_segment(
                 [box_rect.left_top(), box_rect.left_bottom()],
                 egui::Stroke::new(1.0, CARET),
             );
@@ -211,43 +258,25 @@ pub fn details(
             egui::Color32::from_rgb(215, 233, 249),
             egui::Stroke::new(1.0, egui::Color32::from_gray(100)),
         ));
-        if s == active {
+        if let Some(caret) = caret {
             // Caret: a 2 px #C0C0C0 bar left of the caret column, clipped to the box.
-            let mut byte = editors[s].caret.byte.min(limit);
-            while !text.is_char_boundary(byte) {
-                byte -= 1;
-            }
-            let prefix = painter
-                .layout_no_wrap(
-                    text[..byte].to_string(),
-                    egui::FontId::monospace(crate::chrome::theme::EDITOR_SIZE),
-                    ink,
-                )
-                .size()
-                .x;
-            let x = (text_x + prefix * cell - 1.0).round();
+            let prefix = galley
+                .pos_from_cursor(egui::text::CCursor::new(caret))
+                .left();
+            let x = (text_x + prefix - 1.0).round();
             let bar = egui::Rect::from_min_max(
                 egui::pos2(x.max(box_rect.left()), top),
                 egui::pos2(x + 2.0, (top + 15.0).min(rect.bottom())),
             );
-            painter.rect_filled(bar, 0.0, CARET);
+            row_painter.rect_filled(bar, 0.0, CARET);
         }
-        painter.galley(egui::pos2(text_x, top + 2.0), galley, ink);
+        row_painter.galley(egui::pos2(text_x, top + 2.0), galley, ink);
         if ending == Some(LineEnding::CrLf) {
-            crlf_marker(&painter, egui::pos2(marker_x, top + 4.0));
+            crlf_marker(&row_painter, egui::pos2(marker_x, top + 4.0));
         } else {
-            painter.galley(egui::pos2(marker_x, top + 2.0), marker, MARKER);
+            row_painter.galley(egui::pos2(marker_x, top + 2.0), marker, MARKER);
         }
     }
-    // 参考第三行是静态占位：2 px 灰色短横。
-    painter.rect_filled(
-        egui::Rect::from_min_size(
-            egui::pos2(rect.left() + 18.0, rect.top() + 39.0),
-            egui::vec2(17.0, 2.0),
-        ),
-        0.0,
-        DASH,
-    );
 }
 /// Details caret bar and equal-row box edge.
 const CARET: egui::Color32 = egui::Color32::from_rgb(0xC0, 0xC0, 0xC0);
@@ -385,12 +414,17 @@ pub fn modified_label(time: Option<std::time::SystemTime>) -> String {
 fn detail_job(
     text: &str,
     font: &egui::FontId,
+    spacing: f32,
     ink: egui::Color32,
     segments: Option<&[(std::ops::Range<usize>, egui::Color32)]>,
 ) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default();
+    let mut job = egui::text::LayoutJob {
+        keep_trailing_whitespace: true,
+        ..Default::default()
+    };
     let format = |color| egui::TextFormat {
         font_id: font.clone(),
+        extra_letter_spacing: spacing,
         color,
         ..Default::default()
     };

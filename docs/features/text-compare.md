@@ -27,6 +27,9 @@
 - **中文与编辑器字体对齐**：编辑器字体缺字（CJK）时回退到微软雅黑，按 GDI 字体链接的做法把回退字体缩放到与编辑器字体
   同行高（雅黑 1.32 em → Consolas 1.17 em，约 0.89 倍）并对齐基线（`fonts::editor_cjk_tweak`）；
   此前中文比英文大一号、下沉约 2 px，底部被行裁掉。界面（菜单、对话框）里的中文不受影响。
+- **底部行详情**显示两侧当前行；任一行（含行尾符）超宽时，底部短横换成横向滚动条。
+  拖滑块、点轨道或左右按钮、在详情区滚动滚轮，都只会横移这两行；侧别箭头固定，上方窗格不跟随。
+  两行都能放下时恢复短横，偏移归零。详情仍是每行最多 4 KiB 的预览，超出的部分以 `…` 标记；文件内容与上方编辑区不截断。
 - 视图投影：All / Differences / Same / Context 区段折叠。
 - **打开即定位首个差异**：打开文件对（或在会话里换一侧文件）后，首次比较完成时光标与滚动自动落到第一个差异区段的首行
   （与 First Difference 同口径：开启 Ignore Unimportant 时跳过只有不重要差异的区段）；两侧相同则停在首行。
@@ -78,6 +81,7 @@
 ```powershell
 cargo run --release -p bcompare -- a.txt b.txt                 # GUI
 cargo test -p bc-engine-text                                   # 引擎测试
+cargo test -p bc-gui --lib text::view::tests::details_          # 行详情绘制与滚动交互
 cargo run --release -p bc-engine-text --example text_baseline  # 轻量基线
 ```
 

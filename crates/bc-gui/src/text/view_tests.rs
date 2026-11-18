@@ -994,6 +994,111 @@ fn details_take_the_current_rows_difference_colors_and_caret_bar() {
 }
 
 #[test]
+fn details_scrollbar_moves_both_rows_without_scrolling_either_editor() {
+    let ctx = egui::Context::default();
+    // Only the inactive side overflows. Include tab and multibyte text in the width.
+    let long = format!("{}\t行尾", "0123456789".repeat(45));
+    let mut v = view("left\nshort\n", &format!("{long}\nshort\n"));
+    v.goto_row(0);
+    let out = frame(&ctx, &mut v, vec![]);
+    let top = v.pane_rects[1].bottom() + 19.0;
+    let detail_text = |out: &egui::FullOutput, label: &str| {
+        out.shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t)
+                    if (top..top + 32.0).contains(&t.pos.y) && t.galley.text() == label =>
+                {
+                    Some((
+                        egui::Rect::from_min_size(t.pos, t.galley.size()),
+                        s.clip_rect,
+                    ))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let origins = ["left", &long].map(|label| detail_text(&out, label).0.left());
+    let clip = detail_text(&out, &long).1;
+    let bar_y = top + 40.0;
+    let panes_before = v.scroll;
+
+    // Right arrow, then a wheel notch over the text itself.
+    click(&ctx, &mut v, egui::pos2(clip.right() - 8.0, bar_y));
+    let out = frame(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(clip.center().x, top + 8.0)),
+            wheel_lines(-1.0, Default::default()),
+        ],
+    );
+    for (label, x) in ["left", &long].into_iter().zip(origins) {
+        let (text, clipped) = detail_text(&out, label);
+        assert_eq!(x - text.left(), 80.0, "{label}");
+        assert_eq!(clipped.left(), clip.left(), "fixed arrow gutter");
+    }
+    // Left edge of the track -> start. Drag the thumb to the end and let go.
+    let start = egui::pos2(v.pane_rects[0].left() + 17.0, bar_y);
+    click(&ctx, &mut v, start);
+    assert_eq!(v.details_scroll_x, 0.0);
+    let end = egui::pos2(clip.right() - 17.0, bar_y);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(start), pointer(start, true)],
+    );
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(end)]);
+    frame(&ctx, &mut v, vec![pointer(end, false)]);
+    let out = frame(&ctx, &mut v, vec![]);
+    let marker = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t)
+                if (top + 16.0..top + 32.0).contains(&t.pos.y) && t.galley.text() == "↵" =>
+            {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        (marker.right() - clip.right()).abs() < 1.0,
+        "line ending reachable: {marker:?} {clip:?}"
+    );
+    assert_eq!(v.scroll, panes_before);
+    assert_eq!(v.current_row, 0);
+    assert_eq!(v.active, 0);
+
+    // Changing to a fitting row drops the bar and its stale offset.
+    v.goto_row(1);
+    let out = frame(&ctx, &mut v, vec![]);
+    assert_eq!(detail_text(&out, "short").0.left(), origins[0]);
+    assert!(out
+        .shapes
+        .iter()
+        .any(|s| matches!(&s.shape, egui::Shape::Rect(r)
+        if r.rect.size() == egui::vec2(17.0, 2.0) && (r.rect.center().y - bar_y).abs() < 0.5)));
+}
+
+#[test]
+fn details_long_preview_ends_at_a_utf8_boundary_and_marks_truncation() {
+    let ctx = egui::Context::default();
+    let prefix = "a".repeat(4095);
+    let line = format!("{prefix}界\r\n");
+    let mut v = view(&line, &line);
+    let out = frame(&ctx, &mut v, vec![]);
+    let top = v.pane_rects[1].bottom() + 19.0;
+    let rows: Vec<_> = text_shapes(&out)
+        .into_iter()
+        .filter(|(_, r)| (top..top + 32.0).contains(&r.top()))
+        .map(|(t, _)| t)
+        .collect();
+    assert_eq!(rows, [prefix.as_str(), "…", prefix.as_str(), "…"]);
+}
+
+#[test]
 fn session_settings_dialog_applies_on_ok_only() {
     let ctx = egui::Context::default();
     let prefs = Prefs::default();

@@ -117,6 +117,8 @@ pub struct TextCompareView {
     pub(crate) active: usize,
     pub(crate) current_row: usize,
     pub(crate) scroll: egui::Vec2,
+    /// Shared by the two detail rows, independent of both editor panes.
+    details_scroll_x: f32,
     pub(crate) stacked: bool,
     pub(crate) projection: Projection,
     pub(crate) inline: HashMap<usize, InlineDiff>,
@@ -225,6 +227,7 @@ impl TextCompareView {
             active: 0,
             current_row: 0,
             scroll: egui::Vec2::ZERO,
+            details_scroll_x: 0.0,
             stacked: false,
             projection: Default::default(),
             inline: HashMap::new(),
@@ -1448,11 +1451,14 @@ impl TextCompareView {
         status_bar::details(
             ui,
             details,
-            [&self.map.left, &self.map.right],
-            &self.editors,
+            [
+                (&self.map.left, &self.editors[0]),
+                (&self.map.right, &self.editors[1]),
+            ],
             style,
             inline,
             self.active,
+            &mut self.details_scroll_x,
         );
         let status = egui::Rect::from_min_size(
             egui::pos2(available.left(), details.bottom()),

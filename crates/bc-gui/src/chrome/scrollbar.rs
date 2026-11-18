@@ -131,7 +131,7 @@ pub fn show_horizontal_px(
         if content <= view || content <= 0.0 {
             track
         } else {
-            (track * view / content).clamp(16.0, track)
+            (track * view / content).clamp(16.0_f32.min(track), track)
         }
     };
     let position = if max > 0.0 { *offset / max } else { 0.0 };
@@ -182,9 +182,9 @@ fn horizontal_frame(
         let x = if is_left { -1.0 } else { 1.0 };
         ui.painter().add(egui::Shape::convex_polygon(
             vec![
-                c + egui::vec2(-3.0 * x, 0.0),
-                c + egui::vec2(2.0 * x, -3.0),
-                c + egui::vec2(2.0 * x, 3.0),
+                c + egui::vec2(3.0 * x, 0.0),
+                c + egui::vec2(-2.0 * x, -3.0),
+                c + egui::vec2(-2.0 * x, 3.0),
             ],
             super::theme::TEXT_FAINT,
             Stroke::NONE,
