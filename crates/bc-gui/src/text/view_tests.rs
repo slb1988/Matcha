@@ -2009,6 +2009,7 @@ fn diff_rows_keep_comment_style_but_ink_code() {
             syntax: &syntax,
             bold: &bold,
             unimportant,
+            important: None,
         };
         let (job, _) = layout(
             text,

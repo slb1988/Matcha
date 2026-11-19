@@ -1006,6 +1006,7 @@ impl MergeView {
                     syntax: &Default::default(),
                     bold: &egui::FontId::monospace(self.font_size),
                     unimportant: &[],
+                    important: None,
                 },
             );
             let galley = painter.layout_job(job);

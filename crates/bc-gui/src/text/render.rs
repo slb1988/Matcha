@@ -362,6 +362,7 @@ impl TextCompareView {
                                 syntax: &syntax,
                                 bold: &bold,
                                 unimportant: &self.map.rules.comparison.importance.unimportant,
+                                important: None,
                             },
                         );
                         let galley = ui.painter().layout_job(job);
@@ -765,6 +766,9 @@ pub(crate) struct LineInk<'a> {
     pub bold: &'a egui::FontId,
     /// 差异不重要的语法元素（比较规则；默认是注释）。
     pub unimportant: &'a [bc_formats::ElementKind],
+    /// 行内重要差异色覆盖：`None` 用 [`diff_ink`] 的重要差异色（文本比较）；合并视图按所属侧
+    /// 指定（左 / 右 / 冲突）。不重要差异仍用不重要差异色。
+    pub important: Option<egui::Color32>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -808,7 +812,10 @@ pub(crate) fn layout(
         };
         let format = egui::TextFormat {
             font_id,
-            color: span.map_or(color, |s| diff_ink(colors, s.importance)),
+            color: span.map_or(color, |s| match (s.importance, ink.important) {
+                (Importance::Important, Some(important)) => important,
+                _ => diff_ink(colors, s.importance),
+            }),
             italics: style.italic,
             ..Default::default()
         };
