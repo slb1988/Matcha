@@ -899,9 +899,9 @@ impl MergeView {
                 ..
             } = &event
             {
-                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签。
-                if let Some(n) =
-                    crate::text::view::digit(*key, *physical_key).filter(|_| modifiers.command)
+                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签（AltGr = Ctrl+Alt 留给输入字符）。
+                if let Some(n) = crate::text::view::digit(*key, *physical_key)
+                    .filter(|_| modifiers.command && !modifiers.alt)
                 {
                     self.command(&if modifiers.shift {
                         format!("Toggle Bookmark {n}")

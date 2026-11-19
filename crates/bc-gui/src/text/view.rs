@@ -2564,8 +2564,10 @@ impl TextCompareView {
                 ..
             } = &event
             {
-                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签。
-                if let Some(n) = digit(*key, *physical_key).filter(|_| modifiers.command) {
+                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签（AltGr = Ctrl+Alt 留给输入字符）。
+                if let Some(n) =
+                    digit(*key, *physical_key).filter(|_| modifiers.command && !modifiers.alt)
+                {
                     let id = if modifiers.shift {
                         format!("Toggle Bookmark {n}")
                     } else {
@@ -2785,12 +2787,15 @@ impl TextCompareView {
                 self.bookmark_base[s] = None;
                 continue;
             }
+            let revision = self.content(s).lines.borrow().revision();
+            if self.bookmark_base[s]
+                .as_ref()
+                .is_some_and(|(base, _)| *base == revision)
+            {
+                continue;
+            }
             let lines = self.content(s).lines.borrow().clone();
-            let revision = lines.revision();
-            if let Some((base, old)) = &self.bookmark_base[s] {
-                if *base == revision {
-                    continue;
-                }
+            if let Some((_, old)) = &self.bookmark_base[s] {
                 let change = bookmarks::Change::between(old, &lines);
                 let len = lines.len();
                 self.bookmarks.map(|(side, line)| {

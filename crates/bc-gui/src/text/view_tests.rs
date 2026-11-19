@@ -2651,3 +2651,31 @@ fn nav_bar_draws_a_tick_for_each_bookmark() {
     assert_eq!(ticks(&frame(&ctx, &mut v, vec![])), none + 1);
     assert_eq!(v.bookmark_rows(), vec![(0, 250)]);
 }
+
+#[test]
+fn altgr_digits_are_left_for_typing() {
+    let ctx = egui::Context::default();
+    let mut v = view(&lines_of(10), &lines_of(10));
+    frame(&ctx, &mut v, vec![]);
+    v.editors[0].place(Caret { line: 4, byte: 0 }, false);
+    // AltGr+0 在德语等布局上是 `}`，egui 报告为 Ctrl+Alt+0。
+    let altgr = egui::Event::Key {
+        key: egui::Key::Num0,
+        physical_key: Some(egui::Key::Num0),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            ctrl: true,
+            command: true,
+            alt: true,
+            ..Default::default()
+        },
+    };
+    let mut shifted = altgr.clone();
+    if let egui::Event::Key { modifiers, .. } = &mut shifted {
+        modifiers.shift = true;
+    }
+    frame(&ctx, &mut v, vec![shifted, altgr]);
+    assert!(v.bookmarks.is_empty());
+    assert_ne!(v.message, "Bookmark 0 is not set");
+}
