@@ -6,15 +6,15 @@
 
 ## 2. 语法着色与行内差异
 
-- [ ] 2.1 `text/render.rs::layout` 增加「重要差异色覆盖」参数（design 决定 1），文本比较调用点传 `None`；`cargo test -p bc-gui text::` 与文本比较快照（`text-*` 场景）逐像素不变
+- [x] 2.1 `text/render.rs::layout` 增加「重要差异色覆盖」参数（design 决定 1），文本比较调用点传 `None`；`cargo test -p bc-gui text::` 与文本比较快照（`text-*` 场景）逐像素不变
 - [x] 2.2 `merge/view.rs`：四窗格传入 `TextContent::tokens(line)` 与 `SyntaxStyle::for_format`、`theme::editor_bold`；新增 View 菜单 Syntax Highlighting 勾选（`show_syntax` 默认 true）；`merge/view_tests.rs` 加测试：关闭开关后 layout 不再带语法色；`dev-build.ps1` 编译通过
 - [x] 2.3 行内差异缓存 `inline: HashMap<(pane,row), InlineDiff>`：只算左 / 右窗格的改动或冲突行且本侧与 base 都有内容；左窗格用 `MERGE_LEFT`、右窗格 `MERGE_RIGHT`、冲突区段 `MERGE_CONFLICT`；单测覆盖：`price`→`cost` 只标该词、冲突区段用冲突色、整行新增不做行内、base / 输出窗格不做行内、缓存上限清空
 
 ## 3. 输入窗格选择与复制
 
-- [ ] 3.1 抽出四窗格通用的「指针 → (行, 字节)」命中函数；新增 `input_editors: [Editor; 3]` 与侧行号 → 对齐行索引（design 决定 3）；单击、拖选、Shift+单击、Ctrl+A 在输入窗格生效并以 `text_selection` 色绘制；`view_tests.rs` 用原始输入帧（先 2 帧预热）测试拖选两行得到正确选区
-- [ ] 3.2 输入窗格键盘：Ctrl+C 复制选中文本（保留原行尾）、方向键移动光标；字符 / Backspace / Delete / Enter / 粘贴 / IME 一律丢弃；测试：键入后内容与 `TextContent` 修订号不变，Ctrl+C 后剪贴板输出为所选两行
-- [ ] 3.3 输入窗格右键菜单 `input_context_items(pane)`：Take Left / Center / Right（所点行所在区段）、Copy（有选区才可用）、Select All；右键先定位所点行；测试：在 left 冲突行右键 Take Left 后未解决冲突数减一
+- [x] 3.1 抽出四窗格通用的「指针 → (行, 字节)」命中函数；新增 `input_editors: [Editor; 3]` 与侧行号 → 对齐行索引（design 决定 3）；单击、拖选、Shift+单击、Ctrl+A 在输入窗格生效并以 `text_selection` 色绘制；`view_tests.rs` 用原始输入帧（先 2 帧预热）测试拖选两行得到正确选区
+- [x] 3.2 输入窗格键盘：Ctrl+C 复制选中文本（保留原行尾）、方向键移动光标；字符 / Backspace / Delete / Enter / 粘贴 / IME 一律丢弃；测试：键入后内容与 `TextContent` 修订号不变，Ctrl+C 后剪贴板输出为所选两行
+- [x] 3.3 输入窗格右键菜单 `input_context_items(pane)`：Take Left / Center / Right（所点行所在区段）、Copy（有选区才可用）、Select All；右键先定位所点行；测试：在 left 冲突行右键 Take Left 后未解决冲突数减一
 
 ## 4. 查找与替换
 

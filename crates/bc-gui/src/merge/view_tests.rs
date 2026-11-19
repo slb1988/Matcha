@@ -608,3 +608,219 @@ fn whole_line_additions_get_no_inline_diff_and_the_cache_is_bounded() {
     v.ensure_inline(0, INLINE_LIMIT);
     assert_eq!(v.inline.len(), 1);
 }
+
+/// 一帧，带键盘修饰状态；返回完整输出（剪贴板命令等）。
+fn run(
+    ctx: &egui::Context,
+    v: &mut MergeView,
+    events: Vec<egui::Event>,
+    modifiers: egui::Modifiers,
+) -> egui::FullOutput {
+    // egui tracks held modifiers from `ModifiersChanged`, not from the button event.
+    let mut all = vec![egui::Event::ModifiersChanged(modifiers)];
+    all.extend(events);
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events: all,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, &mut Prefs::default());
+    });
+    out.textures_delta.clear();
+    out
+}
+fn button(
+    pos: egui::Pos2,
+    button: egui::PointerButton,
+    pressed: bool,
+    modifiers: egui::Modifiers,
+) -> egui::Event {
+    egui::Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers,
+    }
+}
+/// 原始输入拖选：按下、经过中点、到达、松开。
+fn drag(ctx: &egui::Context, v: &mut MergeView, from: egui::Pos2, to: egui::Pos2) {
+    let none = egui::Modifiers::default();
+    let primary = egui::PointerButton::Primary;
+    run(
+        ctx,
+        v,
+        vec![
+            egui::Event::PointerMoved(from),
+            button(from, primary, true, none),
+        ],
+        none,
+    );
+    run(
+        ctx,
+        v,
+        vec![egui::Event::PointerMoved(from.lerp(to, 0.5))],
+        none,
+    );
+    run(ctx, v, vec![egui::Event::PointerMoved(to)], none);
+    run(ctx, v, vec![button(to, primary, false, none)], none);
+}
+/// 文本区左缘（第 0 字节）处的位置。
+fn line_start(v: &MergeView, pane: usize, row: usize) -> egui::Pos2 {
+    egui::pos2(
+        v.pane_rects[pane].left() + GUTTER + 1.0,
+        row_pos(v, pane, row).y,
+    )
+}
+fn copied(out: &egui::FullOutput) -> Option<String> {
+    out.platform_output.commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn input_panes_select_by_dragging_shift_clicking_and_select_all() {
+    let b = base(12);
+    let mut v = view(&edit(&b, &[(10, "L10")]), &b, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.y, 0.0);
+    // Drag across rows 2..=4 of the base pane.
+    let (from, to) = (row_pos(&v, 1, 2), row_pos(&v, 1, 4));
+    drag(&ctx, &mut v, from, to);
+    assert_eq!(v.active, 1);
+    let (a, b2) = v.input_editors[1].selection().expect("a selection");
+    assert_eq!((a.line, b2.line), (2, 4));
+    assert!(a.byte > 0 && a.byte == b2.byte);
+    assert!(
+        v.editor.selection().is_none(),
+        "the output keeps its own caret"
+    );
+    // Shift+click extends the selection; a plain click collapses it.
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    let at = line_start(&v, 1, 6);
+    let primary = egui::PointerButton::Primary;
+    run(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(at),
+            button(at, primary, true, shift),
+        ],
+        shift,
+    );
+    run(&ctx, &mut v, vec![button(at, primary, false, shift)], shift);
+    let (a, b2) = v.input_editors[1].selection().unwrap();
+    assert_eq!((a.line, b2), (2, Caret { line: 6, byte: 0 }));
+    assert_eq!(v.current_row, 6);
+    let at = line_start(&v, 1, 3);
+    run(&ctx, &mut v, vec![], egui::Modifiers::default());
+    click(&ctx, &mut v, at);
+    assert!(v.input_editors[1].selection().is_none());
+    assert_eq!(v.input_editors[1].caret, Caret { line: 3, byte: 0 });
+    // Ctrl+A selects the whole base pane.
+    frame(&ctx, &mut v, vec![key(egui::Key::A, true)]);
+    let (a, b2) = v.input_editors[1].selection().unwrap();
+    assert_eq!((a, b2.line), (Caret::default(), 12));
+}
+
+#[test]
+fn input_panes_copy_and_move_but_never_change() {
+    let b = base(12);
+    let mut v = view(&edit(&b, &[(10, "L10")]), &b, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let (from, to) = (line_start(&v, 2, 2), line_start(&v, 2, 4));
+    drag(&ctx, &mut v, from, to);
+    assert_eq!(v.active, 2);
+    let selection = v.input_editors[2].selection();
+    assert_eq!(
+        selection,
+        Some((Caret { line: 2, byte: 0 }, Caret { line: 4, byte: 0 }))
+    );
+    let content = |v: &MergeView| v.content(2).lines.borrow().to_bytes();
+    let (before, revision, output) = (content(&v), v.content(2).revision(), text(&v));
+    let none = egui::Modifiers::default();
+    run(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::Text("x".into()),
+            key(egui::Key::Delete, false),
+            key(egui::Key::Backspace, false),
+            key(egui::Key::Enter, false),
+            key(egui::Key::Tab, false),
+            egui::Event::Paste("pasted".into()),
+            egui::Event::Cut,
+            egui::Event::Ime(egui::ImeEvent::Commit("ime".into())),
+        ],
+        none,
+    );
+    assert_eq!(content(&v), before);
+    assert_eq!(v.content(2).revision(), revision);
+    assert_eq!(text(&v), output);
+    assert_eq!(v.input_editors[2].selection(), selection);
+    // Ctrl+C copies the two selected lines with their line endings.
+    let out = run(&ctx, &mut v, vec![egui::Event::Copy], none);
+    assert_eq!(copied(&out).as_deref(), Some("line03\nline04\n"));
+    // Arrow keys move the caret and the current row follows.
+    run(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)], none);
+    assert!(v.input_editors[2].selection().is_none());
+    assert_eq!(v.input_editors[2].caret.line, 5);
+    assert_eq!(v.current_row, 5);
+}
+
+#[test]
+fn input_context_menu_takes_the_clicked_section_and_copies() {
+    let b = base(20);
+    let left = edit(&b, &[(5, "L5"), (15, "L15")]);
+    let right = edit(&b, &[(5, "R5"), (15, "R15")]);
+    let mut v = view(&left, &right, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!((v.unresolved(), v.current_row), (2, 4));
+    // Right-click the second conflict in the left pane: it becomes the current row.
+    let at = row_pos(&v, 0, 14);
+    let none = egui::Modifiers::default();
+    let secondary = egui::PointerButton::Secondary;
+    run(
+        &ctx,
+        &mut v,
+        vec![
+            egui::Event::PointerMoved(at),
+            button(at, secondary, true, none),
+        ],
+        none,
+    );
+    run(&ctx, &mut v, vec![button(at, secondary, false, none)], none);
+    assert_eq!((v.active, v.current_row), (0, 14));
+    let enabled = |v: &MergeView, id: &str| {
+        v.input_context_items(0)
+            .iter()
+            .find(|i| i.action_id == id)
+            .unwrap_or_else(|| panic!("{id} missing"))
+            .enabled
+    };
+    assert!(enabled(&v, "Take Left") && enabled(&v, "Take Right") && enabled(&v, "Select All"));
+    assert!(!enabled(&v, "Copy"));
+    v.input_command(0, "Take Left", &ctx);
+    assert_eq!(v.unresolved(), 1);
+    assert!(text(&v).contains("L15\n") && v.model.state.in_conflict(4));
+    // Select All selects the whole left input and enables Copy.
+    v.input_command(0, "Select All", &ctx);
+    assert!(enabled(&v, "Copy"));
+    assert_eq!(
+        v.input_editors[0].selected_text(v.content(0)),
+        joined(&left)
+    );
+}

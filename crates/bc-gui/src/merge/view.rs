@@ -81,6 +81,10 @@ pub struct MergeView {
     pub model: MergeModel,
     launch: MergeLaunch,
     pub editor: Editor,
+    /// 三个输入窗格（left、center、right）的光标与选区：只定位、选择、取选区文本，从不编辑。
+    pub(crate) input_editors: [Editor; 3],
+    /// 每个输入侧：行号 → 对齐行（载入后不变）。
+    side_rows: [Vec<usize>; 3],
     /// 活动窗格（0..=3）。
     active: usize,
     /// 光标所在的对齐行；Take / 接受作用于它所在的区段。
@@ -91,7 +95,8 @@ pub struct MergeView {
     pane_rects: [egui::Rect; 4],
     content_width: f32,
     font_size: f32,
-    dragging: bool,
+    /// 正在拖选的窗格。
+    dragging: Option<usize>,
     prompt: Option<Prompt>,
     action: Option<MergeAction>,
     pub message: String,
@@ -128,6 +133,24 @@ fn side_changed(choice: Option<MergeChoice>, side: Side) -> bool {
         ),
         _ => false,
     }
+}
+
+/// 指针 → 光标（四个窗格通用）：`galley` 是第 `line` 行从 `origin` 处排出的文字，
+/// `bytes` 是其字符 → 字节映射（末项为行尾）。
+fn hit(
+    galley: &egui::Galley,
+    bytes: &[usize],
+    origin: egui::Pos2,
+    pointer: egui::Pos2,
+    line: usize,
+) -> Caret {
+    let cursor = galley.cursor_from_pos(pointer - origin);
+    let byte = bytes
+        .get(cursor.index.0)
+        .or(bytes.last())
+        .copied()
+        .unwrap_or_default();
+    Caret { line, byte }
 }
 
 /// `text` 截到 `limit` 字节以内的字符边界。
@@ -230,10 +253,25 @@ impl MergeView {
         let comparison = CompiledComparison::new(&model.map.rules.comparison)
             .or_else(|_| CompiledComparison::new(&Default::default()))
             .expect("default comparison rules compile");
+        let mut side_rows: [Vec<usize>; 3] = Default::default();
+        for (row, mapped) in model.map.rows().enumerate() {
+            for (pane, index) in [mapped.left, mapped.center, mapped.right]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(index) = index {
+                    let rows = &mut side_rows[pane];
+                    rows.resize(rows.len().max(index + 1), row);
+                    rows[index] = row;
+                }
+            }
+        }
         let mut view = Self {
             model,
             launch,
             editor: Editor::default(),
+            input_editors: Default::default(),
+            side_rows,
             active: OUT,
             current_row: 0,
             scroll: egui::Vec2::ZERO,
@@ -241,7 +279,7 @@ impl MergeView {
             pane_rects: [egui::Rect::NOTHING; 4],
             content_width: 0.0,
             font_size: theme::EDITOR_SIZE,
-            dragging: false,
+            dragging: None,
             prompt: None,
             action: None,
             message: String::new(),
@@ -399,6 +437,35 @@ impl MergeView {
             self.pending_scroll = Some(grid.saturating_sub(shown / 2));
         }
     }
+    /// 输入窗格光标移动后：光标行所在的对齐行成为当前行，并滚到视野内。
+    fn input_caret_moved(&mut self, pane: usize) {
+        let line = self.input_editors[pane].caret.line;
+        let Some(&row) = self.side_rows[pane].get(line) else {
+            return;
+        };
+        self.current_row = row;
+        let grid = self.model.grid_row_of(row);
+        let row_height = self.row_height();
+        let top = (self.scroll.y / row_height) as usize;
+        let shown = ((self.pane_rects[pane].height() - HEADER) / row_height).max(1.0) as usize;
+        if grid < top || grid + 1 >= top + shown {
+            self.pending_scroll = Some(grid.saturating_sub(shown / 2));
+        }
+    }
+    fn editor_of(&self, pane: usize) -> &Editor {
+        if pane == OUT {
+            &self.editor
+        } else {
+            &self.input_editors[pane]
+        }
+    }
+    fn editor_of_mut(&mut self, pane: usize) -> &mut Editor {
+        if pane == OUT {
+            &mut self.editor
+        } else {
+            &mut self.input_editors[pane]
+        }
+    }
 
     /// Take 的作用范围：输出窗格有选区时为选中行（选区止于行首时不含该行），
     /// 否则为光标所在区段（参考：Takes selected lines or current section）。
@@ -548,8 +615,12 @@ impl MergeView {
                     continue;
                 }
             }
-            // 只有输出窗格接受编辑；输入窗格恒只读。
-            if self.active != OUT || ctx.memory(|m| m.focused()) != Some(pane_id(OUT)) {
+            // 只有输出窗格接受编辑；输入窗格恒只读，只能移动光标、选择与复制。
+            if ctx.memory(|m| m.focused()) != Some(pane_id(self.active)) {
+                continue;
+            }
+            if self.active != OUT {
+                self.input_event(&event, ctx);
                 continue;
             }
             let mutating = match &event {
@@ -579,6 +650,55 @@ impl MergeView {
             if before != self.editor.caret {
                 self.caret_moved();
             }
+        }
+    }
+
+    /// 输入窗格的键盘事件：方向键 / Home / End / 翻页（可带 Shift）、`Ctrl+A`、复制；
+    /// 字符、粘贴、剪切、删除、回车、Tab、输入法一律丢弃，内容从不改变。
+    fn input_event(&mut self, event: &egui::Event, ctx: &egui::Context) {
+        use egui::Key;
+        let pane = self.active;
+        let allowed = match event {
+            egui::Event::Copy => true,
+            egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } => {
+                matches!(
+                    key,
+                    Key::ArrowLeft
+                        | Key::ArrowRight
+                        | Key::ArrowUp
+                        | Key::ArrowDown
+                        | Key::Home
+                        | Key::End
+                        | Key::PageUp
+                        | Key::PageDown
+                ) || (*key == Key::A && modifiers.command)
+            }
+            _ => false,
+        };
+        if !allowed {
+            return;
+        }
+        let before = self.input_editors[pane].caret;
+        let content = match pane {
+            0 => &mut self.model.map.left,
+            1 => self
+                .model
+                .map
+                .center
+                .as_mut()
+                .expect("a merge always has a center"),
+            _ => &mut self.model.map.right,
+        };
+        if let Err(e) = self.input_editors[pane].event(content, event, ctx) {
+            self.message = e.to_string();
+        }
+        if before != self.input_editors[pane].caret {
+            self.input_caret_moved(pane);
         }
     }
 
@@ -707,7 +827,7 @@ impl MergeView {
         });
         ui.allocate_rect(available, egui::Sense::hover());
         if !ctx.input(|i| i.pointer.primary_down()) {
-            self.dragging = false;
+            self.dragging = None;
         }
         self.prompts(&ctx);
         self.action.take()
@@ -878,6 +998,52 @@ impl MergeView {
         ]
     }
 
+    /// 输入窗格右键菜单：Take Left / Center / Right 作用于所点行所在区段，Copy 复制本窗格
+    /// 选区，Select All 全选本窗格。
+    pub(crate) fn input_context_items(&self, pane: usize) -> Vec<MenuItem> {
+        use crate::chrome::popup::item;
+        let on_change = self.model.section_at(self.current_row).is_some();
+        vec![
+            item::action("Take Left", "Take Left", on_change),
+            item::action("Take Center", "Take Center", on_change),
+            item::action("Take Right", "Take Right", on_change),
+            item::separator(),
+            item::action(
+                "Copy",
+                "Copy",
+                self.input_editors[pane].selection().is_some(),
+            ),
+            item::action("Select All", "Select All", true),
+        ]
+    }
+
+    /// 执行输入窗格右键菜单的命令。
+    pub(crate) fn input_command(&mut self, pane: usize, id: &str, ctx: &egui::Context) {
+        self.message.clear();
+        match id {
+            "Take Left" | "Take Center" | "Take Right" => {
+                let side = match id {
+                    "Take Left" => Side::Left,
+                    "Take Center" => Side::Center,
+                    _ => Side::Right,
+                };
+                if let Some(rows) = self.section() {
+                    let start = rows.start;
+                    self.model.take_sides(rows, &[side], &mut self.editor);
+                    self.goto_row(start);
+                }
+            }
+            "Copy" => ctx.copy_text(self.input_editors[pane].selected_text(self.content(pane))),
+            "Select All" => {
+                let content = self.content(pane);
+                let mut editor = self.input_editors[pane].clone();
+                editor.select_all(content);
+                self.input_editors[pane] = editor;
+            }
+            _ => {}
+        }
+    }
+
     /// 右键菜单的剪贴板命令：合成与快捷键相同的编辑事件交给输出编辑器。
     fn clipboard(&mut self, id: &str, ctx: &egui::Context) {
         if id == "Paste" {
@@ -919,6 +1085,28 @@ impl MergeView {
             self.active = pane;
             response.request_focus();
         }
+        let row_height = self.row_height();
+        let first = (self.scroll.y / row_height) as usize;
+        let offset = self.scroll.y - first as f32 * row_height;
+        if pane != OUT {
+            // 输入窗格右键：先把当前行与活动窗格移到所点处，再弹菜单。
+            if response.secondary_clicked() {
+                let grid = response.interact_pointer_pos().and_then(|p| {
+                    let index = first + ((p.y - area.top() + offset) / row_height) as usize;
+                    self.model.grid().get(index).copied()
+                });
+                if let Some(cell) = grid {
+                    self.current_row = cell.row;
+                }
+                self.active = pane;
+                response.request_focus();
+            }
+            if let Some(command) =
+                crate::chrome::popup::context_menu(&response, || self.input_context_items(pane))
+            {
+                self.input_command(pane, &command, ui.ctx());
+            }
+        }
         if pane == OUT {
             if response.secondary_clicked() {
                 self.active = OUT;
@@ -933,32 +1121,26 @@ impl MergeView {
                 }
             }
         }
-        // 输出窗格可编辑：文本区（行号栏右侧）悬停或拖选时显示 I 形插入光标。
-        if pane == OUT
-            && ((response.hovered()
-                && response
-                    .hover_pos()
-                    .is_some_and(|p| p.x >= area.left() + GUTTER))
-                || (self.dragging && ui.input(|i| i.pointer.primary_down())))
+        // 四个窗格都可选择：文本区（行号栏右侧）悬停或拖选时显示 I 形插入光标。
+        if (response.hovered()
+            && response
+                .hover_pos()
+                .is_some_and(|p| p.x >= area.left() + GUTTER))
+            || (self.dragging == Some(pane) && ui.input(|i| i.pointer.primary_down()))
         {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
-        if pane == OUT {
-            ui.memory_mut(|m| {
-                m.set_focus_lock_filter(
-                    id,
-                    egui::EventFilter {
-                        tab: true,
-                        horizontal_arrows: true,
-                        vertical_arrows: true,
-                        ..Default::default()
-                    },
-                )
-            });
-        }
-        let row_height = self.row_height();
-        let first = (self.scroll.y / row_height) as usize;
-        let offset = self.scroll.y - first as f32 * row_height;
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    ..Default::default()
+                },
+            )
+        });
         let shown = (area.height() / row_height).ceil() as usize + 1;
         let painter = ui.painter().with_clip_rect(area.intersect(ui.clip_rect()));
         let pointer = ui.input(|i| i.pointer.interact_pos());
@@ -1076,9 +1258,9 @@ impl MergeView {
                     .partition_point(|b| *b < byte)
                     .min(galley.text().chars().count())
             };
-            if pane == OUT {
+            {
                 let line = number.unwrap_or_default();
-                if let Some((a, b)) = self.editor.selection() {
+                if let Some((a, b)) = self.editor_of(pane).selection() {
                     if (a.line..=b.line).contains(&line) {
                         let from = if line == a.line { a.byte } else { 0 };
                         let to = if line == b.line { b.byte } else { text.len() };
@@ -1100,14 +1282,21 @@ impl MergeView {
                 }
             }
             text_painter.galley(origin, galley.clone(), ui.visuals().text_color());
-            if pane == OUT && number == Some(self.editor.caret.line) {
+            // 输出窗格总显示光标；输入窗格只在活动时显示。
+            let caret = self.editor_of(pane).caret;
+            if (pane == OUT || pane == self.active) && number == Some(caret.line) {
                 let cursor = galley
-                    .pos_from_cursor(CCursor::new(char_for_byte(self.editor.caret.byte)))
+                    .pos_from_cursor(CCursor::new(char_for_byte(caret.byte)))
                     .translate(origin.to_vec2());
                 text_painter.line_segment(
                     [cursor.left_top(), cursor.left_bottom()],
                     egui::Stroke::new(1.5, ui.visuals().text_color()),
                 );
+            }
+            if pane == OUT && number == Some(self.editor.caret.line) {
+                let cursor = galley
+                    .pos_from_cursor(CCursor::new(char_for_byte(self.editor.caret.byte)))
+                    .translate(origin.to_vec2());
                 if !self.editor.preedit.is_empty() {
                     text_painter.text(
                         cursor.left_top(),
@@ -1142,22 +1331,19 @@ impl MergeView {
                     self.current_row = cell.row;
                     ui.memory_mut(|m| m.request_focus(id));
                 }
-                if pane == OUT && (pressed || (held && self.dragging)) {
-                    let cursor = galley.cursor_from_pos(p - origin);
-                    let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
-                    self.editor.place(
-                        Caret {
-                            line: number.unwrap_or_default(),
-                            byte,
-                        },
-                        !pressed || shift,
-                    );
+                if pressed || (held && self.dragging == Some(pane)) {
+                    let caret = hit(&galley, &bytes, origin, p, number.unwrap_or_default());
+                    self.editor_of_mut(pane).place(caret, !pressed || shift);
                     self.current_row = cell.row;
-                    self.dragging = true;
+                    self.dragging = Some(pane);
                 }
             }
         }
-        if pane == OUT && self.dragging && ui.input(|i| i.pointer.primary_released()) {
+        // 松开时取回焦点；已有焦点时不再请求（重新请求会让焦点锁定过滤失效一帧，Tab 会跳走）。
+        if self.dragging == Some(pane)
+            && ui.input(|i| i.pointer.primary_released())
+            && !ui.memory(|m| m.has_focus(id))
+        {
             ui.memory_mut(|m| m.request_focus(id));
         }
         if self.active == pane {
