@@ -4,6 +4,13 @@
 
 ## 2026-11-19
 
+- **文本合并视图：行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制**（[`docs/features/text-merge.md`](docs/features/text-merge.md)）：
+  LEFT / RIGHT 窗格的改动行只把与 BASE 不同的字符着色（左侧青、右侧紫、未解决冲突红），整行新增仍按整行着色；
+  四个窗格按文件格式语法着色，View › Syntax Highlighting 可关闭。Search 菜单新增 Find…（`Ctrl+F`）、Find Next（`F3`）、
+  Find Previous（`Shift+F3`）、Replace…（`Ctrl+H`）：在活动窗格查找、不回绕，替换只对输出窗格，被替换的行标为手工、一次撤销全部还原。
+  任一窗格内容超宽时窗格区底部出现四窗格共用的横向滚动条。三个输入窗格可点击、拖选、`Shift`+点击、`Ctrl+A`、`Ctrl+C`，
+  右键菜单有 Take Left / Center / Right、Copy、Select All；输入窗格仍然只读。
+
 - **文件在外部被修改后弹框提示重载**（[`docs/features/disk-change-reload.md`](docs/features/disk-change-reload.md)）：文本、表格、十六进制比较（含文件夹比较里打开的文件对窗口）在窗口重新获得焦点或切换到该标签页时检查两侧文件；发现变化弹出 **File changed on disk, reload?**，列出变化的文件，有未保存编辑时注明会被丢弃。**Reload** 重载并保留当前行与滚动位置，**Keep Current** 保留当前内容且同一份磁盘内容不再重复询问。Tools › Options › **Tweaks** 新增两个开关：检查（默认开）与「不会丢弃修改时自动重载」（默认关）。自己保存不算外部修改；文件被删除只在状态栏提示。合并视图不参与。
 
 - **修复文本比较打开文件期间外部程序无法保存它**：此前文本文件以只读内存映射打开并独占写入，在编辑器里保存正被比较的文件会报「文件被另一进程占用」。现在小于 64 MiB 的文本文件读入内存、不再持有句柄；更大的文件为性能仍按映射打开（已知限制，见上述功能文档）。

@@ -1,7 +1,7 @@
 # 文本合并（Text Merge）
 
 > 三方合并：left / right 两个版本相对共同祖先 center 的改动合并到输出文件，可无窗口自动合并，也可在界面里解决冲突。
-> 状态：**已实现（引擎、命令行、界面；合并语义未经参考样本确认）**；审阅增强（行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制）**进行中**（2026-11-19 更新）。
+> 状态：**已实现（引擎、命令行、界面，含行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制；合并语义未经参考样本确认）**（2026-11-19 更新）。
 > 参考依据与样本采集阻塞见 [reference-parity/text-merge.md](../reference-parity/text-merge.md)。
 
 ## 功能简介
@@ -17,7 +17,8 @@
 - **行内差异高亮**：左、右输入窗格的改动行与 base 同一对齐行逐字符比较，不同字符用所属侧强调色
   （左侧 `MERGE_LEFT` / 右侧 `MERGE_RIGHT`，未解决冲突区段 `MERGE_CONFLICT`）着墨；只在不重要元素
   （默认注释）上的差异用不重要差异色。
-- **语法着色**：四个窗格按文件格式库的语法着色，风格与文本比较一致；View › Syntax Highlighting 开关（默认开）。
+- **语法着色**：四个窗格按文件格式库的语法着色（格式按 base 的文件名解析），风格与文本比较一致；
+  View › Syntax Highlighting 开关（默认开），关闭时只用普通文字色，改动 / 冲突底色不变。
 - **查找替换**：复用文本比较的查找条（字面 / 正则、大小写、全词、仅在改动中），在活动窗格查找；
   替换只对输出窗格可用。
 - **横向滚动条**：任一窗格可见内容超宽时，窗格区底部出现一条四窗格共用的横向滚动条。
@@ -35,7 +36,8 @@
 | 引擎 | `crates/bc-engine-text` | `TextMap::merge`、`jobs::Align3Job`、`merge::{MergeState, auto_merge}`、`rules::TextMergeRules` |
 | 命令行 | `crates/bc-script` | `cli::{MergeSpec, MergeSwitches}`、`CliArgs::{merge_spec, merge_switches, title}`；`runner::{AutoMergeRequest, AutoMergeReport, auto_merge_files, replace_file, auto_merge_exit_code}` |
 | 应用 | `apps/bcompare/src/routing.rs`、`main.rs` | `Route::AutoMerge`、`merge_launch`、`review_args`；无窗口执行、等待与退出码 |
-| GUI | `crates/bc-gui/src/merge/model.rs`、`view.rs` | 合并数据模型、输出编辑与撤销、四窗格视图；`app.rs` 的 `View::TextMerge` |
+| GUI | `crates/bc-gui/src/merge/model.rs`、`view.rs` | 合并数据模型、输出编辑与撤销、`MergeModel::replace_all`；四窗格视图（`line_job` 语法与行内着墨、`ensure_inline` 行内缓存、`input_editors` 输入窗格选区、`find_action` 查找替换、共用横向滚动条）；`app.rs` 的 `View::TextMerge` |
+| GUI 复用 | `crates/bc-gui/src/text/{render.rs,find_panel.rs,editor.rs}` | `render::layout`（`LineInk.important` 覆盖重要差异色）、查找条、光标与选区 |
 | GUI 启动与交接 | `crates/bc-gui/src/lib.rs`、`remote.rs` | `merge::MergeLaunch`、`LaunchOptions.merge`、`RemoteOpen.merge`、`Outcome::Closed(i32)`；`run_with_remote` 返回启动标签页结果码 |
 | 核心测试 | `crates/bc-core/tests/align3.rs` | 三方对齐不变量 |
 | 引擎测试 | `crates/bc-engine-text/tests/{align3,merge,golden_merge}.rs` | 三方对齐、合并语义与语料 |
@@ -64,7 +66,7 @@
   整行新增 / 删除仍只按整行着色。base 窗格与输出窗格**不做**行内高亮（输出按来源底色区分）。
   比较规则与载入时一致（含 `/iu`）。行内着墨优先于语法颜色。
 - **查找**作用于活动窗格内容，从光标起查，**不回绕**：到首尾时状态栏提示 `No more matches`，选区不变；
-  命中后选中匹配并把四个窗格滚到其对齐行。「仅在改动中」（Differences Only）只查改动 / 冲突区段的行。
+  命中后选中匹配，其对齐行不在视野内时把四个窗格滚到该行。「仅在改动中」（Differences Only）只查改动 / 冲突区段的行。
 - **替换只在输出窗格**：活动窗格为输入窗格时 Replace… 禁用、查找条不显示替换行。Replace 替换当前匹配后查下一个；
   Replace All 替换输出窗格全部匹配，作为一个撤销步；被替换的行标为手工，波及的未解决冲突区段视为已解决。
 - 横向滚动条在所有可见内容放得下时隐藏，横向偏移归零；拖动、点击轨道、在其上滚轮都同步横移四个窗格。
@@ -180,14 +182,14 @@ Select All；右键先把光标行与活动窗格移到所点处。
 
 ## 尚未实现
 
-- 输入窗格编辑，以及输入窗格的选择与复制；会话内改规则。
-- 合并的命名会话与 Home 合并入口（比较视图的命名会话见 [saved-sessions.md](saved-sessions.md)）；显示过滤、语法着色、行内差异高亮。
-- 横向滚动条（可用 Shift+滚轮横向滚动）。
-- 查找替换。
+- 输入窗格编辑；从输入窗格选区 Take 选中行；会话内改规则。
+- 合并的命名会话与 Home 合并入口（比较视图的命名会话见 [saved-sessions.md](saved-sessions.md)）；显示过滤（Show Conflicts 等）；自动折行。
+- base 与输出窗格的行内差异高亮（输出按来源底色区分；base 与哪一侧比对有歧义）。
+- 超长行只排版、比较每行前 4096 字节（不做横向窗口化）。
 
 ## 深入阅读
 
-- 变更过程与设计决定：`openspec/changes/text-merge/`（design.md 的 D1–D12）
+- 变更过程与设计决定：`openspec/changes/text-merge/`（design.md 的 D1–D12）；审阅增强见 `openspec/changes/text-merge-essentials/`
 - 参考对照与未确认的语义：[reference-parity/text-merge.md](../reference-parity/text-merge.md)
 - `crates/bc-engine-text/README.md`、`crates/bc-script/README.md`
 - 命令行总览：[cli-and-scripting.md](cli-and-scripting.md)
