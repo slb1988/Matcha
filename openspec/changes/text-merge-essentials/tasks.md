@@ -27,7 +27,7 @@
 
 ## 6. 集成检查与记录
 
-- [ ] 6.1 重新生成 `merge-basic` / `merge-conflict` 快照并人工核对语法与行内着色、滚动条位置；`cargo test -p bc-gui -p bc-engine-text`、`cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后用 `matcha base.rs theirs.rs yours.rs out.rs` 实机走一遍：看行内高亮、Ctrl+F 在 base 查找、输出 Replace All 后撤销、从 base 拖选复制、拖横向滚动条
+- [x] 6.1 重新生成 `merge-basic` / `merge-conflict` 快照并人工核对语法与行内着色、滚动条位置；`cargo test -p bc-gui -p bc-engine-text`、`cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后用 `matcha base.rs theirs.rs yours.rs out.rs` 实机走一遍：看行内高亮、Ctrl+F 在 base 查找、输出 Replace All 后撤销、从 base 拖选复制、拖横向滚动条
 - [x] 6.2 `docs/features/text-merge.md` 状态改为已实现、从「尚未实现」删除这五项（保留输入窗格编辑、显示过滤等）；`CHANGELOGS.md` 顶部加条目；验收：文档与实际行为一致
 
 ## Workflow follow-up
