@@ -589,11 +589,12 @@ impl MergeModel {
         // 自后向前：前面的行号不受后面行数变化的影响。
         for &line in lines.iter().rev() {
             let old = self.output.lines.borrow().len();
+            let only = line..line + 1;
             match search::replace_all(
                 &mut self.output,
                 &single,
                 replacement,
-                Some(&[line..line + 1]),
+                Some(std::slice::from_ref(&only)),
             ) {
                 Ok(n) => count += n,
                 Err(e) => {
