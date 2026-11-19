@@ -308,7 +308,11 @@ mod tests {
         new.splice(40..50, (0..6).map(|i| format!("new {i}")));
         let (o, n) = (refs(&old), refs(&new));
         assert_eq!(shift(&o[..], &n[..], 42), 42, "offset 2 kept");
-        assert_eq!(shift(&o[..], &n[..], 48), 45, "clamped to the new range's last line");
+        assert_eq!(
+            shift(&o[..], &n[..], 48),
+            45,
+            "clamped to the new range's last line"
+        );
     }
 
     #[test]

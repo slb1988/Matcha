@@ -4,6 +4,8 @@
 
 ## 2026-11-19
 
+- **文本比较：编号书签 0–9**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Search › Toggle Bookmark（`Shift+Ctrl+0…9`）在活动窗格的光标行放置书签，同一行再按即移除，一行最多一个书签；Go to Bookmark（`Ctrl+0…9`）切到书签所在侧并定位到该行（被显示过滤隐藏时先显示全部），未设置时状态栏提示；Clear Bookmarks 清除全部。书签行在文本区右缘显示编号徽标、缩略导航条上有刻度。书签随本侧编辑上下平移（撤销同理），重载保留行号、换文件清除该侧、Swap Sides 随内容换侧；不写入命名会话。
+
 - **文本合并视图：行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制**（[`docs/features/text-merge.md`](docs/features/text-merge.md)）：
   LEFT / RIGHT 窗格的改动行只把与 BASE 不同的字符着色（左侧青、右侧紫、未解决冲突红），整行新增仍按整行着色；
   四个窗格按文件格式语法着色，View › Syntax Highlighting 可关闭。Search 菜单新增 Find…（`Ctrl+F`）、Find Next（`F3`）、

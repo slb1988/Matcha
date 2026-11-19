@@ -21,6 +21,24 @@ fn item(
         action_id: label.into(),
     }
 }
+/// Toggle / Go to Bookmark 子菜单：标签为 `Bookmark N`，action_id 带父菜单前缀
+/// （`Toggle Bookmark N` / `Go to Bookmark N`）以区分两类命令。
+fn bookmarks(verb: &str, keys: &str) -> Vec<MenuItem> {
+    (0..super::bookmarks::COUNT)
+        .map(|n| {
+            let digit = char::from_digit(n as u32, 10);
+            MenuItem {
+                action_id: format!("{verb} Bookmark {n}"),
+                ..item(
+                    &format!("Bookmark {n}"),
+                    digit,
+                    Some(&format!("{keys}{n}")),
+                    vec![],
+                )
+            }
+        })
+        .collect()
+}
 pub(super) fn inventory() -> Vec<MenuSpec> {
     vec![
         MenuSpec {
@@ -178,35 +196,13 @@ pub(super) fn inventory() -> Vec<MenuSpec> {
                     "Toggle Bookmark",
                     Some('b'),
                     None,
-                    vec![
-                        item("Bookmark 0", Some('0'), Some("Shift+Ctrl+0"), vec![]),
-                        item("Bookmark 1", Some('1'), Some("Shift+Ctrl+1"), vec![]),
-                        item("Bookmark 2", Some('2'), Some("Shift+Ctrl+2"), vec![]),
-                        item("Bookmark 3", Some('3'), Some("Shift+Ctrl+3"), vec![]),
-                        item("Bookmark 4", Some('4'), Some("Shift+Ctrl+4"), vec![]),
-                        item("Bookmark 5", Some('5'), Some("Shift+Ctrl+5"), vec![]),
-                        item("Bookmark 6", Some('6'), Some("Shift+Ctrl+6"), vec![]),
-                        item("Bookmark 7", Some('7'), Some("Shift+Ctrl+7"), vec![]),
-                        item("Bookmark 8", Some('8'), Some("Shift+Ctrl+8"), vec![]),
-                        item("Bookmark 9", Some('9'), Some("Shift+Ctrl+9"), vec![]),
-                    ],
+                    bookmarks("Toggle", "Shift+Ctrl+"),
                 ),
                 item(
                     "Go to Bookmark",
                     Some('k'),
                     None,
-                    vec![
-                        item("Bookmark 0", Some('0'), Some("Ctrl+0"), vec![]),
-                        item("Bookmark 1", Some('1'), Some("Ctrl+1"), vec![]),
-                        item("Bookmark 2", Some('2'), Some("Ctrl+2"), vec![]),
-                        item("Bookmark 3", Some('3'), Some("Ctrl+3"), vec![]),
-                        item("Bookmark 4", Some('4'), Some("Ctrl+4"), vec![]),
-                        item("Bookmark 5", Some('5'), Some("Ctrl+5"), vec![]),
-                        item("Bookmark 6", Some('6'), Some("Ctrl+6"), vec![]),
-                        item("Bookmark 7", Some('7'), Some("Ctrl+7"), vec![]),
-                        item("Bookmark 8", Some('8'), Some("Ctrl+8"), vec![]),
-                        item("Bookmark 9", Some('9'), Some("Ctrl+9"), vec![]),
-                    ],
+                    bookmarks("Go to", "Ctrl+"),
                 ),
                 item("Clear Bookmarks", Some('l'), None, vec![]),
             ],

@@ -2271,3 +2271,383 @@ fn dirty_side_prompt_says_edits_are_lost_and_reload_discards_them() {
     assert_eq!(v.map.left.to_bytes().unwrap(), b"outside edit\n");
     assert!(!v.is_dirty());
 }
+
+// ---- 编号书签 ----
+
+/// `Ctrl+数字`（`shift` 时 `Shift+Ctrl+数字`）；Shift 时逻辑键给成符号，验证按物理键识别。
+fn bookmark_key(n: usize, shift: bool) -> egui::Event {
+    const DIGITS: [egui::Key; 10] = [
+        egui::Key::Num0,
+        egui::Key::Num1,
+        egui::Key::Num2,
+        egui::Key::Num3,
+        egui::Key::Num4,
+        egui::Key::Num5,
+        egui::Key::Num6,
+        egui::Key::Num7,
+        egui::Key::Num8,
+        egui::Key::Num9,
+    ];
+    egui::Event::Key {
+        key: if shift {
+            egui::Key::Exclamationmark
+        } else {
+            DIGITS[n]
+        },
+        physical_key: Some(DIGITS[n]),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            ctrl: true,
+            command: true,
+            shift,
+            ..Default::default()
+        },
+    }
+}
+fn lines_of(n: usize) -> String {
+    (0..n).map(|i| format!("line {i}\n")).collect()
+}
+fn menu_entry(
+    items: &[crate::chrome::menubar::MenuItem],
+    id: &str,
+) -> Option<crate::chrome::menubar::MenuItem> {
+    use crate::chrome::menubar::MenuItemKind;
+    items.iter().find_map(|item| {
+        if item.action_id == id {
+            return Some(item.clone());
+        }
+        match &item.kind {
+            MenuItemKind::Submenu(children) => menu_entry(children, id),
+            _ => None,
+        }
+    })
+}
+fn menu_item_by_id(v: &TextCompareView, id: &str) -> crate::chrome::menubar::MenuItem {
+    v.menus
+        .iter()
+        .find_map(|m| menu_entry(&m.items, id))
+        .unwrap_or_else(|| panic!("no menu item {id}"))
+}
+fn menu_enabled(v: &TextCompareView, id: &str) -> bool {
+    menu_item_by_id(v, id).enabled
+}
+fn line_text(v: &TextCompareView, s: usize, line: usize) -> String {
+    String::from_utf8(
+        v.content(s)
+            .lines
+            .borrow()
+            .line_bytes(line)
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn bookmark_menu_items_follow_the_set_bookmarks() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb\nc\n", "a\nb\nc\n");
+    v.update_menus();
+    let toggle = menu_item_by_id(&v, "Toggle Bookmark 4");
+    let go = menu_item_by_id(&v, "Go to Bookmark 4");
+    assert_eq!(
+        (toggle.label.as_str(), toggle.shortcut.as_deref()),
+        ("Bookmark 4", Some("Shift+Ctrl+4"))
+    );
+    assert_eq!(
+        (go.label.as_str(), go.shortcut.as_deref()),
+        ("Bookmark 4", Some("Ctrl+4"))
+    );
+    for n in 0..10 {
+        assert!(menu_enabled(&v, &format!("Toggle Bookmark {n}")));
+        assert!(!menu_enabled(&v, &format!("Go to Bookmark {n}")));
+    }
+    assert!(!menu_enabled(&v, "Clear Bookmarks"));
+
+    // 只设置书签 4：Go to 子菜单只有 Bookmark 4 可用。
+    v.editors[0].place(Caret { line: 1, byte: 0 }, false);
+    v.command("Toggle Bookmark 4", &ctx, &Prefs::default());
+    assert_eq!(v.bookmarks.get(4), Some((0, 1)));
+    v.update_menus();
+    for n in 0..10 {
+        assert_eq!(
+            menu_enabled(&v, &format!("Go to Bookmark {n}")),
+            n == 4,
+            "{n}"
+        );
+    }
+    assert!(menu_enabled(&v, "Clear Bookmarks"));
+
+    // Clear Bookmarks：全部移除，之后 Go To 提示未设置，Clear 再次禁用。
+    v.command("Toggle Bookmark 1", &ctx, &Prefs::default());
+    v.editors[1].place(Caret { line: 2, byte: 0 }, false);
+    v.active = 1;
+    v.command("Toggle Bookmark 3", &ctx, &Prefs::default());
+    assert_eq!(
+        v.bookmarks.iter().count(),
+        2,
+        "4 was replaced by 1 on the same line"
+    );
+    v.command("Clear Bookmarks", &ctx, &Prefs::default());
+    assert!(v.bookmarks.is_empty());
+    v.command("Go to Bookmark 1", &ctx, &Prefs::default());
+    assert_eq!(v.message, "Bookmark 1 is not set");
+    v.update_menus();
+    assert!(!menu_enabled(&v, "Clear Bookmarks"));
+}
+
+#[test]
+fn shift_ctrl_digit_toggles_moves_and_replaces_bookmarks() {
+    let ctx = egui::Context::default();
+    let mut v = view(&lines_of(500), &lines_of(500));
+    frame(&ctx, &mut v, vec![]);
+    v.editors[0].place(Caret { line: 119, byte: 3 }, false);
+    frame(&ctx, &mut v, vec![bookmark_key(3, true)]);
+    assert_eq!(v.bookmarks.get(3), Some((0, 119)), "{}", v.message);
+    // 再按一次即移除。
+    frame(&ctx, &mut v, vec![bookmark_key(3, true)]);
+    assert_eq!(v.bookmarks.get(3), None);
+    // 放回去后在第 400 行再按：移过去。
+    frame(&ctx, &mut v, vec![bookmark_key(3, true)]);
+    v.editors[0].place(Caret { line: 399, byte: 0 }, false);
+    frame(&ctx, &mut v, vec![bookmark_key(3, true)]);
+    assert_eq!(v.bookmarks.get(3), Some((0, 399)));
+    assert_eq!(v.bookmarks.at((0, 119)), None);
+    // 同一行按 5：5 取代 3。
+    frame(&ctx, &mut v, vec![bookmark_key(5, true)]);
+    assert_eq!(v.bookmarks.get(5), Some((0, 399)));
+    assert_eq!(v.bookmarks.get(3), None);
+}
+
+#[test]
+fn ctrl_digit_jumps_to_the_bookmark_side_and_line() {
+    let ctx = egui::Context::default();
+    let left = lines_of(500);
+    let right = left.replace("line 200\n", "changed 200\n");
+    let mut v = view(&left, &right);
+    frame(&ctx, &mut v, vec![]);
+    v.active = 1;
+    v.editors[1].place(Caret { line: 399, byte: 0 }, false);
+    frame(&ctx, &mut v, vec![bookmark_key(3, true)]);
+    assert_eq!(v.bookmarks.get(3), Some((1, 399)));
+
+    v.active = 0;
+    v.editors[0].place(Caret { line: 9, byte: 2 }, false);
+    v.goto_row(9);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert!(!v.visible.contains(&399), "{:?}", v.visible);
+    frame(&ctx, &mut v, vec![bookmark_key(3, false)]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.active, 1);
+    assert_eq!(v.editors[1].caret, Caret { line: 399, byte: 0 });
+    assert!(v.visible.contains(&399), "{:?}", v.visible);
+    assert!(ctx.memory(|m| m.has_focus(editor_id(1))));
+
+    // 书签行被 Show Differences 隐藏时先显示全部。
+    v.command("Show Differences", &ctx, &Prefs::default());
+    v.command("Show Context", &ctx, &Prefs::default());
+    assert_ne!(v.filter, DisplayFilter::All);
+    frame(&ctx, &mut v, vec![bookmark_key(3, false)]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.filter, DisplayFilter::All);
+    assert!(v.visible.contains(&399), "{:?}", v.visible);
+
+    // 未设置的书签：光标不动，状态栏提示。
+    let caret = v.editors[1].caret;
+    frame(&ctx, &mut v, vec![bookmark_key(7, false)]);
+    assert_eq!(v.editors[1].caret, caret);
+    assert_eq!(v.active, 1);
+    assert_eq!(v.message, "Bookmark 7 is not set");
+}
+
+#[test]
+fn bookmarks_follow_edits_on_their_own_side_only() {
+    let ctx = egui::Context::default();
+    let prefs = Prefs::default();
+    let mut v = view(&lines_of(100), &lines_of(100));
+    frame(&ctx, &mut v, vec![]);
+    v.editors[0].place(Caret { line: 49, byte: 0 }, false);
+    v.command("Toggle Bookmark 1", &ctx, &prefs);
+    assert_eq!(v.bookmarks.get(1), Some((0, 49)));
+
+    // 左侧第 10 行处插入 3 行：书签到第 53 行（下标 52），仍是原来那一行文字。
+    v.editors[0].place(Caret { line: 9, byte: 0 }, false);
+    let old = v.map.left.lines.borrow().len();
+    v.editors[0].insert(&mut v.map.left, "x\ny\nz\n").unwrap();
+    v.edited(old);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.bookmarks.get(1), Some((0, 52)));
+    assert_eq!(line_text(&v, 0, 52), "line 49");
+
+    // 撤销：回到原行。
+    v.active = 0;
+    v.command("Undo", &ctx, &prefs);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.bookmarks.get(1), Some((0, 49)));
+    assert_eq!(line_text(&v, 0, 49), "line 49");
+
+    // 右侧编辑不影响左侧书签。
+    v.editors[1].place(Caret { line: 9, byte: 0 }, false);
+    let old = v.map.right.lines.borrow().len();
+    v.editors[1].insert(&mut v.map.right, "x\ny\nz\n").unwrap();
+    v.active = 1;
+    v.edited(old);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.bookmarks.get(1), Some((0, 49)));
+
+    // 删除第 48–52 行（下标 47..52）：书签落到第 48 行（下标 47）。
+    v.active = 0;
+    select_lines(&mut v, 0, 47..52);
+    let old = v.map.left.lines.borrow().len();
+    v.editors[0].insert(&mut v.map.left, "").unwrap();
+    v.edited(old);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.bookmarks.get(1), Some((0, 47)));
+    assert_eq!(line_text(&v, 0, 47), "line 52");
+}
+
+#[test]
+fn reload_open_clipboard_and_swap_keep_or_clear_bookmarks() {
+    let ctx = egui::Context::default();
+    let prefs = Prefs::default();
+    let dir = Temp::new();
+    let a = dir.file("a.txt", lines_of(100).as_bytes());
+    let b = dir.file("b.txt", lines_of(100).as_bytes());
+    let c = dir.file("c.txt", lines_of(100).as_bytes());
+    let mut v = TextCompareView::open(&a, &b).unwrap();
+    ready(&mut v);
+    v.editors[0].place(Caret { line: 50, byte: 0 }, false);
+    v.command("Toggle Bookmark 1", &ctx, &prefs);
+    v.active = 1;
+    v.editors[1].place(Caret { line: 60, byte: 0 }, false);
+    v.command("Toggle Bookmark 2", &ctx, &prefs);
+
+    // 右侧打开另一个文件：右侧书签清除，左侧保留。
+    v.perform(Pending::Open(1, c.clone()));
+    ready(&mut v);
+    assert_eq!(v.bookmarks.get(2), None);
+    assert_eq!(v.bookmarks.get(1), Some((0, 50)));
+
+    // 重载：行号保留，超出新行数的收敛到末行。
+    v.editors[1].place(Caret { line: 90, byte: 0 }, false);
+    v.command("Toggle Bookmark 2", &ctx, &prefs);
+    std::fs::write(&c, lines_of(20)).unwrap();
+    v.perform(Pending::Reload(1));
+    ready(&mut v);
+    assert_eq!(v.bookmarks.get(2), Some((1, 19)));
+    assert_eq!(v.bookmarks.get(1), Some((0, 50)));
+    v.reload_keep_position(0).unwrap();
+    ready(&mut v);
+    assert_eq!(
+        v.bookmarks.get(1),
+        Some((0, 50)),
+        "same-file reload keeps it"
+    );
+
+    // Swap Sides：书签随内容换侧，行号不变。
+    v.command("Swap Sides", &ctx, &prefs);
+    ready(&mut v);
+    assert_eq!(v.bookmarks.get(1), Some((1, 50)));
+    assert_eq!(v.bookmarks.get(2), Some((0, 19)));
+    // 交换后的编辑仍按新侧跟随。
+    v.editors[1].place(Caret { line: 0, byte: 0 }, false);
+    let old = v.map.right.lines.borrow().len();
+    v.editors[1].insert(&mut v.map.right, "new\n").unwrap();
+    v.active = 1;
+    v.edited(old);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.bookmarks.get(1), Some((1, 51)));
+    assert_eq!(v.bookmarks.get(2), Some((0, 19)));
+
+    // Open Clipboard 换掉左侧内容：左侧书签清除。
+    v.perform(Pending::Clipboard(0, "clip\n".into()));
+    ready(&mut v);
+    assert_eq!(v.bookmarks.get(2), None);
+    assert_eq!(v.bookmarks.get(1), Some((1, 51)));
+}
+
+/// 文本区右缘的书签徽标：编号文字落在窗格右侧（纵向滚动条左边）。
+fn badge(out: &egui::FullOutput, v: &TextCompareView, s: usize, n: usize) -> Option<egui::Rect> {
+    let pane = v.pane_rects[s];
+    let edge = pane.right() - 16.0 - 2.0 - super::super::render::BOOKMARK_BADGE_WIDTH - 4.0;
+    text_shapes(out)
+        .into_iter()
+        .find(|(t, r)| *t == n.to_string() && pane.contains(r.center()) && r.center().x > edge)
+        .map(|(_, r)| r)
+}
+
+#[test]
+fn badges_sit_at_the_text_edge_and_leave_the_copy_arrow_working() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb1\nb2\nb3\nc\n", "a\nB1\nB2\nB3\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    // 差异区块首行（第 1 行）放书签 2，光标留在别处。
+    v.editors[0].place(Caret { line: 1, byte: 0 }, false);
+    v.command("Toggle Bookmark 2", &ctx, &Prefs::default());
+    v.editors[0].place(Caret { line: 4, byte: 1 }, false);
+    let out = frame(&ctx, &mut v, vec![]);
+    let mark = badge(&out, &v, 0, 2).expect("badge drawn in the left pane");
+    let arrow = arrow_pos(&v, 0, 1);
+    assert!(
+        (mark.center().y - arrow.y).abs() < v.row_height() / 2.0,
+        "same row"
+    );
+    assert!(
+        mark.left() > arrow.x + 40.0,
+        "badge stays clear of the gutter"
+    );
+    // 箭头照常复制。
+    click(&ctx, &mut v, arrow);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"a\nb1\nb2\nb3\nc\n");
+    assert_eq!(v.bookmarks.get(2), Some((0, 1)));
+}
+
+#[test]
+fn badges_stay_inside_the_pane_when_scrolled_horizontally() {
+    let ctx = egui::Context::default();
+    let long = format!("{}\nshort\n", "x".repeat(3000));
+    let mut v = view(&long, &long);
+    frame(&ctx, &mut v, vec![]);
+    v.editors[0].place(Caret { line: 1, byte: 0 }, false);
+    v.command("Toggle Bookmark 6", &ctx, &Prefs::default());
+    let before = frame(&ctx, &mut v, vec![]);
+    let at_rest = badge(&before, &v, 0, 6).expect("badge drawn");
+    v.scroll.x = 2000.0;
+    frame(&ctx, &mut v, vec![]);
+    let out = frame(&ctx, &mut v, vec![]);
+    assert!(v.scroll.x > 0.0);
+    let scrolled = badge(&out, &v, 0, 6).expect("badge still drawn after scrolling");
+    assert_eq!(
+        scrolled.center().x,
+        at_rest.center().x,
+        "fixed horizontally"
+    );
+    assert!(v.pane_rects[0].contains(scrolled.center()));
+}
+
+#[test]
+fn nav_bar_draws_a_tick_for_each_bookmark() {
+    let ctx = egui::Context::default();
+    let mut v = view(&lines_of(300), &lines_of(300));
+    frame(&ctx, &mut v, vec![]);
+    let ticks = |out: &egui::FullOutput| {
+        out.shapes
+            .iter()
+            .filter(|s| match &s.shape {
+                egui::Shape::Rect(r) => {
+                    r.fill == crate::chrome::theme::ACCENT
+                        && r.rect.right() <= 52.0
+                        && r.rect.height() <= 2.5
+                }
+                _ => false,
+            })
+            .count()
+    };
+    let none = ticks(&frame(&ctx, &mut v, vec![]));
+    v.editors[0].place(Caret { line: 250, byte: 0 }, false);
+    v.command("Toggle Bookmark 0", &ctx, &Prefs::default());
+    assert_eq!(ticks(&frame(&ctx, &mut v, vec![])), none + 1);
+    assert_eq!(v.bookmark_rows(), vec![(0, 250)]);
+}

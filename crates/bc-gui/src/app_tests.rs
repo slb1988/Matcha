@@ -866,6 +866,8 @@ fn save_session_as_names_the_tab_and_reopens_with_its_alignment() {
         ..Default::default()
     };
     view.apply_saved(quick.clone(), Some(false));
+    // 书签只在视图打开期间有效，不写入命名会话。
+    view.bookmarks.toggle(1, (0, 1));
     let mut app = MatchaApp::with_view(View::TextCompare(Box::new(view)));
     run(&ctx, &mut app, vec![]);
 
@@ -921,6 +923,7 @@ fn save_session_as_names_the_tab_and_reopens_with_its_alignment() {
         panic!("saved text session opens Text Compare")
     };
     assert_eq!(view.saved_settings(), (quick, false));
+    assert!(view.bookmarks.is_empty(), "bookmarks are not saved");
 
     // `matcha "Work pair"` and an unknown name.
     let options = LaunchOptions {

@@ -3,6 +3,7 @@
 #[path = "view_tests.rs"]
 mod tests;
 use super::{
+    bookmarks::{self, Bookmarks, Toggled},
     editor::{Caret, Editor},
     find_panel::{FindAction, FindPanel},
     gutter::{ArrowKind, GutterArrow, GutterMark},
@@ -15,7 +16,7 @@ use super::{
 use crate::chrome::{widgets, window::Window};
 use bc_core::{
     encoding::{BomPolicy, Encoding},
-    line::{LineEdit, MaterializeContext},
+    line::{LineEdit, LineList, MaterializeContext},
     CoreError, Side,
 };
 use bc_engine_text::{
@@ -181,6 +182,10 @@ pub struct TextCompareView {
     pub(crate) pending_gutter_copy: Option<(usize, usize, ArrowKind)>,
     /// 打开/换文件后的首次比较完成时自动落到第一个差异（一次性；编辑或光标已移动则作废）。
     land_on_first_diff: bool,
+    /// 编号书签 0–9，锚点为 (侧, 行号)；只在视图打开期间有效。
+    pub(crate) bookmarks: Bookmarks<(usize, usize)>,
+    /// 每侧书签平移的基准（修订号, 行表快照）；该侧没有书签时为 `None`。
+    bookmark_base: [Option<(u64, LineList)>; 2],
 }
 /// 打开时落到第一个差异，其上方保留的上下文行数。
 const LANDING_CONTEXT_ROWS: usize = 5;
@@ -286,6 +291,8 @@ impl TextCompareView {
             displayed_sections: 0,
             pending_gutter_copy: None,
             land_on_first_diff: true,
+            bookmarks: Bookmarks::default(),
+            bookmark_base: [None, None],
         };
         view.rebuild_projection();
         view.recompare();
@@ -850,6 +857,10 @@ impl TextCompareView {
     }
     pub fn swap(&mut self) {
         self.cancel_join();
+        // 书签随内容换侧，行号不变。
+        self.follow_bookmarks();
+        self.bookmarks.map(|(s, line)| (1 - s, line));
+        self.bookmark_base.swap(0, 1);
         std::mem::swap(&mut self.map.left, &mut self.map.right);
         self.files.swap(0, 1);
         self.editors.swap(0, 1);
@@ -959,7 +970,9 @@ impl TextCompareView {
                 match TextContent::from_bytes(text.into_bytes(), None) {
                     Ok(mut c) => {
                         c.edits.clear();
+                        self.follow_bookmarks();
                         *self.content_mut(s) = c;
+                        self.bookmarks_after_load(s, false);
                         self.files[s] = FileInfo::default();
                         self.editors[s] = Editor::default();
                         self.recompare();
@@ -971,8 +984,10 @@ impl TextCompareView {
             }
             Pending::Encoding(s, encoding) => {
                 self.cancel_join();
+                self.follow_bookmarks();
                 let result = self.content_mut(s).reload_encoding(encoding);
                 if result.is_ok() {
+                    self.bookmarks_after_load(s, true);
                     self.editors[s] = Editor::default();
                     self.recompare();
                     self.rebuild_projection();
@@ -1019,8 +1034,11 @@ impl TextCompareView {
             }
         })?;
         self.cancel_join();
+        self.follow_bookmarks();
+        let reload = self.files[s].path.as_deref() == Some(path);
         *self.content_mut(s) = content;
         self.files[s] = file;
+        self.bookmarks_after_load(s, reload);
         self.editors[s] = Editor::default();
         self.map.overrides.clear();
         self.align_with = None;
@@ -1353,6 +1371,8 @@ impl TextCompareView {
         if !modal {
             self.keyboard(&ctx, prefs);
         }
+        // 书签随本帧的编辑（键入、粘贴、撤销等）平移。
+        self.follow_bookmarks();
         // Commands (replace-all/reload/undo) may invalidate byte caret offsets.
         self.editors[0].clamp(&self.map.left);
         self.editors[1].clamp(&self.map.right);
@@ -1416,11 +1436,15 @@ impl TextCompareView {
             ),
         );
         let nav_rect = egui::Rect::from_min_size(body.min, egui::vec2(52.0, body.height()));
+        let marks = self.bookmark_rows();
         ui.scope_builder(egui::UiBuilder::new().max_rect(nav_rect), |ui| {
-            if let Some(row) =
-                self.nav
-                    .ui(ui, &prefs.colors, self.visible.clone(), self.current_row)
-            {
+            if let Some(row) = self.nav.ui(
+                ui,
+                &prefs.colors,
+                self.visible.clone(),
+                self.current_row,
+                &marks,
+            ) {
                 self.goto_row(row);
             }
         });
@@ -1913,6 +1937,16 @@ impl TextCompareView {
                     if item.action_id == "Compare Parent Folders" {
                         item.enabled = view.parent_folders().is_some() && !view.is_dirty();
                     }
+                    // 书签：Toggle 恒可用，Go to 仅已设置的编号，Clear 仅有书签时。
+                    if bookmark_command(&item.action_id, "Toggle Bookmark ").is_some() {
+                        item.enabled = true;
+                    }
+                    if let Some(n) = bookmark_command(&item.action_id, "Go to Bookmark ") {
+                        item.enabled = view.bookmarks.get(n).is_some();
+                    }
+                    if item.action_id == "Clear Bookmarks" {
+                        item.enabled = !view.bookmarks.is_empty();
+                    }
                     if let Some(checked) = view.checked(&item.action_id) {
                         item.kind = MenuItemKind::Check { checked };
                         item.enabled = true;
@@ -2005,6 +2039,8 @@ impl TextCompareView {
         }
     }
     fn command(&mut self, id: &str, ctx: &egui::Context, prefs: &Prefs) {
+        // 同一帧里先编辑再执行命令时，书签先按编辑平移。
+        self.follow_bookmarks();
         let old_filter = self.filter;
         match id {
             "To Windows/DOS" | "To Unix" | "To Macintosh" => {
@@ -2180,6 +2216,17 @@ impl TextCompareView {
                 }
             }
             "Go To..." => self.show_goto = true,
+            id if bookmark_command(id, "Toggle Bookmark ").is_some() => {
+                self.toggle_bookmark(bookmark_command(id, "Toggle Bookmark ").unwrap())
+            }
+            id if bookmark_command(id, "Go to Bookmark ").is_some() => {
+                self.goto_bookmark(bookmark_command(id, "Go to Bookmark ").unwrap(), ctx)
+            }
+            "Clear Bookmarks" => {
+                self.bookmarks.clear();
+                self.follow_bookmarks();
+                self.message = "Bookmarks cleared".into();
+            }
             "Text display..." => self.show_view_options = true,
             "Text Compare Info" => self.show_info = true,
             "File properties..." => self.show_file_options = true,
@@ -2511,11 +2558,22 @@ impl TextCompareView {
             }
             if let egui::Event::Key {
                 key,
+                physical_key,
                 pressed: true,
                 modifiers,
                 ..
             } = &event
             {
+                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签。
+                if let Some(n) = digit(*key, *physical_key).filter(|_| modifiers.command) {
+                    let id = if modifiers.shift {
+                        format!("Toggle Bookmark {n}")
+                    } else {
+                        format!("Go to Bookmark {n}")
+                    };
+                    self.command(&id, ctx, prefs);
+                    continue;
+                }
                 let action = match (*key, modifiers.command, modifiers.shift) {
                     (egui::Key::N, true, _) => Some("Next Difference Section"),
                     (egui::Key::P, true, _) => Some("Previous Difference Section"),
@@ -2719,6 +2777,109 @@ impl TextCompareView {
         self.expanded.push(range);
         self.rebuild_projection();
     }
+    /// 书签随本侧编辑平移（设计决定 2）：该侧修订号与基准不同时比对前后行表。
+    /// 只维护有书签的一侧；每帧与每个命令前调用，修订号未变时只做一次比较。
+    pub(crate) fn follow_bookmarks(&mut self) {
+        for s in 0..2 {
+            if !self.bookmarks.iter().any(|(_, (side, _))| side == s) {
+                self.bookmark_base[s] = None;
+                continue;
+            }
+            let lines = self.content(s).lines.borrow().clone();
+            let revision = lines.revision();
+            if let Some((base, old)) = &self.bookmark_base[s] {
+                if *base == revision {
+                    continue;
+                }
+                let change = bookmarks::Change::between(old, &lines);
+                let len = lines.len();
+                self.bookmarks.map(|(side, line)| {
+                    if side != s {
+                        (side, line)
+                    } else {
+                        (
+                            side,
+                            change.map_or(bookmarks::clamp(line, len), |c| c.apply(line)),
+                        )
+                    }
+                });
+            }
+            self.bookmark_base[s] = Some((revision, lines));
+        }
+    }
+    /// 换掉 `s` 侧内容之后：重载（同一文件）时书签行号收敛到新行数，否则清除该侧书签。
+    fn bookmarks_after_load(&mut self, s: usize, reload: bool) {
+        if reload {
+            let len = self.content(s).lines.borrow().len();
+            self.bookmarks.map(|(side, line)| {
+                (
+                    side,
+                    if side == s {
+                        bookmarks::clamp(line, len)
+                    } else {
+                        line
+                    },
+                )
+            });
+        } else {
+            self.bookmarks.retain(|(side, _)| side != s);
+        }
+        self.bookmark_base[s] = None;
+        self.follow_bookmarks();
+    }
+    /// Toggle Bookmark N：活动窗格的光标行。
+    fn toggle_bookmark(&mut self, n: usize) {
+        self.follow_bookmarks();
+        let s = self.active;
+        let len = self.content(s).lines.borrow().len();
+        let line = bookmarks::clamp(self.editors[s].caret.line, len);
+        self.message = match self.bookmarks.toggle(n, (s, line)) {
+            Toggled::Placed => format!("Bookmark {n} set"),
+            Toggled::Removed => format!("Bookmark {n} cleared"),
+        };
+        self.follow_bookmarks();
+    }
+    /// Go To Bookmark N：激活书签所在侧，光标到该行行首，被显示过滤隐藏时先显示全部，再滚到可见。
+    fn goto_bookmark(&mut self, n: usize, ctx: &egui::Context) {
+        self.follow_bookmarks();
+        let Some((s, line)) = self.bookmarks.get(n) else {
+            self.message = format!("Bookmark {n} is not set");
+            return;
+        };
+        let line = bookmarks::clamp(line, self.content(s).lines.borrow().len());
+        let row = self.row_for_line(s, line);
+        let shown = self.projection.row(self.projection.display_for(row));
+        if shown != Some(DisplayRow::Text(row)) {
+            self.filter = DisplayFilter::All;
+            self.rebuild_projection();
+        }
+        self.active = s;
+        self.goto_row(row);
+        self.editors[s].place(Caret { line, byte: 0 }, false);
+        self.land_on_first_diff = false;
+        ctx.memory_mut(|m| m.request_focus(editor_id(s)));
+        self.message = format!("Bookmark {n}");
+    }
+    /// 本视图书签所在的对齐行（缩略导航条刻度用）：(侧, 行)。
+    pub(crate) fn bookmark_rows(&self) -> Vec<(usize, usize)> {
+        self.bookmarks
+            .iter()
+            .map(|(_, (s, line))| (s, self.row_for_line(s, line)))
+            .collect()
+    }
+}
+/// 菜单 / 快捷键的书签命令：`Toggle Bookmark N`、`Go to Bookmark N`。
+fn bookmark_command(id: &str, prefix: &str) -> Option<usize> {
+    let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
+    (n < bookmarks::COUNT).then_some(n)
+}
+/// 数字键 0–9：优先按物理键（Shift+数字的逻辑键是符号）。
+pub(crate) fn digit(key: egui::Key, physical: Option<egui::Key>) -> Option<usize> {
+    use egui::Key::*;
+    const DIGITS: [egui::Key; 10] = [Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9];
+    physical
+        .and_then(|k| DIGITS.iter().position(|d| *d == k))
+        .or_else(|| DIGITS.iter().position(|d| *d == key))
 }
 pub(crate) fn side(s: usize) -> Side {
     if s == 0 {

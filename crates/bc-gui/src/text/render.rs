@@ -465,6 +465,10 @@ impl TextCompareView {
                                 s,
                             );
                         }
+                        // 书签徽标：文本区右缘（纵向滚动条左侧），不随横向滚动、不占行号栏。
+                        if let Some(n) = line.and_then(|l| self.bookmarks.at((s, l))) {
+                            bookmark_badge(ui.painter(), viewport_rect, n);
+                        }
                         let pressed = ui.input(|i| i.pointer.primary_pressed());
                         let held = ui.input(|i| i.pointer.primary_down());
                         let secondary = ui.input(|i| i.pointer.secondary_pressed());
@@ -854,6 +858,25 @@ pub(crate) fn layout(
     mapping.push(start + text.len());
     (job, mapping)
 }
+/// 书签徽标：`row` 行矩形（视口宽）右缘一个强调色圆角块，白字写编号。
+/// 文本比较与文本合并共用。
+pub(crate) fn bookmark_badge(painter: &egui::Painter, row: egui::Rect, n: usize) {
+    let height = (row.height() - 2.0).max(8.0);
+    let badge = egui::Rect::from_min_size(
+        egui::pos2(row.right() - 2.0 - BOOKMARK_BADGE_WIDTH, row.top() + 1.0),
+        egui::vec2(BOOKMARK_BADGE_WIDTH, height),
+    );
+    painter.rect_filled(badge, 3.0, crate::chrome::theme::ACCENT);
+    painter.text(
+        badge.center(),
+        egui::Align2::CENTER_CENTER,
+        n.to_string(),
+        egui::FontId::proportional((height - 3.0).clamp(8.0, 12.0)),
+        egui::Color32::WHITE,
+    );
+}
+/// 书签徽标宽度（px）。
+pub(crate) const BOOKMARK_BADGE_WIDTH: f32 = 16.0;
 
 pub(crate) fn hatch(ui: &egui::Ui, rect: egui::Rect, cross: bool) {
     let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));

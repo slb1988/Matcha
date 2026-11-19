@@ -127,6 +127,7 @@ impl NavBar {
         colors: &DiffColors,
         visible: std::ops::Range<usize>,
         current: usize,
+        bookmarks: &[(usize, usize)],
     ) -> Option<usize> {
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(52.0, ui.available_height()),
@@ -213,6 +214,16 @@ impl NavBar {
                 start = p;
             }
         }
+        // 书签刻度：所在侧那一列、书签行位置一道 2 px 强调色短线。
+        for &(side, row) in bookmarks {
+            let x0 = CONTENT_LEFT + side.min(1) as f32 * COLUMN;
+            let cy = y(row).min(bottom - 1.0);
+            painter.rect_filled(
+                span(x0, x0 + COLUMN, cy - 1.0, cy + 1.0),
+                0.0,
+                crate::chrome::theme::ACCENT,
+            );
+        }
         // Viewport frame.
         painter.rect_stroke(
             span(
@@ -281,7 +292,7 @@ mod tests {
             }
             let mut out = ctx.run_ui(input, |ui| {
                 ui.spacing_mut().item_spacing = eframe::egui::Vec2::ZERO;
-                if let Some(row) = nav.ui(ui, &Default::default(), 0..40, 0) {
+                if let Some(row) = nav.ui(ui, &Default::default(), 0..40, 0, &[]) {
                     target = Some(row);
                 }
             });
