@@ -6,8 +6,8 @@
 
 ## 2. 书签数据模型与平移规则
 
-- [ ] 2.1 新增 `bc-gui/src/text/bookmarks.rs`：`Bookmarks<A>`（toggle / get / clear / at / is_empty，design 决定 1）；单测覆盖 spec「放置与移除书签」四个场景（放置、再次切换移除、移动编号、同行换编号）与 clear
-- [ ] 2.2 实现平移函数 `shift(lines_old, lines_new, line) -> line`（design 决定 2）；单测：行数不变不平移、上方插入 3 行 50→53、删除 48–52 时 50→48、删除到文件末尾时钳制到末行、书签在变化区间之后按增量平移、变化区间内保持相对偏移；`cargo test -p bc-gui bookmarks` 通过
+- [x] 2.1 新增 `bc-gui/src/text/bookmarks.rs`：`Bookmarks<A>`（toggle / get / clear / at / is_empty，design 决定 1）；单测覆盖 spec「放置与移除书签」四个场景（放置、再次切换移除、移动编号、同行换编号）与 clear
+- [x] 2.2 实现平移函数 `shift(lines_old, lines_new, line) -> line`（design 决定 2）；单测：行数不变不平移、上方插入 3 行 50→53、删除 48–52 时 50→48、删除到文件末尾时钳制到末行、书签在变化区间之后按增量平移、变化区间内保持相对偏移；`cargo test -p bc-gui bookmarks` 通过
 
 ## 3. 文本比较接入
 
