@@ -296,7 +296,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "bc-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "encoding_rs",
  "memmap2",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "bc-engine-bin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-formats",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "bc-engine-dir"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-engine-bin",
@@ -329,7 +329,7 @@ dependencies = [
 
 [[package]]
 name = "bc-engine-table"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-formats",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "bc-engine-text"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-formats",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "bc-formats"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "serde",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "bc-gui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arboard",
  "bc-core",
@@ -389,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "bc-instance"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -398,14 +398,14 @@ dependencies = [
 
 [[package]]
 name = "bc-jobs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
 ]
 
 [[package]]
 name = "bc-report"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-engine-bin",
@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "bc-script"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-engine-bin",
@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "bc-session"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-engine-bin",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "bc-shell"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-formats",
  "core-graphics",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "bc-vfs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "windows-sys 0.61.2",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "bcomp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-instance",
  "bc-script",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "bcompare"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bc-core",
  "bc-engine-table",
@@ -4144,7 +4144,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "xxhash-rust"
