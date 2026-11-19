@@ -2,7 +2,7 @@
 
 ## 1. 功能文档先行
 
-- [ ] 1.1 新建 `docs/features/text-bookmarks.md`（模板五节），写清放置 / 移除 / 同行取代、跳转、清除、显示位置、编辑平移规则、重载 / 换文件 / 交换、合并视图锚点、不持久化与 Ctrl+0 说明；`docs/features/README.md` 索引加一行（状态「进行中」），`text-compare.md` 与 `text-merge.md` 加链接；验收：与 `specs/text-bookmarks/spec.md` 各需求一一对应
+- [x] 1.1 新建 `docs/features/text-bookmarks.md`（模板五节），写清放置 / 移除 / 同行取代、跳转、清除、显示位置、编辑平移规则、重载 / 换文件 / 交换、合并视图锚点、不持久化与 Ctrl+0 说明；`docs/features/README.md` 索引加一行（状态「进行中」），`text-compare.md` 与 `text-merge.md` 加链接；验收：与 `specs/text-bookmarks/spec.md` 各需求一一对应
 
 ## 2. 书签数据模型与平移规则
 

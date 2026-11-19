@@ -24,6 +24,7 @@
 - **横向滚动条**：任一窗格可见内容超宽时，窗格区底部出现一条四窗格共用的横向滚动条。
 - **输入窗格选择与复制**：单击定位、拖选、Shift+单击、`Ctrl+A`、`Ctrl+C`；右键菜单 Take Left / Center / Right、
   Copy、Select All。
+- **编号书签** 0–9：挂在对齐行上并记住窗格，Take / 输出编辑不移动书签，见 [text-bookmarks.md](text-bookmarks.md)。
 - 左改动 / 右改动 / 冲突 / 手工编辑四种着色（`chrome/theme.rs` 的 `MERGE_*`）；未解决冲突行的
   行号栏左缘有红色竖条。状态栏显示未解决冲突区段数与光标所在行的类型。
 - 面向版本控制工具（Perforce P4V）的合并器集成。
@@ -193,4 +194,5 @@ Select All；右键先把光标行与活动窗格移到所点处。
 - 参考对照与未确认的语义：[reference-parity/text-merge.md](../reference-parity/text-merge.md)
 - `crates/bc-engine-text/README.md`、`crates/bc-script/README.md`
 - 命令行总览：[cli-and-scripting.md](cli-and-scripting.md)
+- 编号书签：[text-bookmarks.md](text-bookmarks.md)
 - xlsx/CSV 的键对齐逐格合并：[table-merge.md](table-merge.md)
