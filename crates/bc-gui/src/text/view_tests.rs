@@ -1048,6 +1048,58 @@ fn drag_selection_past_pane_edges_scrolls_horizontally_and_extends() {
 }
 
 #[test]
+fn drag_selection_past_pane_top_and_bottom_scrolls_vertically_and_extends() {
+    let ctx = egui::Context::default();
+    let text = (0..400).map(|n| format!("row {n}\n")).collect::<String>();
+    let mut v = view(&text, &text);
+    for _ in 0..3 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    v.scroll.y = 3000.0;
+    frame(&ctx, &mut v, vec![]);
+    let pane = v.pane_rects[1];
+    let p = egui::pos2(pane.left() + 120.0, pane.center().y);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(p), pointer(p, true)],
+    );
+    let start = v.editors[1].caret;
+    // Above the pane: the view follows upwards and the selection grows to the top row.
+    let above = egui::pos2(p.x, pane.top() - 30.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(above)]);
+    let first = v.scroll.y;
+    assert!(first < 3000.0, "{first}");
+    for _ in 0..5 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    assert!(v.scroll.y < first, "{} vs {first}", v.scroll.y);
+    let caret = v.editors[1].caret;
+    assert!(caret.line < start.line, "{caret:?} vs {start:?}");
+    assert_eq!(v.editors[1].selection().map(|(_, b)| b), Some(start));
+    // Both panes move together.
+    assert!(v.visible.start <= caret.line + 1, "{:?} {caret:?}", v.visible);
+    // Back inside: stops.
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(p)]);
+    let still = v.scroll.y;
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.y, still);
+    // Below the pane: follows downwards.
+    let below = egui::pos2(p.x, pane.bottom() + 30.0);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(below)]);
+    for _ in 0..5 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    assert!(v.scroll.y > still, "{} vs {still}", v.scroll.y);
+    let caret = v.editors[1].caret;
+    assert!(caret.line > start.line, "{caret:?} vs {start:?}");
+    frame(&ctx, &mut v, vec![pointer(below, false)]);
+    let done = v.scroll.y;
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(below)]);
+    assert_eq!(v.scroll.y, done);
+}
+
+#[test]
 fn drag_autoscroll_speed_grows_with_distance() {
     use super::super::render::drag_autoscroll;
     assert_eq!(drag_autoscroll(50.0, 10.0, 100.0, 0.1), 0.0);

@@ -1370,6 +1370,7 @@ impl TextCompareView {
             let delta = crate::chrome::wheel::delta(&ctx, &self.pane_rects);
             self.scroll.x = (self.scroll.x - delta.x).max(0.0);
             self.scroll.y = (self.scroll.y - delta.y).max(0.0);
+            self.drag_autoscroll(&ctx);
         }
         let available = ui.available_rect_before_wrap().intersect(bounds);
         let body = egui::Rect::from_min_max(

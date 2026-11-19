@@ -10,8 +10,9 @@
 - 就地编辑：UTF-8 字节光标、选区、IME、undo/redo；保存可独立单侧进行。
 - 指针在文本区（行号栏右侧）显示 I 形插入光标，拖选途中保持；行号栏仍是默认箭头（可点的合并箭头为手形）。
   选区为不透明的选区蓝底（`theme::TEXT_SELECTION` / `Palette::text_selection`），盖在差异行底色上也清晰可辨。
-- 拖选越过文本区左缘（行号栏）或右缘（竖向滚动条）时，两侧窗格一起水平跟随滚动，指针越出越远滚得越快；
-  越界期间选区按边缘处的字符继续扩展，指针回到文本区或松开鼠标即停（`render::drag_autoscroll`）。
+- 拖选越过文本区左缘（行号栏）或右缘（竖向滚动条）时水平跟随滚动，越过上缘或下缘（水平滚动条）时竖直跟随滚动；
+  两侧窗格同帧一起移动，指针越出越远滚得越快。越界期间选区按边缘处（首/末可见行、最左/右可见字符）继续扩展，
+  指针回到文本区或松开鼠标即停（`TextCompareView::drag_autoscroll`，在绘制窗格前与滚轮一起处理）。
 - 语法高亮来自文件格式库（见 [sessions-and-formats.md](sessions-and-formats.md)）。显示风格由
   `text/syntax_style.rs` 抽象：每类语法元素（`ElementKind`）一个 `ElementStyle`（颜色/粗体/斜体/
   差异行是否保留），`SyntaxStyle::base()` 为对齐参考的基础风格——正文纯黑、注释灰、预处理指令栗色、
@@ -86,7 +87,7 @@
 cargo run --release -p bcompare -- a.txt b.txt                 # GUI
 cargo test -p bc-engine-text                                   # 引擎测试
 cargo test -p bc-gui --lib text::view::tests::details_          # 行详情绘制与滚动交互
-cargo test -p bc-gui --lib -- drag_autoscroll drag_selection_past  # 拖选越界水平跟随滚动
+cargo test -p bc-gui --lib -- drag_autoscroll drag_selection_past  # 拖选越界水平/竖直跟随滚动
 cargo run --release -p bc-engine-text --example text_baseline  # 轻量基线
 ```
 

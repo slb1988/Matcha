@@ -64,32 +64,6 @@ impl TextCompareView {
         ui.add_space(1.0);
         // 参考在内容放得下时不显示水平滚动条。
         let need_hscroll = self.content_width > rect.width() - 20.0;
-        // 拖选越过文本区左（行号栏）/右（竖向滚动条）边缘时水平跟随滚动，越远越快；
-        // 越界期间选区按边缘处的字符扩展（见行循环里的指针钳制）。
-        let drag_left = rect.left()
-            + if self.show_numbers {
-                gutter::WIDTH
-            } else {
-                0.0
-            };
-        let drag_right = rect.right() - 18.0;
-        if need_hscroll && ui.is_enabled() && self.dragging == Some(s) {
-            let held = ui.input(|i| {
-                i.pointer
-                    .primary_down()
-                    .then(|| i.pointer.interact_pos())
-                    .flatten()
-                    .map(|p| (p, i.stable_dt.clamp(0.0, 0.1)))
-            });
-            if let Some((p, dt)) = held {
-                let step = drag_autoscroll(p.x, drag_left, drag_right, dt);
-                let x = (self.scroll.x + step).max(0.0);
-                if x != self.scroll.x {
-                    self.scroll.x = x;
-                    ui.ctx().request_repaint();
-                }
-            }
-        }
         let scroll = self.scroll;
         let need_vscroll_pre = self.projection.height(geometry)
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
@@ -494,11 +468,17 @@ impl TextCompareView {
                         let held = ui.input(|i| i.pointer.primary_down());
                         let secondary = ui.input(|i| i.pointer.secondary_pressed());
                         let pointer = ui.input(|i| i.pointer.interact_pos());
-                        // 拖选中指针越出文本区左右：按边缘处的字符扩展（配合自动水平滚动）。
+                        // 拖选中指针越出文本区：按边缘处（首/末可见行、行号栏/滚动条一侧）的
+                        // 字符扩展，配合 [`TextCompareView::drag_autoscroll`] 的跟随滚动。
                         let pointer = pointer.map(|p| {
                             if held && !pressed && self.dragging == Some(s) {
+                                let clip = ui.clip_rect();
                                 let right = (response.interact_rect.right() - 1.0).max(text_left);
-                                egui::pos2(p.x.clamp(text_left, right), p.y)
+                                let bottom = (clip.bottom() - 1.0).max(clip.top());
+                                egui::pos2(
+                                    p.x.clamp(text_left, right),
+                                    p.y.clamp(clip.top(), bottom),
+                                )
                             } else {
                                 p
                             }
@@ -678,6 +658,42 @@ impl TextCompareView {
                     .interact_pos()
                     .is_some_and(|p| !output.inner_rect.contains(p))
             })
+    }
+    /// 拖选越过文本区边缘时跟随滚动（越远越快），在两侧窗格绘制前调用，两窗格同帧移动：
+    /// 左缘为行号栏、右缘为竖向滚动条（水平），上下缘为窗格顶边/水平滚动条（竖直）。
+    /// 上界由 [`Self::pane`] 钳制；指针回到文本区或松开即停。
+    pub(super) fn drag_autoscroll(&mut self, ctx: &egui::Context) {
+        let Some(s) = self.dragging else {
+            return;
+        };
+        let Some((p, dt)) = ctx.input(|i| {
+            i.pointer
+                .primary_down()
+                .then(|| i.pointer.interact_pos())
+                .flatten()
+                .map(|p| (p, i.stable_dt.clamp(0.0, 0.1)))
+        }) else {
+            return;
+        };
+        let rect = self.pane_rects[s];
+        let need_hscroll = self.content_width > rect.width() - 20.0;
+        let left = rect.left()
+            + if self.show_numbers {
+                gutter::WIDTH
+            } else {
+                0.0
+            };
+        let top = rect.top() + 1.0;
+        let bottom = rect.bottom() - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
+        let mut next = self.scroll;
+        if need_hscroll {
+            next.x = (next.x + drag_autoscroll(p.x, left, rect.right() - 18.0, dt)).max(0.0);
+        }
+        next.y = (next.y + drag_autoscroll(p.y, top, bottom, dt)).max(0.0);
+        if next != self.scroll {
+            self.scroll = next;
+            ctx.request_repaint();
+        }
     }
     pub(super) fn ensure_inline(&mut self, row: usize) {
         if self.map.is_stale() || self.inline.contains_key(&row) {
