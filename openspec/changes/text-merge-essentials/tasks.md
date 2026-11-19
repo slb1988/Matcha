@@ -7,8 +7,8 @@
 ## 2. 语法着色与行内差异
 
 - [ ] 2.1 `text/render.rs::layout` 增加「重要差异色覆盖」参数（design 决定 1），文本比较调用点传 `None`；`cargo test -p bc-gui text::` 与文本比较快照（`text-*` 场景）逐像素不变
-- [ ] 2.2 `merge/view.rs`：四窗格传入 `TextContent::tokens(line)` 与 `SyntaxStyle::for_format`、`theme::editor_bold`；新增 View 菜单 Syntax Highlighting 勾选（`show_syntax` 默认 true）；`merge/view_tests.rs` 加测试：关闭开关后 layout 不再带语法色；`dev-build.ps1` 编译通过
-- [ ] 2.3 行内差异缓存 `inline: HashMap<(pane,row), InlineDiff>`：只算左 / 右窗格的改动或冲突行且本侧与 base 都有内容；左窗格用 `MERGE_LEFT`、右窗格 `MERGE_RIGHT`、冲突区段 `MERGE_CONFLICT`；单测覆盖：`price`→`cost` 只标该词、冲突区段用冲突色、整行新增不做行内、base / 输出窗格不做行内、缓存上限清空
+- [x] 2.2 `merge/view.rs`：四窗格传入 `TextContent::tokens(line)` 与 `SyntaxStyle::for_format`、`theme::editor_bold`；新增 View 菜单 Syntax Highlighting 勾选（`show_syntax` 默认 true）；`merge/view_tests.rs` 加测试：关闭开关后 layout 不再带语法色；`dev-build.ps1` 编译通过
+- [x] 2.3 行内差异缓存 `inline: HashMap<(pane,row), InlineDiff>`：只算左 / 右窗格的改动或冲突行且本侧与 base 都有内容；左窗格用 `MERGE_LEFT`、右窗格 `MERGE_RIGHT`、冲突区段 `MERGE_CONFLICT`；单测覆盖：`price`→`cost` 只标该词、冲突区段用冲突色、整行新增不做行内、base / 输出窗格不做行内、缓存上限清空
 
 ## 3. 输入窗格选择与复制
 

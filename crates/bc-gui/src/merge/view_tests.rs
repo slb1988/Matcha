@@ -423,3 +423,188 @@ fn output_context_menu_offers_takes_and_clipboard() {
     assert!(v.editor.selection().is_some());
     assert!(enabled(&v, "Copy") && enabled(&v, "Take Left"));
 }
+
+/// 三份带文件格式（按 `name` 解析，如 `x.rs`）的输入。
+fn formatted_view(name: &str, left: &[&str], right: &[&str], center: &[&str]) -> MergeView {
+    let formats = bc_formats::registry::FormatRegistry::with_builtins();
+    let format = formats
+        .resolve(
+            std::path::Path::new(name),
+            Some(bc_formats::FormatKind::Text),
+        )
+        .cloned();
+    let content = |lines: &[&str]| {
+        let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        TextContent::from_bytes(text.into_bytes(), format.clone()).unwrap()
+    };
+    let model = MergeModel::from_contents(
+        content(left),
+        content(right),
+        content(center),
+        Default::default(),
+    )
+    .unwrap();
+    MergeView::from_model(model, launch(None))
+}
+/// 窗格 `pane` 对齐行 `row` 的排版，返回每个字节位置的颜色与字体。
+fn line_inks(
+    v: &mut MergeView,
+    ctx: &egui::Context,
+    pane: usize,
+    row: usize,
+) -> Vec<(egui::Color32, egui::FontId)> {
+    let line = match pane {
+        OUT => v.model.out_line_of_row(row),
+        _ => {
+            let mapped = v.model.map.row(row).unwrap();
+            [mapped.left, mapped.center, mapped.right][pane].unwrap()
+        }
+    };
+    let text = String::from_utf8(
+        v.content(pane)
+            .lines
+            .borrow()
+            .line_bytes(line)
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let ink = v.pane_ink(pane, ctx, NORMAL);
+    let (job, _) = v.line_job(pane, row, line, &text, &ink);
+    (0..job.text.len())
+        .map(|byte| {
+            let section = job
+                .sections
+                .iter()
+                .find(|s| s.byte_range.contains(&egui::text::ByteIndex(byte)))
+                .unwrap();
+            (section.format.color, section.format.font_id.clone())
+        })
+        .collect()
+}
+const NORMAL: egui::Color32 = egui::Color32::from_rgb(1, 2, 3);
+/// 着色（非正文色）的字节区间。
+fn inked(inks: &[(egui::Color32, egui::FontId)], color: egui::Color32) -> Vec<usize> {
+    (0..inks.len()).filter(|&i| inks[i].0 == color).collect()
+}
+
+#[test]
+fn syntax_highlighting_colours_every_pane_and_can_be_switched_off() {
+    let lines = ["int main() {", "    char *s = \"text\"; // note", "}"];
+    let mut v = formatted_view("x.cpp", &lines, &lines, &lines);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let mono = egui::FontId::monospace(v.font_size);
+    let plain = |inks: &[(egui::Color32, egui::FontId)]| {
+        inks.iter().all(|(c, f)| *c == NORMAL && *f == mono)
+    };
+    for pane in 0..4 {
+        let inks = line_inks(&mut v, &ctx, pane, 1);
+        assert!(!plain(&inks), "pane {pane} has syntax colours");
+    }
+    let checked = |v: &MergeView| {
+        v.menus
+            .iter()
+            .flat_map(|m| m.items.iter())
+            .find(|i| i.action_id == "Syntax Highlighting")
+            .map(|i| i.kind.clone())
+    };
+    assert_eq!(checked(&v), Some(MenuItemKind::Check { checked: true }));
+    v.command("Syntax Highlighting");
+    frame(&ctx, &mut v, vec![]);
+    assert!(!v.show_syntax);
+    assert_eq!(checked(&v), Some(MenuItemKind::Check { checked: false }));
+    for pane in 0..4 {
+        assert!(plain(&line_inks(&mut v, &ctx, pane, 1)), "pane {pane}");
+    }
+}
+
+#[test]
+fn inline_differences_ink_only_the_changed_characters() {
+    // Rows 1..=4 keep the left-only change at row 0 out of the conflict at row 5.
+    let base = [
+        "let total = price * qty;",
+        "s",
+        "s",
+        "s",
+        "s",
+        "a = 1;",
+        "end",
+    ];
+    let left = [
+        "let total = cost * qty;",
+        "s",
+        "s",
+        "s",
+        "s",
+        "a = 2;",
+        "end",
+    ];
+    let right = [
+        "let total = price * qty;",
+        "s",
+        "s",
+        "s",
+        "s",
+        "a = 3;",
+        "end",
+    ];
+    let mut v = formatted_view("x.txt", &left, &right, &base);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    // Left changed one word: only `cost` carries the left change ink.
+    let inks = line_inks(&mut v, &ctx, 0, 0);
+    assert_eq!(
+        inked(&inks, theme::MERGE_LEFT),
+        (12..16).collect::<Vec<_>>()
+    );
+    assert!(inks[..12].iter().all(|(c, _)| *c == NORMAL));
+    // Right did not change row 0: no inline entry, plain text.
+    assert!(inked(&line_inks(&mut v, &ctx, 2, 0), theme::MERGE_RIGHT).is_empty());
+    // A conflict: both sides differ from base → the conflict ink on both.
+    assert!(!v.model.state.in_conflict(0) && v.model.state.in_conflict(5));
+    let at = |inks: &[(egui::Color32, egui::FontId)]| inked(inks, theme::MERGE_CONFLICT);
+    assert_eq!(at(&line_inks(&mut v, &ctx, 0, 5)), vec![4]);
+    assert_eq!(at(&line_inks(&mut v, &ctx, 2, 5)), vec![4]);
+    // Base and output panes never get inline highlighting.
+    for pane in [1, OUT] {
+        v.ensure_inline(pane, 0);
+        v.ensure_inline(pane, 5);
+        assert!(!v.inline.keys().any(|(p, _)| *p == pane));
+        let inks = line_inks(&mut v, &ctx, pane, 0);
+        assert!(inks.iter().all(|(c, _)| *c == NORMAL), "pane {pane}");
+    }
+    // Once the conflict is resolved the left pane falls back to its own change colour.
+    v.goto_row(5);
+    v.command("Take Left");
+    assert!(!v.model.state.in_conflict(5));
+    assert_eq!(
+        inked(&line_inks(&mut v, &ctx, 0, 5), theme::MERGE_LEFT),
+        vec![4]
+    );
+}
+
+#[test]
+fn whole_line_additions_get_no_inline_diff_and_the_cache_is_bounded() {
+    let b = base(6);
+    let added = insert(&b, 3, &["brand new"]);
+    let mut v = view(&added, &b, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    let row = (0..v.model.map.row_count())
+        .find(|&r| v.model.map.row(r).unwrap().center.is_none())
+        .unwrap();
+    v.ensure_inline(0, row);
+    assert!(!v.inline.contains_key(&(0, row)));
+    // Every left line changed: the cache empties itself when it reaches the limit.
+    let b = base(INLINE_LIMIT + 10);
+    let changes: Vec<(usize, String)> = (1..=b.len()).map(|i| (i, format!("x{i}"))).collect();
+    let changes: Vec<(usize, &str)> = changes.iter().map(|(i, s)| (*i, s.as_str())).collect();
+    let mut v = view(&edit(&b, &changes), &b, &b);
+    for row in 0..INLINE_LIMIT {
+        v.ensure_inline(0, row);
+    }
+    assert_eq!(v.inline.len(), INLINE_LIMIT);
+    v.ensure_inline(0, INLINE_LIMIT);
+    assert_eq!(v.inline.len(), 1);
+}

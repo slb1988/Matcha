@@ -9,12 +9,22 @@ use crate::chrome::{
     menubar::{MenuItem, MenuItemKind, MenuSpec},
     theme,
 };
-use crate::text::editor::{Caret, Editor};
+use crate::text::{
+    editor::{Caret, Editor},
+    render::{layout, LineInk},
+    syntax_style::SyntaxStyle,
+};
 use bc_core::Side;
-use bc_engine_text::merge::MergeChoice;
-use bc_session::prefs::Prefs;
-use eframe::egui::{self, text::CCursor};
-use std::path::PathBuf;
+use bc_engine_text::{
+    content::ContentSnapshot,
+    importance::{CompiledComparison, LineView},
+    inline::{inline_diff_classified, InlineOptions, InlineSpan},
+    merge::MergeChoice,
+    TextContent,
+};
+use bc_session::prefs::{DiffColors, Prefs};
+use eframe::egui::{self, text::CCursor, text::LayoutJob};
+use std::{collections::HashMap, path::PathBuf};
 
 /// 输出窗格的窗格号；0..3 为 left、center、right。
 const OUT: usize = 3;
@@ -31,6 +41,10 @@ const SPLIT_Y: chrome::splitter::Split =
     chrome::splitter::Split::ratio("merge.split.y", 0.55).min(80.0, 40.0);
 const GUTTER: f32 = 46.0;
 const HEADER: f32 = 24.0;
+/// 排版与行内比较只看每行开头这么多字节（合并窗格不做横向窗口化）。
+const LINE_LIMIT: usize = 4096;
+/// 行内差异缓存的上限：超过即整体清空（与文本比较相同）。
+pub(crate) const INLINE_LIMIT: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergeAction {
@@ -82,6 +96,47 @@ pub struct MergeView {
     action: Option<MergeAction>,
     pub message: String,
     menus: Vec<MenuSpec>,
+    /// View › Syntax Highlighting。
+    pub(crate) show_syntax: bool,
+    /// 左 / 右输入窗格改动行与 base 的行内差异（本侧的区间），键为 (窗格, 对齐行)。
+    /// 输入只读，缓存从不失效，只在达到 [`INLINE_LIMIT`] 时清空。
+    pub(crate) inline: HashMap<(usize, usize), Vec<InlineSpan>>,
+    /// 合并会话的比较规则（载入时确定）编译结果，供行内差异使用。
+    comparison: CompiledComparison,
+    /// 差异配色（不重要差异色），每帧取自偏好。
+    colors: DiffColors,
+}
+
+/// 一个窗格本帧的排版资料：内容快照（语法 token）、语法风格与粗体字体。
+pub(crate) struct PaneInk {
+    snapshot: ContentSnapshot,
+    syntax: SyntaxStyle,
+    bold: egui::FontId,
+    normal: egui::Color32,
+}
+
+/// 由某行在合并中的类型判断 `side` 侧是否改了这一行。
+fn side_changed(choice: Option<MergeChoice>, side: Side) -> bool {
+    match side {
+        Side::Left => matches!(
+            choice,
+            Some(MergeChoice::Left | MergeChoice::Both | MergeChoice::Conflict)
+        ),
+        Side::Right => matches!(
+            choice,
+            Some(MergeChoice::Right | MergeChoice::Both | MergeChoice::Conflict)
+        ),
+        _ => false,
+    }
+}
+
+/// `text` 截到 `limit` 字节以内的字符边界。
+fn clip(text: &str, limit: usize) -> &str {
+    let mut finish = text.len().min(limit);
+    while !text.is_char_boundary(finish) {
+        finish -= 1;
+    }
+    &text[..finish]
 }
 
 fn pane_id(pane: usize) -> egui::Id {
@@ -148,6 +203,14 @@ fn menus() -> Vec<MenuSpec> {
             ],
         ),
         menu(
+            "View",
+            'v',
+            vec![MenuItem {
+                kind: MenuItemKind::Check { checked: true },
+                ..menu_item("Syntax Highlighting", None)
+            }],
+        ),
+        menu(
             "Search",
             'r',
             vec![
@@ -164,6 +227,9 @@ impl MergeView {
     }
 
     pub fn from_model(model: MergeModel, launch: MergeLaunch) -> Self {
+        let comparison = CompiledComparison::new(&model.map.rules.comparison)
+            .or_else(|_| CompiledComparison::new(&Default::default()))
+            .expect("default comparison rules compile");
         let mut view = Self {
             model,
             launch,
@@ -180,6 +246,10 @@ impl MergeView {
             action: None,
             message: String::new(),
             menus: menus(),
+            show_syntax: true,
+            inline: HashMap::new(),
+            comparison,
+            colors: DiffColors::default(),
         };
         // 打开即定位到第一个冲突（没有冲突则第一个改动）。
         if let Some(row) = view.model.first_conflict_or_change() {
@@ -427,6 +497,7 @@ impl MergeView {
                     }
                 }
             }
+            "Syntax Highlighting" => self.show_syntax = !self.show_syntax,
             "Next Change Section" | "Previous Change Section" => {
                 let forward = id == "Next Change Section";
                 match self.model.next_change(self.current_row, forward) {
@@ -514,6 +585,7 @@ impl MergeView {
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<MergeAction> {
         let ctx = ui.ctx().clone();
         self.font_size = prefs.editor_font.size_px();
+        self.colors.clone_from(&prefs.colors);
         let blocked = self.prompt.is_some();
         if !blocked {
             self.keyboard(&ctx);
@@ -670,6 +742,11 @@ impl MergeView {
                 "Redo" => redo,
                 _ => true,
             };
+            if item.action_id == "Syntax Highlighting" {
+                item.kind = MenuItemKind::Check {
+                    checked: self.show_syntax,
+                };
+            }
         }
         if let Some(action) = menubar::show(ui, &self.menus) {
             self.command(&action);
@@ -888,6 +965,7 @@ impl MergeView {
         let pressed = ui.input(|i| i.pointer.primary_pressed());
         let held = ui.input(|i| i.pointer.primary_down());
         let shift = ui.input(|i| i.modifiers.shift);
+        let ink = self.pane_ink(pane, ui.ctx(), ui.visuals().text_color());
         let grid: Vec<GridRow> = self
             .model
             .grid()
@@ -937,17 +1015,7 @@ impl MergeView {
                     });
                     let own = cell.own.then_some(index).flatten();
                     let choice = self.model.state.rows.get(cell.row).map(|r| r.choice);
-                    let changed = match side {
-                        Side::Left => matches!(
-                            choice,
-                            Some(MergeChoice::Left | MergeChoice::Both | MergeChoice::Conflict)
-                        ),
-                        Side::Right => matches!(
-                            choice,
-                            Some(MergeChoice::Right | MergeChoice::Both | MergeChoice::Conflict)
-                        ),
-                        _ => false,
-                    };
+                    let changed = side_changed(choice, side);
                     let fill = if conflict {
                         theme::MERGE_CONFLICT_SOFT
                     } else if changed && side == Side::Left {
@@ -986,28 +1054,13 @@ impl MergeView {
                 );
             }
             // 超长行只排版开头一段；合并窗格不做横向窗口化。
-            let mut finish = text.len().min(4096);
-            while !text.is_char_boundary(finish) {
-                finish -= 1;
-            }
-            let (job, bytes) = crate::text::render::layout(
+            let finish = clip(&text, LINE_LIMIT).len();
+            let (job, bytes) = self.line_job(
+                pane,
+                cell.row,
+                number.unwrap_or_default(),
                 &text[..finish],
-                0,
-                &[],
-                &[],
-                &Default::default(),
-                self.font_size,
-                false,
-                false,
-                4,
-                &crate::text::render::LineInk {
-                    normal: ui.visuals().text_color(),
-                    diff: None,
-                    syntax: &Default::default(),
-                    bold: &egui::FontId::monospace(self.font_size),
-                    unimportant: &[],
-                    important: None,
-                },
+                &ink,
             );
             let galley = painter.layout_job(job);
             self.content_width = self.content_width.max(galley.size().x);
@@ -1113,6 +1166,145 @@ impl MergeView {
                 egui::Stroke::new(2.0, theme::ACCENT),
             );
         }
+    }
+
+    /// 窗格的内容：0..3 为 left、center、right 输入，3 为输出。
+    pub(crate) fn content(&self, pane: usize) -> &TextContent {
+        match pane {
+            0 => &self.model.map.left,
+            1 => self
+                .model
+                .map
+                .center
+                .as_ref()
+                .expect("a merge always has a center"),
+            2 => &self.model.map.right,
+            _ => &self.model.output,
+        }
+    }
+
+    pub(crate) fn pane_ink(
+        &self,
+        pane: usize,
+        ctx: &egui::Context,
+        normal: egui::Color32,
+    ) -> PaneInk {
+        let snapshot = self.content(pane).snapshot();
+        PaneInk {
+            syntax: SyntaxStyle::for_format(snapshot.format.as_deref()),
+            snapshot,
+            bold: theme::editor_bold(ctx, self.font_size),
+            normal,
+        }
+    }
+
+    /// 窗格 `pane` 中第 `line` 行（属于对齐行 `row`）的排版：语法 token（开关打开时）、
+    /// left / right 窗格改动行的行内差异着墨。返回排版与字符 → 字节映射。
+    pub(crate) fn line_job(
+        &mut self,
+        pane: usize,
+        row: usize,
+        line: usize,
+        text: &str,
+        ink: &PaneInk,
+    ) -> (LayoutJob, Vec<usize>) {
+        let tokens = if self.show_syntax && line < ink.snapshot.lines.len() {
+            ink.snapshot.tokens(line)
+        } else {
+            Default::default()
+        };
+        self.ensure_inline(pane, row);
+        let spans = self.inline.get(&(pane, row)).cloned().unwrap_or_default();
+        let important = if self.model.state.in_conflict(row) {
+            theme::MERGE_CONFLICT
+        } else if pane == 0 {
+            theme::MERGE_LEFT
+        } else {
+            theme::MERGE_RIGHT
+        };
+        let tab = ink
+            .snapshot
+            .format
+            .as_ref()
+            .and_then(|f| f.tab_size)
+            .unwrap_or(4)
+            .clamp(1, 32) as usize;
+        layout(
+            text,
+            0,
+            &tokens,
+            &spans,
+            &self.colors,
+            self.font_size,
+            self.model.state.rules.ignore_unimportant,
+            false,
+            tab,
+            &LineInk {
+                normal: ink.normal,
+                diff: None,
+                syntax: &ink.syntax,
+                bold: &ink.bold,
+                unimportant: &self.model.map.rules.comparison.importance.unimportant,
+                important: Some(important),
+            },
+        )
+    }
+
+    /// 行内差异只算 left / right 输入窗格：本侧改了该对齐行（或它在冲突区段里），且本侧与
+    /// base 在这一行上都有内容。base 与输出窗格从不做。
+    pub(crate) fn ensure_inline(&mut self, pane: usize, row: usize) {
+        if !matches!(pane, 0 | 2) || self.inline.contains_key(&(pane, row)) {
+            return;
+        }
+        let side = SIDES[pane];
+        let choice = self.model.state.rows.get(row).map(|r| r.choice);
+        if !side_changed(choice, side) && !self.model.state.in_conflict(row) {
+            return;
+        }
+        let Some(mapped) = self.model.map.row(row) else {
+            return;
+        };
+        let own = if pane == 0 { mapped.left } else { mapped.right };
+        let (Some(own), Some(base)) = (own, mapped.center) else {
+            return;
+        };
+        if self.inline.len() >= INLINE_LIMIT {
+            self.inline.clear();
+        }
+        let mine = self.content(pane).snapshot();
+        let center = self.content(1).snapshot();
+        let view = |snapshot: &ContentSnapshot, index: usize| {
+            let text = snapshot
+                .lines
+                .line_bytes(index)
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .unwrap_or_default();
+            let ending = snapshot.lines.ending(index).unwrap_or_default();
+            (
+                clip(&text, LINE_LIMIT).to_owned(),
+                snapshot.tokens(index),
+                ending,
+            )
+        };
+        let (own_text, own_tokens, own_ending) = view(&mine, own);
+        let (base_text, base_tokens, base_ending) = view(&center, base);
+        let diff = inline_diff_classified(
+            LineView {
+                text: &own_text,
+                tokens: &own_tokens,
+                format: mine.format.as_deref(),
+                ending: own_ending,
+            },
+            LineView {
+                text: &base_text,
+                tokens: &base_tokens,
+                format: center.format.as_deref(),
+                ending: base_ending,
+            },
+            &self.comparison,
+            &InlineOptions::default(),
+        );
+        self.inline.insert((pane, row), diff.left);
     }
 
     fn paint_gutter(
