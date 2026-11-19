@@ -28,7 +28,7 @@
 ## 6. 集成检查与记录
 
 - [ ] 6.1 `cargo test -p bc-gui`、`cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后实机：文本比较放 3 个书签、跨文件跳转、在上方插行后跳转仍落在原文字、Swap Sides、Clear；合并视图放书签后 Take 再跳转；确认 Ctrl+0 / Shift+Ctrl+0 可用
-- [ ] 6.2 `docs/features/text-bookmarks.md` 状态改为已实现并同步 README 索引；`CHANGELOGS.md` 顶部加条目（含关闭 Ctrl+= / Ctrl+− 界面缩放的说明）；验收：文档与实际行为一致
+- [x] 6.2 `docs/features/text-bookmarks.md` 状态改为已实现并同步 README 索引；`CHANGELOGS.md` 顶部加条目（含关闭 Ctrl+= / Ctrl+− 界面缩放的说明）；验收：文档与实际行为一致
 
 ## Workflow follow-up
 
