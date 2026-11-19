@@ -970,3 +970,73 @@ fn replace_is_output_only_and_replaces_then_finds_next() {
     assert!(text(&v).contains("foo b") && text(&v).contains("foo c"));
     assert!(text(&v).contains("bar a"));
 }
+
+/// 指定窗口宽度跑一帧。
+fn frame_wide(ctx: &egui::Context, v: &mut MergeView, width: f32, events: Vec<egui::Event>) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(width, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, &mut Prefs::default());
+    });
+    out.textures_delta.clear();
+}
+
+#[test]
+fn a_shared_horizontal_scrollbar_appears_only_for_wide_content() {
+    let b = base(10);
+    let long = format!("long {}", "x".repeat(150));
+    let mut v = view(&edit(&b, &[(3, &long)]), &b, &b);
+    let ctx = egui::Context::default();
+    for _ in 0..3 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    let bar = v
+        .hbar
+        .expect("the long left line needs a horizontal scrollbar");
+    assert!(v.max_x > 0.0 && v.scroll.x == 0.0);
+    // Across the bottom of the pane area, below the output pane.
+    assert!(bar.top() >= v.pane_rects[OUT].bottom() - 0.5);
+    assert!(bar.left() <= v.pane_rects[1].left() && bar.right() >= v.pane_rects[2].right() - 0.5);
+    // Drag the thumb past the right end: every pane scrolls to the limit.
+    let thumb = egui::pos2(bar.left() + 16.0 + 4.0, bar.center().y);
+    drag(
+        &ctx,
+        &mut v,
+        thumb,
+        egui::pos2(bar.right() + 300.0, bar.center().y),
+    );
+    frame(&ctx, &mut v, vec![]);
+    assert!(
+        (v.scroll.x - v.max_x).abs() < 0.5,
+        "{} vs {}",
+        v.scroll.x,
+        v.max_x
+    );
+    // The wheel over the bar scrolls horizontally.
+    let wheel = |dy: f32| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, dy),
+        phase: egui::TouchPhase::Move,
+        modifiers: Default::default(),
+        source: egui::MouseWheelSource::Wheel,
+    };
+    let before = v.scroll.x;
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(bar.center()), wheel(30.0)],
+    );
+    assert!(v.scroll.x < before);
+    // A window wide enough for every line: the bar goes away and the offset resets.
+    for _ in 0..3 {
+        frame_wide(&ctx, &mut v, 6000.0, vec![]);
+    }
+    assert!(v.hbar.is_none());
+    assert_eq!((v.max_x, v.scroll.x), (0.0, 0.0));
+}

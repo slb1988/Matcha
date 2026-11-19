@@ -99,7 +99,11 @@ pub struct MergeView {
     scroll: egui::Vec2,
     pending_scroll: Option<usize>,
     pane_rects: [egui::Rect; 4],
-    content_width: f32,
+    /// 每个窗格本帧可见行的最宽排版宽度（下一帧据此决定横向滚动条与上限）。
+    content_widths: [f32; 4],
+    /// 本帧的横向滚动条（内容放得下时为 `None`）与横向偏移上限。
+    pub(crate) hbar: Option<egui::Rect>,
+    pub(crate) max_x: f32,
     font_size: f32,
     /// 正在拖选的窗格。
     dragging: Option<usize>,
@@ -290,7 +294,9 @@ impl MergeView {
             scroll: egui::Vec2::ZERO,
             pending_scroll: None,
             pane_rects: [egui::Rect::NOTHING; 4],
-            content_width: 0.0,
+            content_widths: [0.0; 4],
+            hbar: None,
+            max_x: 0.0,
             font_size: theme::EDITOR_SIZE,
             dragging: None,
             prompt: None,
@@ -951,25 +957,41 @@ impl MergeView {
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
-        let body = egui::Rect::from_min_max(
+        let full = egui::Rect::from_min_max(
             available.min,
             egui::pos2(available.right() - 16.0, status.top()),
         );
         // 输入区 / 输出区与三列之间的分隔线可拖动（持久化，双击复位）。
-        let top_height = SPLIT_Y.first(body.height() - HEADER);
-        let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
-        let output = egui::Rect::from_min_max(egui::pos2(body.left(), inputs.bottom()), body.max);
-        let columns = chrome::splitter::Columns3::new(inputs, SPLIT_COLUMNS);
-        for pane in 0..3 {
-            self.pane_rects[pane] = columns.rects[COLUMN_OF[pane]];
-        }
-        // 横向滚动共用一个偏移：按最窄的输入列算上限，保证每列都能滚到行尾。
-        let column = columns
-            .rects
-            .iter()
-            .map(|r| r.width())
-            .fold(f32::INFINITY, f32::min);
-        self.pane_rects[OUT] = output;
+        let layout = |body: egui::Rect| {
+            let top_height = SPLIT_Y.first(body.height() - HEADER);
+            let inputs = egui::Rect::from_min_size(body.min, egui::vec2(body.width(), top_height));
+            let output =
+                egui::Rect::from_min_max(egui::pos2(body.left(), inputs.bottom()), body.max);
+            let columns = chrome::splitter::Columns3::new(inputs, SPLIT_COLUMNS);
+            let mut rects = [egui::Rect::NOTHING; 4];
+            for pane in 0..3 {
+                rects[pane] = columns.rects[COLUMN_OF[pane]];
+            }
+            rects[OUT] = output;
+            (rects, inputs, columns)
+        };
+        // 横向滚动四个窗格共用一个偏移：上限取各窗格（上一帧）可见内容超出本窗格的最大量，
+        // 保证每个窗格都能滚到行尾；都放得下时不显示横向滚动条，偏移归零。
+        let (rects, _, _) = layout(full);
+        self.max_x = (0..4)
+            .map(|pane| self.content_widths[pane] + GUTTER + 40.0 - rects[pane].width())
+            .fold(0.0, f32::max);
+        let body = if self.max_x > 0.0 {
+            egui::Rect::from_min_max(full.min, full.max - egui::vec2(0.0, 16.0))
+        } else {
+            full
+        };
+        self.hbar = (self.max_x > 0.0).then(|| {
+            egui::Rect::from_min_max(body.left_bottom(), egui::pos2(body.right(), status.top()))
+        });
+        let (rects, inputs, columns) = layout(body);
+        self.pane_rects = rects;
+        self.content_widths = [0.0; 4];
 
         // 滚动：滚轮原样作用于四个窗格共用的位置；纵向上限取最矮的窗格。
         let rows = self.model.grid().len();
@@ -987,12 +1009,14 @@ impl MergeView {
             let delta = chrome::wheel::delta(&ctx, &self.pane_rects);
             self.scroll.x -= delta.x;
             self.scroll.y -= delta.y;
+            // 横向滚动条上的滚轮（含竖向滚轮）只横移。
+            if let Some(hbar) = self.hbar {
+                let delta = chrome::wheel::delta(&ctx, &[hbar]);
+                self.scroll.x -= delta.x + delta.y;
+            }
         }
         self.scroll.y = self.scroll.y.clamp(0.0, max_y);
-        self.scroll.x = self
-            .scroll
-            .x
-            .clamp(0.0, (self.content_width - column + GUTTER + 40.0).max(0.0));
+        self.scroll.x = self.scroll.x.clamp(0.0, self.max_x);
 
         for pane in 0..4 {
             let rect = self.pane_rects[pane];
@@ -1025,9 +1049,27 @@ impl MergeView {
             egui::Rangef::new(body.top(), body.bottom() - HEADER),
         );
 
-        // 整个视图一条纵向滚动条。
-        let bar =
-            egui::Rect::from_min_max(egui::pos2(body.right(), body.top()), status.right_top());
+        // 窗格区底部一条四窗格共用的横向滚动条，右端与纵向滚动条之间留一个角块。
+        if let Some(hbar) = self.hbar {
+            chrome::scrollbar::show_horizontal_px(
+                ui,
+                hbar,
+                egui::Id::unique("merge-hscroll"),
+                hbar.width() + self.max_x,
+                hbar.width(),
+                &mut self.scroll.x,
+            );
+            ui.painter().rect_filled(
+                egui::Rect::from_min_max(hbar.right_top(), status.right_top()),
+                0.0,
+                theme::PANEL_BG,
+            );
+        }
+        // 整个视图一条纵向滚动条（横向滚动条出现时随窗格区底边上移）。
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(body.right(), body.top()),
+            egui::pos2(status.right(), body.bottom()),
+        );
         let last = (max_y / row_height).ceil() as usize;
         let mut top = (self.scroll.y / row_height).round() as usize;
         ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
@@ -1475,7 +1517,7 @@ impl MergeView {
                 &ink,
             );
             let galley = painter.layout_job(job);
-            self.content_width = self.content_width.max(galley.size().x);
+            self.content_widths[pane] = self.content_widths[pane].max(galley.size().x);
             let origin = line_rect.min + egui::vec2(GUTTER + 4.0 - self.scroll.x, 1.0);
             let text_clip = egui::Rect::from_min_max(
                 egui::pos2(line_rect.left() + GUTTER, line_rect.top()),
