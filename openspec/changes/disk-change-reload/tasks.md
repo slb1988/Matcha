@@ -32,7 +32,7 @@
 
 ## 7. 集成检查与记录
 
-- [ ] 7.1 `cargo test -p bc-gui -p bc-session` 与 `cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后用 `target\debug\matcha.exe a.txt b.txt` 实机：在记事本修改 b.txt 保存后切回 → 弹框并能重载；开启自动重载后再改 → 静默重载、状态栏提示；编辑左侧未保存时外改左侧 → 仍弹框且说明会丢弃；在文件夹比较里打开文件对重复一次
+- [x] 7.1 `cargo test -p bc-gui -p bc-session` 与 `cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后用 `target\debug\matcha.exe a.txt b.txt` 实机：在记事本修改 b.txt 保存后切回 → 弹框并能重载；开启自动重载后再改 → 静默重载、状态栏提示；编辑左侧未保存时外改左侧 → 仍弹框且说明会丢弃；在文件夹比较里打开文件对重复一次
 - [x] 7.2 `docs/features/disk-change-reload.md` 状态改为「已实现（验证方式）」并同步 README 索引；`CHANGELOGS.md` 顶部加条目；验收：文档与实际行为一致
 
 ## Workflow follow-up
