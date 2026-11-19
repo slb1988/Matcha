@@ -1,7 +1,7 @@
 # 文本合并（Text Merge）
 
 > 三方合并：left / right 两个版本相对共同祖先 center 的改动合并到输出文件，可无窗口自动合并，也可在界面里解决冲突。
-> 状态：**已实现（引擎、命令行、界面；合并语义未经参考样本确认）**（2026-11-18 更新）。
+> 状态：**已实现（引擎、命令行、界面；合并语义未经参考样本确认）**；审阅增强（行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制）**进行中**（2026-11-19 更新）。
 > 参考依据与样本采集阻塞见 [reference-parity/text-merge.md](../reference-parity/text-merge.md)。
 
 ## 功能简介
@@ -14,6 +14,15 @@
   （没有冲突则第一个改动），`Ctrl+N` / `Ctrl+P` 逐个走改动区段（含冲突）。
 - 各窗格标题条的路径是只读地址框（`chrome::pathbar::show_readonly`）：可选中、Ctrl+C 复制，
   右键菜单 Copy / Select All，选区内右击保留选区。
+- **行内差异高亮**：左、右输入窗格的改动行与 base 同一对齐行逐字符比较，不同字符用所属侧强调色
+  （左侧 `MERGE_LEFT` / 右侧 `MERGE_RIGHT`，未解决冲突区段 `MERGE_CONFLICT`）着墨；只在不重要元素
+  （默认注释）上的差异用不重要差异色。
+- **语法着色**：四个窗格按文件格式库的语法着色，风格与文本比较一致；View › Syntax Highlighting 开关（默认开）。
+- **查找替换**：复用文本比较的查找条（字面 / 正则、大小写、全词、仅在改动中），在活动窗格查找；
+  替换只对输出窗格可用。
+- **横向滚动条**：任一窗格可见内容超宽时，窗格区底部出现一条四窗格共用的横向滚动条。
+- **输入窗格选择与复制**：单击定位、拖选、Shift+单击、`Ctrl+A`、`Ctrl+C`；右键菜单 Take Left / Center / Right、
+  Copy、Select All。
 - 左改动 / 右改动 / 冲突 / 手工编辑四种着色（`chrome/theme.rs` 的 `MERGE_*`）；未解决冲突行的
   行号栏左缘有红色竖条。状态栏显示未解决冲突区段数与光标所在行的类型。
 - 面向版本控制工具（Perforce P4V）的合并器集成。
@@ -49,7 +58,16 @@
 - 冲突区段内相距很近但不重叠的改动已被采纳，只是需要确认；所以界面里有"接受当前内容"。
 - 输出逐行保留来源行的行尾；编码与 BOM 按三方取舍；输出文件的既有内容从不读取；不建备份。
   写出先用同目录临时文件再替换，输出路径可以等于某个输入。
-- 输入窗格恒只读；规则在打开时确定。
+- 输入窗格恒只读；规则在打开时确定。输入窗格可放光标、选择、复制（`Ctrl+C` 保留原行尾），
+  键入、粘贴、删除、回车与输入法提交一律丢弃，内容不变。
+- **行内差异只在 left / right 输入窗格**：该对齐行属于改动或冲突、且本侧与 base 都有内容时才逐字符比较；
+  整行新增 / 删除仍只按整行着色。base 窗格与输出窗格**不做**行内高亮（输出按来源底色区分）。
+  比较规则与载入时一致（含 `/iu`）。行内着墨优先于语法颜色。
+- **查找**作用于活动窗格内容，从光标起查，**不回绕**：到首尾时状态栏提示 `No more matches`，选区不变；
+  命中后选中匹配并把四个窗格滚到其对齐行。「仅在改动中」（Differences Only）只查改动 / 冲突区段的行。
+- **替换只在输出窗格**：活动窗格为输入窗格时 Replace… 禁用、查找条不显示替换行。Replace 替换当前匹配后查下一个；
+  Replace All 替换输出窗格全部匹配，作为一个撤销步；被替换的行标为手工，波及的未解决冲突区段视为已解决。
+- 横向滚动条在所有可见内容放得下时隐藏，横向偏移归零；拖动、点击轨道、在其上滚轮都同步横移四个窗格。
 - **`/automerge` 在发起进程内无窗口执行，从不转交给已运行的实例，且必须有输出目标。**
   成功或有冲突时向 stdout 写一行结果（如 `Success` 或
   `Conflicts detected, merge output not written: 1 conflict section(s)`）；`/silent` 或没有标准输出时
@@ -118,7 +136,7 @@ cargo test -p bc-gui --lib merge
 
 ### 界面命令与快捷键
 
-菜单为 Session / File / Edit / Search；工具栏为 Home、Save、Left、Center、Right、Accept、Next Change、Prev Change。
+菜单为 Session / File / Edit / View / Search；工具栏为 Home、Save、Left、Center、Right、Accept、Next Change、Prev Change。
 
 | 命令 | 快捷键 | 行为 |
 |---|---|---|
@@ -135,6 +153,11 @@ cargo test -p bc-gui --lib merge
 | Take Center Line | `Shift+Ctrl+B` | 只换光标所在的一行为共同祖先 |
 | Take Right Line | `Shift+Ctrl+R` | 只换光标所在的一行为右侧 |
 | Accept Current Content | `Ctrl+K` | 不改输出，清除当前区段冲突标记，然后跳到下一个冲突 |
+| Syntax Highlighting | — | View 菜单勾选项，开关四窗格语法着色（默认开） |
+| Find... | `Ctrl+F` | 打开查找条，在活动窗格查找 |
+| Find Next | `F3` | 下一个匹配（不回绕） |
+| Find Previous | `Shift+F3` | 上一个匹配（不回绕） |
+| Replace... | `Ctrl+H` | 打开带替换行的查找条（仅输出窗格活动时可用） |
 | Next Change Section | `Ctrl+N` | 下一个改动区段（含冲突） |
 | Previous Change Section | `Ctrl+P` | 上一个改动区段（含冲突） |
 | New Tab | `Ctrl+T` | 新建标签页 |
@@ -150,6 +173,8 @@ Take Left Then Right / Right Then Left 的后一侧各行排在前一侧之后�
 输出窗格右键菜单：Take Left / Center / Right、Take Left Then Right / Right Then Left、Take Left / Center / Right Line、
 Accept Current Content、Cut / Copy / Paste、Select All（区段 Take 与 Accept 在光标不在改动上且无选区时禁用；
 Cut / Copy 需要选区）。条目取自参考 Edit 菜单（无参考截图，样式走设计系统）。
+输入窗格右键菜单：Take Left / Center / Right（作用于所点行所在区段，不在改动上时禁用）、Copy（无选区时禁用）、
+Select All；右键先把光标行与活动窗格移到所点处。
 验收时可依次 Take、手工增行、接受、撤销/重做，核对四窗格行网格、冲突数、来源色与保存结果；
 分别在无冲突保存、带冲突保存、从未保存后关闭，核对退出码 0 / 14 / 101。
 
