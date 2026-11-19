@@ -51,6 +51,6 @@
 
 ## 深入阅读
 
-- 变更过程：`openspec/changes/disk-change-reload/`（proposal / design / tasks）
-- 规格：`openspec/changes/disk-change-reload/specs/disk-change-detection/spec.md`
+- 变更过程：`openspec/changes/archive/2026-11-19-disk-change-reload/`（proposal / design / tasks）
+- 规格：`openspec/specs/disk-change-detection/spec.md`
 - 参考帮助：Options › Tweaks（`tmp/hex-ref/chm/optionstweak.html`）
