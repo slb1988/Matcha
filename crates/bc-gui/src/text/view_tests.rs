@@ -994,6 +994,71 @@ fn details_take_the_current_rows_difference_colors_and_caret_bar() {
 }
 
 #[test]
+fn drag_selection_past_pane_edges_scrolls_horizontally_and_extends() {
+    let ctx = egui::Context::default();
+    let long = "abcdefghij".repeat(60);
+    let text = (0..20)
+        .map(|n| format!("row {n}: {long}\n"))
+        .collect::<String>();
+    let mut v = view(&text, &text);
+    for _ in 0..3 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    v.scroll.x = 2000.0;
+    frame(&ctx, &mut v, vec![]);
+    let pane = v.pane_rects[1];
+    let p = egui::pos2(pane.center().x, pane.top() + 68.0);
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(p), pointer(p, true)],
+    );
+    let start = v.editors[1].caret;
+    // Leftwards past the line-number gutter: the view follows step by step.
+    let left = egui::pos2(pane.left() + 10.0, p.y);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(left)]);
+    let first = v.scroll.x;
+    assert!(first < 2000.0, "{first}");
+    for _ in 0..5 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    assert!(v.scroll.x < first, "{} vs {first}", v.scroll.x);
+    let caret = v.editors[1].caret;
+    assert_eq!(caret.line, start.line);
+    assert!(caret.byte < start.byte, "{caret:?} vs {start:?}");
+    assert_eq!(v.editors[1].selection().map(|(_, b)| b), Some(start));
+    // Back over the text: scrolling stops.
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(p)]);
+    let still = v.scroll.x;
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.x, still);
+    // Rightwards past the vertical scrollbar: the view follows the other way.
+    let right = egui::pos2(pane.right() + 40.0, p.y);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(right)]);
+    for _ in 0..5 {
+        frame(&ctx, &mut v, vec![]);
+    }
+    assert!(v.scroll.x > still, "{} vs {still}", v.scroll.x);
+    let caret = v.editors[1].caret;
+    assert!(caret.byte > start.byte, "{caret:?} vs {start:?}");
+    frame(&ctx, &mut v, vec![pointer(right, false)]);
+    let done = v.scroll.x;
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(right)]);
+    assert_eq!(v.scroll.x, done);
+}
+
+#[test]
+fn drag_autoscroll_speed_grows_with_distance() {
+    use super::super::render::drag_autoscroll;
+    assert_eq!(drag_autoscroll(50.0, 10.0, 100.0, 0.1), 0.0);
+    let near = drag_autoscroll(5.0, 10.0, 100.0, 0.1);
+    let far = drag_autoscroll(-100.0, 10.0, 100.0, 0.1);
+    assert!(near < 0.0 && far < near);
+    assert!(drag_autoscroll(150.0, 10.0, 100.0, 0.1) > 0.0);
+    assert_eq!(drag_autoscroll(1e6, 10.0, 100.0, 0.1), 600.0);
+}
+
+#[test]
 fn pane_scrollbars_pan_without_changing_the_selected_row_or_keyboard_focus() {
     let ctx = egui::Context::default();
     let long = "1234567890".repeat(28);

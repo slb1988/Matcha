@@ -56,7 +56,6 @@ impl TextCompareView {
             .scroll
             .y
             .min((self.projection.height(geometry) - remaining + 16.0).max(0.0));
-        let scroll = self.scroll;
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.spacing_mut().scroll.floating = false;
         ui.spacing_mut().scroll.bar_width = 16.0;
@@ -65,6 +64,33 @@ impl TextCompareView {
         ui.add_space(1.0);
         // 参考在内容放得下时不显示水平滚动条。
         let need_hscroll = self.content_width > rect.width() - 20.0;
+        // 拖选越过文本区左（行号栏）/右（竖向滚动条）边缘时水平跟随滚动，越远越快；
+        // 越界期间选区按边缘处的字符扩展（见行循环里的指针钳制）。
+        let drag_left = rect.left()
+            + if self.show_numbers {
+                gutter::WIDTH
+            } else {
+                0.0
+            };
+        let drag_right = rect.right() - 18.0;
+        if need_hscroll && ui.is_enabled() && self.dragging == Some(s) {
+            let held = ui.input(|i| {
+                i.pointer
+                    .primary_down()
+                    .then(|| i.pointer.interact_pos())
+                    .flatten()
+                    .map(|p| (p, i.stable_dt.clamp(0.0, 0.1)))
+            });
+            if let Some((p, dt)) = held {
+                let step = drag_autoscroll(p.x, drag_left, drag_right, dt);
+                let x = (self.scroll.x + step).max(0.0);
+                if x != self.scroll.x {
+                    self.scroll.x = x;
+                    ui.ctx().request_repaint();
+                }
+            }
+        }
+        let scroll = self.scroll;
         let need_vscroll_pre = self.projection.height(geometry)
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
         // 行响应盖在窗格响应之上：行上的右键合并进窗格响应，统一打开右键菜单。
@@ -468,6 +494,15 @@ impl TextCompareView {
                         let held = ui.input(|i| i.pointer.primary_down());
                         let secondary = ui.input(|i| i.pointer.secondary_pressed());
                         let pointer = ui.input(|i| i.pointer.interact_pos());
+                        // 拖选中指针越出文本区左右：按边缘处的字符扩展（配合自动水平滚动）。
+                        let pointer = pointer.map(|p| {
+                            if held && !pressed && self.dragging == Some(s) {
+                                let right = (response.interact_rect.right() - 1.0).max(text_left);
+                                egui::pos2(p.x.clamp(text_left, right), p.y)
+                            } else {
+                                p
+                            }
+                        });
                         // 弹出菜单（右键菜单/下拉）盖在窗格上时，按下属于菜单而非文本。
                         let covered = pointer.is_some_and(|p| {
                             (pressed || secondary)
@@ -686,6 +721,19 @@ impl TextCompareView {
         self.inline.insert(row, diff);
     }
 }
+/// 拖选自动水平滚动的本帧步长（像素，负为向左）：指针在 `left..=right` 内为 0，
+/// 越界时速度 240 px/s 起、每越出 1 px 加 24 px/s，上限 6000 px/s。
+pub(super) fn drag_autoscroll(x: f32, left: f32, right: f32, dt: f32) -> f32 {
+    let over = if x < left {
+        x - left
+    } else if x > right {
+        x - right
+    } else {
+        return 0.0;
+    };
+    (240.0 + over.abs() * 24.0).min(6000.0) * dt * over.signum()
+}
+
 /// 编辑区正文色：参考为纯黑（界面其余文字用主题的近黑色）。
 pub(crate) const EDITOR_TEXT: egui::Color32 = egui::Color32::BLACK;
 
