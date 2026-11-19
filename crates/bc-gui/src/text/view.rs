@@ -108,6 +108,8 @@ pub struct FileInfo {
     pub load_time: Duration,
     pub metadata_dirty: bool,
     pub modified_label: super::status_bar::ModifiedLabel,
+    /// 磁盘变化检测的基准（载入 / 保存时的修改时间与大小，见 `disk_watch`）。
+    pub disk: crate::disk_watch::Tracked,
 }
 pub struct TextCompareView {
     pub map: TextMap,
@@ -151,6 +153,10 @@ pub struct TextCompareView {
     options: crate::dialogs::options::OptionsDialog,
     formats: super::format_panel::FormatPanel,
     pending: Option<Pending>,
+    /// 等待回答的「File changed on disk, reload?」（`disk_watch::prompt` 绘制）。
+    pub(crate) disk_prompt: Option<crate::disk_watch::DiskPrompt>,
+    /// 比较完成时显示的状态栏消息（替代 "Comparison complete"，如磁盘变化重载的说明）。
+    message_after_compare: Option<String>,
     file_dialog: Option<FileDialog>,
     clipboard_side: Option<usize>,
     /// Compare Selection to Clipboard 等待 RequestPaste 回送的剪贴板；附发起时的 pass 号。
@@ -258,6 +264,8 @@ impl TextCompareView {
             options: Default::default(),
             formats: Default::default(),
             pending: None,
+            disk_prompt: None,
+            message_after_compare: None,
             file_dialog: None,
             clipboard_side: None,
             compare_selection: None,
@@ -378,7 +386,10 @@ impl TextCompareView {
                         self.edited_at = None;
                         self.dirty = None;
                         self.after_alignment();
-                        self.message = "Comparison complete".into();
+                        self.message = self
+                            .message_after_compare
+                            .take()
+                            .unwrap_or_else(|| "Comparison complete".into());
                     }
                 }
                 Err(bc_jobs::JobError::Cancelled) => {}
@@ -876,6 +887,8 @@ impl TextCompareView {
         } else {
             self.files[s].path = Some(path.to_path_buf());
             self.files[s].target = None;
+            // 自己的保存不算外部修改：以保存后的磁盘状态为新基准。
+            self.files[s].disk.reset(Some(path));
         }
         self.files[s].metadata_dirty = false;
         self.message = format!("Saved {}", path.display());
@@ -970,6 +983,28 @@ impl TextCompareView {
         if let Err(e) = result {
             self.message = e.to_string();
         }
+    }
+    /// 磁盘变化触发的重载：重新读入 `s` 的文件（丢弃该侧未保存编辑——确认框已说明），
+    /// 保留光标行与滚动位置（行数变少时收敛到末行），不跳到第一个差异。
+    pub(crate) fn reload_keep_position(&mut self, s: usize) -> Result<(), CoreError> {
+        let path = self.files[s]
+            .path
+            .clone()
+            .ok_or_else(|| CoreError::Invalid("no source file to reload".into()))?;
+        let line = self.editors[s].caret.line;
+        let scroll = self.scroll;
+        self.open_side(s, &path)?;
+        self.land_on_first_diff = false;
+        let last = self.content(s).lines.borrow().len().saturating_sub(1);
+        self.editors[s].place(
+            Caret {
+                line: line.min(last),
+                byte: 0,
+            },
+            false,
+        );
+        self.scroll = scroll;
+        Ok(())
     }
     fn open_side(&mut self, s: usize, path: &Path) -> Result<(), CoreError> {
         // Load transactionally before dropping the old editable content.
@@ -2598,6 +2633,10 @@ impl TextCompareView {
                 }
             }
         }
+        // 保存确认优先；没有时显示磁盘变化确认（「File changed on disk, reload?」）。
+        if self.pending.is_none() {
+            crate::disk_watch::prompt(ctx, self);
+        }
         if let Some(pending) = self.pending.clone() {
             use crate::chrome::{
                 controls::Role,
@@ -2754,6 +2793,13 @@ fn load(path: &Path, registry: &FormatRegistry) -> Result<(TextContent, FileInfo
             byte_len: metadata.len() as usize,
             modified_label,
             load_time,
+            disk: crate::disk_watch::Tracked {
+                loaded: Some(crate::disk_watch::DiskStamp {
+                    modified: metadata.modified().ok(),
+                    len: metadata.len(),
+                }),
+                ..Default::default()
+            },
             ..Default::default()
         },
     ))
@@ -2776,4 +2822,33 @@ fn backup_path(path: &Path, suffix: Option<&str>) -> Result<PathBuf, CoreError> 
         backup.push(name);
     }
     Ok(path.with_file_name(backup))
+}
+impl crate::disk_watch::DiskTracked for TextCompareView {
+    fn disk_sides(&self) -> Vec<crate::disk_watch::TrackedSide> {
+        (0..2)
+            .filter_map(|s| {
+                Some(crate::disk_watch::TrackedSide {
+                    side: s,
+                    path: self.files[s].path.clone()?,
+                    dirty: self.side_dirty(s),
+                })
+            })
+            .collect()
+    }
+    fn disk_state(&mut self, side: usize) -> &mut crate::disk_watch::Tracked {
+        &mut self.files[side].disk
+    }
+    fn disk_prompt(&mut self) -> &mut Option<crate::disk_watch::DiskPrompt> {
+        &mut self.disk_prompt
+    }
+    fn disk_reload(&mut self, side: usize) -> Result<(), String> {
+        self.reload_keep_position(side).map_err(|e| e.to_string())
+    }
+    fn disk_message(&mut self, message: String) {
+        // 重载会重新比较；比较完成时仍显示这条说明。
+        if self.worker.is_some() {
+            self.message_after_compare = Some(message.clone());
+        }
+        self.message = message;
+    }
 }

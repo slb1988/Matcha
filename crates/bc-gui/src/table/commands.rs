@@ -1099,6 +1099,10 @@ impl TableCompareView {
             p.history[s].mark_saved();
             self.files[s].clipboard_dirty = false;
             self.files[s].target = Some(path.into());
+            // 自己的保存不算外部修改。
+            if self.files[s].path.as_deref() == Some(path) {
+                self.files[s].disk.reset(Some(path));
+            }
         }
         drop(sheet);
         self.message = format!("Saved {}", path.display());
@@ -1764,6 +1768,9 @@ impl TableCompareView {
                         ));
                     }
                 });
+        }
+        if self.pending.is_none() {
+            crate::disk_watch::prompt(ctx, self);
         }
         let mut decision = 0;
         if let Some(pending) = &self.pending {

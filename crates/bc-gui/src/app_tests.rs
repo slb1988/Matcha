@@ -1022,3 +1022,85 @@ fn home_lists_saved_sessions_and_deletes_after_confirmation() {
     assert!(home.saved_names().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn focus_frame(ctx: &egui::Context, app: &mut MatchaApp, focused: bool) -> egui::FullOutput {
+    run_input(
+        ctx,
+        app,
+        egui::RawInput {
+            focused,
+            ..Default::default()
+        },
+    )
+}
+fn has_text(output: &egui::FullOutput, text: &str) -> bool {
+    output
+        .shapes
+        .iter()
+        .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == text))
+}
+fn disk_prompt(app: &MatchaApp, tab: usize) -> bool {
+    match &app.tabs[tab].view {
+        View::TextCompare(v) => v.disk_prompt.is_some(),
+        _ => false,
+    }
+}
+
+#[test]
+fn regaining_focus_checks_the_active_tab_and_switching_checks_the_new_one() {
+    let root = std::env::temp_dir().join(format!("matcha-app-disk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let file = |name: &str| {
+        let p = root.join(name);
+        std::fs::write(&p, b"same\n").unwrap();
+        p
+    };
+    let (a, b, c, d) = (file("a.txt"), file("b.txt"), file("c.txt"), file("d.txt"));
+    let ctx = egui::Context::default();
+    let mut app = MatchaApp::with_view(View::TextCompare(Box::new(
+        TextCompareView::open(&a, &b).unwrap(),
+    )));
+    app.open_tab(View::TextCompare(Box::new(
+        TextCompareView::open(&c, &d).unwrap(),
+    )));
+    // Tab 1 is active; first frames settle the baseline.
+    focus_frame(&ctx, &mut app, true);
+    focus_frame(&ctx, &mut app, true);
+    assert_eq!(app.active, 1);
+    std::fs::write(&d, b"changed outside\n").unwrap();
+    std::fs::write(&b, b"changed outside\n").unwrap();
+    // Still focused, same tab: no check yet.
+    focus_frame(&ctx, &mut app, true);
+    assert!(!disk_prompt(&app, 1));
+    // Focus lost and regained: the active tab asks; the background tab does not yet.
+    focus_frame(&ctx, &mut app, false);
+    focus_frame(&ctx, &mut app, true);
+    assert!(disk_prompt(&app, 1));
+    assert!(!disk_prompt(&app, 0));
+    // The modal shows from the following frames on.
+    focus_frame(&ctx, &mut app, true);
+    let out = focus_frame(&ctx, &mut app, true);
+    assert!(has_text(&out, "File changed on disk, reload?"));
+    // Switching to the background tab checks it.
+    app.activate(0);
+    focus_frame(&ctx, &mut app, true);
+    assert!(disk_prompt(&app, 0));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn merge_tabs_never_show_the_disk_change_prompt() {
+    let (root, launch) = merge_files("disk");
+    let ctx = egui::Context::default();
+    let mut app = MatchaApp::with_view(View::TextMerge(Box::new(
+        crate::merge::MergeView::open(launch).unwrap(),
+    )));
+    focus_frame(&ctx, &mut app, true);
+    std::fs::write(root.join("theirs.txt"), "changed outside\n").unwrap();
+    focus_frame(&ctx, &mut app, false);
+    focus_frame(&ctx, &mut app, true);
+    let out = focus_frame(&ctx, &mut app, true);
+    assert!(!has_text(&out, "File changed on disk, reload?"));
+    let _ = std::fs::remove_dir_all(root);
+}

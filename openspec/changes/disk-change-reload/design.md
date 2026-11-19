@@ -50,7 +50,13 @@
    - 表格：沿用 `Staged::Reload` 流程，完成回调里恢复选中格与滚动（钳制）。
    - 十六进制：`reload_guarded(force = true)` 后恢复偏移与滚动（钳制到新长度）。
 
-6. **偏好**：`Prefs` 新增 `disk_changes: DiskChangePrefs { check: bool = true, auto_reload: bool = false }`；`settings.txt` 新键 `files.check-changed-on-disk`、`files.auto-reload`，读写与现有 `backups.*` 同方式（非法值退回默认）。Options 的 Tweaks 改为 `("Tweaks", true)`，页面只放这两个复选框（其余参考 Tweaks 项不在本 change）。
+6. **文本比较不再锁住小文件**（实现中发现，用户确认）：`TextContent::open` 原本总是经 `LineList::open_mapped`
+   打开——Windows 上以 `FILE_SHARE_READ` 持有句柄并做只读映射，外部程序无法写入、替换或删除文件，检测永远不会触发。
+   改为：文件小于 `MAP_THRESHOLD = 64 MiB` 时 `std::fs::read` 读入内存（`LineList::from_bytes`），不留句柄；
+   达到阈值才映射。表格与十六进制视图实测不锁文件，不需要改。
+   - 备选：全部读入内存——超大文件的打开速度与内存占用退化；映射时放开写共享——映射中的文件仍不能被截断或替换，且映射内容可能在脚下变化。
+
+7. **偏好**：`Prefs` 新增 `disk_changes: DiskChangePrefs { check: bool = true, auto_reload: bool = false }`；`settings.txt` 新键 `files.check-changed-on-disk`、`files.auto-reload`，读写与现有 `backups.*` 同方式（非法值退回默认）。Options 的 Tweaks 改为 `("Tweaks", true)`，页面只放这两个复选框（其余参考 Tweaks 项不在本 change）。
 
 ## Risks / Trade-offs
 

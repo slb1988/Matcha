@@ -1292,3 +1292,37 @@ fn swap_discards_the_stale_alignment_until_the_new_one_lands() {
     ready(&mut v);
     assert_eq!(v.stats().left_orphan, 5);
 }
+
+#[test]
+fn disk_change_reload_of_one_side_clamps_the_cursor_and_keeps_the_other_sides_edits() {
+    let dir = std::env::temp_dir().join(format!("matcha-hex-disk-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let left = dir.join("a.bin");
+    let right = dir.join("b.bin");
+    std::fs::write(&left, [0u8; 64]).unwrap();
+    std::fs::write(&right, [0u8; 64]).unwrap();
+    let mut v = HexCompareView::open(&left, &right).unwrap();
+    ready(&mut v);
+    let auto = bc_session::prefs::DiskChangePrefs {
+        check: true,
+        auto_reload: true,
+    };
+    crate::disk_watch::check(&mut v, &auto);
+    assert!(v.disk_prompt.is_none() && v.is_ready(), "nothing changed");
+    // Left has an unsaved byte edit; right is truncated outside Matcha.
+    v.dirty[0] = true;
+    v.cursor[1] = 50;
+    std::fs::write(&right, [1u8; 10]).unwrap();
+    crate::disk_watch::check(&mut v, &auto);
+    assert!(v.disk_prompt.is_none(), "clean side reloads without asking");
+    ready(&mut v);
+    assert_eq!(v.map.right.len(), 10);
+    assert_eq!(v.cursor[1], 9);
+    assert!(v.dirty[0], "left edits untouched");
+    assert!(v.message.contains("Reloaded b.bin"), "{}", v.message);
+    // The dirty side is asked instead.
+    std::fs::write(&left, [2u8; 3]).unwrap();
+    crate::disk_watch::check(&mut v, &auto);
+    assert!(v.disk_prompt.as_ref().unwrap().changed[0].dirty);
+    let _ = std::fs::remove_dir_all(dir);
+}

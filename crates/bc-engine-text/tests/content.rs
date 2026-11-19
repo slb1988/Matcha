@@ -84,7 +84,7 @@ fn manual_encoding_counts_errors_and_format_tokens_are_cached_by_revision() {
         .any(|t| t.element == bc_formats::ElementKind::Comment));
 }
 #[test]
-fn materialized_save_preserves_undo_redo_and_external_lock_failure_is_safe() {
+fn materialized_save_preserves_undo_redo_while_a_snapshot_is_alive() {
     let directory =
         std::env::temp_dir().join(format!("matcha-content-save-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
@@ -94,13 +94,12 @@ fn materialized_save_preserves_undo_redo_and_external_lock_failure_is_safe() {
     let mut content = TextContent::open(&path, None, 1252).unwrap();
     let external = content.snapshot();
     content.replace_line(0, b"changed").unwrap();
-    #[cfg(windows)]
-    {
-        assert!(content.materialize_and_save(&path).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), b"first\nlast");
-    }
-    drop(external);
+    // Small files are read into memory: a live snapshot holds no file handle, so the
+    // same-path save succeeds and the snapshot keeps the content it was taken from.
     content.materialize_and_save(&path).unwrap();
+    let before: Vec<&[u8]> = external.lines.iter().map(|(text, _)| text).collect();
+    assert_eq!(before, [&b"first"[..], &b"last"[..]]);
+    drop(external);
     assert!(!content.is_dirty());
     assert_eq!(std::fs::read(&path).unwrap(), b"changed\nlast");
     content.edits.undo();
@@ -108,6 +107,25 @@ fn materialized_save_preserves_undo_redo_and_external_lock_failure_is_safe() {
     content.edits.redo();
     content.save_as(&other).unwrap();
     assert_eq!(std::fs::read(&other).unwrap(), b"changed\nlast");
+    drop(content);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+#[test]
+fn small_files_keep_no_handle_so_other_programs_can_save_them() {
+    let directory =
+        std::env::temp_dir().join(format!("matcha-content-unlocked-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("source.txt");
+    let replacement = directory.join("replacement.txt");
+    std::fs::write(&path, b"first\nlast").unwrap();
+    let content = TextContent::open(&path, None, 1252).unwrap();
+    // Overwrite in place, replace by rename, then delete: all succeed while open.
+    std::fs::write(&path, b"overwritten").unwrap();
+    std::fs::write(&replacement, b"renamed over").unwrap();
+    std::fs::rename(&replacement, &path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"renamed over");
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(content.to_bytes().unwrap(), b"first\nlast");
     drop(content);
     std::fs::remove_dir_all(directory).unwrap();
 }

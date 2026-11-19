@@ -11,6 +11,7 @@
   - 已变化且开启自动重载、该侧没有未保存编辑 → 静默重载该侧，状态栏说明；
   - 否则弹出 "File changed on disk, reload?" 确认，列出变化的文件；选择不重载后，同一份磁盘内容不再重复询问。
 - 磁盘变化触发的重载保留当前行与滚动位置（越界时收敛到末行），不跳到第一个差异。
+- 文本比较打开小于 64 MiB 的文件时改为读入内存、不再持有文件句柄（此前 Windows 上的只读映射会让外部程序无法保存正在比较的文件，检测也就无从触发）；超大文件仍映射。
 - Matcha 自己保存某侧后刷新该侧磁盘标识，不会把自己的保存当成外部修改。
 - 文件被删除或变得不可读时只在状态栏提示，不弹框、不清空当前内容。
 - Tools › Options › Tweaks 页从占位变为可用，提供上述两个开关；设置写入 `settings.txt`，重启保持。默认：检查开启，自动重载关闭。
@@ -26,6 +27,7 @@
 ## Impact
 
 - `crates/bc-gui`：`text/view.rs`、`table/`（`view.rs`、`commands.rs`）、`hex/view.rs` 增加磁盘标识记录与检查入口；`app.rs` 在焦点恢复 / 标签切换时调度检查；`dir_view.rs` 把检查转发给浮动的文件视图；`dialogs/options.rs` Tweaks 页；`settings.rs` 新增两个键。
+- `crates/bc-engine-text`：`TextContent::open` 按大小选择读入内存或映射。
 - `crates/bc-session`：`Prefs` 新增磁盘变化相关偏好。
 - 不涉及文本 / 表格合并视图、文件夹比较视图本身（见 design 的 Non-Goals）。
 - 无新依赖；不改命令行与退出码。

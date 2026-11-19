@@ -1098,3 +1098,96 @@ fn open_two_real_xlsx_files_compares_via_parallel_load() {
     let _ = std::fs::remove_file(left);
     let _ = std::fs::remove_file(right);
 }
+
+fn cell(v: &TableCompareView, s: usize, r: usize, c: usize) -> String {
+    let p = v.pair.as_ref().unwrap();
+    let sheet = if s == 0 {
+        p.map.left.borrow()
+    } else {
+        p.map.right.borrow()
+    };
+    sheet.display_at(r, c).unwrap()
+}
+
+fn rows(n: usize, tag: &str) -> String {
+    let mut text = String::from("id,name\n");
+    for i in 1..=n {
+        text += &format!("{i},{tag}{i}\n");
+    }
+    text
+}
+
+#[test]
+fn disk_change_reload_keeps_the_cursor_row_and_reads_the_new_value() {
+    let left = temp_file("disk-left.csv", &rows(30, "v"));
+    let right = temp_file("disk-right.csv", &rows(30, "v"));
+    let mut v = open_files(&left, &right);
+    v.goto_cell(Cursor { row: 20, column: 1 });
+    let ask = bc_session::prefs::DiskChangePrefs {
+        check: true,
+        auto_reload: false,
+    };
+    crate::disk_watch::check(&mut v, &ask);
+    assert!(v.disk_prompt.is_none(), "nothing changed yet");
+    std::fs::write(&right, rows(30, "v").replace("v21", "CHANGED21")).unwrap();
+    crate::disk_watch::check(&mut v, &ask);
+    assert_eq!(v.disk_prompt.as_ref().unwrap().changed[0].side, 1);
+    crate::disk_watch::answer(&mut v, true);
+    let start = std::time::Instant::now();
+    while v.disk_keep.is_some() || !v.is_ready() {
+        v.poll();
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(15),
+            "{}",
+            v.message
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(cell(&v, 1, 21, 1), "CHANGED21");
+    assert_eq!(v.grid.cursor, Cursor { row: 20, column: 1 });
+    // The reload is the new baseline: no prompt on the next check.
+    crate::disk_watch::check(&mut v, &ask);
+    assert!(v.disk_prompt.is_none());
+    let _ = std::fs::remove_file(left);
+    let _ = std::fs::remove_file(right);
+}
+
+#[test]
+fn auto_reload_of_one_side_keeps_the_other_sides_unsaved_edit() {
+    let left = temp_file("disk-edit-left.csv", "id,name\n1,a\n2,b\n");
+    let right = temp_file("disk-edit-right.csv", "id,name\n1,a\n2,b\n");
+    let mut v = open_files(&left, &right);
+    v.begin_edit(0, Cursor { row: 1, column: 1 }, Some("edited".into()));
+    v.commit_edit().unwrap();
+    assert!(v.pair.as_ref().unwrap().history[0].is_dirty());
+    let edited = (0..=2)
+        .find(|&r| cell(&v, 0, r, 1) == "edited")
+        .expect("edited cell");
+    std::fs::write(&right, "id,name\n1,a\n2,outside\n").unwrap();
+    crate::disk_watch::check(
+        &mut v,
+        &bc_session::prefs::DiskChangePrefs {
+            check: true,
+            auto_reload: true,
+        },
+    );
+    assert!(
+        v.disk_prompt.is_none(),
+        "the changed side is clean: no prompt"
+    );
+    let start = std::time::Instant::now();
+    while v.disk_keep.is_some() || !v.is_ready() {
+        v.poll();
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(15),
+            "{}",
+            v.message
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(cell(&v, 1, 2, 1), "outside");
+    assert_eq!(cell(&v, 0, edited, 1), "edited");
+    assert!(v.pair.as_ref().unwrap().history[0].is_dirty());
+    let _ = std::fs::remove_file(left);
+    let _ = std::fs::remove_file(right);
+}

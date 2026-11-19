@@ -181,17 +181,22 @@ impl TextContent {
         )
     }
     /// UTF-8 files keep their mmap backing; conversions allocate decoded UTF-8 once.
+    /// Files at least this large are memory-mapped (on Windows the mapping holds the file
+    /// against outside writes); smaller ones are read into memory and keep no handle, so
+    /// other programs can save them while they are compared.
+    pub const MAP_THRESHOLD: u64 = 64 * 1024 * 1024;
+
     pub fn open(
         path: &Path,
         format: Option<FileFormat>,
         default_code_page: u16,
     ) -> Result<Self, CoreError> {
-        let mut content = Self::from_original(
-            LineList::open_mapped(path)?,
-            format,
-            default_code_page,
-            None,
-        )?;
+        let lines = if std::fs::metadata(path)?.len() >= Self::MAP_THRESHOLD {
+            LineList::open_mapped(path)?
+        } else {
+            LineList::from_bytes(std::fs::read(path)?)
+        };
+        let mut content = Self::from_original(lines, format, default_code_page, None)?;
         content.source = Some(VfsPath::local(path));
         Ok(content)
     }

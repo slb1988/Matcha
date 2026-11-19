@@ -1945,6 +1945,10 @@ pub struct DirCompareView {
     floating: [Option<egui::Rect>; 2],
 }
 impl DirCompareView {
+    /// 在文件夹视图里打开的文件对文本窗口（磁盘变化检测用）。
+    pub(crate) fn file_view_mut(&mut self) -> Option<&mut TextCompareView> {
+        self.text.as_deref_mut()
+    }
     pub fn open(
         ctx: &egui::Context,
         left: &Path,

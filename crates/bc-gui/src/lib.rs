@@ -19,6 +19,7 @@ pub mod bench_dir;
 pub mod chrome;
 pub mod dialogs;
 pub mod dir_view;
+pub mod disk_watch;
 pub mod filters_bar;
 pub mod hex;
 pub mod home;

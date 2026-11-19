@@ -93,6 +93,14 @@ Matcha 成功保存某一侧文件后，系统 SHALL 以保存后的磁盘状态
 - **WHEN** 其中一个文件在外部被修改后用户切回 Matcha
 - **THEN** 该浮动比较窗口给出与独立文本比较标签页相同的提示或自动重载
 
+### Requirement: 打开的文件不阻止外部保存
+文本比较视图打开大小低于 64 MiB 的文件时 SHALL 不持有该文件的句柄，外部程序 MUST 能在 Matcha 打开它期间修改、替换或删除它。达到 64 MiB 的文件为性能仍可按只读映射打开，期间外部写入可能被系统拒绝，这一限制 SHALL 写入功能文档。
+
+#### Scenario: 比较期间用编辑器保存
+- **GIVEN** 文本比较打开了 1 KiB 的 a.txt 与 b.txt
+- **WHEN** 外部程序向 b.txt 写入新内容
+- **THEN** 写入成功；切回 Matcha 后按「检测时机」识别出变化
+
 ### Requirement: 偏好设置
 Tools › Options › Tweaks 页 SHALL 提供两个复选框：「Check for files changed on disk」（默认开启）与「Automatically reload unless changes will be discarded」（默认关闭；前者关闭时后者 MUST 置灰）。两项 SHALL 在 OK / Apply 后立即生效并写入用户设置文件，重启后保持。
 

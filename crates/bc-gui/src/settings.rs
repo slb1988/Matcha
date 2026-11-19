@@ -1,5 +1,5 @@
 //! 持久化偏好：Tools › Options 的全部设置（差异颜色、编辑器字体、默认 Tab 宽度与代码页、
-//! 备份），见 `docs/features/gui-shell.md`「偏好持久化」。
+//! 备份、磁盘变化检测），见 `docs/features/gui-shell.md`「偏好持久化」。
 //!
 //! 文件 `settings.txt` 与 `layout.txt` 同目录：首行 [`HEADER`]，之后每行 `键\t值`；
 //! 未识别的键原样保留（新版本写入的键不会被旧版本丢掉）。快照/基准模式经
@@ -14,6 +14,8 @@ const TAB_SIZE: &str = "text.default-tab-size";
 const CODE_PAGE: &str = "text.default-code-page";
 const BACKUPS: &str = "backups.enabled";
 const BACKUP_SUFFIX: &str = "backups.suffix";
+const CHECK_DISK: &str = "files.check-changed-on-disk";
+const AUTO_RELOAD: &str = "files.auto-reload";
 /// Colour keys (`#RRGGBB`) and the `DiffColors` field each one maps to.
 type ColorField = fn(&mut DiffColors) -> &mut [u8; 3];
 const COLORS: [(&str, ColorField); 4] = [
@@ -106,6 +108,12 @@ fn apply(values: &BTreeMap<String, String>, prefs: &mut Prefs) {
     if let Some(suffix) = values.get(BACKUP_SUFFIX) {
         prefs.backups.extension = (!suffix.is_empty()).then(|| suffix.clone());
     }
+    if let Some(on) = values.get(CHECK_DISK).and_then(|v| parse_bool(v)) {
+        prefs.disk_changes.check = on;
+    }
+    if let Some(on) = values.get(AUTO_RELOAD).and_then(|v| parse_bool(v)) {
+        prefs.disk_changes.auto_reload = on;
+    }
     for (key, field) in COLORS {
         if let Some(rgb) = values.get(key).and_then(|v| parse_rgb(v)) {
             *field(&mut prefs.colors) = rgb;
@@ -123,10 +131,24 @@ fn store(prefs: &Prefs, values: &mut BTreeMap<String, String>) {
         BACKUP_SUFFIX.into(),
         prefs.backups.extension.clone().unwrap_or_default(),
     );
+    values.insert(CHECK_DISK.into(), prefs.disk_changes.check.to_string());
+    values.insert(
+        AUTO_RELOAD.into(),
+        prefs.disk_changes.auto_reload.to_string(),
+    );
     let mut colors = prefs.colors;
     for (key, field) in COLORS {
         let [r, g, b] = *field(&mut colors);
         values.insert(key.into(), format!("#{r:02X}{g:02X}{b:02X}"));
+    }
+}
+
+/// `true` / `false`; anything else is ignored (the default stays).
+fn parse_bool(text: &str) -> Option<bool> {
+    match text.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
 }
 
@@ -180,6 +202,8 @@ mod tests {
         prefs.default_code_page = 936;
         prefs.backups.enabled = true;
         prefs.backups.extension = Some(".bak".into());
+        prefs.disk_changes.check = false;
+        prefs.disk_changes.auto_reload = true;
         let mut values = parse("# matcha settings v1\nfuture.key\tkept\n");
         store(&prefs, &mut values);
         let text = format(&values);
@@ -198,7 +222,8 @@ mod tests {
             &parse(
                 "# matcha settings v1\neditor.font.size\t99\neditor.font.family\t  \n\
                  text.default-tab-size\t65\ntext.default-code-page\tx\nbackups.enabled\tyes\n\
-                 colors.important\t#12345\ncolors.unimportant\tred\n",
+                 colors.important\t#12345\ncolors.unimportant\tred\n\
+                 files.check-changed-on-disk\tno\nfiles.auto-reload\t1\n",
             ),
             &mut prefs,
         );

@@ -186,6 +186,12 @@ pub struct HexCompareView {
     scroll: f32,
     /// 当前首可见网格行（RawInput 回归断言滚动到位）。
     pub visible_first_row: usize,
+    /// 每侧磁盘变化检测的基准（见 `disk_watch`）。
+    pub(crate) disk: [crate::disk_watch::Tracked; 2],
+    /// 等待回答的「File changed on disk, reload?」。
+    pub(crate) disk_prompt: Option<crate::disk_watch::DiskPrompt>,
+    /// 比较完成时显示的状态栏消息（替代结论文字，如磁盘变化重载的说明）。
+    message_after_compare: Option<String>,
     /// 最近一帧布局几何（见 LastLayout）。
     #[cfg(test)]
     pub(crate) last_layout: LastLayout,
@@ -260,9 +266,14 @@ impl HexCompareView {
             cache: None,
             scroll: 0.0,
             visible_first_row: 0,
+            disk: Default::default(),
+            disk_prompt: None,
+            message_after_compare: None,
             #[cfg(test)]
             last_layout: LastLayout::default(),
         };
+        view.reset_disk(0);
+        view.reset_disk(1);
         view.sync_path_edits();
         for path in view.paths().into_iter().rev().flatten() {
             view.remember(&path);
@@ -293,6 +304,7 @@ impl HexCompareView {
         }
         // 旧内容（含其编辑）已被替换，该侧不再有未保存修改。
         self.dirty[side] = false;
+        self.reset_disk(side);
         self.reset_alignment();
         self.recompare();
         self.remember(path);
@@ -404,7 +416,10 @@ impl HexCompareView {
                                 .or_else(|| self.map.align.row_of_right(offset));
                         }
                         // 状态栏常态显示四分类结论（参考工具：`Binary same`/`Binary differences`）。
-                        self.message = self.summary.stats.summary().to_owned();
+                        self.message = self
+                            .message_after_compare
+                            .take()
+                            .unwrap_or_else(|| self.summary.stats.summary().to_owned());
                     }
                 }
                 Err(bc_jobs::JobError::Cancelled) => {}
@@ -424,6 +439,7 @@ impl HexCompareView {
     pub fn swap(&mut self) {
         std::mem::swap(&mut self.map.left, &mut self.map.right);
         self.cursor.swap(0, 1);
+        self.disk.swap(0, 1);
         self.active_side = 1 - self.active_side;
         self.reset_alignment();
         self.recompare();
@@ -534,6 +550,7 @@ impl HexCompareView {
     pub fn open_clipboard(&mut self, side: usize, bytes: Vec<u8>) {
         *self.content_mut(side) = HexContent::from_bytes(bytes);
         self.dirty[side] = false;
+        self.reset_disk(side);
         self.reset_alignment();
         self.recompare();
     }
@@ -544,6 +561,7 @@ impl HexCompareView {
             Ok(()) => {
                 self.dirty[side] = false;
                 self.message = "已保存".into();
+                self.reset_disk(side);
                 self.remember(path);
             }
             Err(e) => self.message = e.to_string(),
@@ -1092,6 +1110,8 @@ impl HexCompareView {
             Ok(()) => {
                 self.dirty[side] = false;
                 self.message = "已保存".into();
+                // 自己的保存不算外部修改。
+                self.reset_disk(side);
             }
             Err(e) => self.message = e.to_string(),
         }
@@ -1213,11 +1233,42 @@ impl HexCompareView {
         self.map.right = r;
         match result {
             Ok(()) => {
+                self.reset_disk(0);
+                self.reset_disk(1);
                 self.reset_alignment();
                 self.recompare();
             }
             Err(e) => self.message = e.to_string(),
         }
+    }
+
+    /// 以 `side` 当前来源文件的磁盘状态为检测基准（无来源 = 不参与检测）。
+    fn reset_disk(&mut self, side: usize) {
+        let source = self.content(side).source().map(Path::to_path_buf);
+        self.disk[side].reset(source.as_deref());
+    }
+
+    /// 磁盘变化触发的单侧重载：丢弃该侧编辑与撤销记录（确认框已说明），
+    /// 光标收敛到新长度内，滚动位置不变，另一侧及其编辑不动。
+    pub(crate) fn reload_side_keep_position(&mut self, side: usize) -> Result<(), CoreError> {
+        let path = self
+            .content(side)
+            .source()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| CoreError::Invalid("no source file to reload".into()))?;
+        let threshold = self.map.rules.lock_threshold;
+        let content = HexContent::load(&path, threshold).map_err(CoreError::Io)?;
+        *self.content_mut(side) = content;
+        self.dirty[side] = false;
+        self.undo[side].clear();
+        self.redo[side].clear();
+        self.selection[side] = None;
+        let len = self.content(side).len();
+        self.cursor[side] = self.cursor[side].min(len.saturating_sub(1));
+        self.reset_disk(side);
+        self.reset_alignment();
+        self.recompare();
+        Ok(())
     }
 
     /// File Info 头单行文本（时间戳与字节数）。
@@ -1527,6 +1578,9 @@ impl HexCompareView {
 
     /// 退出/重载确认与打开/另存对话框。
     fn modal_dialogs(&mut self, ctx: &egui::Context) {
+        if self.exit_confirm.is_none() && !self.reload_confirm {
+            crate::disk_watch::prompt(ctx, self);
+        }
         if let Some(kind) = self.exit_confirm {
             use crate::chrome::{
                 controls::Role,
@@ -1962,5 +2016,35 @@ impl HexCompareView {
         self.settings_dialog(ui.ctx());
         self.modal_dialogs(ui.ctx());
         self.action.take()
+    }
+}
+
+impl crate::disk_watch::DiskTracked for HexCompareView {
+    fn disk_sides(&self) -> Vec<crate::disk_watch::TrackedSide> {
+        (0..2)
+            .filter_map(|s| {
+                Some(crate::disk_watch::TrackedSide {
+                    side: s,
+                    path: self.content(s).source()?.to_path_buf(),
+                    dirty: self.dirty[s],
+                })
+            })
+            .collect()
+    }
+    fn disk_state(&mut self, side: usize) -> &mut crate::disk_watch::Tracked {
+        &mut self.disk[side]
+    }
+    fn disk_prompt(&mut self) -> &mut Option<crate::disk_watch::DiskPrompt> {
+        &mut self.disk_prompt
+    }
+    fn disk_reload(&mut self, side: usize) -> Result<(), String> {
+        self.reload_side_keep_position(side)
+            .map_err(|e| e.to_string())
+    }
+    fn disk_message(&mut self, message: String) {
+        if self.worker.is_some() {
+            self.message_after_compare = Some(message.clone());
+        }
+        self.message = message;
     }
 }

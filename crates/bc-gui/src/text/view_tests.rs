@@ -2126,3 +2126,147 @@ fn floating_window_height_is_stable() {
         "window keeps growing: {heights:?}"
     );
 }
+fn numbered(n: usize, tag: &str) -> Vec<u8> {
+    (1..=n)
+        .map(|i| format!("{tag} {i}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+const ASK: bc_session::prefs::DiskChangePrefs = bc_session::prefs::DiskChangePrefs {
+    check: true,
+    auto_reload: false,
+};
+#[test]
+fn own_save_is_not_an_outside_change_but_an_outside_write_is() {
+    use crate::disk_watch::{plan, stamp};
+    let temp = Temp::new();
+    let l = temp.file("a.txt", b"abc\n");
+    let r = temp.file("b.txt", b"abc\n");
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    ready(&mut v);
+    assert!(plan(&mut v, &ASK, &stamp).is_empty());
+    v.map.right.replace_line(0, b"edited by matcha").unwrap();
+    assert!(v.save(1, &Prefs::default()).unwrap());
+    ready(&mut v);
+    assert!(plan(&mut v, &ASK, &stamp).is_empty(), "own save");
+    // The view keeps no handle on the file: another program can rewrite it.
+    std::fs::write(&r, b"written outside, longer\n").unwrap();
+    let p = plan(&mut v, &ASK, &stamp);
+    assert_eq!(p.ask.len(), 1);
+    assert_eq!(p.ask[0].side, 1);
+    assert!(!p.ask[0].dirty);
+}
+#[test]
+fn disk_reload_keeps_the_caret_line_and_clamps_when_the_file_shrinks() {
+    use crate::disk_watch::DiskTracked;
+    let temp = Temp::new();
+    let l = temp.file("a.txt", &numbered(40, "same"));
+    let r = temp.file("b.txt", &numbered(40, "same"));
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    ready(&mut v);
+    v.active = 1;
+    v.editors[1].place(Caret { line: 20, byte: 0 }, false);
+    // Appended lines: the caret stays on line 20 instead of jumping to the first difference.
+    let mut grown = numbered(40, "same");
+    grown.extend_from_slice(b"new tail\n");
+    std::fs::write(&r, &grown).unwrap();
+    v.disk_reload(1).unwrap();
+    ready(&mut v);
+    assert_eq!(v.map.right.lines.borrow().len(), 41);
+    assert_eq!(v.editors[1].caret.line, 20);
+    assert_eq!(v.current_row, v.row_for_line(1, 20));
+    // Truncated below the caret: clamp to the last line.
+    std::fs::write(&r, numbered(5, "same")).unwrap();
+    v.disk_reload(1).unwrap();
+    ready(&mut v);
+    assert_eq!(v.editors[1].caret.line, 4);
+}
+#[test]
+fn auto_reload_message_survives_the_recompare() {
+    let temp = Temp::new();
+    let l = temp.file("a.txt", b"abc\n");
+    let r = temp.file("b.txt", b"abc\n");
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    ready(&mut v);
+    std::fs::write(&r, b"changed outside\n").unwrap();
+    crate::disk_watch::check(
+        &mut v,
+        &bc_session::prefs::DiskChangePrefs {
+            check: true,
+            auto_reload: true,
+        },
+    );
+    assert!(v.disk_prompt.is_none());
+    ready(&mut v);
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"changed outside\n");
+    assert!(v.message.contains("Reloaded b.txt"), "{}", v.message);
+}
+#[test]
+fn disk_prompt_reload_and_keep_current_buttons() {
+    let ctx = egui::Context::default();
+    let temp = Temp::new();
+    let l = temp.file("a.txt", b"abc\n");
+    let r = temp.file("b.txt", b"abc\n");
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    ready(&mut v);
+    let press = |ctx: &egui::Context, v: &mut TextCompareView, label: &str| {
+        let mut out = frame(ctx, v, vec![]);
+        for _ in 0..2 {
+            out = frame(ctx, v, vec![]);
+        }
+        // The modal paints last; toolbar and pane headers also have a "Reload".
+        let at = text_shapes(&out)
+            .into_iter()
+            .rev()
+            .find(|(t, _)| t == label)
+            .unwrap_or_else(|| panic!("no {label} button"))
+            .1
+            .center();
+        click(ctx, v, at);
+    };
+    // Keep Current: content unchanged, and the same disk state is not asked again.
+    std::fs::write(&r, b"outside one\n").unwrap();
+    crate::disk_watch::check(&mut v, &ASK);
+    assert_eq!(v.disk_prompt.as_ref().unwrap().changed.len(), 1);
+    press(&ctx, &mut v, "Keep Current");
+    assert!(v.disk_prompt.is_none());
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"abc\n");
+    crate::disk_watch::check(&mut v, &ASK);
+    assert!(v.disk_prompt.is_none(), "declined change asked again");
+    // Changed again: asked again; Reload loads the new content.
+    std::fs::write(&r, b"outside two, longer\n").unwrap();
+    crate::disk_watch::check(&mut v, &ASK);
+    assert!(v.disk_prompt.is_some());
+    press(&ctx, &mut v, "Reload");
+    ready(&mut v);
+    assert!(v.disk_prompt.is_none());
+    assert_eq!(v.map.right.to_bytes().unwrap(), b"outside two, longer\n");
+}
+#[test]
+fn dirty_side_prompt_says_edits_are_lost_and_reload_discards_them() {
+    let temp = Temp::new();
+    let l = temp.file("a.txt", b"abc\n");
+    let r = temp.file("b.txt", b"abc\n");
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    ready(&mut v);
+    v.map.left.replace_line(0, b"unsaved").unwrap();
+    std::fs::write(&l, b"outside edit\n").unwrap();
+    crate::disk_watch::check(
+        &mut v,
+        &bc_session::prefs::DiskChangePrefs {
+            check: true,
+            auto_reload: true,
+        },
+    );
+    let prompt = v
+        .disk_prompt
+        .clone()
+        .expect("dirty side is asked, not auto-reloaded");
+    assert!(prompt.changed[0].dirty);
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"unsaved\n");
+    crate::disk_watch::answer(&mut v, true);
+    ready(&mut v);
+    assert!(v.pending.is_none(), "no second save prompt");
+    assert_eq!(v.map.left.to_bytes().unwrap(), b"outside edit\n");
+    assert!(!v.is_dirty());
+}

@@ -79,6 +79,25 @@ impl Default for EditorFont {
     }
 }
 
+/// Files changed on disk outside Matcha (reference: Options › Tweaks › "Check for
+/// files changed on disk" / "Automatically reload unless changes will be discarded").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiskChangePrefs {
+    /// Check open file views when the window regains focus or a tab is activated.
+    pub check: bool,
+    /// Reload changed sides without asking when no unsaved edits would be lost.
+    pub auto_reload: bool,
+}
+
+impl Default for DiskChangePrefs {
+    fn default() -> Self {
+        Self {
+            check: true,
+            auto_reload: false,
+        }
+    }
+}
+
 /// Preferences used by the engines and the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Prefs {
@@ -86,10 +105,24 @@ pub struct Prefs {
     /// Text editor font (family + size).
     pub editor_font: EditorFont,
     pub backups: BackupPrefs,
+    /// External file change detection on open file views.
+    pub disk_changes: DiskChangePrefs,
     /// Default ANSI code page when detection is inconclusive.
     pub default_code_page: u16,
     /// Tab size fallback when the format does not specify one.
     pub default_tab_size: u32,
     /// Unmodelled subtree retained verbatim.
     pub unknown: Vec<Node>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disk_change_defaults_check_on_and_auto_reload_off() {
+        let prefs = Prefs::default();
+        assert!(prefs.disk_changes.check);
+        assert!(!prefs.disk_changes.auto_reload);
+    }
 }

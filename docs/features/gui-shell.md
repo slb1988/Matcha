@@ -46,7 +46,8 @@
 - **可拖动分隔线**：各视图窗格之间、文件夹/同步日志面板、合并视图输入/输出区、Home 会话树均可拖动调整，
   位置存 `%APPDATA%\Matcha\layout.txt`、重启保持，双击复位，见 [resizable-splitters.md](resizable-splitters.md)。
 - **偏好持久化**：Tools › Options（Home 与各比较视图共用同一份 `Prefs`）的设置——差异颜色、编辑器字体与字号、
-  默认 Tab 宽度、默认代码页、保存前备份及后缀——在 OK / Apply（以及 View › Text display 改字号）后写入
+  默认 Tab 宽度、默认代码页、保存前备份及后缀、Tweaks 页的磁盘变化检测两个开关（`files.check-changed-on-disk` /
+  `files.auto-reload`，见 [disk-change-reload.md](disk-change-reload.md)）——在 OK / Apply（以及 View › Text display 改字号）后写入
   `%APPDATA%\Matcha\settings.txt`（首行 `# matcha settings v1`，之后 `键	值`；颜色为 `#RRGGBB`；
   未识别的键原样保留），启动时读回；无效值忽略、用默认值。快照/基准模式不读不写。Explorer 右键菜单开关仍单独存于
   `shell-menu.txt`。实现：`crates/bc-gui/src/settings.rs`，帧末 `MatchaApp::save_prefs` 检测变化后保存。

@@ -260,6 +260,10 @@ pub struct MatchaApp {
     save_dialog: crate::dialogs::save_session::SaveSessionDialog,
     /// 起名对话框要保存的会话：(标签页下标, 打开时的标签页数, 会话)；标签页变化即作废。
     save_target: Option<(usize, usize, bc_session::Session)>,
+    /// 上一帧窗口是否有焦点（false→true 时检查磁盘变化）。
+    window_focused: bool,
+    /// 上次检查磁盘变化时的活动标签页（切换标签页时再检查）。
+    disk_checked_tab: Option<usize>,
 }
 impl MatchaApp {
     pub fn new(
@@ -357,6 +361,34 @@ impl MatchaApp {
             options: Default::default(),
             save_dialog: Default::default(),
             save_target: None,
+            window_focused: false,
+            disk_checked_tab: None,
+        }
+    }
+    /// 窗口重新获得焦点或切换了标签页时，检查活动文件视图两侧的文件是否在磁盘上被改过
+    /// （`docs/features/disk-change-reload.md`）。合并视图与文件夹视图本身不参与；
+    /// 文件夹视图里打开的文件对窗口参与。
+    fn check_disk_changes(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.focused);
+        let regained = focused && !self.window_focused;
+        self.window_focused = focused;
+        let switched = self.disk_checked_tab != Some(self.active);
+        self.disk_checked_tab = Some(self.active);
+        if !(regained || switched) || self.snapshot.is_some() {
+            return;
+        }
+        let prefs = self.prefs.disk_changes;
+        use crate::disk_watch::check;
+        match self.view_mut() {
+            View::TextCompare(v) => check(v.as_mut(), &prefs),
+            View::TableCompare(v) => check(v.as_mut(), &prefs),
+            View::HexCompare(v) => check(v.as_mut(), &prefs),
+            View::FolderCompare(v) => {
+                if let Some(text) = v.file_view_mut() {
+                    check(text, &prefs);
+                }
+            }
+            _ => {}
         }
     }
     /// 把"启动标签页"的结果交给 `slot`：该页关闭（或随应用退出）时写入其结果码；合并
@@ -1009,6 +1041,7 @@ impl MatchaApp {
         if let View::HexCompare(v) = self.view_mut() {
             v.poll();
         }
+        self.check_disk_changes(&ctx);
         let benchmark_ready = matches!(self.active_view(), View::TextCompare(v) if v.is_ready())
             || matches!(self.active_view(), View::TableCompare(v) if v.is_ready())
             // Merge aligns synchronously at open: it is ready as soon as it shows.

@@ -30,7 +30,7 @@ pub const PAGES: [(&str, bool); 11] = [
     ("Archive Types", false),
     ("Commands", false),
     ("Open With", false),
-    ("Tweaks", false),
+    ("Tweaks", true),
 ];
 const NAV_WIDTH: f32 = 241.0;
 const ROW: f32 = 37.0;
@@ -439,6 +439,33 @@ impl OptionsDialog {
                     draft.backups.enabled,
                 );
             }
+            "Tweaks" => {
+                dialog::label(&painter, at(o, 258.0, 46.0), "File views:", true);
+                dialog::checkbox(
+                    ui,
+                    at(o, 274.0, 72.0),
+                    "Check for files changed on disk",
+                    &mut draft.disk_changes.check,
+                    true,
+                );
+                let check = draft.disk_changes.check;
+                dialog::checkbox(
+                    ui,
+                    at(o, 294.0, 98.0),
+                    "Automatically reload unless changes will be discarded",
+                    &mut draft.disk_changes.auto_reload,
+                    check,
+                );
+                for (n, line) in [
+                    "Checked when Matcha regains focus or a file view's tab is selected:",
+                    "\"File changed on disk, reload?\" Text, table and hex compare views.",
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    dialog::label(&painter, at(o, 274.0, 128.0 + 20.0 * n as f32), line, check);
+                }
+            }
             _ => {}
         }
     }
@@ -579,5 +606,42 @@ mod tests {
         frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
         assert_eq!(CALLED.load(Ordering::SeqCst), 2);
         assert!(!d.open);
+    }
+
+    #[test]
+    fn tweaks_page_edits_disk_change_prefs() {
+        let ctx = egui::Context::default();
+        let mut prefs = Prefs::default();
+        let mut d = OptionsDialog {
+            shell_apply: Some(|_| panic!("explorer menu unchanged")),
+            ..Default::default()
+        };
+        d.show(&prefs, Placement::ClientOnly);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        let tweaks = PAGES.iter().position(|(n, _)| *n == "Tweaks").unwrap();
+        frame(
+            &ctx,
+            &mut d,
+            &mut prefs,
+            click(Pos2::new(100.0, FIRST_ROW + tweaks as f32 * ROW + 18.0)),
+        );
+        assert_eq!(PAGES[d.page].0, "Tweaks");
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        // Defaults: check on, auto-reload off.
+        let draft = d.draft.as_ref().unwrap().disk_changes;
+        assert!(draft.check && !draft.auto_reload);
+        // Turn auto-reload on, Apply writes it.
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(300.0, 104.0)));
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(800.0, 629.0)));
+        assert!(prefs.disk_changes.auto_reload && prefs.disk_changes.check);
+        // Turning the check off greys auto-reload: clicking it changes nothing.
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(280.0, 78.0)));
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(300.0, 104.0)));
+        let draft = d.draft.as_ref().unwrap().disk_changes;
+        assert!(!draft.check && draft.auto_reload);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
+        assert!(!d.open);
+        assert!(!prefs.disk_changes.check);
     }
 }

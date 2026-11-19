@@ -106,6 +106,8 @@ pub struct FileInfo {
     pub load_time: Duration,
     pub readonly: bool,
     pub clipboard_dirty: bool,
+    /// 磁盘变化检测的基准（见 `disk_watch`）。
+    pub disk: crate::disk_watch::Tracked,
 }
 pub struct TableCompareView {
     pub(super) pair: Option<Pair>,
@@ -164,6 +166,12 @@ pub struct TableCompareView {
     /// 打开/切换工作表/换一侧文件后，比较首次就绪时自动落到第一个差异格
     /// （一次性；编辑过或光标已移动则作废）。
     pub(super) land_on_first_diff: bool,
+    /// 等待回答的「File changed on disk, reload?」。
+    pub(super) disk_prompt: Option<crate::disk_watch::DiskPrompt>,
+    /// 待按磁盘重载的各侧（一次只跑一个单侧加载，否则后一个会取消前一个）。
+    pub(super) disk_queue: Vec<usize>,
+    /// 磁盘重载前的光标与滚动位置，全部重载完成后恢复。
+    pub(super) disk_keep: Option<(Cursor, egui::Vec2)>,
 }
 impl TableCompareView {
     pub(super) fn blank() -> Self {
@@ -217,6 +225,9 @@ impl TableCompareView {
             labels: Default::default(),
             snapshot_select_paths: false,
             land_on_first_diff: true,
+            disk_prompt: None,
+            disk_queue: Vec::new(),
+            disk_keep: None,
         }
     }
     /// 空会话：两侧无文件、无比较；路径栏提交经 `Pending::Open` 逐侧暂存加载
@@ -498,6 +509,12 @@ impl TableCompareView {
                 Ok(Output::Loaded(loaded)) => {
                     let loaded = *loaded;
                     let staged = self.staged.take();
+                    // 载入了哪几侧的磁盘文件：它们的磁盘基准随之更新。
+                    let from_disk: Vec<usize> = match &staged {
+                        Some(Staged::Open(s, ..)) => vec![*s],
+                        Some(Staged::PairSide(_)) => Vec::new(),
+                        _ => vec![0, 1],
+                    };
                     // Open commits its own names/pairs and re-hangs cached pairs;
                     // the other full replacements reset the whole structure here.
                     let full = matches!(staged, Some(Staged::Reload | Staged::Settings(_)))
@@ -591,6 +608,10 @@ impl TableCompareView {
                             }
                         }
                     }
+                    for s in from_disk {
+                        let path = self.files[s].path.clone();
+                        self.files[s].disk.reset(path.as_deref());
+                    }
                 }
                 Ok(Output::Aligned(prepared)) => {
                     if let Err(e) = self.install(*prepared) {
@@ -629,7 +650,12 @@ impl TableCompareView {
                 }
             }
         }
-        if self.land_on_first_diff && self.editor.is_none() && self.is_ready() {
+        self.continue_disk_reload();
+        if self.land_on_first_diff
+            && self.disk_keep.is_none()
+            && self.editor.is_none()
+            && self.is_ready()
+        {
             self.land_on_first_diff = false;
             if self.grid.cursor == Cursor::default() {
                 if let Some(cursor) = self.first_difference() {
@@ -1315,5 +1341,79 @@ impl TableCompareView {
                 self.key_focus = true;
             }
         }
+    }
+}
+impl TableCompareView {
+    /// 某侧是否有未保存编辑（单元格草稿、剪贴板内容、任一工作表对的编辑历史）。
+    fn side_dirty(&self, s: usize) -> bool {
+        self.editor
+            .as_ref()
+            .is_some_and(|e| e.side == s && e.changed())
+            || self.files[s].clipboard_dirty
+            || self
+                .pair
+                .iter()
+                .chain(self.cached.values())
+                .any(|p| p.history[s].is_dirty())
+    }
+    /// 推进磁盘重载队列：一次一个单侧加载；全部完成且比较就绪后恢复位置。
+    pub(super) fn continue_disk_reload(&mut self) {
+        if self.staged.is_some() || self.held_output.is_some() {
+            return;
+        }
+        if !self.disk_queue.is_empty() {
+            let s = self.disk_queue.remove(0);
+            if let Some(path) = self.files[s].path.clone() {
+                self.editor = None;
+                self.perform(Pending::Open(s, path));
+            }
+            return;
+        }
+        if self.disk_keep.is_some() && self.editor.is_none() && self.is_ready() {
+            let (cursor, scroll) = self.disk_keep.take().unwrap();
+            self.land_on_first_diff = false;
+            self.goto_cell(cursor);
+            let last = self.row_count().saturating_sub(1) as f32 * ROW_HEIGHT;
+            self.grid.scroll = egui::vec2(scroll.x, scroll.y.min(last));
+        }
+    }
+}
+impl crate::disk_watch::DiskTracked for TableCompareView {
+    fn disk_sides(&self) -> Vec<crate::disk_watch::TrackedSide> {
+        // 加载中（含排队的磁盘重载）不检查，免得与正在进行的加载交错。
+        if self.staged.is_some() || !self.disk_queue.is_empty() {
+            return Vec::new();
+        }
+        (0..2)
+            .filter_map(|s| {
+                Some(crate::disk_watch::TrackedSide {
+                    side: s,
+                    path: self.files[s].path.clone()?,
+                    dirty: self.side_dirty(s),
+                })
+            })
+            .collect()
+    }
+    fn disk_state(&mut self, side: usize) -> &mut crate::disk_watch::Tracked {
+        &mut self.files[side].disk
+    }
+    fn disk_prompt(&mut self) -> &mut Option<crate::disk_watch::DiskPrompt> {
+        &mut self.disk_prompt
+    }
+    fn disk_reload(&mut self, side: usize) -> Result<(), String> {
+        if self.files[side].path.is_none() {
+            return Err("no source file to reload".into());
+        }
+        if self.disk_keep.is_none() {
+            self.disk_keep = Some((self.grid.cursor, self.grid.scroll));
+        }
+        if !self.disk_queue.contains(&side) {
+            self.disk_queue.push(side);
+        }
+        self.continue_disk_reload();
+        Ok(())
+    }
+    fn disk_message(&mut self, message: String) {
+        self.message = message;
     }
 }
