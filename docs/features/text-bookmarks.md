@@ -70,6 +70,6 @@
 
 ## 深入阅读
 
-- 变更过程与设计决定：`openspec/changes/text-bookmarks/`（design.md 决定 1–6）
+- 变更过程与设计决定：`openspec/changes/archive/2026-11-19-text-bookmarks/`（design.md 决定 1–6）；主规格 `openspec/specs/text-bookmarks/spec.md`
 - 文本比较总览：[text-compare.md](text-compare.md)；文本合并：[text-merge.md](text-merge.md)
 - 参考帮助（书签命令）：本地 CHM 解包 `tmp/hex-ref/chm`
