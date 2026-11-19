@@ -189,7 +189,7 @@ Select All；右键先把光标行与活动窗格移到所点处。
 
 ## 深入阅读
 
-- 变更过程与设计决定：`openspec/changes/text-merge/`（design.md 的 D1–D12）；审阅增强见 `openspec/changes/text-merge-essentials/`
+- 变更过程与设计决定：`openspec/changes/text-merge/`（design.md 的 D1–D12）；审阅增强见 `openspec/changes/archive/2026-11-19-text-merge-essentials/`；主规格 `openspec/specs/text-merge-view/spec.md`
 - 参考对照与未确认的语义：[reference-parity/text-merge.md](../reference-parity/text-merge.md)
 - `crates/bc-engine-text/README.md`、`crates/bc-script/README.md`
 - 命令行总览：[cli-and-scripting.md](cli-and-scripting.md)
