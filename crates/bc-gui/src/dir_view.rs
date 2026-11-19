@@ -5910,19 +5910,7 @@ impl DirCompareView {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
             statusbar::show(ui, &fields);
         });
-        // 右下角缩放把手（参考：三条斜向 2x2 灰点，#BFBFBF）。
-        let painter = ui.painter().clone();
-        let dot = egui::Color32::from_rgb(191, 191, 191);
-        for (dx, dy) in [(4, 15), (7, 18), (4, 18), (10, 21), (7, 21), (4, 21)] {
-            painter.rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(rect.right() - dx as f32 - 2.0 + 2.0, rect.top() + dy as f32),
-                    egui::vec2(2.0, 2.0),
-                ),
-                0.0,
-                dot,
-            );
-        }
+        // 右下角缩放把手由 app 统一绘制（chrome::size_grip）。
     }
     fn drop_impl(&mut self) {
         self.shared.closed.store(true, AtomicOrdering::Relaxed);

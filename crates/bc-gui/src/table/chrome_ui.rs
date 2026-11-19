@@ -841,18 +841,7 @@ impl TableCompareView {
                 ],
             );
         });
-        // Size grip (reference: three diagonal rows of 2x2 #BFBFBF dots).
-        let dot = egui::Color32::from_rgb(191, 191, 191);
-        for (dx, dy) in [(4, 15), (7, 18), (4, 18), (10, 21), (7, 21), (4, 21)] {
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(rect.right() - dx as f32, rect.top() + dy as f32),
-                    egui::vec2(2.0, 2.0),
-                ),
-                0.0,
-                dot,
-            );
-        }
+        // The bottom-right size grip is drawn app-wide (chrome::size_grip).
     }
     /// Messages other than routine completion notes are surfaced in the
     /// status bar's last field.

@@ -50,6 +50,7 @@
   `%APPDATA%\Matcha\settings.txt`（首行 `# matcha settings v1`，之后 `键	值`；颜色为 `#RRGGBB`；
   未识别的键原样保留），启动时读回；无效值忽略、用默认值。快照/基准模式不读不写。Explorer 右键菜单开关仍单独存于
   `shell-menu.txt`。实现：`crates/bc-gui/src/settings.rs`，帧末 `MatchaApp::save_prefs` 检测变化后保存。
+- **右下角缩放把手**（`chrome::size_grip`）：有状态栏的视图（除 Home 外全部）在窗口右下角画 22×22 px 的把手，4 行斜向三角点阵（10 个 2×2 深灰点 + 白色高光，比原先 6 个浅灰点醒目）。悬停显示 ↘↖ 缩放光标并浮起圆角底色，按下点阵变为强调色并交给系统拖动缩放（`ViewportCommand::BeginResize(SouthEast)`，效果等同抓窗口右下角边框，但命中区远大于几像素的系统边框）。窗口最大化/全屏时隐藏。由 `app.rs` 在中央面板之后统一绘制于前景层，各视图不再各画装饰点。
 - **sheet 标签**：`chrome::sheet_tabs` 下划线页签 + 状态圆点，表格比较（网格与状态栏之间）与表格合并共用。
 - **换肤预留**：`theme::Palette` + `theme::palette(ctx)`；组件经它取色，`Theme::with_palette(..).apply(ctx)`
   即可整体换色（目前只有默认浅色 `Palette::LIGHT`，无换肤 UI）。
@@ -74,6 +75,7 @@
 | `crates/bc-gui/src/settings.rs` | Options 偏好读写（`settings.txt`） |
 | `crates/bc-gui/src/text/`、`crates/bc-gui/src/merge/`、`table/`、`dir_view.rs`、`sync_view.rs` | 各功能视图（文本合并为 `View::TextMerge`；见对应 feature 文档） |
 | `crates/bc-gui/src/chrome/`、`dialogs/`、`legend.rs`、`log_panel.rs` | 外框、对话框、颜色图例、虚拟化操作日志 |
+| `crates/bc-gui/src/chrome/size_grip.rs` | 右下角窗口缩放把手（命中区、点阵纹理、按下发起系统缩放） |
 | `crates/bc-gui/src/chrome/theme.rs` | 设计 token（颜色/圆角/阴影/字号）与全局 egui 样式 |
 | `crates/bc-gui/src/chrome/modal.rs`、`chrome/controls.rs` | 现代确认弹框；主/次/危险按钮与标签 chip |
 | `crates/bc-gui/src/chrome/widgets.rs`、`chrome/window.rs` | 流式布局控件（Button/Checkbox/Radio/ListRow/Combo/text_field/menu_button/dialog_buttons）；浮动窗口 |

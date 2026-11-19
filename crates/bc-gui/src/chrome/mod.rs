@@ -12,6 +12,7 @@ pub mod pathbar;
 pub mod popup;
 pub mod scrollbar;
 pub mod sheet_tabs;
+pub mod size_grip;
 pub mod splitter;
 pub mod statusbar;
 pub mod tabstrip;

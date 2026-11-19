@@ -1148,6 +1148,10 @@ impl MatchaApp {
                 View::TableMerge(view) => merge_action = view.ui(ui, prefs),
             }
         });
+        // 有状态栏的视图在右下角放一个大号缩放把手（Home 无状态栏）。
+        if !matches!(self.tabs[self.active].view, View::Home(_)) {
+            crate::chrome::size_grip::show(&ctx);
+        }
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.tabs[self.active].view {
                 View::HexCompare(v) => v.is_ready(),
