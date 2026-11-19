@@ -46,9 +46,10 @@
 - **Swap Sides**：书签随内容换到另一侧，行号不变。
 - **文本合并**：输入窗格只读，对齐行编号从不改变；输出编辑与 Take 不改变书签的对齐行。Go to 激活锚点窗格并把四个窗格
   滚到该对齐行（光标放到该对齐行的第一行输出；锚点为输入窗格时该窗格的光标也落到该行）。
-- **Ctrl+0**：egui 默认用 Ctrl+0 / Ctrl+= / Ctrl+− 做整体界面缩放，会先吞掉 Ctrl+0。Matcha 启动时关闭该功能，
-  使 Ctrl+0 / Shift+Ctrl+0 可用于书签 0；副作用是 Ctrl+= / Ctrl+− 整体界面缩放也随之关闭（从未作为功能记录；
-  编辑器字号仍在 Tools › Options 与 View › Text display 中调整）。
+- **Ctrl+0**：egui 默认用 Ctrl+= / Ctrl+− 整体缩放界面、Ctrl+0 复位缩放（egui 0.37 在每帧末尾处理），
+  Ctrl+0 会同时复位缩放与跳到书签 0。Matcha 启动时关闭该功能（`MatchaApp::configure_input`），Ctrl+0 / Shift+Ctrl+0
+  只用于书签 0，界面缩放恒为 1；副作用是 Ctrl+= / Ctrl+− 整体界面缩放随之关闭（从未作为功能记录；
+  编辑器字号仍在 Tools › Options 与 View › Text display 中调整）。现有 28 个快照场景前后逐像素相同。
 - 不做：书签持久化、十六进制 / 表格视图书签、无编号书签、书签列表、书签间 Next / Previous。
 
 ## 使用与验证

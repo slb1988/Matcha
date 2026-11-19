@@ -1107,3 +1107,69 @@ fn merge_tabs_never_show_the_disk_change_prompt() {
     assert!(!has_text(&out, "File changed on disk, reload?"));
     let _ = std::fs::remove_dir_all(root);
 }
+
+fn digit_key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+#[test]
+fn ctrl_zero_reaches_bookmark_zero_and_never_zooms() {
+    let ctx = egui::Context::default();
+    MatchaApp::configure_input(&ctx);
+    let lines: String = (0..100).map(|i| format!("line {i}\n")).collect();
+    let content = || TextContent::from_bytes(lines.clone().into_bytes(), None).unwrap();
+    let mut v =
+        TextCompareView::from_contents(content(), content(), FormatRegistry::with_builtins());
+    v.editors[0].place(crate::text::editor::Caret { line: 40, byte: 0 }, false);
+    let mut app = MatchaApp::with_view(View::TextCompare(Box::new(v)));
+    run(&ctx, &mut app, vec![]);
+    let shift_ctrl = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    run(&ctx, &mut app, vec![digit_key(egui::Key::Num0, shift_ctrl)]);
+    let View::TextCompare(v) = app.active_view() else {
+        panic!("text view")
+    };
+    assert_eq!(
+        v.bookmarks.get(0),
+        Some((0, 40)),
+        "Shift+Ctrl+0 sets bookmark 0"
+    );
+
+    // Ctrl+=（原 egui 放大）不再缩放；Ctrl+0 跳到书签 0。
+    let View::TextCompare(v) = app.view_mut() else {
+        panic!("text view")
+    };
+    v.editors[0].place(crate::text::editor::Caret { line: 3, byte: 0 }, false);
+    run(
+        &ctx,
+        &mut app,
+        vec![digit_key(egui::Key::Equals, egui::Modifiers::COMMAND)],
+    );
+    run(
+        &ctx,
+        &mut app,
+        vec![digit_key(egui::Key::Minus, egui::Modifiers::COMMAND)],
+    );
+    assert_eq!(ctx.zoom_factor(), 1.0);
+    let View::TextCompare(v) = app.active_view() else {
+        panic!("text view")
+    };
+    let before = v.editors[0].caret.line;
+    assert_ne!(before, 40);
+    run(
+        &ctx,
+        &mut app,
+        vec![digit_key(egui::Key::Num0, egui::Modifiers::COMMAND)],
+    );
+    run(&ctx, &mut app, vec![]);
+    assert_eq!(ctx.zoom_factor(), 1.0);
+    let View::TextCompare(v) = app.active_view() else {
+        panic!("text view")
+    };
+    assert_eq!(v.editors[0].caret.line, 40, "Ctrl+0 jumps to bookmark 0");
+}

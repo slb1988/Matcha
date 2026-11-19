@@ -4,7 +4,7 @@
 
 ## 2026-11-19
 
-- **文本比较与文本合并：编号书签 0–9**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Search › Toggle Bookmark（`Shift+Ctrl+0…9`）在活动窗格的光标行放置书签，同一行再按即移除，一行最多一个书签；Go to Bookmark（`Ctrl+0…9`）切到书签所在侧并定位到该行（被显示过滤隐藏时先显示全部），未设置时状态栏提示；Clear Bookmarks 清除全部。书签行在文本区右缘显示编号徽标、缩略导航条上有刻度。书签随本侧编辑上下平移（撤销同理），重载保留行号、换文件清除该侧、Swap Sides 随内容换侧；不写入命名会话。文本合并视图的 Search 菜单同样新增这三项与快捷键：书签挂在对齐行上并记住放置时的窗格，跳转时激活该窗格并把四个窗格滚到该行，Take 与输出编辑不移动书签。
+- **文本比较与文本合并：编号书签 0–9**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Search › Toggle Bookmark（`Shift+Ctrl+0…9`）在活动窗格的光标行放置书签，同一行再按即移除，一行最多一个书签；Go to Bookmark（`Ctrl+0…9`）切到书签所在侧并定位到该行（被显示过滤隐藏时先显示全部），未设置时状态栏提示；Clear Bookmarks 清除全部。书签行在文本区右缘显示编号徽标、缩略导航条上有刻度。书签随本侧编辑上下平移（撤销同理），重载保留行号、换文件清除该侧、Swap Sides 随内容换侧；不写入命名会话。文本合并视图的 Search 菜单同样新增这三项与快捷键：书签挂在对齐行上并记住放置时的窗格，跳转时激活该窗格并把四个窗格滚到该行，Take 与输出编辑不移动书签。为让 `Ctrl+0` / `Shift+Ctrl+0` 专用于书签 0，关闭了 egui 自带的 `Ctrl+=` / `Ctrl+−` / `Ctrl+0` 整体界面缩放（从未作为功能提供；编辑器字号仍在 Tools › Options 与 View › Text display 中调整）。
 
 - **文本合并视图：行内差异、语法着色、查找替换、横向滚动条、输入窗格选择复制**（[`docs/features/text-merge.md`](docs/features/text-merge.md)）：
   LEFT / RIGHT 窗格的改动行只把与 BASE 不同的字符着色（左侧青、右侧紫、未解决冲突红），整行新增仍按整行着色；

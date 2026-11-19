@@ -273,6 +273,7 @@ impl MatchaApp {
     ) -> Self {
         crate::perf::mark("app:new-enter");
         crate::chrome::theme::apply(&cc.egui_ctx);
+        Self::configure_input(&cc.egui_ctx);
         // 已保存的偏好（编辑器字体等）；快照/基准模式下为默认值。
         let prefs = crate::settings::load();
         crate::chrome::fonts::install(&cc.egui_ctx, &prefs.editor_font.family);
@@ -336,6 +337,11 @@ impl MatchaApp {
         self.saved_prefs = self.prefs.clone();
     }
     /// 单标签页的应用（启动、快照、基准与测试共用）。
+    /// 输入相关的全局设置：关闭 egui 的键盘缩放（Ctrl+0 / Ctrl+= / Ctrl+−），
+    /// 让 Ctrl+0 / Shift+Ctrl+0 只用于书签 0，界面缩放恒为 1。
+    pub(crate) fn configure_input(ctx: &egui::Context) {
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+    }
     pub fn with_view(view: View) -> Self {
         Self {
             tabs: vec![Tab::new(view)],

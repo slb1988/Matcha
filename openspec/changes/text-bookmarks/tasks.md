@@ -23,7 +23,7 @@
 
 ## 5. Ctrl+0 与全局设置
 
-- [ ] 5.1 应用启动时关闭 `zoom_with_keyboard`（design 决定 6）；`app_tests.rs` 测试：注入 Ctrl+0 后 `zoom_factor` 仍为 1 且文本视图跳到书签 0；现有快照场景逐像素不变
+- [x] 5.1 应用启动时关闭 `zoom_with_keyboard`（design 决定 6）；`app_tests.rs` 测试：注入 Ctrl+0 后 `zoom_factor` 仍为 1 且文本视图跳到书签 0；现有快照场景逐像素不变
 
 ## 6. 集成检查与记录
 
