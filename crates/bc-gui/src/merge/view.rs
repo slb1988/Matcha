@@ -10,9 +10,10 @@ use crate::chrome::{
     theme,
 };
 use crate::text::{
+    bookmarks::{self, Bookmarks, Toggled},
     editor::{Caret, Editor},
     find_panel::{FindAction, FindPanel},
-    render::{layout, LineInk},
+    render::{bookmark_badge, layout, LineInk},
     syntax_style::SyntaxStyle,
 };
 use bc_core::Side;
@@ -122,6 +123,10 @@ pub struct MergeView {
     colors: DiffColors,
     /// 工具栏下方的查找条（与文本比较同一组件）。
     pub(crate) find: FindPanel,
+    /// 编号书签 0–9，锚点为 (窗格, 对齐行)；对齐行编号载入后不变，编辑与 Take 不移动书签。
+    pub(crate) bookmarks: Bookmarks<(usize, usize)>,
+    /// 下一帧把键盘焦点交给这个窗格（Go to Bookmark 切换了活动窗格）。
+    focus_request: Option<usize>,
 }
 
 /// 一个窗格本帧的排版资料：内容快照（语法 token）、语法风格与粗体字体。
@@ -256,9 +261,35 @@ fn menus() -> Vec<MenuSpec> {
                 menu_item("", None),
                 menu_item("Next Change Section", Some("Ctrl+N")),
                 menu_item("Previous Change Section", Some("Ctrl+P")),
+                menu_item("", None),
+                bookmark_menu("Toggle Bookmark", "Toggle", "Shift+Ctrl+"),
+                bookmark_menu("Go to Bookmark", "Go to", "Ctrl+"),
+                menu_item("Clear Bookmarks", None),
             ],
         ),
     ]
+}
+
+/// Toggle / Go to Bookmark 子菜单：子项标签 `Bookmark N`，action_id `Toggle Bookmark N` /
+/// `Go to Bookmark N`（与文本比较相同）。
+fn bookmark_menu(label: &str, verb: &str, keys: &str) -> MenuItem {
+    MenuItem {
+        kind: MenuItemKind::Submenu(
+            (0..bookmarks::COUNT)
+                .map(|n| MenuItem {
+                    action_id: format!("{verb} Bookmark {n}"),
+                    ..menu_item(&format!("Bookmark {n}"), Some(&format!("{keys}{n}")))
+                })
+                .collect(),
+        ),
+        ..menu_item(label, None)
+    }
+}
+
+/// 书签命令的编号：`Toggle Bookmark N` / `Go to Bookmark N`。
+fn bookmark_command(id: &str, prefix: &str) -> Option<usize> {
+    let n: usize = id.strip_prefix(prefix)?.parse().ok()?;
+    (n < bookmarks::COUNT).then_some(n)
 }
 
 impl MergeView {
@@ -308,6 +339,8 @@ impl MergeView {
             comparison,
             colors: DiffColors::default(),
             find: FindPanel::default(),
+            bookmarks: Bookmarks::default(),
+            focus_request: None,
         };
         // 打开即定位到第一个冲突（没有冲突则第一个改动）。
         if let Some(row) = view.model.first_conflict_or_change() {
@@ -596,6 +629,16 @@ impl MergeView {
             }
             "Find Next" => self.find_action(FindAction::Next),
             "Find Previous" => self.find_action(FindAction::Previous),
+            "Clear Bookmarks" => {
+                self.bookmarks.clear();
+                self.message = "Bookmarks cleared".into();
+            }
+            id if bookmark_command(id, "Toggle Bookmark ").is_some() => {
+                self.toggle_bookmark(bookmark_command(id, "Toggle Bookmark ").unwrap())
+            }
+            id if bookmark_command(id, "Go to Bookmark ").is_some() => {
+                self.goto_bookmark(bookmark_command(id, "Go to Bookmark ").unwrap())
+            }
             "Next Change Section" | "Previous Change Section" => {
                 let forward = id == "Next Change Section";
                 match self.model.next_change(self.current_row, forward) {
@@ -611,6 +654,46 @@ impl MergeView {
             }
             _ => {}
         }
+    }
+
+    /// 活动窗格光标所在的对齐行：输出窗格取光标行所属的对齐行，输入窗格取光标行的对齐行。
+    fn caret_row(&self) -> usize {
+        let line = self.editor_of(self.active).caret.line;
+        let row = if self.active == OUT {
+            self.model.out_line(line).map(|m| m.row)
+        } else {
+            self.side_rows[self.active].get(line).copied()
+        };
+        row.unwrap_or(self.current_row)
+    }
+    /// Toggle Bookmark N：书签挂在活动窗格光标所在的对齐行上。
+    fn toggle_bookmark(&mut self, n: usize) {
+        let row = self.caret_row();
+        self.message = match self.bookmarks.toggle(n, (self.active, row)) {
+            Toggled::Placed => format!("Bookmark {n} set"),
+            Toggled::Removed => format!("Bookmark {n} cleared"),
+        };
+    }
+    /// Go To Bookmark N：激活书签所在窗格，四个窗格滚到该对齐行。
+    fn goto_bookmark(&mut self, n: usize) {
+        let Some((pane, row)) = self.bookmarks.get(n) else {
+            self.message = format!("Bookmark {n} is not set");
+            return;
+        };
+        self.goto_row(row);
+        if pane != OUT {
+            let line = self
+                .model
+                .map
+                .row(row)
+                .and_then(|r| [r.left, r.center, r.right][pane]);
+            if let Some(line) = line {
+                self.input_editors[pane].place(Caret { line, byte: 0 }, false);
+            }
+        }
+        self.active = pane;
+        self.focus_request = Some(pane);
+        self.message = format!("Bookmark {n}");
     }
 
     /// 窗格 `pane` 中位于改动或冲突区段内的行（「仅在改动中」查找的范围）。
@@ -810,11 +893,23 @@ impl MergeView {
         for event in ctx.input(|i| i.events.clone()) {
             if let egui::Event::Key {
                 key,
+                physical_key,
                 pressed: true,
                 modifiers,
                 ..
             } = &event
             {
+                // Shift+Ctrl+0–9 放置 / 移除书签，Ctrl+0–9 跳到书签。
+                if let Some(n) =
+                    crate::text::view::digit(*key, *physical_key).filter(|_| modifiers.command)
+                {
+                    self.command(&if modifiers.shift {
+                        format!("Toggle Bookmark {n}")
+                    } else {
+                        format!("Go to Bookmark {n}")
+                    });
+                    continue;
+                }
                 let command = match (*key, modifiers.command, modifiers.shift) {
                     (egui::Key::F3, false, true) => Some("Find Previous"),
                     (egui::Key::F3, false, false) => Some("Find Next"),
@@ -937,6 +1032,9 @@ impl MergeView {
         let blocked = self.prompt.is_some();
         if !blocked {
             self.keyboard(&ctx);
+        }
+        if let Some(pane) = self.focus_request.take() {
+            ctx.memory_mut(|m| m.request_focus(pane_id(pane)));
         }
         self.editor.clamp(&self.model.output);
         if blocked {
@@ -1132,8 +1230,16 @@ impl MergeView {
                 "Undo" => undo,
                 "Redo" => redo,
                 "Replace..." => self.active == OUT,
+                "Clear Bookmarks" => !self.bookmarks.is_empty(),
                 _ => true,
             };
+            // Go to Bookmark 子菜单：只有已设置的编号可用。
+            if let MenuItemKind::Submenu(children) = &mut item.kind {
+                for child in children {
+                    child.enabled = bookmark_command(&child.action_id, "Go to Bookmark ")
+                        .is_none_or(|n| self.bookmarks.get(n).is_some());
+                }
+            }
             if item.action_id == "Syntax Highlighting" {
                 item.kind = MenuItemKind::Check {
                     checked: self.show_syntax,
@@ -1488,10 +1594,17 @@ impl MergeView {
                     (own, text, fill)
                 };
             painter.rect_filled(line_rect, 0.0, fill);
+            // 书签徽标画在锚点窗格、该对齐行的第一个显示行，文本区右缘。
+            let bookmark = (self.model.grid_row_of(cell.row) == first + i)
+                .then(|| self.bookmarks.at((pane, cell.row)))
+                .flatten();
             let Some(text) = text else {
                 // 空隙行：本侧在这一显示行上没有内容。
                 crate::text::render::hatch(ui, line_rect.intersect(area), false);
                 self.paint_gutter(&painter, line_rect, None, conflict, cell.row);
+                if let Some(n) = bookmark {
+                    bookmark_badge(&painter, line_rect, n);
+                }
                 if pressed
                     && ui.is_enabled()
                     && pointer.is_some_and(|p| line_rect.contains(p) && area.contains(p))
@@ -1591,6 +1704,9 @@ impl MergeView {
                 }
             }
             self.paint_gutter(&painter, line_rect, number, conflict, cell.row);
+            if let Some(n) = bookmark {
+                bookmark_badge(&painter, line_rect, n);
+            }
             // 弹出层盖在窗格上时，按下属于弹出层。
             let covered = pointer.is_some_and(|p| {
                 pressed && ui.ctx().layer_id_at(p).is_some_and(|l| l != ui.layer_id())

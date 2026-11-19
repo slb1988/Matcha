@@ -1040,3 +1040,158 @@ fn a_shared_horizontal_scrollbar_appears_only_for_wide_content() {
     assert!(v.hbar.is_none());
     assert_eq!((v.max_x, v.scroll.x), (0.0, 0.0));
 }
+
+// ---- 编号书签 ----
+
+fn bookmark_key(n: usize, shift: bool) -> egui::Event {
+    const DIGITS: [egui::Key; 10] = [
+        egui::Key::Num0,
+        egui::Key::Num1,
+        egui::Key::Num2,
+        egui::Key::Num3,
+        egui::Key::Num4,
+        egui::Key::Num5,
+        egui::Key::Num6,
+        egui::Key::Num7,
+        egui::Key::Num8,
+        egui::Key::Num9,
+    ];
+    egui::Event::Key {
+        key: DIGITS[n],
+        physical_key: Some(DIGITS[n]),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            ctrl: true,
+            command: true,
+            shift,
+            ..Default::default()
+        },
+    }
+}
+fn search_item(v: &MergeView, id: &str) -> MenuItem {
+    fn find(items: &[MenuItem], id: &str) -> Option<MenuItem> {
+        items.iter().find_map(|item| {
+            if item.action_id == id {
+                return Some(item.clone());
+            }
+            match &item.kind {
+                MenuItemKind::Submenu(children) => find(children, id),
+                _ => None,
+            }
+        })
+    }
+    v.menus
+        .iter()
+        .find_map(|m| find(&m.items, id))
+        .unwrap_or_else(|| panic!("no menu item {id}"))
+}
+/// 窗格 `pane` 文本区右缘画出的书签编号。
+fn badge_drawn(out: &egui::FullOutput, v: &MergeView, pane: usize, n: usize) -> bool {
+    let rect = v.pane_rects[pane];
+    out.shapes.iter().any(|s| match &s.shape {
+        egui::Shape::Text(t) => {
+            let at = egui::Rect::from_min_size(t.pos, t.galley.size()).center();
+            t.galley.text() == n.to_string() && rect.contains(at) && at.x > rect.right() - 24.0
+        }
+        _ => false,
+    })
+}
+fn frame_out(ctx: &egui::Context, v: &mut MergeView) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, &mut Prefs::default());
+    });
+    out.textures_delta.clear();
+    out
+}
+
+#[test]
+fn bookmarks_jump_to_their_pane_and_row_and_survive_takes() {
+    let b = base(200);
+    // 左侧在冲突处多出 2 行：初始输出含这 2 行，Take Right 后输出少 2 行。
+    let left = insert(&edit(&b, &[(20, "L")]), 20, &["L2", "L3"]);
+    let mut v = view(&left, &edit(&b, &[(20, "R")]), &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let conflict = v.current_row;
+    assert_eq!(v.unresolved(), 1);
+    assert!(!search_item(&v, "Go to Bookmark 1").enabled);
+    assert!(!search_item(&v, "Clear Bookmarks").enabled);
+    let toggle = search_item(&v, "Toggle Bookmark 1");
+    assert_eq!(
+        (toggle.label.as_str(), toggle.shortcut.as_deref()),
+        ("Bookmark 1", Some("Shift+Ctrl+1"))
+    );
+
+    // base 窗格的冲突行（区段里第一个有 base 行的对齐行）放书签 1。
+    let (marked, line) = (conflict..)
+        .find_map(|r| Some((r, v.model.map.row(r)?.center?)))
+        .unwrap();
+    assert!(v.model.state.in_conflict(marked));
+    v.active = 1;
+    v.input_editors[1].place(Caret { line, byte: 0 }, false);
+    frame(&ctx, &mut v, vec![bookmark_key(1, true)]);
+    assert_eq!(v.bookmarks.get(1), Some((1, marked)), "{}", v.message);
+    let out = frame_out(&ctx, &mut v);
+    assert!(badge_drawn(&out, &v, 1, 1), "badge in the base pane");
+    assert!(!badge_drawn(&out, &v, OUT, 1), "only in the anchor pane");
+    assert!(search_item(&v, "Go to Bookmark 1").enabled);
+    assert!(!search_item(&v, "Go to Bookmark 2").enabled);
+    assert!(search_item(&v, "Clear Bookmarks").enabled);
+
+    // 输出窗格靠后的一行放书签 2。
+    v.active = OUT;
+    v.editor.place(Caret { line: 150, byte: 0 }, false);
+    let late = v.model.out_line(150).unwrap().row;
+    frame(&ctx, &mut v, vec![bookmark_key(2, true)]);
+    assert_eq!(v.bookmarks.get(2), Some((OUT, late)));
+
+    // 滚到末尾，从输出窗格 Ctrl+1：base 成为活动窗格，滚到冲突行。
+    v.scroll.y = 1.0e6;
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![bookmark_key(1, false)]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.active, 1);
+    assert_eq!(v.current_row, marked);
+    assert_eq!(v.input_editors[1].caret, Caret { line, byte: 0 });
+    let top = (v.scroll.y / v.row_height()) as usize;
+    let grid = v.model.grid_row_of(marked);
+    assert!(top <= grid && grid < top + 20, "top {top}, grid {grid}");
+    assert!(ctx.memory(|m| m.has_focus(pane_id(1))));
+
+    // 对该区段 Take Right（输出少 2 行）：书签仍在同一对齐行，跳转定位到该区段。
+    let before = v.model.output.lines.borrow().len();
+    v.active = OUT;
+    v.goto_row(conflict);
+    v.command("Take Right");
+    assert_eq!(v.model.output.lines.borrow().len(), before - 2);
+    assert_eq!(v.bookmarks.get(1), Some((1, marked)));
+    assert_eq!(v.bookmarks.get(2), Some((OUT, late)));
+    v.scroll.y = 0.0;
+    frame(&ctx, &mut v, vec![bookmark_key(2, false)]);
+    assert_eq!(v.active, OUT);
+    assert_eq!(v.current_row, late);
+    assert_eq!(
+        v.editor.caret.line, 148,
+        "same row, output shifted by the take"
+    );
+    frame(&ctx, &mut v, vec![bookmark_key(1, false)]);
+    assert_eq!((v.active, v.current_row), (1, marked));
+
+    // 未设置与清除。
+    frame(&ctx, &mut v, vec![bookmark_key(7, false)]);
+    assert_eq!(v.message, "Bookmark 7 is not set");
+    assert_eq!(v.current_row, marked);
+    v.command("Clear Bookmarks");
+    assert!(v.bookmarks.is_empty());
+    frame(&ctx, &mut v, vec![]);
+    assert!(!search_item(&v, "Clear Bookmarks").enabled);
+}

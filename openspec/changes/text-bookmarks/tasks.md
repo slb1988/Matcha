@@ -19,7 +19,7 @@
 
 ## 4. 文本合并接入
 
-- [ ] 4.1 Search 菜单追加 Toggle Bookmark ▸ / Go to Bookmark ▸ / Clear Bookmarks 与快捷键，锚点 `(pane, row)`（输出窗格取光标行的 `out_line(line).row`）；Go to 激活锚点窗格并 `goto_row`；锚点窗格文本区右缘画徽标；`merge/view_tests.rs` 测试：base 窗格冲突行放书签 1 后滚到末尾、Ctrl+1 激活 base 并定位；对该区段 Take Right 后书签行不变；`cargo test -p bc-gui merge::` 通过
+- [x] 4.1 Search 菜单追加 Toggle Bookmark ▸ / Go to Bookmark ▸ / Clear Bookmarks 与快捷键，锚点 `(pane, row)`（输出窗格取光标行的 `out_line(line).row`）；Go to 激活锚点窗格并 `goto_row`；锚点窗格文本区右缘画徽标；`merge/view_tests.rs` 测试：base 窗格冲突行放书签 1 后滚到末尾、Ctrl+1 激活 base 并定位；对该区段 Take Right 后书签行不变；`cargo test -p bc-gui merge::` 通过
 
 ## 5. Ctrl+0 与全局设置
 
