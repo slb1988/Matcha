@@ -12,6 +12,7 @@ use bc_core::{
 use bc_engine_text::{
     merge::{output_encoding, MergeState, Origin},
     rules::{Favor, TextMergeRules},
+    search::{self, FindOptions},
     TextContent, TextMap,
 };
 use bc_script::cli::MergeSpec;
@@ -548,6 +549,80 @@ impl MergeModel {
         self.rebuild_grid();
         self.record(before);
         Ok(true)
+    }
+
+    /// 输出窗格的全部替换（查找条的 Replace All）：每处命中所在的行标为手工，涉及的冲突
+    /// 区段视为已解决；整个替换是一个撤销步。返回替换的处数。
+    ///
+    /// 命中可能散布在不相邻的行上，[`Self::edit`] 的「一个连续改动窗口」推断会把中间的行也标为
+    /// 手工，所以这里逐个命中行调用 [`search::replace_all`]（限定在该行），据行数变化维护来源标记。
+    pub fn replace_all(
+        &mut self,
+        editor: &mut Editor,
+        options: &FindOptions,
+        replacement: &str,
+        allowed: Option<&[Range<usize>]>,
+    ) -> Result<usize, CoreError> {
+        if options.pattern.is_empty() {
+            return Ok(0);
+        }
+        let mut forward = options.clone();
+        forward.backwards = false;
+        // 与 `search::replace_all` 同一判定（模式、全词、允许的行）找出有命中的行。
+        let mut lines = Vec::new();
+        let mut from = (0, 0);
+        while let Some(hit) =
+            search::find_next(&self.output, Side::Output, from, &forward, allowed)?
+        {
+            lines.push(hit.line);
+            from = (hit.line + 1, 0);
+        }
+        if lines.is_empty() {
+            return Ok(0);
+        }
+        editor.clamp(&self.output);
+        let before = self.snapshot(editor.caret);
+        let mut single = forward;
+        single.differences_only = true;
+        let mut count = 0;
+        let mut touched = Vec::new();
+        // 自后向前：前面的行号不受后面行数变化的影响。
+        for &line in lines.iter().rev() {
+            let old = self.output.lines.borrow().len();
+            match search::replace_all(
+                &mut self.output,
+                &single,
+                replacement,
+                Some(&[line..line + 1]),
+            ) {
+                Ok(n) => count += n,
+                Err(e) => {
+                    self.restore(before);
+                    return Err(e);
+                }
+            }
+            let span = (self.output.lines.borrow().len() + 1).saturating_sub(old);
+            let row = self.meta[line].row;
+            touched.push(row);
+            self.meta.splice(
+                line..line + 1,
+                std::iter::repeat_n(
+                    OutLine {
+                        origin: OutOrigin::Manual,
+                        row,
+                    },
+                    span,
+                ),
+            );
+        }
+        for row in touched {
+            self.state.accept(&(row..row + 1));
+        }
+        self.rebuild_grid();
+        self.record(before);
+        editor.place(editor.caret, false);
+        editor.clamp(&self.output);
+        Ok(count)
     }
 
     /// 输出窗格当前内容按输出编码得到的字节。

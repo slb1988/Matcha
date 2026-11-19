@@ -33,7 +33,8 @@
    - 行号 ↔ 对齐行：输入侧行号到 `row` 用 `TextMap` 行表一次线性构建的 `Vec<usize>` 索引（每侧一个，载入后不变），避免每次查找扫描全表。
 
 4. **查找接入**：`find: FindPanel` 放在工具栏下方（与文本比较相同位置）。`FindAction::Next/Previous` → 在活动窗格的 `TextContent` 上 `find_next(from = 活动窗格光标)`，命中后设置该窗格选区、`current_row = 行→row`、`goto_row`。「仅在改动中」传入的 `allowed` 区间 = 该窗格在改动 / 冲突区段内的行区间（由 `MergeState` 的区段与 `map` 行表推出）。
-   - 替换只在 `active == OUT`：`Replace` = 若当前选区等于上次命中则替换后查下一个；`All` = 通过新增 `MergeModel::replace_all(editor, options, replacement, allowed)`，内部在 `edit` 闭包里调用 `search::replace_all`，从而撤销为一组、受影响行标手工、冲突解决计数按既有规则更新。输入窗格活动时 `replace_open` 强制为 false。
+   - 替换只在 `active == OUT`：`Replace` = 若当前选区等于上次命中则替换后查下一个；`All` = 通过新增 `MergeModel::replace_all(editor, options, replacement, allowed)`，撤销为一组、受影响行标手工、冲突解决计数按既有规则更新。输入窗格活动时 `replace_open` 强制为 false。
+   - 实现修正：`edit` 按「光标附近一个连续改动窗口」推断改了哪些行，命中散布在不相邻行时会漏标或把中间行也标为手工；所以 `replace_all` 不走 `edit` 闭包，而是在同一个模型快照内逐个命中行调用 `search::replace_all`（`allowed` 限定为该行），按行数变化维护来源标记，最后统一 `record` 为一个撤销步。单次 Replace 只改一处，仍走 `edit`。
 
 5. **横向滚动条**：在 `body` 底部预留 16 px 一条，横跨四窗格区（与右侧纵向滚动条相接），上限沿用现有 `content_width - 最窄列宽 + GUTTER + 40` 的计算；`content_width` 只统计本帧可见行，因此需要内容「放不下」时才显示，放得下时偏移归零（spec）。
 

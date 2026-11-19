@@ -11,6 +11,7 @@ use crate::chrome::{
 };
 use crate::text::{
     editor::{Caret, Editor},
+    find_panel::{FindAction, FindPanel},
     render::{layout, LineInk},
     syntax_style::SyntaxStyle,
 };
@@ -20,6 +21,7 @@ use bc_engine_text::{
     importance::{CompiledComparison, LineView},
     inline::{inline_diff_classified, InlineOptions, InlineSpan},
     merge::MergeChoice,
+    search::{self, FindHit},
     TextContent,
 };
 use bc_session::prefs::{DiffColors, Prefs};
@@ -29,6 +31,10 @@ use std::{collections::HashMap, path::PathBuf};
 /// 输出窗格的窗格号；0..3 为 left、center、right。
 const OUT: usize = 3;
 const SIDES: [Side; 3] = [Side::Left, Side::Center, Side::Right];
+/// 窗格在查找命中（[`FindHit::side`]）里的标记。
+fn side_of(pane: usize) -> Side {
+    SIDES.get(pane).copied().unwrap_or(Side::Output)
+}
 const BADGES: [&str; 4] = ["LEFT", "BASE", "RIGHT", "OUTPUT"];
 /// 输入窗格（left、center、right）在上排的列位：BASE | LEFT | RIGHT。
 const COLUMN_OF: [usize; 3] = [1, 0, 2];
@@ -110,6 +116,8 @@ pub struct MergeView {
     comparison: CompiledComparison,
     /// 差异配色（不重要差异色），每帧取自偏好。
     colors: DiffColors,
+    /// 工具栏下方的查找条（与文本比较同一组件）。
+    pub(crate) find: FindPanel,
 }
 
 /// 一个窗格本帧的排版资料：内容快照（语法 token）、语法风格与粗体字体。
@@ -237,6 +245,11 @@ fn menus() -> Vec<MenuSpec> {
             "Search",
             'r',
             vec![
+                menu_item("Find...", Some("Ctrl+F")),
+                menu_item("Find Next", Some("F3")),
+                menu_item("Find Previous", Some("Shift+F3")),
+                menu_item("Replace...", Some("Ctrl+H")),
+                menu_item("", None),
                 menu_item("Next Change Section", Some("Ctrl+N")),
                 menu_item("Previous Change Section", Some("Ctrl+P")),
             ],
@@ -288,6 +301,7 @@ impl MergeView {
             inline: HashMap::new(),
             comparison,
             colors: DiffColors::default(),
+            find: FindPanel::default(),
         };
         // 打开即定位到第一个冲突（没有冲突则第一个改动）。
         if let Some(row) = view.model.first_conflict_or_change() {
@@ -565,6 +579,17 @@ impl MergeView {
                 }
             }
             "Syntax Highlighting" => self.show_syntax = !self.show_syntax,
+            "Find..." => self.find.show(),
+            "Replace..." => {
+                if self.active == OUT {
+                    self.find.show();
+                    self.find.replace_open = true;
+                } else {
+                    self.message = "Replace works in the output pane only".into();
+                }
+            }
+            "Find Next" => self.find_action(FindAction::Next),
+            "Find Previous" => self.find_action(FindAction::Previous),
             "Next Change Section" | "Previous Change Section" => {
                 let forward = id == "Next Change Section";
                 match self.model.next_change(self.current_row, forward) {
@@ -582,6 +607,199 @@ impl MergeView {
         }
     }
 
+    /// 窗格 `pane` 中位于改动或冲突区段内的行（「仅在改动中」查找的范围）。
+    pub(crate) fn change_lines(&self, pane: usize) -> Vec<std::ops::Range<usize>> {
+        let mut rows: Vec<std::ops::Range<usize>> = self.model.state.changes().to_vec();
+        rows.extend(self.model.state.conflict_sections().map(|(r, _)| r));
+        rows.sort_by_key(|r| r.start);
+        let mut lines: Vec<std::ops::Range<usize>> = Vec::new();
+        let mut push = |range: std::ops::Range<usize>| {
+            if range.is_empty() {
+                return;
+            }
+            match lines.last_mut() {
+                Some(last) if last.end >= range.start => last.end = last.end.max(range.end),
+                _ => lines.push(range),
+            }
+        };
+        for range in rows {
+            if pane == OUT {
+                push(
+                    self.model.out_line_of_row(range.start)..self.model.out_line_of_row(range.end),
+                );
+                continue;
+            }
+            for row in range {
+                let mapped = self.model.map.row(row);
+                let index = mapped.and_then(|r| [r.left, r.center, r.right][pane]);
+                if let Some(line) = index {
+                    push(line..line + 1);
+                }
+            }
+        }
+        lines
+    }
+
+    /// 查找条与 Search 菜单的查找 / 替换。
+    pub(crate) fn find_action(&mut self, action: FindAction) {
+        self.message.clear();
+        match action {
+            FindAction::Next => self.find_step(true),
+            FindAction::Previous => self.find_step(false),
+            FindAction::Replace | FindAction::All if self.active != OUT => {
+                self.message = "Replace works in the output pane only".into();
+            }
+            FindAction::All => {
+                let allowed = self.change_lines(OUT);
+                match self.model.replace_all(
+                    &mut self.editor,
+                    &self.find.options,
+                    &self.find.replacement,
+                    Some(&allowed),
+                ) {
+                    Ok(count) => {
+                        self.message = format!("Replaced {count} occurrences");
+                        if count > 0 {
+                            self.caret_moved();
+                        }
+                    }
+                    Err(e) => self.message = e.to_string(),
+                }
+                self.find.last_hit = None;
+            }
+            FindAction::Replace => {
+                if let Err(e) = self.replace_current() {
+                    self.message = e.to_string();
+                    return;
+                }
+                self.find_step(true);
+            }
+        }
+    }
+
+    /// 上次命中仍是输出窗格的选区时，把它替换掉（正则替换展开捕获组）。
+    fn replace_current(&mut self) -> Result<(), bc_core::CoreError> {
+        let Some(hit) = self.current_hit(OUT) else {
+            return Ok(());
+        };
+        let text = self
+            .model
+            .output
+            .lines
+            .borrow()
+            .line_bytes(hit.line)
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .unwrap_or_default();
+        let options = &self.find.options;
+        let replacement = if options.is_regexp {
+            let pattern = bc_core::pattern::Pattern::new(&options.pattern, options.case_sensitive)?;
+            let changed =
+                pattern.replace_all_if(&text, &self.find.replacement, |range| range == hit.range);
+            changed[hit.range.start..changed.len() - (text.len() - hit.range.end)].to_string()
+        } else {
+            self.find.replacement.clone()
+        };
+        self.model.edit(&mut self.editor, |editor, content| {
+            editor.insert(content, &replacement)?;
+            Ok(true)
+        })?;
+        // 继续查找从替换后的位置开始。
+        self.find.last_hit = None;
+        self.caret_moved();
+        Ok(())
+    }
+
+    /// 上次命中：属于窗格 `pane` 且仍是它的选区（用户没有移动光标）。
+    fn current_hit(&self, pane: usize) -> Option<FindHit> {
+        let hit = self.find.last_hit.clone()?;
+        let selection = self.editor_of(pane).selection()?;
+        let expected = (
+            Caret {
+                line: hit.line,
+                byte: hit.range.start,
+            },
+            Caret {
+                line: hit.line,
+                byte: hit.range.end,
+            },
+        );
+        (hit.side == side_of(pane) && selection == expected).then_some(hit)
+    }
+
+    /// 在活动窗格里查找下一个 / 上一个匹配；不回绕。
+    fn find_step(&mut self, forward: bool) {
+        let pane = self.active;
+        if self.find.options.pattern.is_empty() {
+            self.find.show();
+            return;
+        }
+        let backwards = !forward || self.find.options.backwards;
+        let mut options = self.find.options.clone();
+        options.backwards = backwards;
+        let editor = self.editor_of(pane);
+        let mut from = match (self.current_hit(pane), editor.selection()) {
+            (Some(hit), _) => (
+                hit.line,
+                if backwards {
+                    hit.range.start
+                } else {
+                    hit.range.end
+                },
+            ),
+            (None, Some((a, b))) => {
+                let at = if backwards { a } else { b };
+                (at.line, at.byte)
+            }
+            (None, None) => (editor.caret.line, editor.caret.byte),
+        };
+        // 空匹配：先越过一个字符，否则会原地再命中。
+        if self
+            .current_hit(pane)
+            .is_some_and(|hit| hit.range.is_empty())
+        {
+            let mut probe = editor.clone();
+            let at = Caret {
+                line: from.0,
+                byte: from.1,
+            };
+            probe.place(at, false);
+            probe.move_horizontal(self.content(pane), !backwards, false, false);
+            if probe.caret == at {
+                self.message = "No more matches".into();
+                return;
+            }
+            from = (probe.caret.line, probe.caret.byte);
+        }
+        let allowed = self.change_lines(pane);
+        match search::find_next(
+            self.content(pane),
+            side_of(pane),
+            from,
+            &options,
+            Some(&allowed),
+        ) {
+            Ok(Some(hit)) => {
+                let editor = self.editor_of_mut(pane);
+                editor.anchor = Some(Caret {
+                    line: hit.line,
+                    byte: hit.range.start,
+                });
+                editor.caret = Caret {
+                    line: hit.line,
+                    byte: hit.range.end,
+                };
+                self.find.last_hit = Some(hit);
+                if pane == OUT {
+                    self.caret_moved();
+                } else {
+                    self.input_caret_moved(pane);
+                }
+            }
+            Ok(None) => self.message = "No more matches".into(),
+            Err(e) => self.message = e.to_string(),
+        }
+    }
+
     fn keyboard(&mut self, ctx: &egui::Context) {
         for event in ctx.input(|i| i.events.clone()) {
             if let egui::Event::Key {
@@ -592,6 +810,10 @@ impl MergeView {
             } = &event
             {
                 let command = match (*key, modifiers.command, modifiers.shift) {
+                    (egui::Key::F3, false, true) => Some("Find Previous"),
+                    (egui::Key::F3, false, false) => Some("Find Next"),
+                    (egui::Key::F, true, _) => Some("Find..."),
+                    (egui::Key::H, true, _) => Some("Replace..."),
                     (egui::Key::L, true, true) => Some("Take Left Line"),
                     (egui::Key::B, true, true) => Some("Take Center Line"),
                     (egui::Key::R, true, true) => Some("Take Right Line"),
@@ -716,6 +938,13 @@ impl MergeView {
         }
         ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui);
+        // 替换只对输出窗格：输入窗格活动时查找条不显示替换行。
+        if self.active != OUT {
+            self.find.replace_open = false;
+        }
+        if let Some(action) = self.find.ui(ui) {
+            self.find_action(action);
+        }
         let row_height = self.row_height();
         let available = ui.available_rect_before_wrap();
         let status = egui::Rect::from_min_max(
@@ -860,6 +1089,7 @@ impl MergeView {
             item.enabled = match item.action_id.as_str() {
                 "Undo" => undo,
                 "Redo" => redo,
+                "Replace..." => self.active == OUT,
                 _ => true,
             };
             if item.action_id == "Syntax Highlighting" {

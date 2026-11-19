@@ -18,8 +18,8 @@
 
 ## 4. 查找与替换
 
-- [ ] 4.1 接入 `FindPanel`：Search 菜单与快捷键 Ctrl+F / F3 / Shift+F3 / Ctrl+H；Find Next/Previous 在活动窗格内容上调用 `search::find_next`，命中设选区并 `goto_row`；无更多匹配写状态栏且不回绕；「仅在改动中」传改动 / 冲突区段的行区间；测试：right 窗格找到第 2 个匹配并定位、末尾再 F3 状态栏提示、仅在改动中跳过未改动行
-- [ ] 4.2 `MergeModel::replace_all`（在 `edit` 闭包内调用 `search::replace_all`）与单次 Replace；输入窗格活动时 Replace 禁用、查找条无替换行；`model_tests.rs` 测试：Replace All 3 处后各行 origin 为 Manual、一次 undo 全部还原、波及的冲突区段计为已解决；`cargo test -p bc-gui merge::` 通过
+- [x] 4.1 接入 `FindPanel`：Search 菜单与快捷键 Ctrl+F / F3 / Shift+F3 / Ctrl+H；Find Next/Previous 在活动窗格内容上调用 `search::find_next`，命中设选区并 `goto_row`；无更多匹配写状态栏且不回绕；「仅在改动中」传改动 / 冲突区段的行区间；测试：right 窗格找到第 2 个匹配并定位、末尾再 F3 状态栏提示、仅在改动中跳过未改动行
+- [x] 4.2 `MergeModel::replace_all`（在 `edit` 闭包内调用 `search::replace_all`）与单次 Replace；输入窗格活动时 Replace 禁用、查找条无替换行；`model_tests.rs` 测试：Replace All 3 处后各行 origin 为 Manual、一次 undo 全部还原、波及的冲突区段计为已解决；`cargo test -p bc-gui merge::` 通过
 
 ## 5. 横向滚动条
 

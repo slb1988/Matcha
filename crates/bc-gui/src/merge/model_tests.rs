@@ -452,3 +452,54 @@ fn take_line_replaces_one_row_and_keeps_a_longer_conflict_open() {
     m.take_line(2, Side::Right, &mut editor);
     assert_eq!(m.unresolved(), 0);
 }
+
+#[test]
+fn replace_all_marks_lines_manual_resolves_and_undoes_in_one_step() {
+    // foo on lines 3 and 10 (unchanged) and 15 (a conflict: the output keeps base).
+    let b = edit(&base(20), &[(3, "foo3"), (10, "foo10"), (15, "foo15")]);
+    let left = edit(&b, &[(15, "L15")]);
+    let right = edit(&b, &[(15, "R15")]);
+    let mut m = model(&left, &right, &b);
+    let mut editor = Editor::default();
+    assert_eq!(m.unresolved(), 1);
+    let before = text(&m);
+    let options = FindOptions {
+        pattern: "foo".into(),
+        ..Default::default()
+    };
+    let count = m.replace_all(&mut editor, &options, "bar", None).unwrap();
+    assert_eq!(count, 3);
+    check(&m);
+    assert_eq!(
+        text(&m),
+        joined(&edit(
+            &base(20),
+            &[(3, "bar3"), (10, "bar10"), (15, "bar15")]
+        ))
+    );
+    // Only the replaced lines become manual; the conflict they touched is resolved.
+    let manual: Vec<usize> = (0..20)
+        .filter(|&i| m.out_line(i).unwrap().origin == OutOrigin::Manual)
+        .collect();
+    assert_eq!(manual, vec![2, 9, 14]);
+    assert_eq!(m.unresolved(), 0);
+    // One undo restores all three and the conflict.
+    assert!(m.undo(&mut editor));
+    assert_eq!(text(&m), before);
+    assert_eq!(m.unresolved(), 1);
+    assert!(!m.can_undo());
+    check(&m);
+    // A replacement that splits lines keeps the metadata in step with the output.
+    let count = m.replace_all(&mut editor, &options, "x\ny", None).unwrap();
+    assert_eq!(count, 3);
+    assert_eq!(m.output.lines.borrow().len(), 23);
+    check(&m);
+    // No match: nothing changes and no undo step is recorded.
+    m.undo(&mut editor);
+    let missing = FindOptions {
+        pattern: "absent".into(),
+        ..Default::default()
+    };
+    assert_eq!(m.replace_all(&mut editor, &missing, "y", None).unwrap(), 0);
+    assert!(!m.can_undo());
+}

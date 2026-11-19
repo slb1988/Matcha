@@ -824,3 +824,149 @@ fn input_context_menu_takes_the_clicked_section_and_copies() {
         joined(&left)
     );
 }
+
+/// 把活动窗格设为 `pane`（像用户点过它一样拿到焦点）。
+fn activate(ctx: &egui::Context, v: &mut MergeView, pane: usize, row: usize) {
+    let at = line_start(v, pane, row);
+    click(ctx, v, at);
+    assert_eq!(v.active, pane);
+}
+fn selected(v: &MergeView, pane: usize) -> Option<(Caret, Caret)> {
+    v.editor_of(pane).selection()
+}
+
+#[test]
+fn find_searches_the_active_pane_without_wrapping() {
+    let b = base(60);
+    let right = edit(&b, &[(3, "a timeout"), (50, "timeout again")]);
+    let mut v = view(&b, &right, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    v.goto_row(0);
+    frame(&ctx, &mut v, vec![]);
+    activate(&ctx, &mut v, 2, 0);
+    // Ctrl+F opens the bar; Enter in the field finds the first match after the caret.
+    frame(&ctx, &mut v, vec![key(egui::Key::F, true)]);
+    assert!(v.find.open);
+    v.find.options.pattern = "timeout".into();
+    v.find_action(FindAction::Next);
+    let hit = |line: usize, start: usize| {
+        Some((
+            Caret { line, byte: start },
+            Caret {
+                line,
+                byte: start + 7,
+            },
+        ))
+    };
+    assert_eq!(selected(&v, 2), hit(2, 2));
+    assert_eq!(v.current_row, 2);
+    // F3: the second match, scrolled into view in every pane.
+    frame(&ctx, &mut v, vec![key(egui::Key::F3, false)]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(selected(&v, 2), hit(49, 0));
+    assert_eq!(v.current_row, 49);
+    let top = (v.scroll.y / v.row_height()) as usize;
+    let shown = ((v.pane_rects[2].height() - HEADER) / v.row_height()) as usize;
+    assert!(
+        (top..top + shown).contains(&49),
+        "row 49 visible from {top}"
+    );
+    // At the last match F3 reports it and keeps the selection (no wrap).
+    frame(&ctx, &mut v, vec![key(egui::Key::F3, false)]);
+    assert_eq!(selected(&v, 2), hit(49, 0));
+    assert!(v.message.contains("No more matches"), "{}", v.message);
+    // Shift+F3 goes back.
+    let shift_f3 = egui::Event::Key {
+        key: egui::Key::F3,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            shift: true,
+            ..Default::default()
+        },
+    };
+    frame(&ctx, &mut v, vec![shift_f3]);
+    assert_eq!(selected(&v, 2), hit(2, 2));
+    // The base pane has no match: the output's and right's selections stay put.
+    assert!(selected(&v, 1).is_none());
+}
+
+#[test]
+fn find_in_changes_only_skips_unchanged_rows() {
+    // `timeout` on an unchanged row (10) and on a right change (40).
+    let b = edit(&base(50), &[(10, "timeout same")]);
+    let right = edit(&b, &[(40, "timeout changed")]);
+    let mut v = view(&b, &right, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    v.goto_row(0);
+    frame(&ctx, &mut v, vec![]);
+    activate(&ctx, &mut v, 2, 0);
+    v.find.options.pattern = "timeout".into();
+    v.find.options.differences_only = true;
+    v.find_action(FindAction::Next);
+    assert_eq!(selected(&v, 2).map(|(a, _)| a.line), Some(39));
+    // Without the option the unchanged row is found first; the output pane searches too.
+    v.find.options.differences_only = false;
+    v.input_editors[2] = Editor::default();
+    v.find.last_hit = None;
+    v.find_action(FindAction::Next);
+    assert_eq!(selected(&v, 2).map(|(a, _)| a.line), Some(9));
+    activate(&ctx, &mut v, OUT, 0);
+    v.find.options.differences_only = true;
+    v.find_action(FindAction::Next);
+    assert_eq!(selected(&v, OUT).map(|(a, _)| a.line), Some(39));
+}
+
+#[test]
+fn replace_is_output_only_and_replaces_then_finds_next() {
+    let b = edit(&base(20), &[(2, "foo a"), (6, "foo b"), (9, "foo c")]);
+    let mut v = view(&b, &b, &b);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut v, vec![]);
+    v.goto_row(0);
+    frame(&ctx, &mut v, vec![]);
+    let replace_enabled = |v: &MergeView| {
+        v.menus
+            .iter()
+            .flat_map(|m| m.items.iter())
+            .find(|i| i.action_id == "Replace...")
+            .unwrap()
+            .enabled
+    };
+    // An input pane: Replace is disabled and the bar shows no replace row.
+    activate(&ctx, &mut v, 0, 0);
+    frame(&ctx, &mut v, vec![key(egui::Key::H, true)]);
+    frame(&ctx, &mut v, vec![]);
+    assert!(!replace_enabled(&v) && !v.find.replace_open);
+    v.find.show();
+    v.find.replace_open = true;
+    frame(&ctx, &mut v, vec![]);
+    assert!(!v.find.replace_open);
+    v.find.options.pattern = "foo".into();
+    v.find.replacement = "bar".into();
+    v.find_action(FindAction::All);
+    assert!(text(&v).contains("foo a"), "inputs never replace");
+    // The output pane: Ctrl+H opens the replace row.
+    activate(&ctx, &mut v, OUT, 0);
+    frame(&ctx, &mut v, vec![key(egui::Key::H, true)]);
+    frame(&ctx, &mut v, vec![]);
+    assert!(replace_enabled(&v) && v.find.replace_open);
+    // Replace with no current match finds one first, then replaces and moves on.
+    v.find_action(FindAction::Replace);
+    assert_eq!(selected(&v, OUT).map(|(a, _)| a.line), Some(1));
+    v.find_action(FindAction::Replace);
+    assert!(text(&v).contains("bar a") && text(&v).contains("foo b"));
+    assert_eq!(selected(&v, OUT).map(|(a, _)| a.line), Some(5));
+    assert_eq!(v.model.out_line(1).unwrap().origin, OutOrigin::Manual);
+    // Replace All takes the rest; one undo puts them back.
+    v.find_action(FindAction::All);
+    assert!(v.message.contains("Replaced 2"), "{}", v.message);
+    assert!(!text(&v).contains("foo"));
+    v.command("Undo");
+    assert!(text(&v).contains("foo b") && text(&v).contains("foo c"));
+    assert!(text(&v).contains("bar a"));
+}
