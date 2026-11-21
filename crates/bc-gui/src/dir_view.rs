@@ -245,6 +245,8 @@ pub enum Command {
     FocusConflict {
         backwards: bool,
         current: Option<NodeId>,
+        /// Options › Next Difference › Wrap around：找不到时从另一端再找一次。
+        wrap: bool,
     },
     SaveLog(PathBuf),
     SavePresets(String),
@@ -267,6 +269,8 @@ enum Notice {
     Quick(String),
     /// Verified file pair; the formal text view holds Rc/RefCell, so it is built on the UI thread.
     Text([PathBuf; 2]),
+    /// 冲突导航找不到目标（后台线程回传）：UI 线程据偏好弹出「Difference not found.」面板。
+    NotFound,
     Presets(FilterPresets),
     Focus(NodeId),
 }
@@ -1348,14 +1352,21 @@ impl Model {
                     .set_override(node, choice)
                     .map_err(|e| e.to_string())?;
             }
-            Command::FocusConflict { backwards, current } => {
+            Command::FocusConflict {
+                backwards,
+                current,
+                wrap,
+            } => {
                 let plan = self.sync_plan.as_ref().ok_or("No sync preview")?;
                 let index = current.and_then(|id| plan.items.iter().position(|i| i.node == id));
-                let target = if backwards {
-                    plan.previous_conflict(index)
-                } else {
-                    plan.next_conflict(index)
+                let find = |from: Option<usize>| {
+                    if backwards {
+                        plan.previous_conflict(from)
+                    } else {
+                        plan.next_conflict(from)
+                    }
                 };
+                let target = find(index).or_else(|| find(None).filter(|_| wrap));
                 if let Some(index) = target {
                     let item = &plan.items[index];
                     let node = item.node;
@@ -1379,8 +1390,7 @@ impl Model {
                         ));
                     }
                 } else {
-                    self.shared
-                        .notify(Notice::Message("No further conflict".into()));
+                    self.shared.notify(Notice::NotFound);
                 }
             }
             Command::SyncRun => {
@@ -1904,6 +1914,8 @@ pub struct DirCompareView {
     text_prefs: Prefs,
     /// Options › Next Difference（应用层每帧经 [`Self::set_next_diff`] 同步）。
     pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
+    /// 「Difference not found.」面板（状态栏上方；同步视图共用）。
+    pub(crate) not_found: crate::chrome::message_panel::NotFoundPanel,
     exit_requested: bool,
     /// 关闭标签页在等内嵌文本窗口的保存确认；确认关闭后转为 `close_requested`。
     close_after_text: bool,
@@ -2018,6 +2030,7 @@ impl DirCompareView {
             text: None,
             text_prefs: Prefs::default(),
             next_diff: Default::default(),
+            not_found: Default::default(),
             exit_requested: false,
             close_after_text: false,
             close_requested: false,
@@ -2155,6 +2168,7 @@ impl DirCompareView {
                 },
                 Notice::Presets(presets) => self.filters.presets = presets,
                 Notice::Focus(node) => self.pending_focus = Some(node),
+                Notice::NotFound => self.not_found.not_found(self.next_diff),
             }
         }
         if let Some(node) = self.pending_focus {
@@ -2508,7 +2522,11 @@ impl DirCompareView {
                 .focus
                 .and_then(|i| self.snapshot.rows.get(i))
                 .and_then(|r| r.node);
-            self.send(Command::FocusConflict { backwards, current });
+            self.send(Command::FocusConflict {
+                backwards,
+                current,
+                wrap: self.next_diff.wrap_around,
+            });
             return;
         }
         let start = self
@@ -2520,22 +2538,25 @@ impl DirCompareView {
                     n + 1
                 }
             });
-        let indices: Box<dyn Iterator<Item = usize>> = if backwards {
-            Box::new((0..start).rev())
-        } else {
-            Box::new(start..self.row_count())
-        };
-        if let Some(index) = indices.into_iter().find(|&i| {
-            let row = &self.snapshot.rows[i];
-            if conflicts {
-                row.conflict
+        let find = |range: std::ops::Range<usize>| {
+            let differs = |&i: &usize| {
+                !matches!(
+                    self.snapshot.rows[i].status,
+                    CompareStatus::Same | CompareStatus::Unknown
+                )
+            };
+            if backwards {
+                range.rev().find(differs)
             } else {
-                !matches!(row.status, CompareStatus::Same | CompareStatus::Unknown)
+                range.into_iter().find(differs)
             }
-        }) {
-            self.focus_row(index, None);
-        } else {
-            self.message = "No further difference/conflict".into();
+        };
+        let rows = self.row_count();
+        let found = find(if backwards { 0..start } else { start..rows });
+        // Wrap around：越过末端从另一端（整列）再找。
+        match found.or_else(|| find(0..rows).filter(|_| self.next_diff.wrap_around)) {
+            Some(index) => self.focus_row(index, None),
+            None => self.not_found.not_found(self.next_diff),
         }
     }
     fn focus_row(&mut self, index: usize, side: Option<usize>) {
@@ -2743,6 +2764,10 @@ impl DirCompareView {
     }
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
         let ctx = ui.ctx().clone();
+        // 同步视图在自己的 `ui()` 开头调用（它先画菜单，再把键盘交给这里）。
+        if !self.sync_mode {
+            self.not_found.begin_frame(&ctx);
+        }
         self.poll(&ctx);
         let mut switch = None;
         let busy = self.busy();
@@ -4867,14 +4892,20 @@ impl DirCompareView {
         } else {
             0.0
         };
-        let grid_h = (avail.height() - log_h - status_h).max(80.0);
+        // 「Difference not found.」面板紧贴状态栏上方，树区让出高度。
+        let notice_h = self.not_found.height();
+        let grid_h = (avail.height() - log_h - notice_h - status_h).max(80.0);
         let grid = egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), grid_h));
         let log_rect = egui::Rect::from_min_size(
             egui::pos2(avail.left(), grid.bottom()),
             egui::vec2(avail.width(), log_h),
         );
+        let notice = egui::Rect::from_min_size(
+            egui::pos2(avail.left(), log_rect.bottom()),
+            egui::vec2(avail.width(), notice_h),
+        );
         let status = egui::Rect::from_min_size(
-            egui::pos2(avail.left(), grid.bottom() + log_h),
+            egui::pos2(avail.left(), notice.bottom()),
             egui::vec2(avail.width(), status_h),
         );
         self.draw_grid(ui, grid);
@@ -4884,6 +4915,7 @@ impl DirCompareView {
         if log_h > 0.0 {
             self.draw_log(ui, log_rect);
         }
+        self.not_found.paint(ui, notice);
         self.draw_status(ui, status, busy);
         ui.allocate_rect(full, egui::Sense::hover());
         if log_h > 0.0 {
@@ -6846,6 +6878,30 @@ mod tests {
         let index = row(&view, "x.txt");
         assert_eq!(view.focus, Some(index));
         assert!(view.snapshot.rows[index].conflict);
+        // 唯一的冲突之后没有冲突：后台回传 NotFound → 面板；焦点不动。
+        view.navigate(false, true);
+        wait(&mut view, &ctx);
+        assert_eq!(view.focus, Some(index));
+        assert!(view.not_found.is_shown());
+        // 回绕：从另一端再找到同一个冲突，不弹面板。
+        view.not_found = Default::default();
+        view.set_next_diff(bc_session::prefs::NextDiffPrefs {
+            message_panel: true,
+            wrap_around: true,
+        });
+        view.navigate(true, true);
+        wait(&mut view, &ctx);
+        assert_eq!(view.focus, Some(index));
+        assert!(!view.not_found.is_shown());
+        // 关闭面板：静默。
+        view.set_next_diff(bc_session::prefs::NextDiffPrefs {
+            message_panel: false,
+            wrap_around: false,
+        });
+        view.navigate(false, true);
+        wait(&mut view, &ctx);
+        assert!(!view.not_found.is_shown());
+        view.set_next_diff(Default::default());
         let node = view.snapshot.rows[index].node.unwrap();
         view.send(Command::SyncOverride(node, SyncChoice::LeaveAlone));
         wait(&mut view, &ctx);
@@ -6985,6 +7041,111 @@ mod tests {
         assert!(view.selection.items.is_empty());
         view.navigate(true, false);
         frame(&mut view, &ctx);
+    }
+    fn frame_out(view: &mut DirCompareView, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
+        // 视图读的是 `i.modifiers`（由 ModifiersChanged 维护），按键事件自带的修饰键要先同步过去。
+        let modifiers = events
+            .iter()
+            .find_map(|e| match e {
+                egui::Event::Key { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut all = vec![egui::Event::ModifiersChanged(modifiers)];
+        all.extend(events);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1400.0, 900.0),
+            )),
+            events: all,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                view.ui(ui);
+            });
+        });
+        out.textures_delta.clear();
+        out
+    }
+    #[test]
+    fn difference_navigation_shows_the_panel_wraps_or_stays_silent() {
+        let temp = Temp::new();
+        std::fs::write(temp.0.join("left/z.txt"), b"left only").unwrap();
+        let ctx = egui::Context::default();
+        let mut view = temp.view(&ctx, false);
+        wait(&mut view, &ctx);
+        frame(&mut view, &ctx);
+        let (a, z) = (row(&view, "a.txt"), row(&view, "z.txt"));
+        // Ctrl+N 依次到 a.txt、z.txt，再按找不到：面板画在状态栏上方，焦点不动。
+        let ctrl_n = egui::Event::Key {
+            key: egui::Key::N,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                command: true,
+                ..Default::default()
+            },
+        };
+        frame_out(&mut view, &ctx, vec![ctrl_n.clone()]);
+        assert_eq!(view.focus, Some(a));
+        frame_out(&mut view, &ctx, vec![ctrl_n.clone()]);
+        assert_eq!(view.focus, Some(z));
+        frame_out(&mut view, &ctx, vec![ctrl_n.clone()]);
+        assert_eq!(view.focus, Some(z));
+        assert!(view.not_found.is_shown());
+        assert!(!view.message.contains("No further"));
+        let out = frame_out(&mut view, &ctx, vec![]);
+        let panel = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t)
+                    if t.galley.text() == crate::chrome::message_panel::NOT_FOUND =>
+                {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+                }
+                _ => None,
+            })
+            .expect("panel painted");
+        assert!(panel.bottom() < 900.0 - crate::chrome::theme::STATUS_HEIGHT);
+        // 菜单命令同一路径；按键关闭面板。
+        frame_with(
+            &mut view,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert!(!view.not_found.is_shown());
+        view.folder_command("Next Difference");
+        assert!(view.not_found.is_shown());
+        // 回绕：向下回到 a.txt，向上回到 z.txt。
+        view.not_found = Default::default();
+        view.set_next_diff(bc_session::prefs::NextDiffPrefs {
+            message_panel: true,
+            wrap_around: true,
+        });
+        view.navigate(false, false);
+        assert_eq!(view.focus, Some(a));
+        view.navigate(true, false);
+        assert_eq!(view.focus, Some(z));
+        assert!(!view.not_found.is_shown());
+        // 关闭面板：静默。
+        view.set_next_diff(bc_session::prefs::NextDiffPrefs {
+            message_panel: false,
+            wrap_around: false,
+        });
+        view.navigate(false, false);
+        assert_eq!(view.focus, Some(z));
+        assert!(!view.not_found.is_shown());
     }
     #[test]
     fn crc_columns_quick_compare_and_sync_preview_stay_in_background() {

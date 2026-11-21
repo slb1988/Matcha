@@ -40,11 +40,11 @@
 
 ## 6. 文件夹比较与文件夹同步
 
-- [ ] 6.1 `dir_view.rs`：持有 `NotFoundPanel`，在处理通知与键盘之前调用 `begin_frame`，`draw_status` 上方绘制面板并让出高度
-- [ ] 6.2 差异导航 `navigate(backwards, false)` 按 D2 回绕，找不到时弹面板，删除 "No further difference/conflict"
-- [ ] 6.3 冲突导航：`Command::FocusConflict` 增加 `wrap`，后台线程找不到时按 `current: None` 再找一次；仍找不到时回传新的 `Notice::NotFound`，UI 线程据此调用 `not_found`；删除 "No further conflict"
-- [ ] 6.4 补测试：差异与冲突的面板、回绕、静默；同步视图（`sync_view.rs`）中的 Next/Previous Difference 也走同一路径；`cargo test -p bc-gui --lib dir_view sync_view` 通过
-- [ ] 6.5 更新 `docs/features/folder-compare-sync.md`、`CHANGELOGS.md`；dev-build 后提交
+- [x] 6.1 `dir_view.rs`：持有 `NotFoundPanel`，在处理通知与键盘之前调用 `begin_frame`，`draw_status` 上方绘制面板并让出高度
+- [x] 6.2 差异导航 `navigate(backwards, false)` 按 D2 回绕，找不到时弹面板，删除 "No further difference/conflict"
+- [x] 6.3 冲突导航：`Command::FocusConflict` 增加 `wrap`，后台线程找不到时按 `current: None` 再找一次；仍找不到时回传新的 `Notice::NotFound`，UI 线程据此调用 `not_found`；删除 "No further conflict"
+- [x] 6.4 补测试：差异与冲突的面板、回绕、静默；同步视图（`sync_view.rs`）中的 Next/Previous Difference 也走同一路径；`cargo test -p bc-gui --lib dir_view sync_view` 通过
+- [x] 6.5 更新 `docs/features/folder-compare-sync.md`、`CHANGELOGS.md`；dev-build 后提交
 
 ## 7. 集成验证
 

@@ -446,6 +446,8 @@ impl SyncView {
     }
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
         let ctx = ui.ctx().clone();
+        // 在本帧菜单、键盘与后台通知之前：按键/鼠标按下关闭「Difference not found.」面板。
+        self.folder.not_found.begin_frame(&ctx);
         self.folder.poll(&ctx);
         let busy = self.folder.busy();
         let mut switch = None;
@@ -501,7 +503,9 @@ impl SyncView {
         } else {
             0.0
         };
-        let grid_h = (rest.height() - log_h - theme::STATUS_HEIGHT).max(80.0);
+        // 「Difference not found.」面板紧贴状态栏上方，树区让出高度。
+        let notice_h = self.folder.not_found.height();
+        let grid_h = (rest.height() - log_h - notice_h - theme::STATUS_HEIGHT).max(80.0);
         let grid = egui::Rect::from_min_size(rest.min, egui::vec2(rest.width(), grid_h));
         self.folder.draw_grid(ui, grid);
         if log_h > 0.0 {
@@ -513,10 +517,17 @@ impl SyncView {
                 ),
             );
         }
-        self.folder.draw_status(
+        self.folder.not_found.paint(
             ui,
             egui::Rect::from_min_size(
                 egui::pos2(rest.left(), grid.bottom() + log_h),
+                egui::vec2(rest.width(), notice_h),
+            ),
+        );
+        self.folder.draw_status(
+            ui,
+            egui::Rect::from_min_size(
+                egui::pos2(rest.left(), grid.bottom() + log_h + notice_h),
                 egui::vec2(rest.width(), theme::STATUS_HEIGHT),
             ),
             busy,
@@ -1415,6 +1426,29 @@ mod tests {
         assert!(has("Sync Now") && has("Operations:") && has("Filters:"));
         assert!(view.can_sync());
         assert_eq!(view.title(), "left <--> right - Folder Sync - Matcha");
+        // 没有冲突：Next Conflict 由后台回传 NotFound，面板画在状态栏正上方。
+        view.command("Next Conflict");
+        let started = Instant::now();
+        while !view.folder.not_found.is_shown() {
+            run(&mut view);
+            assert!(started.elapsed() < Duration::from_secs(20));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let out = run(&mut view);
+        let panel = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t)
+                    if t.galley.text() == crate::chrome::message_panel::NOT_FOUND =>
+                {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+                }
+                _ => None,
+            })
+            .expect("panel painted");
+        assert!(panel.bottom() < 961.0 - theme::STATUS_HEIGHT);
+        assert!(panel.top() > 961.0 - theme::STATUS_HEIGHT - crate::chrome::message_panel::HEIGHT);
         drop(view);
         let _ = std::fs::remove_dir_all(root);
     }

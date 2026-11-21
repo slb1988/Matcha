@@ -11,6 +11,12 @@
 - 过滤器：名称/属性/时间/大小，预设持久化在 `Matcha/folder-filters.xml`。
 - 文件操作：复制/移动/删除/重命名，回收站策略（ADR 102），显式范围+分类双重确认（ADR 103）。
 - 同步：五种预设 + 自定义、预览动作、逐项覆盖与冲突导航；成功后维护同步基线。
+- **导航到头的消息面板**：文件夹比较的 Next / Previous Difference（`Ctrl+N` / `Ctrl+P`、`F7` / `Shift+F7`、菜单）与同步视图的
+  Next / Previous Conflict 没有目标时，焦点不动，状态栏正上方（日志面板之下）弹出 **Difference not found.** 面板并响一声，取代原来状态栏的
+  "No further difference/conflict" / "No further conflict"；下一次按键或鼠标按下关闭。冲突在后台线程查找，找不到时回传
+  `Notice::NotFound`，UI 线程据偏好弹面板。遵循 Tools › Options › Next Difference（Wrap around 回到第一个/最后一个差异条目或冲突，
+  `Command::FocusConflict` 带 `wrap`；Show message panel 关闭时静默），偏好由 `app.rs` 每帧经 `DirCompareView::set_next_diff` 同步，
+  也传给内嵌文本窗口。规则见 [text-compare.md](text-compare.md)「找不到差异时的消息面板」。
 - 界面：文件夹树右键菜单按参考排列（Open Folder / Open、Open/Close Subfolders、Set as Base、Open in New View、Open With、
   Compare To…、Compare Contents、Copy/Move to Right|Left、Copy/Move to Folder、Delete、Rename、Attributes、Touch、Exclude、
   New Folder、Copy Filename、Ignored、Refresh Selection、Synchronize、Explorer），复用 Actions 菜单命令，Synchronize 子项
