@@ -48,6 +48,8 @@
   - **Show message panel**（默认开）：关闭后找不到差异时既不弹面板也不响。
   从文件夹比较打开的内嵌文本窗口同样遵循这两个开关（`DirCompareView::set_next_diff`）。
   面板为通用组件 `chrome::message_panel::NotFoundPanel`，表格、十六进制、合并、文件夹视图共用。
+  规格：[`openspec/specs/difference-navigation-feedback/spec.md`](../../openspec/specs/difference-navigation-feedback/spec.md)；
+  变更记录：[`openspec/changes/archive/2026-11-22-next-difference-options/`](../../openspec/changes/archive/2026-11-22-next-difference-options/)。
 - **打开即定位首个差异**：打开文件对（或在会话里换一侧文件）后，首次比较完成时光标与滚动自动落到第一个差异区段的首行
   （与 First Difference 同口径：开启 Ignore Unimportant 时跳过只有不重要差异的区段）；两侧相同则停在首行。
   滚动时差异上方保留最多 5 行上下文（窗格较矮时不超过可见行数的三分之一），差异不会贴在窗格顶边。
