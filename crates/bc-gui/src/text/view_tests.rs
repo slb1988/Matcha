@@ -2679,3 +2679,34 @@ fn altgr_digits_are_left_for_typing() {
     assert!(v.bookmarks.is_empty());
     assert_ne!(v.message, "Bookmark 0 is not set");
 }
+#[test]
+fn navigating_past_the_last_difference_shows_and_dismisses_the_message_panel() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb\nc\n", "a\nB\nc\n");
+    frame(&ctx, &mut v, vec![]);
+    v.goto_row(0);
+    frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.current_row, 1);
+    assert!(v.notice.is_none());
+    let out = frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.current_row, 1);
+    assert_eq!(
+        v.notice.as_ref().map(|n| n.text.as_str()),
+        Some("Difference not found.")
+    );
+    let shown = text_shapes(&out)
+        .into_iter()
+        .find(|(text, _)| text == "Difference not found.")
+        .expect("message panel is painted");
+    assert!(shown.1.bottom() <= 900.0 - crate::chrome::theme::STATUS_HEIGHT + 1.0);
+    // 再按一次仍找不到：面板保持（重新弹出）。
+    frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    assert!(v.notice.is_some());
+    // 任何其他按键都会关闭面板。
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
+    assert!(v.notice.is_none());
+    // 向上同理：第一个差异之前没有差异。
+    v.goto_row(1);
+    frame(&ctx, &mut v, vec![key(egui::Key::P, true)]);
+    assert!(v.notice.is_some());
+}

@@ -37,6 +37,11 @@
   两行都能放下时恢复短横，偏移归零。详情仍是每行最多 4 KiB 的预览，超出的部分以 `…` 标记；文件内容与上方编辑区不截断。
 - 调整窗口大小时，两侧窗格、可见行数与滚动条按新的客户区重新布局；窄窗口的工具栏换行，不会把右窗格或行详情的滚动条挤出窗口。放宽到能容下当前行时，详情不再横移。
 - 视图投影：All / Differences / Same / Context 区段折叠。
+- **找不到差异时的消息面板**（参考：Options › Next Difference › Show message panel）：Next / Previous Difference
+  （`Shift+Ctrl+N` / `Shift+Ctrl+P`）、Next / Previous Difference Section（`Ctrl+N` / `Ctrl+P`）以及 First / Last
+  Difference 找不到目标时，光标不动，底部行详情与状态栏之间弹出浅黄色消息面板（信息图标 + **Difference not found.**），
+  同时播放一次系统提示音（Windows `MessageBeep`）。下一次按键或鼠标按下即关闭面板；再次找不到会重新弹出并再响一次。
+  面板为通用组件 `chrome::message_panel`，暂未提供关闭面板/提示音的选项，也不回绕到首个差异。
 - **打开即定位首个差异**：打开文件对（或在会话里换一侧文件）后，首次比较完成时光标与滚动自动落到第一个差异区段的首行
   （与 First Difference 同口径：开启 Ignore Unimportant 时跳过只有不重要差异的区段）；两侧相同则停在首行。
   滚动时差异上方保留最多 5 行上下文（窗格较矮时不超过可见行数的三分之一），差异不会贴在窗格顶边。
