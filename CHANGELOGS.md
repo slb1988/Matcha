@@ -4,6 +4,8 @@
 
 ## 2026-11-22
 
+- **文本比较与文本合并：跳到未设置的书签时弹出消息面板并提示音**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Go to Bookmark N（`Ctrl+N`）在书签 N 未设置时，状态栏上方显示浅黄色 **Bookmark N is not set.** 面板并播放系统提示音，光标不动，下一次按键或鼠标按下关闭；此前文本比较中这条提示不可见，看起来像按键没反应，文本合并只在状态栏显示文字。该面板不受 Options › Next Difference › Show message panel 控制。
+
 - **更新[项目首页](README.md)**：以当前可用功能替换早期脚手架说明，补上 Windows 发行包下载、第一次拖放比较、PowerShell 示例和源码构建入口。
 
 ## 2026-11-21

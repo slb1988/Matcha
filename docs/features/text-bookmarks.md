@@ -2,7 +2,7 @@
 
 > 文本比较与文本合并视图中的 0–9 编号书签：在长文件的几处位置之间快速往返。
 > 状态：**已实现**（单元测试 + 文本比较 / 合并视图测试 + app 流程测试；现有 28 个快照场景前后逐像素相同；
-> 真实窗口手动走查待做）（2026-11-19 更新）。
+> 真实窗口手动走查待做）（2026-11-22 更新：未设置书签改为弹出消息面板）。
 
 ## 功能简介
 
@@ -11,7 +11,9 @@
     该行已是书签 N 时移除；N 原在别处时从原处移过来；该行已有另一个编号 M 时用 N 取代 M（一行最多一个书签）。
   - **Go To Bookmark N**（`Ctrl+N`，Search › Go to Bookmark ▸ Bookmark N）：激活书签所在窗格，光标到该行行首，
     各窗格滚到对齐位置使该行可见；该行被显示过滤（Show Differences / Show Same / 折叠）隐藏时先恢复为可见。
-    书签 N 未设置时给出提示 `Bookmark N is not set`，光标不动（合并视图显示在状态栏；文本比较见「关键语义」末条）。
+    书签 N 未设置时光标不动，状态栏上方弹出浅黄色消息面板 **Bookmark N is not set.** 并播放系统提示音
+    （与「Difference not found.」同一个面板，下一次按键或鼠标按下关闭）；文本比较与文本合并相同。
+    该面板不受 Options › Next Difference › Show message panel 控制（那个开关只管差异导航）。
   - **Clear Bookmarks**（Search 菜单）：移除本视图的全部书签；没有书签时禁用。
 - 快捷键按物理数字键识别（Shift+数字的逻辑键是符号）；同时按着 Alt 时（AltGr = Ctrl+Alt，德语等布局用它输入 `{ [ ] }`）不触发书签。
 - 菜单状态：Toggle 子项恒可用；Go to 子项只有已设置的编号可用；Clear Bookmarks 仅有书签时可用。
@@ -30,6 +32,7 @@
 | 绘制 | `crates/bc-gui/src/text/render.rs`、`nav_bar.rs` | 文本区右缘编号徽标（`render::bookmark_badge`）、缩略导航条刻度 |
 | 文本合并 | `crates/bc-gui/src/merge/view.rs` | Search 菜单书签项与快捷键、锚点 `(pane, row)`、徽标 |
 | 应用 | `crates/bc-gui/src/app.rs` | `MatchaApp::configure_input`：启动时关闭 egui 键盘缩放（`zoom_with_keyboard = false`） |
+| 提示面板 | `crates/bc-gui/src/chrome/message_panel.rs` | `NotFoundPanel::show` 与 `bookmark_not_set(n)`：未设置书签的面板文案 |
 | 测试 | `text/bookmarks.rs`（单测）、`text/view_tests.rs`、`merge/view_tests.rs`、`app_tests.rs` | 规则、菜单、跳转、编辑跟随、重载 / 换文件 / 交换、合并锚点、Ctrl+0 |
 
 ## 关键语义
@@ -54,8 +57,9 @@
   只用于书签 0，界面缩放恒为 1；副作用是 Ctrl+= / Ctrl+− 整体界面缩放随之关闭（从未作为功能记录；
   编辑器字号仍在 Tools › Options 与 View › Text display 中调整）。现有 28 个快照场景前后逐像素相同。
 - 不做：书签持久化、十六进制 / 表格视图书签、无编号书签、书签列表、书签间 Next / Previous。
-- **已知限制**：文本比较视图的状态栏目前不显示视图消息（`TextCompareView::message` 只出现在 Text Compare Info
-  窗口里，其他命令的提示也是如此），所以「Bookmark N is not set」在文本比较中看不到；合并视图的状态栏会显示。
+- **未设置的书签**：Go To Bookmark N 找不到书签时走 `NotFoundPanel::show`（`chrome/message_panel.rs`），文案由
+  `message_panel::bookmark_not_set(n)` 生成；不再写入视图消息（文本比较的视图消息本就不在状态栏显示，
+  合并视图也不再在状态栏重复）。
 
 ## 使用与验证
 

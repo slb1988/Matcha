@@ -2875,7 +2875,8 @@ impl TextCompareView {
     fn goto_bookmark(&mut self, n: usize, ctx: &egui::Context) {
         self.follow_bookmarks();
         let Some((s, line)) = self.bookmarks.get(n) else {
-            self.message = format!("Bookmark {n} is not set");
+            self.not_found
+                .show(crate::chrome::message_panel::bookmark_not_set(n));
             return;
         };
         let line = bookmarks::clamp(line, self.content(s).lines.borrow().len());

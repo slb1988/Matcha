@@ -29,7 +29,7 @@
 - **THEN** 第 120 行变为书签 5，书签 3 不再存在
 
 ### Requirement: 跳转到书签
-视图 SHALL 提供 Go To Bookmark 0–9（快捷键 Ctrl+0…9，亦在 Search 菜单的子菜单中）。执行 Go To Bookmark N 时，若书签 N 存在，SHALL 把书签所在窗格设为活动窗格、光标移到该行行首，并把各窗格滚动到其对齐位置使该行可见；若该行当前被显示过滤隐藏，SHALL 先使其可见。书签 N 不存在时 SHALL 在状态栏提示且不移动光标。
+视图 SHALL 提供 Go To Bookmark 0–9（快捷键 Ctrl+0…9，亦在 Search 菜单的子菜单中）。执行 Go To Bookmark N 时，若书签 N 存在，SHALL 把书签所在窗格设为活动窗格、光标移到该行行首，并把各窗格滚动到其对齐位置使该行可见；若该行当前被显示过滤隐藏，SHALL 先使其可见。书签 N 不存在时 SHALL 在状态栏上方显示消息面板「Bookmark N is not set.」并播放提示音，且不移动光标；该面板不受 Next Difference 的 Show message panel 偏好控制。
 
 #### Scenario: 跳转
 - **GIVEN** 书签 3 在右侧第 400 行，光标在左侧第 10 行

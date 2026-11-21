@@ -75,7 +75,13 @@ impl MessagePanel {
 /// 差异导航找不到目标时的统一文案。
 pub const NOT_FOUND: &str = "Difference not found.";
 
+/// Go To Bookmark 找不到编号 `n` 时的面板文案。
+pub fn bookmark_not_set(n: usize) -> String {
+    format!("Bookmark {n} is not set.")
+}
+
 /// 视图持有的「找不到差异」面板状态：显示、关闭时机与占位高度只在这里实现一份。
+/// 其他「找不到目标」类提示（如未设置的书签）也借用同一个面板，见 [`NotFoundPanel::show`]。
 #[derive(Debug, Default)]
 pub struct NotFoundPanel(Option<MessagePanel>);
 
@@ -90,6 +96,16 @@ impl NotFoundPanel {
     /// 导航找不到目标：偏好允许时显示面板（每次调用都会再响一次）。
     pub fn not_found(&mut self, prefs: bc_session::prefs::NextDiffPrefs) {
         self.0 = prefs.message_panel.then(|| MessagePanel::new(NOT_FOUND));
+    }
+
+    /// 无条件显示任意提示（不受 Next Difference 偏好控制），如 [`bookmark_not_set`]。
+    pub fn show(&mut self, text: impl Into<String>) {
+        self.0 = Some(MessagePanel::new(text));
+    }
+
+    /// 当前显示的文案（未显示时为 `None`）。
+    pub fn text(&self) -> Option<&str> {
+        self.0.as_ref().map(|p| p.text.as_str())
     }
 
     /// 面板占用的高度（未显示时为 0）。
@@ -139,6 +155,17 @@ mod tests {
         panel.not_found(NextDiffPrefs::default());
         assert!(panel.is_shown());
         assert_eq!(panel.height(), HEIGHT);
+    }
+
+    #[test]
+    fn show_ignores_the_preference_and_reports_its_text() {
+        let mut panel = NotFoundPanel::default();
+        assert_eq!(panel.text(), None);
+        panel.show(bookmark_not_set(7));
+        assert_eq!(panel.text(), Some("Bookmark 7 is not set."));
+        assert_eq!(panel.height(), HEIGHT);
+        panel.not_found(NextDiffPrefs::default());
+        assert_eq!(panel.text(), Some(NOT_FOUND));
     }
 
     #[test]

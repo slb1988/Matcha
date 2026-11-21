@@ -2392,7 +2392,7 @@ fn bookmark_menu_items_follow_the_set_bookmarks() {
     v.command("Clear Bookmarks", &ctx, &Prefs::default());
     assert!(v.bookmarks.is_empty());
     v.command("Go to Bookmark 1", &ctx, &Prefs::default());
-    assert_eq!(v.message, "Bookmark 1 is not set");
+    assert_eq!(v.not_found.text(), Some("Bookmark 1 is not set."));
     v.update_menus();
     assert!(!menu_enabled(&v, "Clear Bookmarks"));
 }
@@ -2454,12 +2454,23 @@ fn ctrl_digit_jumps_to_the_bookmark_side_and_line() {
     assert_eq!(v.filter, DisplayFilter::All);
     assert!(v.visible.contains(&399), "{:?}", v.visible);
 
-    // 未设置的书签：光标不动，状态栏提示。
+    // 未设置的书签：光标不动，状态栏上方弹出消息面板（即使关闭了 Next Difference 的面板开关），下一次按键关闭。
+    let mut quiet = Prefs::default();
+    quiet.next_diff.message_panel = false;
     let caret = v.editors[1].caret;
-    frame(&ctx, &mut v, vec![bookmark_key(7, false)]);
+    let row = v.current_row;
+    frame_with(&ctx, &mut v, &mut quiet, vec![bookmark_key(7, false)]);
     assert_eq!(v.editors[1].caret, caret);
-    assert_eq!(v.active, 1);
-    assert_eq!(v.message, "Bookmark 7 is not set");
+    assert_eq!((v.active, v.current_row), (1, row));
+    assert_eq!(v.not_found.text(), Some("Bookmark 7 is not set."));
+    let out = frame(&ctx, &mut v, vec![]);
+    let shown = text_shapes(&out)
+        .into_iter()
+        .find(|(text, _)| text == "Bookmark 7 is not set.")
+        .expect("bookmark panel is painted");
+    assert!(shown.1.bottom() <= 900.0 - crate::chrome::theme::STATUS_HEIGHT + 1.0);
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
+    assert!(!v.not_found.is_shown());
 }
 
 #[test]
@@ -2677,7 +2688,10 @@ fn altgr_digits_are_left_for_typing() {
     }
     frame(&ctx, &mut v, vec![shifted, altgr]);
     assert!(v.bookmarks.is_empty());
-    assert_ne!(v.message, "Bookmark 0 is not set");
+    assert!(
+        !v.not_found.is_shown(),
+        "AltGr must not run Go To Bookmark 0"
+    );
 }
 #[test]
 fn navigating_past_the_last_difference_shows_and_dismisses_the_message_panel() {

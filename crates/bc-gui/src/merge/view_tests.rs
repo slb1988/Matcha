@@ -1189,7 +1189,8 @@ fn bookmarks_jump_to_their_pane_and_row_and_survive_takes() {
 
     // 未设置与清除。
     frame(&ctx, &mut v, vec![bookmark_key(7, false)]);
-    assert_eq!(v.message, "Bookmark 7 is not set");
+    assert_eq!(v.not_found.text(), Some("Bookmark 7 is not set."));
+    assert!(!v.message.contains("Bookmark 7"), "{}", v.message);
     assert_eq!(v.current_row, marked);
     v.command("Clear Bookmarks");
     assert!(v.bookmarks.is_empty());

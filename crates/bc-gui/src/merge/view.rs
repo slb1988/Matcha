@@ -684,7 +684,8 @@ impl MergeView {
     /// Go To Bookmark N：激活书签所在窗格，四个窗格滚到该对齐行。
     fn goto_bookmark(&mut self, n: usize) {
         let Some((pane, row)) = self.bookmarks.get(n) else {
-            self.message = format!("Bookmark {n} is not set");
+            self.not_found
+                .show(chrome::message_panel::bookmark_not_set(n));
             return;
         };
         self.goto_row(row);
