@@ -1181,8 +1181,14 @@ impl MatchaApp {
                 View::TextCompare(view) => view_action = view.ui(ui, prefs),
                 View::TableCompare(view) => table_action = view.ui(ui, prefs),
                 View::HexCompare(view) => hex_action = view.ui(ui),
-                View::FolderCompare(view) => folder_switch = view.ui(ui),
-                View::FolderSync(view) => folder_switch = view.ui(ui),
+                View::FolderCompare(view) => {
+                    view.set_next_diff(prefs.next_diff);
+                    folder_switch = view.ui(ui);
+                }
+                View::FolderSync(view) => {
+                    view.folder.set_next_diff(prefs.next_diff);
+                    folder_switch = view.ui(ui);
+                }
                 View::TextMerge(view) => merge_action = view.ui(ui, prefs),
                 View::TableMerge(view) => merge_action = view.ui(ui, prefs),
             }

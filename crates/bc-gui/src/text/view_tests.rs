@@ -179,7 +179,7 @@ fn filters_navigation_context_and_public_alignment_options() {
     assert_eq!(v.current_row, 3);
     v.navigate(true, false);
     assert_eq!(v.current_row, 3);
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     v.filter = DisplayFilter::Differences;
     v.rebuild_projection();
     // 2 个差异行 + 3 个折叠分隔行 + 可编辑 EOF 行。
@@ -2687,26 +2687,82 @@ fn navigating_past_the_last_difference_shows_and_dismisses_the_message_panel() {
     v.goto_row(0);
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 1);
-    assert!(v.notice.is_none());
+    assert!(!v.not_found.is_shown());
     let out = frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 1);
-    assert_eq!(
-        v.notice.as_ref().map(|n| n.text.as_str()),
-        Some("Difference not found.")
-    );
+    assert!(v.not_found.is_shown());
     let shown = text_shapes(&out)
         .into_iter()
-        .find(|(text, _)| text == "Difference not found.")
+        .find(|(text, _)| text == crate::chrome::message_panel::NOT_FOUND)
         .expect("message panel is painted");
     assert!(shown.1.bottom() <= 900.0 - crate::chrome::theme::STATUS_HEIGHT + 1.0);
     // 再按一次仍找不到：面板保持（重新弹出）。
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
-    assert!(v.notice.is_some());
+    assert!(v.not_found.is_shown());
     // 任何其他按键都会关闭面板。
     frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
-    assert!(v.notice.is_none());
-    // 向上同理：第一个差异之前没有差异。
+    assert!(!v.not_found.is_shown());
+    // 向上同理：第一个差异之前没有差异；菜单命令与快捷键走同一路径。
     v.goto_row(1);
     frame(&ctx, &mut v, vec![key(egui::Key::P, true)]);
-    assert!(v.notice.is_some());
+    assert!(v.not_found.is_shown());
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
+    v.goto_row(1);
+    v.command("Previous Difference", &ctx, &Prefs::default());
+    assert!(v.not_found.is_shown());
+}
+fn frame_with(
+    ctx: &egui::Context,
+    v: &mut TextCompareView,
+    prefs: &mut Prefs,
+    events: Vec<egui::Event>,
+) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, prefs);
+    });
+    out.textures_delta.clear();
+}
+#[test]
+fn next_difference_prefs_wrap_around_and_silence_the_panel() {
+    let ctx = egui::Context::default();
+    let mut v = view("a\nb\nc\nd\ne\n", "a\nB\nc\nD\ne\n");
+    let mut prefs = Prefs::default();
+    prefs.next_diff.wrap_around = true;
+    frame_with(&ctx, &mut v, &mut prefs, vec![]);
+    // 向下回绕到第一个差异，不弹面板。
+    v.goto_row(3);
+    frame_with(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.current_row, 1);
+    assert!(!v.not_found.is_shown());
+    // 向上回绕到最后一个差异。
+    frame_with(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true)]);
+    assert_eq!(v.current_row, 3);
+    // First / Last Difference 不受回绕影响。
+    v.command("Last difference", &ctx, &prefs);
+    assert_eq!(v.current_row, 3);
+    v.command("First difference", &ctx, &prefs);
+    assert_eq!(v.current_row, 1);
+    // 关闭面板：找不到时光标不动、没有面板。
+    prefs.next_diff = bc_session::prefs::NextDiffPrefs {
+        message_panel: false,
+        wrap_around: false,
+    };
+    frame_with(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true)]);
+    assert_eq!(v.current_row, 1);
+    assert!(!v.not_found.is_shown());
+    // 两侧相同：开启回绕也没有目标，仍弹面板。
+    let mut same = view("a\nb\n", "a\nb\n");
+    let mut prefs = Prefs::default();
+    prefs.next_diff.wrap_around = true;
+    frame_with(&ctx, &mut same, &mut prefs, vec![]);
+    frame_with(&ctx, &mut same, &mut prefs, vec![key(egui::Key::N, true)]);
+    assert!(same.not_found.is_shown());
 }

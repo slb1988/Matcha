@@ -149,8 +149,10 @@ pub struct TextCompareView {
     dirty: Option<Range<usize>>,
     edited_at: Option<Instant>,
     pub message: String,
-    /// 底部消息面板（如导航时找不到差异），下一次按键/鼠标按下关闭。
-    pub(crate) notice: Option<crate::chrome::message_panel::MessagePanel>,
+    /// 「Difference not found.」面板（状态栏上方），下一次按键/鼠标按下关闭。
+    pub(crate) not_found: crate::chrome::message_panel::NotFoundPanel,
+    /// Options › Next Difference（每帧 `ui()` 开头从偏好同步）。
+    pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
     find: FindPanel,
     session: SessionDialog,
     options: crate::dialogs::options::OptionsDialog,
@@ -266,7 +268,8 @@ impl TextCompareView {
             dirty: None,
             edited_at: None,
             message: String::new(),
-            notice: None,
+            not_found: Default::default(),
+            next_diff: Default::default(),
             find: Default::default(),
             session: Default::default(),
             options: Default::default(),
@@ -475,6 +478,16 @@ impl TextCompareView {
             })
             .map(|s| s.rows.start)
     }
+    fn last_difference(&self) -> Option<usize> {
+        self.sections
+            .iter()
+            .rfind(|s| {
+                s.importance
+                    .with_ignore_unimportant(self.map.rules.ignore_unimportant)
+                    != Importance::Same
+            })
+            .map(|s| s.rows.start)
+    }
     pub(crate) fn edited(&mut self, old_line_count: usize) {
         if let Some(worker) = &self.worker {
             worker.cancel();
@@ -622,31 +635,29 @@ impl TextCompareView {
             self.message = "Wait for comparison before navigating differences".into();
             return;
         }
-        let target = if edge && next {
-            self.first_difference()
-        } else if edge {
-            self.sections
-                .iter()
-                .rfind(|s| {
-                    s.importance
-                        .with_ignore_unimportant(self.map.rules.ignore_unimportant)
-                        != Importance::Same
-                })
-                .map(|s| s.rows.start)
-        } else if next {
-            self.map
-                .next_difference(self.current_row, Importance::Unimportant)
-        } else {
-            self.map
-                .prev_difference(self.current_row, Importance::Unimportant)
+        let edge_target = |v: &Self| {
+            if next {
+                v.first_difference()
+            } else {
+                v.last_difference()
+            }
         };
-        if let Some(row) = target {
-            self.goto_row(row);
+        let target = if edge {
+            edge_target(self)
         } else {
-            self.message = "No more differences".into();
-            self.notice = Some(crate::chrome::message_panel::MessagePanel::new(
-                "Difference not found.",
-            ));
+            let found = if next {
+                self.map
+                    .next_difference(self.current_row, Importance::Unimportant)
+            } else {
+                self.map
+                    .prev_difference(self.current_row, Importance::Unimportant)
+            };
+            // Wrap around：越过末端从另一端再找（与 First/Last Difference 同口径）。
+            found.or_else(|| self.next_diff.wrap_around.then(|| edge_target(self)).flatten())
+        };
+        match target {
+            Some(row) => self.goto_row(row),
+            None => self.not_found.not_found(self.next_diff),
         }
     }
     pub(crate) fn goto_row(&mut self, row: usize) {
@@ -1374,9 +1385,8 @@ impl TextCompareView {
         }
         // Modal dialogs own the keyboard while they are open.
         let modal = self.session.open || self.options.open;
-        if self.notice.is_some() && crate::chrome::message_panel::MessagePanel::dismissed_by(&ctx) {
-            self.notice = None;
-        }
+        self.next_diff = prefs.next_diff;
+        self.not_found.begin_frame(&ctx);
         if !modal {
             self.keyboard(&ctx, prefs);
         }
@@ -1437,11 +1447,7 @@ impl TextCompareView {
             self.drag_autoscroll(&ctx);
         }
         let available = ui.available_rect_before_wrap().intersect(bounds);
-        let notice_height = if self.notice.is_some() {
-            crate::chrome::message_panel::HEIGHT
-        } else {
-            0.0
-        };
+        let notice_height = self.not_found.height();
         let body = egui::Rect::from_min_max(
             available.min,
             egui::pos2(
@@ -1555,13 +1561,13 @@ impl TextCompareView {
                 ctx.memory_mut(|m| m.request_focus(id));
             }
         }
-        if let Some(notice) = &mut self.notice {
-            let rect = egui::Rect::from_min_size(
+        self.not_found.paint(
+            ui,
+            egui::Rect::from_min_size(
                 egui::pos2(available.left(), details.bottom()),
                 egui::vec2(available.width(), notice_height),
-            );
-            notice.paint(ui, rect);
-        }
+            ),
+        );
         let status = egui::Rect::from_min_size(
             egui::pos2(available.left(), details.bottom() + notice_height),
             egui::vec2(available.width(), 25.0),

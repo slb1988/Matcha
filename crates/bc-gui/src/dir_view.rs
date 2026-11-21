@@ -1902,6 +1902,8 @@ pub struct DirCompareView {
     quick: Option<String>,
     text: Option<Box<TextCompareView>>,
     text_prefs: Prefs,
+    /// Options › Next Difference（应用层每帧经 [`Self::set_next_diff`] 同步）。
+    pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
     exit_requested: bool,
     /// 关闭标签页在等内嵌文本窗口的保存确认；确认关闭后转为 `close_requested`。
     close_after_text: bool,
@@ -2015,6 +2017,7 @@ impl DirCompareView {
             quick: None,
             text: None,
             text_prefs: Prefs::default(),
+            next_diff: Default::default(),
             exit_requested: false,
             close_after_text: false,
             close_requested: false,
@@ -2732,6 +2735,11 @@ impl DirCompareView {
                 }),
             }
         }
+    }
+    /// 同步 Options › Next Difference：本视图的差异/冲突导航与内嵌文本窗口都用它。
+    pub fn set_next_diff(&mut self, prefs: bc_session::prefs::NextDiffPrefs) {
+        self.next_diff = prefs;
+        self.text_prefs.next_diff = prefs;
     }
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<FolderNavigation> {
         let ctx = ui.ctx().clone();
@@ -6656,7 +6664,15 @@ mod tests {
         assert!(text.map.statistics().important > 0);
         let parents = text.parent_folders().unwrap();
         assert!(parents[0].ends_with("left") && parents[1].ends_with("right"));
+        // Options › Next Difference 经文件夹视图传给内嵌文本窗口。
+        assert!(!view.text.as_ref().unwrap().next_diff.wrap_around);
+        view.set_next_diff(bc_session::prefs::NextDiffPrefs {
+            message_panel: false,
+            wrap_around: true,
+        });
         frame(&mut view, &ctx);
+        let embedded = view.text.as_ref().unwrap().next_diff;
+        assert!(embedded.wrap_around && !embedded.message_panel);
         assert!(!view.request_text_close(false));
         let text = view.text.as_mut().unwrap();
         text.content_mut(0).replace_line(0, b"edited").unwrap();

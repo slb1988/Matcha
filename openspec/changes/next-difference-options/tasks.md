@@ -11,11 +11,11 @@
 
 ## 2. 共用面板状态与文本比较接入
 
-- [ ] 2.1 在 `chrome/message_panel.rs` 增加 `NotFoundPanel`（`begin_frame` / `not_found` / `height` / `paint` / `is_shown`）和 `NOT_FOUND` 常量；补单元测试：`message_panel` 关闭时 `not_found` 不显示；按键、文字、鼠标按下关闭面板；鼠标移动不关闭
-- [ ] 2.2 文本视图用 `NotFoundPanel` 替换 `notice` 字段；`navigate` 接收 `NextDiffPrefs`，按 design D2 实现回绕；删除不可见的 "No more differences" 消息
-- [ ] 2.3 扩展 `navigating_past_the_last_difference_shows_and_dismisses_the_message_panel`，并新增测试：回绕向下/向上、关闭面板后静默、两侧相同时开启回绕仍弹面板、First/Last Difference 不受回绕影响；`cargo test -p bc-gui --lib text::` 通过
-- [ ] 2.4 文件夹比较的浮动文本视图：`DirCompareView` 增加 `set_next_diff`，写入 `text_prefs.next_diff`；`app.rs` 在调用文件夹/同步视图的 `ui()` 前设置；补测试，确认浮动文本视图在开启回绕时会回绕
-- [ ] 2.5 更新 `docs/features/text-compare.md` 的消息面板段落（去掉"暂未提供选项/不回绕"，写明两个开关的效果）；`CHANGELOGS.md`；dev-build 后提交
+- [x] 2.1 在 `chrome/message_panel.rs` 增加 `NotFoundPanel`（`begin_frame` / `not_found` / `height` / `paint` / `is_shown`）和 `NOT_FOUND` 常量；补单元测试：`message_panel` 关闭时 `not_found` 不显示；按键、文字、鼠标按下关闭面板；鼠标移动不关闭
+- [x] 2.2 文本视图用 `NotFoundPanel` 替换 `notice` 字段；`navigate` 接收 `NextDiffPrefs`，按 design D2 实现回绕；删除不可见的 "No more differences" 消息
+- [x] 2.3 扩展 `navigating_past_the_last_difference_shows_and_dismisses_the_message_panel`，并新增测试：回绕向下/向上、关闭面板后静默、两侧相同时开启回绕仍弹面板、First/Last Difference 不受回绕影响；`cargo test -p bc-gui --lib text::` 通过
+- [x] 2.4 文件夹比较的浮动文本视图：`DirCompareView` 增加 `set_next_diff`，写入 `text_prefs.next_diff`；`app.rs` 在调用文件夹/同步视图的 `ui()` 前设置；补测试，确认浮动文本视图在开启回绕时会回绕
+- [x] 2.5 更新 `docs/features/text-compare.md` 的消息面板段落（去掉"暂未提供选项/不回绕"，写明两个开关的效果）；`CHANGELOGS.md`；dev-build 后提交
 
 ## 3. 表格比较
 
@@ -26,7 +26,7 @@
 
 ## 4. 十六进制比较
 
-- [ ] 4.1 `hex/view.rs`：增加 `NotFoundPanel` 字段和 `set_next_diff`；`app.rs` 与文件夹视图的浮动十六进制窗口在调用 `ui()` 前设置偏好；在按键处理前调用 `begin_frame`，状态栏上方绘制面板并让出高度
+- [ ] 4.1 `hex/view.rs`：增加 `NotFoundPanel` 字段和 `set_next_diff`；`app.rs` 在调用 `ui()` 前设置偏好（文件夹比较没有内嵌 hex 窗口）；在按键处理前调用 `begin_frame`，状态栏上方绘制面板并让出高度
 - [ ] 4.2 `next_difference` 按 design D2 回绕；找不到时调用 `not_found`，删除中文"最后一个差异之后"类提示
 - [ ] 4.3 在 `hex/view_tests.rs` 补测试：Ctrl+N/Ctrl+P、`nav.next` 工具栏 id、菜单命令三条路径；回绕；静默；两侧相同；`cargo test -p bc-gui --lib hex::` 通过
 - [ ] 4.4 更新 `docs/features/hex-compare.md`、`CHANGELOGS.md`；dev-build 后提交

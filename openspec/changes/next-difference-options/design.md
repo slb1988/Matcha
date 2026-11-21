@@ -69,8 +69,10 @@ match target { Some(t) => goto(t), None => panel.not_found(prefs) }
 ### D3：偏好传递
 
 - `Prefs` 新增 `next_diff: NextDiffPrefs { message_panel: bool, wrap_around: bool }`，实现 `Copy`，默认值为 `{ true, false }`。
-- 带 `&mut Prefs` 的视图直接读 `prefs.next_diff`。命令分发函数如果没有 prefs 参数（如 `hex::command(id)`、`merge::command(id)`），就在视图里缓存一份 `next_diff`，每帧 `ui()` 开头更新。
-- 十六进制、文件夹（含同步）的 `ui()` 不带 prefs：新增 `set_next_diff(NextDiffPrefs)`，`app.rs` 在调用 `ui()` 前设置。文件夹视图再把它写进 `text_prefs.next_diff`，并转给浮动打开的十六进制视图。
+- 每个视图都缓存一份 `next_diff: NextDiffPrefs` 字段，导航时只读这个字段，因此 `navigate` / `command(id)` 不用加参数，测试也能直接设置。
+  - `ui()` 带 `&mut Prefs` 的视图（文本、表格、合并）在 `ui()` 开头执行 `self.next_diff = prefs.next_diff`；
+  - `ui()` 不带 prefs 的视图（十六进制、文件夹，含同步）提供 `set_next_diff(NextDiffPrefs)`，由 `app.rs` 在调用 `ui()` 前设置。
+- 文件夹视图在 `set_next_diff` 里同时写 `text_prefs.next_diff`，内嵌文本窗口每帧再从中同步。文件夹比较没有内嵌的十六进制窗口：hex 以新标签页打开，走应用偏好。
 - 备选方案：把所有 `ui()` 签名统一成带 `&mut Prefs`。否决原因：改动面大，涉及测试辅助函数和快照/基准入口，与本变更无关。
 
 ### D4：持久化键
