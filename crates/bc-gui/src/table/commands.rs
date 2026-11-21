@@ -232,7 +232,7 @@ impl TableCompareView {
         }
         let p = self.pair.as_ref().unwrap();
         if p.map.row_count() == 0 || (kind == 0 && p.map.column_count() == 0) {
-            self.message = "No more differences / edits".into();
+            self.not_found.not_found(self.next_diff);
             return;
         }
         let current = Cursor {
@@ -262,15 +262,9 @@ impl TableCompareView {
                     .copied()
             }
         };
-        let target = if kind == 0 {
-            let cols = p.map.column_count();
-            let mut row = current.row;
-            let mut column = if forward {
-                current.column.saturating_add(1)
-            } else {
-                current.column
-            };
-            let mut found = None;
+        let cols = p.map.column_count();
+        // Difference Cell：从 (row, column) 起按行优先扫描（向前不含 column 之前，向后只看 column 之前）。
+        let scan = |mut row: usize, mut column: usize| {
             loop {
                 let range: Box<dyn Iterator<Item = usize>> = if forward {
                     Box::new(column..cols)
@@ -282,31 +276,45 @@ impl TableCompareView {
                         .cell_importance(row, c)
                         .is_some_and(|i| i != bc_engine_table::compare::Importance::Same)
                 }) {
-                    found = Some(Cursor { row, column: c });
-                    break;
+                    return Some(Cursor { row, column: c });
                 }
-                let Some(next) = next_row(row) else {
-                    break;
-                };
-                row = next;
+                row = next_row(row)?;
                 column = if forward { 0 } else { cols };
             }
-            found
-        } else {
-            next_row(current.row).map(|row| Cursor {
-                row,
-                column: if self.grid.columns.contains(&current.column) {
-                    current.column
-                } else {
-                    self.grid.columns.first().copied().unwrap_or(current.column)
-                },
-            })
         };
+        let row_target = |row: usize| Cursor {
+            row,
+            column: if self.grid.columns.contains(&current.column) {
+                current.column
+            } else {
+                self.grid.columns.first().copied().unwrap_or(current.column)
+            },
+        };
+        let found = if kind == 0 {
+            let column = if forward {
+                current.column.saturating_add(1)
+            } else {
+                current.column
+            };
+            scan(current.row, column)
+        } else {
+            next_row(current.row).map(row_target)
+        };
+        // Wrap around：越过末端从另一端再找。
+        let edge = if forward { rows.first() } else { rows.last() }.copied();
+        let target = found.or_else(|| {
+            let row = edge.filter(|_| self.next_diff.wrap_around)?;
+            if kind == 0 {
+                scan(row, if forward { 0 } else { cols })
+            } else {
+                Some(row_target(row))
+            }
+        });
         if let Some(target) = target {
             self.goto_cell(target);
             self.focus_grid = Some(self.grid.active);
         } else {
-            self.message = "No more differences / edits".into();
+            self.not_found.not_found(self.next_diff);
         }
     }
     pub(super) fn undo(&mut self, redo: bool) {

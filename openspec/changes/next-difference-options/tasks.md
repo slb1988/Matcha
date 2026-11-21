@@ -19,10 +19,10 @@
 
 ## 3. 表格比较
 
-- [ ] 3.1 `table/view.rs` 持有 `NotFoundPanel`：在处理键盘之前调用 `begin_frame`，主体高度扣除面板高度，面板画在状态栏正上方
-- [ ] 3.2 `table/commands.rs::navigate` 按 design D2 回绕（差异单元格 / 差异行 / 编辑三种 kind，以及空表的情况），找不到时调用 `not_found`，删除 "No more differences / edits"
-- [ ] 3.3 在 `table/navigation_tests.rs` 补测试：三种 kind 的面板与回绕、关闭面板后静默；通过快捷键和菜单命令 id 各验证一次；验证状态栏不再出现旧文字；`cargo test -p bc-gui --lib table::` 通过
-- [ ] 3.4 更新 `docs/features/table-compare.md`、`CHANGELOGS.md`；dev-build 后提交
+- [x] 3.1 `table/view.rs` 持有 `NotFoundPanel`：在处理键盘之前调用 `begin_frame`，主体高度扣除面板高度，面板画在状态栏正上方
+- [x] 3.2 `table/commands.rs::navigate` 按 design D2 回绕（差异单元格 / 差异行 / 编辑三种 kind，以及空表的情况），找不到时调用 `not_found`，删除 "No more differences / edits"
+- [x] 3.3 在 `table/navigation_tests.rs` 补测试：三种 kind 的面板与回绕、关闭面板后静默；通过快捷键和菜单命令 id 各验证一次；验证状态栏不再出现旧文字；`cargo test -p bc-gui --lib table::` 通过
+- [x] 3.4 更新 `docs/features/table-compare.md`、`CHANGELOGS.md`；dev-build 后提交
 
 ## 4. 十六进制比较
 

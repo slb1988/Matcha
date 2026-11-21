@@ -80,7 +80,7 @@ fn difference_cell_and_row_commands_visit_row_major_targets_and_stop_at_both_end
     let last = v.grid.cursor;
     search(&ctx, &mut v, "Next Difference Cell");
     assert_eq!(v.grid.cursor, last);
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     v.grid.cursor = Cursor { row: 6, column: 2 };
     for &(row, column) in cells.iter().rev() {
         search(&ctx, &mut v, "Previous Difference Cell");
@@ -88,21 +88,21 @@ fn difference_cell_and_row_commands_visit_row_major_targets_and_stop_at_both_end
     }
     search(&ctx, &mut v, "Previous Difference Cell");
     assert_eq!(v.grid.cursor, Cursor { row: 1, column: 1 });
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     v.grid.cursor = Cursor::default();
     for row in [1, 2, 4, 5] {
         search(&ctx, &mut v, "Next Difference Row");
         assert_eq!(v.grid.cursor.row, row);
     }
     search(&ctx, &mut v, "Next Difference Row");
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     v.grid.cursor.row = 6;
     for row in [5, 4, 2, 1] {
         search(&ctx, &mut v, "Previous Difference Row");
         assert_eq!(v.grid.cursor.row, row);
     }
     search(&ctx, &mut v, "Previous Difference Row");
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn all_four_filters_and_ignore_project_counts_without_changing_raw_states() {
     search(&ctx, &mut v, "Next Difference Cell");
     assert_eq!(v.grid.cursor, Cursor { row: 2, column: 1 });
     search(&ctx, &mut v, "Previous Difference Cell");
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     choose(&ctx, &mut v, "Ignore Unimportant");
     ready(&mut v);
     search(&ctx, &mut v, "Previous Difference Cell");
@@ -202,11 +202,11 @@ fn edit_navigation_reveals_same_rows_and_follows_undo_redo_marks() {
     search(&ctx, &mut v, "Next Edit");
     assert_eq!(v.grid.cursor.row, 3);
     search(&ctx, &mut v, "Next Edit");
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     search(&ctx, &mut v, "Previous Edit");
     assert_eq!(v.grid.cursor.row, 1);
     search(&ctx, &mut v, "Previous Edit");
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
     v.undo(false);
     ready(&mut v);
     assert_eq!(v.pair.as_ref().unwrap().cache.edited_rows, [3]);
@@ -282,7 +282,8 @@ fn empty_same_and_stale_tables_never_navigate_to_phantom_cells() {
                 let old = v.grid.cursor;
                 v.navigate(forward, kind);
                 assert_eq!(v.grid.cursor, old);
-                assert!(v.message.contains("No more"));
+                assert!(v.not_found.is_shown());
+                assert!(!v.message.contains("No more"));
             }
         }
     }
@@ -301,6 +302,84 @@ fn empty_same_and_stale_tables_never_navigate_to_phantom_cells() {
     assert!(v.message.contains("Wait"));
     v.navigate(true, 0);
     assert_eq!(v.grid.cursor, Cursor::default());
+}
+
+#[test]
+fn navigation_past_the_ends_shows_the_panel_wraps_or_stays_silent() {
+    use bc_session::prefs::NextDiffPrefs;
+    let ctx = egui::Context::default();
+    let mut v = nav_view();
+    frame(&ctx, &mut v, vec![]);
+    let diff_rows = v.pair.as_ref().unwrap().cache.diff_rows.clone();
+    let (first, last) = (diff_rows[0], *diff_rows.last().unwrap());
+    // 快捷键 Ctrl+N（Next Difference Row）走到最后一个差异行，再按一次弹面板、光标不动。
+    for _ in 0..diff_rows.len() {
+        frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    }
+    assert_eq!(v.grid.cursor.row, last);
+    assert!(!v.not_found.is_shown());
+    let out = frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.grid.cursor.row, last);
+    assert!(v.not_found.is_shown());
+    // 面板画在状态栏上方，状态栏不再出现旧提示。
+    let panel = button(&out, crate::chrome::message_panel::NOT_FOUND);
+    assert!(panel.y < 900.0 - 25.0);
+    assert!(!v.message.contains("No more"));
+    // 下一次按键关闭面板。
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowLeft, false)]);
+    assert!(!v.not_found.is_shown());
+    // 菜单命令 id 同一路径：Difference Cell 一直向后直到越过末端。
+    for _ in 0..64 {
+        let before = v.grid.cursor;
+        v.command("Next Difference Cell", &ctx, &Prefs::default());
+        if v.not_found.is_shown() {
+            assert_eq!(v.grid.cursor, before);
+            break;
+        }
+    }
+    assert!(v.not_found.is_shown());
+    // 回绕：向下回到第一个差异行，向上回到最后一个；不弹面板。
+    let mut wrap = Prefs::default();
+    wrap.next_diff.wrap_around = true;
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowLeft, false)]);
+    v.next_diff = wrap.next_diff;
+    v.navigate(true, 1);
+    assert_eq!(v.grid.cursor.row, first);
+    assert!(!v.not_found.is_shown());
+    v.navigate(false, 1);
+    assert_eq!(v.grid.cursor.row, last);
+    // Difference Cell：先走到最后一个差异格，再回绕到第一个差异行的第一个差异格。
+    v.next_diff = NextDiffPrefs::default();
+    while !v.not_found.is_shown() {
+        v.navigate(true, 0);
+    }
+    v.not_found = Default::default();
+    v.next_diff = wrap.next_diff;
+    v.navigate(true, 0);
+    let wrapped = v.grid.cursor;
+    let p = v.pair.as_ref().unwrap();
+    assert_eq!(wrapped.row, first);
+    assert!(p
+        .map
+        .cell_importance(wrapped.row, wrapped.column)
+        .is_some_and(|i| i != Importance::Same));
+    assert!((0..wrapped.column).all(|c| p
+        .map
+        .cell_importance(first, c)
+        .is_none_or(|i| i == Importance::Same)));
+    // 没有编辑：开启回绕也找不到，仍弹面板。
+    v.navigate(true, 2);
+    assert!(v.not_found.is_shown());
+    // 关闭面板：静默，光标不动。
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowLeft, false)]);
+    v.next_diff = NextDiffPrefs {
+        message_panel: false,
+        wrap_around: false,
+    };
+    let old = v.grid.cursor;
+    v.navigate(true, 2);
+    assert_eq!(v.grid.cursor, old);
+    assert!(!v.not_found.is_shown());
 }
 
 #[test]

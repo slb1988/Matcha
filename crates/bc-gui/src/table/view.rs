@@ -144,6 +144,10 @@ pub struct TableCompareView {
     pub(super) pending: Option<Pending>,
     pub(super) action: Option<TableAction>,
     pub(super) message: String,
+    /// 「Difference not found.」面板（状态栏上方）。
+    pub(super) not_found: crate::chrome::message_panel::NotFoundPanel,
+    /// Options › Next Difference（每帧 `ui()` 开头从偏好同步）。
+    pub(super) next_diff: bc_session::prefs::NextDiffPrefs,
     pub(super) show_statistics: bool,
     pub(super) goto: [usize; 2],
     pub(super) align_with: Option<(usize, usize)>,
@@ -211,6 +215,8 @@ impl TableCompareView {
             pending: None,
             action: None,
             message: String::new(),
+            not_found: Default::default(),
+            next_diff: Default::default(),
             show_statistics: false,
             goto: [1, 1],
             align_with: None,
@@ -1054,6 +1060,8 @@ impl TableCompareView {
             ui.disable();
         }
         self.restore_grid_focus(&ctx);
+        self.next_diff = prefs.next_diff;
+        self.not_found.begin_frame(&ctx);
         if !blocked && !self.settings.open {
             self.shortcuts(&ctx, prefs);
         }
@@ -1099,9 +1107,14 @@ impl TableCompareView {
         } else {
             0.0
         };
-        let tabs_rect = egui::Rect::from_min_max(
-            egui::pos2(available.left(), status.top() - sheet_strip),
+        // 「Difference not found.」面板紧贴状态栏上方，其余区域上移让出高度。
+        let notice = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - self.not_found.height()),
             egui::pos2(available.right(), status.top()),
+        );
+        let tabs_rect = egui::Rect::from_min_max(
+            egui::pos2(available.left(), notice.top() - sheet_strip),
+            egui::pos2(available.right(), notice.top()),
         );
         let thumb = if self.show_thumbnail { 52.0 } else { 0.0 };
         let details_height = if self.show_details && self.pair.is_some() {
@@ -1234,6 +1247,7 @@ impl TableCompareView {
                 menu_owners.push((1, right));
             }
         }
+        self.not_found.paint(ui, notice);
         self.status_bar(ui, status);
         ui.allocate_rect(available, egui::Sense::hover());
         // 窗格分隔线（4 px 缝中央）：并排左右拖、上下布局上下拖；位置持久化，双击复位。

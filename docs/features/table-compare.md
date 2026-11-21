@@ -37,6 +37,11 @@
   光标与滚动自动落到第一个差异行的第一个改动格（与 Next Difference 同口径；整行只有行序差异时落在首个可见列）；
   无差异则停在左上角。一次性（`TableCompareView::land_on_first_diff`）：就绪前已移动光标或编辑则不跳，
   编辑后的重新对齐、Recompare、显示层切换不会把光标拉回。
+- **找不到差异时的消息面板**：Next / Previous Difference Cell（`Shift+Ctrl+N` / `Shift+Ctrl+P`）、Difference Row
+  （`Ctrl+N` / `Ctrl+P`）、Next / Previous Edit 没有目标时，光标不动，状态栏正上方（sheet 标签之下）弹出 **Difference not found.**
+  面板并响一声，下一次按键或鼠标按下关闭；状态栏不再显示原来的 "No more differences / edits"。遵循 Tools › Options › Next Difference：
+  Wrap around 开启时 Row / Edit 回到第一个（最后一个）目标行，Cell 回到第一个差异行的第一个差异格（向上为最后一个差异格），
+  没有目标（如没有编辑）仍弹面板；Show message panel 关闭时静默。共用组件与规则见 [text-compare.md](text-compare.md)「找不到差异时的消息面板」。
 - 入口路由：两个文件按 `bc_formats::route` 统一判定（见 [gui-shell.md](gui-shell.md)「文件对的会话类型统一路由」），
   xlsx/xlsm/csv/tsv/tab 与用户表格格式默认打开表格比较，先于二进制嗅探（xlsx 是 ZIP，此前会误进十六进制）；
   文件夹比较里打开这类文件对时新开表格比较标签页。`/qc` 规则比较对表格按单元格比较（见 cli-and-scripting.md）。
