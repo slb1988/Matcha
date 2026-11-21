@@ -1,157 +1,68 @@
 # Matcha
 
-A Windows-first desktop comparison tool written in Rust: text, table, hex, picture and
-folder compare/merge/sync, behaviourally aligned with a well-known commercial reference
-(version 5.0.6) whose internals were recovered by static analysis. The goal of the first
-three milestones is **1:1 behaviour** — same difference colouring semantics, same session
-concepts, compatible session/format XML files, identical CLI exit codes and script
-commands — followed by extensions.
+Matcha 是用 Rust 编写的桌面文件比较与合并工具，优先支持 Windows。你可以并排查看两版代码改了哪些字符、两份 Excel 工作簿改了哪些单元格，或在同步两个文件夹之前核对要复制和删除的文件。只需要差异报告时，不用打开窗口。
 
-Status: **scaffold** (2026-11-05). Crate boundaries, traits, data models, the built-in
-format library, the exit-code/command/switch tables and an egui prototype are in place;
-every algorithm is a `todo!()`.
+## 第一次比较（Windows x64）
 
-Current table-memory work: [session handoff](docs/worker-reports/table-memory-handoff.md)
-and [measurement details](tools/demand_proto.md). The demand-backed GUI path is experimental,
-default-off, and has **not passed the GUI ready-time gate**; the scaffold description above is historical.
+1. 打开 [最新正式版](https://github.com/slb1988/Matcha/releases/latest)，在 **Assets** 中下载 `matcha-<版本>-windows-x86_64.zip`，而不是 *Source code*。解压整个 ZIP，双击 `matcha.exe`；使用发行包不需要安装 Rust。
+2. 准备两个文本文件。比如在 `old.txt` 写一行 `port=8080`，在 `new.txt` 写一行 `port=8081`。在资源管理器里选中两个文件，一起拖到 Matcha 的 **Home** 页。如果文件在不同目录，先点 **Text Compare**，再分别拖到左右窗格。
+3. 比较完成后，视图会定位到第一个差异，标出行内不同的字符。这个例子里只改了端口号的最后一位。查看长文件时，按 `Ctrl+N` / `Ctrl+P` 跳到下一个 / 上一个差异区段。只查看不会改动文件。
 
-## Project goals and non-goals
+## 按任务选择视图
 
-- Goal (M1–M3): Text Compare/Merge/Edit, Folder Compare/Sync, Table Compare (CSV), script
-  engine with the full command set and exit-code table, session files readable by and
-  from the reference tool.
-- Non-goals inside M1–M3: remote VFS protocols, SCC integration, shell extension,
-  printing, licensing.
-- Later (P2–P4): Hex/Picture/Version/Registry/Media compare, snapshots, settings packages,
-  VFS providers.
+| 任务 | 在 Matcha 里怎么做 |
+| --- | --- |
+| 核对或修改文本 | [文本比较](docs/features/text-compare.md)可以就地编辑，或用行号旁的箭头把一段改动复制到另一侧。用[数字书签](docs/features/text-bookmarks.md)可在几处修改之间往返。 |
+| 找出表格里改了哪个值 | 将两份 CSV、TSV 或 Excel 工作簿（`.xlsx` / `.xlsm`）拖到 Home。[表格比较](docs/features/table-compare.md)按键列对齐行，再逐格显示差异；多工作表可切换查看。旧版 `.xls` 不支持原生表格比较。 |
+| 看两个目录相差哪些文件 | 将两个目录一起拖到 Home，打开[文件夹比较](docs/features/folder-compare-sync.md)。要同步时用 **Folder Sync**，先预览每项动作，再执行。 |
+| 查看二进制差异 | 用[十六进制比较](docs/features/hex-compare.md)并排看字节、按偏移定位，区分内容变化与单侧插入。 |
+| 合并两人基于同一版本的修改 | [文本三方合并](docs/features/text-merge.md)能逐段解决冲突；[表格三方合并](docs/features/table-merge.md)能把双方对同一行不同单元格的修改合在一起。工作簿自动按表格合并；CSV/TSV 默认按文本行合并，加 `/tablemerge` 才按单元格合并。 |
 
-The authoritative specification lives in the project vault
-(`luckey/03_projects/bcompare-clone/bc5-clone-spec.md`, "framework and feature
-requirements"); milestone and FR numbering in crate docs refer to it. Milestones:
+经常核对同一对路径？可以[保存为命名会话](docs/features/saved-sessions.md)，下次从 Home 的 **Saved** 列表直接重开。
 
-| milestone | content |
-|---|---|
-| M1 | P0: FR-T1…T6 text compare, FR-D1…D3 folder compare, FR-G1 single-instance GUI, FR-X1 session XML |
-| M2 | P1: FR-T7 3-way merge, FR-T8 alignment settings, FR-D4/D5 sync + background compare, FR-S1/S2 script engine + launchers, FR-R1 reports, FR-C1 CSV table compare |
-| M3+ | P2–P4 per the feature inventory |
+## 在命令行里比较
 
-## Red lines
+解压出的三个程序应放在同一目录，按用途选择：
 
-- **No licensing, trial, registration or key handling of any kind.** The exit code `104`
-  exists in the enumeration only because the reference table lists it; nothing produces it.
-- **No use of the reference product's name, abbreviations or icons in anything shipped.**
-  Executables are `matcha`, `matcha-comp`, `matcha-compc` (shipped on Windows as
-  `matcha.exe`, `matcha-comp.exe`, `matcha.com`). The `bc-` crate prefix and
-  the class names quoted in doc comments are internal engineering references to the
-  analysis notes, not product branding. The crate directories `apps/bcompare` and
-  `apps/bcomp` keep the spec's internal names; their binaries do not.
-- The analysis inputs in the vault are read-only; this repository only carries a copy of
-  the built-in format library resource (`crates/bc-formats/data/bcfileformats.xml`).
+- `matcha.exe`：双击打开桌面界面，也是 P4V 应配置的合并工具。
+- `matcha.com`：在终端或脚本中调用，能输出报告、等待完成并返回退出码。
+- `matcha-comp.exe`：供版本控制工具发起比较，交给界面后立即返回，不适合作为合并工具。
 
-## Workspace layout
-
-```
-Cargo.toml                 workspace (resolver 2, edition 2021)
-crates/
-  bc-core/                 line model, diff/align traits, undo stack, hashing, encoding, Delphi-XML persistence
-  bc-formats/              format registry; build.rs converts bcfileformats.xml → embedded JSON
-  bc-vfs/                  Vfs trait + LocalFs skeleton + VfsManager
-  bc-jobs/                 Job trait, cancellation, progress, per-job Worker thread (ADR 008)
-  bc-engine-text/          TextMap, rules, importance, inline diff, merge, align jobs
-  bc-engine-dir/           DirTree, criteria, filters, sync plan, file ops, jobs
-  bc-engine-table/         TableModel, KeyAlign, TableRules
-  bc-engine-bin/           hex / picture / version / registry / media models
-  bc-session/              Session/SessionKind/Workspace + BCSessions.xml layer
-  bc-report/               report request model + renderers
-  bc-script/               ExitCode, Command (29), script parser, CLI switches, runner
-  bc-gui/                  eframe shell: Home placeholder + dual-pane prototype + benchmark
-apps/
-  bcompare/                bin `matcha` (main GUI program)
-  bcomp/                   bins `matcha-comp` (return immediately) and `matcha-compc` (wait for exit code)
-tools/
-  xtask/                   `cargo xtask dist`: per-platform distribution layout
-docs/
-  ui-framework-decision.md egui prototype measurements and framework verdict
-```
-
-Dependency direction is strictly downward and acyclic:
-
-```
-apps → bc-gui / bc-script → bc-report → bc-session → bc-engine-{text,dir,table,bin}
-     → bc-formats / bc-vfs / bc-jobs → bc-core
-```
-
-`bc-engine-dir` additionally uses `bc-engine-text` (rules-based content compare).
-No engine crate depends on `bc-gui`; `bc-gui` is the only crate with a GUI dependency.
-`bc-jobs` uses only `std::thread` (no async runtime); each job runs on its own thread owned by the view that started it (ADR 008).
-
-## Build, test, run
-
-Requirements: stable Rust ≥ 1.88 (calamine 0.38 requires 1.88; developed with 1.99), Windows 10/11 (the engine crates
-are platform-neutral; only `bc-gui` needs a display).
+在含 `matcha.com` 的目录打开 **PowerShell**。以下命令分别运行，把示例文件名换成实际路径（含空格时加双引号）：
 
 ```powershell
-cargo check --workspace --all-targets     # all 14 crates
-cargo clippy --workspace --all-targets    # warning-free at scaffold time
-cargo test --workspace                    # one real test: bc-formats built-in library
-cargo run --release -p bcompare -- <left> <right>             # dual-pane prototype
-cargo run --release -p bcompare -- <left> <right> --bench=600 # scroll benchmark
+# 快速判断两份文本是否相同
+.\matcha.com /qc old.txt new.txt
+$LASTEXITCODE   # 上面的端口号示例返回 13
+
+# 看具体改了哪几行（unified diff）
+.\matcha.com /report=patch-unified old.txt new.txt
+
+# 列出工作簿内有差异的工作表、行和单元格
+.\matcha.com /report=summary old.xlsx new.xlsx
+
+# 无窗口三方合并：共同祖先、对方版本、本地版本、输出文件
+.\matcha.com /automerge base.txt theirs.txt yours.txt merged.txt
 ```
 
-### Distribution: GUI without a console, command line with output
+- **判断是否相同**用 `/qc`：对文本或表格按规则比较时，`2` 表示相同，`12` 表示只有不重要差异，`13` 表示有重要差异。`/report` 返回 `0` 只表示报告生成成功，不表示文件相同。
+- **自动合并**无冲突时写入输出文件并返回 `0`；上例遇到冲突时返回 `101`，不改动已有输出。
+- 查看开关用 `.\matcha.com /?`。更多示例见[命令行与脚本](docs/features/cli-and-scripting.md)、[报告格式](docs/features/reports.md)和 [P4V 合并配置](docs/features/text-merge.md#p4v-配置)。
+
+## 从源码运行
+
+在 Windows 上准备好 Git、[Rust 稳定版](https://rustup.rs/)（MSVC 工具链），以及 Visual Studio Build Tools 的「使用 C++ 的桌面开发」工作负载和 Windows SDK。在 PowerShell 中运行：
 
 ```powershell
-cargo xtask dist        # → target/dist/matcha-<version>-windows-<arch>/
+git clone https://github.com/slb1988/Matcha.git
+cd Matcha
+powershell -ExecutionPolicy Bypass -File .\tools\dev-build.ps1
+.\target\debug\matcha.exe
 ```
 
-| file | subsystem | use |
-|---|---|---|
-| `matcha.exe` | GUI | double-click / Explorer menu / shortcut: opens the window, no console |
-| `matcha.com` | console | `matcha …` in cmd/PowerShell (`PATHEXT` prefers `.COM`): waits, prints text (redirectable), returns the exit code |
-| `matcha-comp.exe` | GUI | VCS integration: hands off and returns at once |
+- **测试与打包**：在仓库根目录运行 `cargo test --workspace`；`cargo xtask dist` 将发行文件组装到 `target/dist/`，不生成 ZIP。
+- **找代码**：主程序入口在 [apps/bcompare](apps/bcompare/)，界面在 [bc-gui](crates/bc-gui/)。[功能文档索引](docs/features/README.md)按任务列出实现位置和验证方法；设计取舍见[决策记录](docs/decisions/)，近期变化见[更新日志](CHANGELOGS.md)。
 
-Windows fixes the subsystem at link time, hence two files; in Git Bash type `matcha.com`.
+## 许可证
 
-Without a window (all run in the starting process, never in an open Matcha window):
-
-```bat
-matcha /qc a.txt b.txt                                   :: exit 2 same / 12 similar / 13 different
-matcha /report=patch-unified a.txt b.txt                 :: unified diff to the console
-matcha /report=patch a.txt b.txt > diff.patch            :: or redirect / pipe it
-matcha /report=patch /reportfile=diff.patch a.txt b.txt  :: or write a file directly
-matcha @diff.txt a.txt b.txt                             :: run a script (%1 %2 = a.txt b.txt)
-```
-
-`/qc` prints its result as one line unless `/silent` (`/qc=binary|crc|size` → 1 / 11).
-`/report=` takes `patch`, `patch-normal`, `patch-context` or `patch-unified`, with
-`/reportoptions=ignore-unimportant`; it exits 0 whether or not the files differ. Scripts
-support `text-report layout:patch` with `output-to:<file>` or `output-to:-` (standard output),
-plus `log`, `option` and `beep`; other commands are rejected before anything runs (see
-`crates/bc-script/README.md`). `/report`, `output-to:-` and `/reportfile` are Matcha
-extensions. The patch bytes follow Beyond Compare's own patch reports (`tools/golden/README.md`).
-macOS gets `Matcha.app` plus `bin/` symlinks (layout reserved, not yet verified on a Mac).
-Details: `docs/decisions/301-windows-subsystem-split.md`.
-
-## Discrepancies found while scaffolding
-
-Recorded here per the hand-over rule "notes conflict → log it, choose the minimal
-implementation"; the spec wins over notes, and the extracted data wins over both.
-
-| topic | notes say | data/reference says | what the scaffold does |
-|---|---|---|---|
-| built-in formats | 22 (19 text + 2 table + 1 picture) | the resource has **25** top-level entries: + `TMediaFormat MEDIA`, `TVerFormat EXE`, `TXMLFormat XML` | embeds all 25; unit test asserts the documented 22 by name/kind and the 25 total |
-| script commands | "28 commands" | the reference's alphabetical list has **29** entries (`ATTRIB … VERSION-REPORT`) | `CommandKind` has 29 variants (+ `data-report` alias of `table-report`) |
-| grammar match types | spec: `Delimited, Columns, List, RegEx` | classes: `TBasicTextGrammarItem` (Text + IsRegExp), `TDelimited…`, `TList…`, `TColumn…` | `GrammarMatch::{Basic, Delimited, List, Columns}`; "RegEx" = `Basic{is_regexp:true}`; `is_regex()` helper |
-| format names | implied unique | `XML` exists twice (`TXMLFormat` and `TTextFormat`) | registry keys by `(kind, name)` |
-| STX marker | "strings carry `&#2;`" | `ElementStr`/names carry it, `Text`/`Mask`/`FindText` do not | reader records `Node::stx`; the writer rule is an open question (see bc-formats README) |
-
-## Open questions / follow-ups
-
-See the "遗留问题" list in the hand-over summary and each crate README's *Open questions*
-section. The biggest items: Smart-alignment scoring (spec §8), STX write rule, single
-instance hand-off protocol, launcher wait mechanism, Windows recycle-bin/attribute APIs
-without extra dependencies.
-
-## Licence
-
-Not yet chosen (project owner's decision). Until then: all rights reserved.
+本项目尚未指定开源许可证；保留所有权利。

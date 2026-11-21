@@ -2,6 +2,10 @@
 
 本文件记录 Matcha 的用户可感知变动（功能、行为、修复）。每次变动追加一条，最新在最上。
 
+## 2026-11-22
+
+- **更新[项目首页](README.md)**：以当前可用功能替换早期脚手架说明，补上 Windows 发行包下载、第一次拖放比较、PowerShell 示例和源码构建入口。
+
 ## 2026-11-21
 
 - **文件夹比较与文件夹同步：差异 / 冲突导航到头时弹出消息面板并提示音**（[`docs/features/folder-compare-sync.md`](docs/features/folder-compare-sync.md)）：Next / Previous Difference 与 Next / Previous Conflict 没有目标时显示 **Difference not found.** 面板，取代状态栏的 "No further difference/conflict" / "No further conflict"；遵循 Options › Next Difference 的回绕与面板开关。
