@@ -4,10 +4,10 @@
 
 ## 1. 偏好、持久化与 Options › Next Difference 页
 
-- [ ] 1.1 在 `bc-session/src/prefs.rs` 新增 `NextDiffPrefs { message_panel, wrap_around }`（`Copy`，默认 `true`/`false`）并挂到 `Prefs.next_diff`；补默认值单元测试，`cargo test -p bc-session prefs` 通过
-- [ ] 1.2 在 `bc-gui/src/settings.rs` 增加 `navigation.show-message-panel`、`navigation.wrap-around` 的读写；补往返测试和"缺省 / 非法值取默认"测试，`cargo test -p bc-gui settings` 通过
-- [ ] 1.3 `dialogs/options.rs`：`PAGES` 中 Next Difference 标为已接入，加两个复选框（文案对齐参考）及说明行；照 `tweaks_page_edits_disk_change_prefs` 写测试，覆盖勾选后 OK 写回、Cancel 不写回，`cargo test -p bc-gui options` 通过
-- [ ] 1.4 更新 `docs/features/gui-shell.md` 的「偏好持久化」一节，列出两个新键；`CHANGELOGS.md` 加一条；dev-build 通过后提交
+- [x] 1.1 在 `bc-session/src/prefs.rs` 新增 `NextDiffPrefs { message_panel, wrap_around }`（`Copy`，默认 `true`/`false`）并挂到 `Prefs.next_diff`；补默认值单元测试，`cargo test -p bc-session prefs` 通过
+- [x] 1.2 在 `bc-gui/src/settings.rs` 增加 `navigation.show-message-panel`、`navigation.wrap-around` 的读写；补往返测试和"缺省 / 非法值取默认"测试，`cargo test -p bc-gui settings` 通过
+- [x] 1.3 `dialogs/options.rs`：`PAGES` 中 Next Difference 标为已接入，加两个复选框（文案对齐参考）及说明行；照 `tweaks_page_edits_disk_change_prefs` 写测试，覆盖勾选后 OK 写回、Cancel 不写回，`cargo test -p bc-gui options` 通过
+- [x] 1.4 更新 `docs/features/gui-shell.md` 的「偏好持久化」一节，列出两个新键；`CHANGELOGS.md` 加一条；dev-build 通过后提交
 
 ## 2. 共用面板状态与文本比较接入
 

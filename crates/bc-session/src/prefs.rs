@@ -98,6 +98,25 @@ impl Default for DiskChangePrefs {
     }
 }
 
+/// Difference navigation (reference: Options › Next Difference › "Show message
+/// panel" / "Wrap around to first difference").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextDiffPrefs {
+    /// Show the "Difference not found." panel (and beep) when navigation finds nothing.
+    pub message_panel: bool,
+    /// Past the last (first) difference, continue from the first (last) one.
+    pub wrap_around: bool,
+}
+
+impl Default for NextDiffPrefs {
+    fn default() -> Self {
+        Self {
+            message_panel: true,
+            wrap_around: false,
+        }
+    }
+}
+
 /// Preferences used by the engines and the CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Prefs {
@@ -107,6 +126,8 @@ pub struct Prefs {
     pub backups: BackupPrefs,
     /// External file change detection on open file views.
     pub disk_changes: DiskChangePrefs,
+    /// Next / Previous Difference behaviour at the ends.
+    pub next_diff: NextDiffPrefs,
     /// Default ANSI code page when detection is inconclusive.
     pub default_code_page: u16,
     /// Tab size fallback when the format does not specify one.
@@ -124,5 +145,12 @@ mod tests {
         let prefs = Prefs::default();
         assert!(prefs.disk_changes.check);
         assert!(!prefs.disk_changes.auto_reload);
+    }
+
+    #[test]
+    fn next_diff_defaults_show_the_panel_and_do_not_wrap() {
+        let prefs = Prefs::default();
+        assert!(prefs.next_diff.message_panel);
+        assert!(!prefs.next_diff.wrap_around);
     }
 }

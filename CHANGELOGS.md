@@ -4,6 +4,8 @@
 
 ## 2026-11-21
 
+- **Options › Next Difference 页可用**：此前灰色不可点。新增两个开关并写入 `settings.txt`：**Wrap around to first difference**（默认关；开启后越过最后一个差异回到第一个，向上同理）与 **Show message panel**（默认开；关闭后找不到差异时不弹面板也不响）。各视图何时生效见同日其他条目。
+
 - **文本比较：导航找不到差异时弹出消息面板并提示音**（[`docs/features/text-compare.md`](docs/features/text-compare.md)）：Next / Previous Difference、Next / Previous Difference Section、First / Last Difference 没有可去的差异时，底部状态栏上方弹出浅黄色 **Difference not found.** 面板并播放系统提示音；此前只写入不可见的内部消息，看起来像按键没反应。下一次按键或鼠标按下即关闭。
 
 ## 2026-11-19

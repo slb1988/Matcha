@@ -24,7 +24,7 @@ pub const PAGES: [(&str, bool); 11] = [
     ("Tabs", false),
     ("Appearance", true),
     ("Text Editing", true),
-    ("Next Difference", false),
+    ("Next Difference", true),
     ("Backups", true),
     ("File Operations", false),
     ("Archive Types", false),
@@ -439,6 +439,32 @@ impl OptionsDialog {
                     draft.backups.enabled,
                 );
             }
+            "Next Difference" => {
+                dialog::checkbox(
+                    ui,
+                    at(o, 258.0, 49.0),
+                    "Wrap around to first difference",
+                    &mut draft.next_diff.wrap_around,
+                    true,
+                );
+                dialog::checkbox(
+                    ui,
+                    at(o, 258.0, 75.0),
+                    "Show message panel",
+                    &mut draft.next_diff.message_panel,
+                    true,
+                );
+                for (n, line) in [
+                    "Wrap: past the last difference, continue from the first one (and back).",
+                    "Message panel: when unmarked, suppress the message panel (and beep)",
+                    "when a difference is not found.",
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    dialog::label(&painter, at(o, 258.0, 108.0 + 20.0 * n as f32), line, true);
+                }
+            }
             "Tweaks" => {
                 dialog::label(&painter, at(o, 258.0, 46.0), "File views:", true);
                 dialog::checkbox(
@@ -606,6 +632,48 @@ mod tests {
         frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
         assert_eq!(CALLED.load(Ordering::SeqCst), 2);
         assert!(!d.open);
+    }
+
+    #[test]
+    fn next_difference_page_edits_navigation_prefs() {
+        let ctx = egui::Context::default();
+        let mut prefs = Prefs::default();
+        let mut d = OptionsDialog {
+            shell_apply: Some(|_| panic!("explorer menu unchanged")),
+            ..Default::default()
+        };
+        d.show(&prefs, Placement::ClientOnly);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        let page = PAGES
+            .iter()
+            .position(|(n, _)| *n == "Next Difference")
+            .unwrap();
+        frame(
+            &ctx,
+            &mut d,
+            &mut prefs,
+            click(Pos2::new(100.0, FIRST_ROW + page as f32 * ROW + 18.0)),
+        );
+        assert_eq!(PAGES[d.page].0, "Next Difference");
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        let draft = d.draft.as_ref().unwrap().next_diff;
+        assert!(draft.message_panel && !draft.wrap_around);
+        // Wrap on, OK writes it and closes.
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(264.0, 55.0)));
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(590.0, 629.0)));
+        assert!(!d.open);
+        assert!(prefs.next_diff.wrap_around && prefs.next_diff.message_panel);
+        // Panel off, then Cancel: nothing changes.
+        d.show(&prefs, Placement::ClientOnly);
+        d.page = page;
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, vec![]);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(264.0, 81.0)));
+        assert!(!d.draft.as_ref().unwrap().next_diff.message_panel);
+        frame(&ctx, &mut d, &mut prefs, click(Pos2::new(696.0, 629.0)));
+        assert!(!d.open);
+        assert!(prefs.next_diff.message_panel);
     }
 
     #[test]

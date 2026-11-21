@@ -16,6 +16,8 @@ const BACKUPS: &str = "backups.enabled";
 const BACKUP_SUFFIX: &str = "backups.suffix";
 const CHECK_DISK: &str = "files.check-changed-on-disk";
 const AUTO_RELOAD: &str = "files.auto-reload";
+const MESSAGE_PANEL: &str = "navigation.show-message-panel";
+const WRAP_AROUND: &str = "navigation.wrap-around";
 /// Colour keys (`#RRGGBB`) and the `DiffColors` field each one maps to.
 type ColorField = fn(&mut DiffColors) -> &mut [u8; 3];
 const COLORS: [(&str, ColorField); 4] = [
@@ -114,6 +116,12 @@ fn apply(values: &BTreeMap<String, String>, prefs: &mut Prefs) {
     if let Some(on) = values.get(AUTO_RELOAD).and_then(|v| parse_bool(v)) {
         prefs.disk_changes.auto_reload = on;
     }
+    if let Some(on) = values.get(MESSAGE_PANEL).and_then(|v| parse_bool(v)) {
+        prefs.next_diff.message_panel = on;
+    }
+    if let Some(on) = values.get(WRAP_AROUND).and_then(|v| parse_bool(v)) {
+        prefs.next_diff.wrap_around = on;
+    }
     for (key, field) in COLORS {
         if let Some(rgb) = values.get(key).and_then(|v| parse_rgb(v)) {
             *field(&mut prefs.colors) = rgb;
@@ -136,6 +144,11 @@ fn store(prefs: &Prefs, values: &mut BTreeMap<String, String>) {
         AUTO_RELOAD.into(),
         prefs.disk_changes.auto_reload.to_string(),
     );
+    values.insert(
+        MESSAGE_PANEL.into(),
+        prefs.next_diff.message_panel.to_string(),
+    );
+    values.insert(WRAP_AROUND.into(), prefs.next_diff.wrap_around.to_string());
     let mut colors = prefs.colors;
     for (key, field) in COLORS {
         let [r, g, b] = *field(&mut colors);
@@ -204,6 +217,8 @@ mod tests {
         prefs.backups.extension = Some(".bak".into());
         prefs.disk_changes.check = false;
         prefs.disk_changes.auto_reload = true;
+        prefs.next_diff.message_panel = false;
+        prefs.next_diff.wrap_around = true;
         let mut values = parse("# matcha settings v1\nfuture.key\tkept\n");
         store(&prefs, &mut values);
         let text = format(&values);
@@ -223,7 +238,8 @@ mod tests {
                 "# matcha settings v1\neditor.font.size\t99\neditor.font.family\t  \n\
                  text.default-tab-size\t65\ntext.default-code-page\tx\nbackups.enabled\tyes\n\
                  colors.important\t#12345\ncolors.unimportant\tred\n\
-                 files.check-changed-on-disk\tno\nfiles.auto-reload\t1\n",
+                 files.check-changed-on-disk\tno\nfiles.auto-reload\t1\n\
+                 navigation.show-message-panel\toff\nnavigation.wrap-around\t\n",
             ),
             &mut prefs,
         );
