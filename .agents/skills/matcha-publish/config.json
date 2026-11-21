@@ -1,10 +1,10 @@
 {
-    "version":  "0.1.2",
-    "repo":  "slb1988/Matcha",
-    "tagPrefix":  "v",
-    "remote":  "origin",
-    "platform":  "windows-x86_64",
-    "distRoot":  "target/dist",
-    "includeRawFiles":  true,
-    "syncCargoVersion":  true
+  "version": "0.1.3",
+  "repo": "slb1988/Matcha",
+  "tagPrefix": "v",
+  "remote": "origin",
+  "platform": "windows-x86_64",
+  "distRoot": "target/dist",
+  "includeRawFiles": true,
+  "syncCargoVersion": true
 }
