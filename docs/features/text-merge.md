@@ -11,7 +11,10 @@
 - 命令行 `/automerge` 无窗口执行，以退出码报告结果；`/reviewconflicts` 让它在有冲突时转入界面。
 - 界面：上排三个只读输入窗格，从左到右为 BASE / LEFT / RIGHT，底部可编辑的输出窗格（OUTPUT，标题条不显示路径）。
   四个窗格共用一张行网格与同一滚动位置，右侧一条纵向滚动条；打开即定位到第一个冲突
-  （没有冲突则第一个改动），`Ctrl+N` / `Ctrl+P` 逐个走改动区段（含冲突）。
+  （没有冲突则第一个改动），`Ctrl+N` / `Ctrl+P` 逐个走改动区段（含冲突）。到头时光标不动，状态栏上方弹出
+  **Difference not found.** 面板并响一声（取代原来状态栏的 "No more changes below/above"），下一次按键或鼠标按下关闭；
+  遵循 Tools › Options › Next Difference（Wrap around 回到第一个/最后一个改动区段，没有改动仍弹面板；Show message panel 关闭时静默），
+  规则见 [text-compare.md](text-compare.md)「找不到差异时的消息面板」。
 - 各窗格标题条的路径是只读地址框（`chrome::pathbar::show_readonly`）：可选中、Ctrl+C 复制，
   右键菜单 Copy / Select All，选区内右击保留选区。
 - **行内差异高亮**：左、右输入窗格的改动行与 base 同一对齐行逐字符比较，不同字符用所属侧强调色

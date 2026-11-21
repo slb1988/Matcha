@@ -4,6 +4,8 @@
 
 ## 2026-11-21
 
+- **文本合并与表格合并：改动区段导航到头时弹出消息面板并提示音**（[`docs/features/text-merge.md`](docs/features/text-merge.md)、[`docs/features/table-merge.md`](docs/features/table-merge.md)）：Next / Previous Change Section 没有下一个改动区段（表格合并为所有 sheet 都走完）时显示 **Difference not found.** 面板，取代状态栏的 "No more changes below/above"；遵循 Options › Next Difference 的回绕（表格合并回到第一个/最后一个有改动的 sheet）与面板开关。
+
 - **十六进制比较：导航找不到差异时弹出消息面板并提示音**（[`docs/features/hex-compare.md`](docs/features/hex-compare.md)）：Next / Previous Difference Bytes 越过末端时显示 **Difference not found.** 面板，取代状态栏的中文提示（"最后一个差异之后" / "第一个差异之前"）；遵循 Options › Next Difference 的回绕与面板开关。
 
 - **修复十六进制比较 Next Difference 卡在单侧块上**：差异块只在对侧有字节（如右侧插入）时，活动侧光标留在原处，Ctrl+N 每次都回到同一块，永远到不了后面的差异和末端。现在记住上次导航落到的对齐行，光标未动就从该行继续。

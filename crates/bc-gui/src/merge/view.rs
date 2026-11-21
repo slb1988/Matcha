@@ -111,6 +111,10 @@ pub struct MergeView {
     prompt: Option<Prompt>,
     action: Option<MergeAction>,
     pub message: String,
+    /// 「Difference not found.」面板（状态栏上方）。
+    pub(crate) not_found: chrome::message_panel::NotFoundPanel,
+    /// Options › Next Difference（每帧 `ui()` 开头从偏好同步）。
+    pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
     menus: Vec<MenuSpec>,
     /// View › Syntax Highlighting。
     pub(crate) show_syntax: bool,
@@ -333,6 +337,8 @@ impl MergeView {
             prompt: None,
             action: None,
             message: String::new(),
+            not_found: Default::default(),
+            next_diff: Default::default(),
             menus: menus(),
             show_syntax: true,
             inline: HashMap::new(),
@@ -641,15 +647,16 @@ impl MergeView {
             }
             "Next Change Section" | "Previous Change Section" => {
                 let forward = id == "Next Change Section";
-                match self.model.next_change(self.current_row, forward) {
+                let target = self.model.next_change(self.current_row, forward).or_else(|| {
+                    // Wrap around：越过末端回到第一个（向上：最后一个）改动区段。
+                    self.next_diff
+                        .wrap_around
+                        .then(|| self.model.edge_change(forward))
+                        .flatten()
+                });
+                match target {
                     Some(row) => self.goto_row(row),
-                    None => {
-                        self.message = if forward {
-                            "No more changes below".into()
-                        } else {
-                            "No more changes above".into()
-                        }
-                    }
+                    None => self.not_found.not_found(self.next_diff),
                 }
             }
             _ => {}
@@ -1030,6 +1037,8 @@ impl MergeView {
         self.font_size = prefs.editor_font.size_px();
         self.colors.clone_from(&prefs.colors);
         let blocked = self.prompt.is_some();
+        self.next_diff = prefs.next_diff;
+        self.not_found.begin_frame(&ctx);
         if !blocked {
             self.keyboard(&ctx);
         }
@@ -1055,9 +1064,14 @@ impl MergeView {
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
+        // 「Difference not found.」面板紧贴状态栏上方，窗格区上移让出高度。
+        let notice = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - self.not_found.height()),
+            egui::pos2(available.right(), status.top()),
+        );
         let full = egui::Rect::from_min_max(
             available.min,
-            egui::pos2(available.right() - 16.0, status.top()),
+            egui::pos2(available.right() - 16.0, notice.top()),
         );
         // 输入区 / 输出区与三列之间的分隔线可拖动（持久化，双击复位）。
         let layout = |body: egui::Rect| {
@@ -1085,7 +1099,7 @@ impl MergeView {
             full
         };
         self.hbar = (self.max_x > 0.0).then(|| {
-            egui::Rect::from_min_max(body.left_bottom(), egui::pos2(body.right(), status.top()))
+            egui::Rect::from_min_max(body.left_bottom(), egui::pos2(body.right(), notice.top()))
         });
         let (rects, inputs, columns) = layout(body);
         self.pane_rects = rects;
@@ -1176,6 +1190,7 @@ impl MergeView {
             }
         });
 
+        self.not_found.paint(ui, notice);
         ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
             use chrome::statusbar::{self, StatusField};
             let mut count = StatusField::fixed(

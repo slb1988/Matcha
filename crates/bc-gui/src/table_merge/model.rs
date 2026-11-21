@@ -204,6 +204,16 @@ impl TableMergeModel {
         }
     }
 
+    /// 第一个（`forward`）或最后一个还有改动的 sheet（Wrap around 的回绕目标，可能是当前 sheet）。
+    pub fn edge_change_sheet(&self, forward: bool) -> Option<usize> {
+        let has = |i: &usize| !self.cache[*i].changes.is_empty();
+        if forward {
+            (0..self.cache.len()).find(has)
+        } else {
+            (0..self.cache.len()).rev().find(has)
+        }
+    }
+
     /// 打开 / 切 sheet 的落点：有冲突停在第一个冲突，否则第一个改动。
     pub fn first_conflict_or_change(&self) -> Option<usize> {
         self.conflicts()

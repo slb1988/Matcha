@@ -14,7 +14,9 @@
   两侧改同一行的不同列不冲突，两侧把同一格改成不同值才冲突。
 - `/automerge` 无窗口执行：无冲突写出返回 0，有冲突不写返回 101；`/reviewconflicts` 让它在有冲突时转入界面。
 - 界面：上排从左到右 BASE / LEFT / RIGHT 三个只读网格，底部可编辑 OUTPUT 网格（标题条不显示路径），共用滚动；`Ctrl+N` / `Ctrl+P`
-  逐个走改动区段（含冲突），落点是区段首行的第一个改动格（列随格水平滚动到可见），
+  逐个走改动区段（含冲突），落点是区段首行的第一个改动格（列随格水平滚动到可见），当前 sheet 走完继续到下一个有改动的 sheet；
+  全部走完时状态栏上方弹出 **Difference not found.** 面板并响一声（取代 "No more changes below/above"），遵循 Tools › Options › Next Difference
+  （Wrap around 回到第一个/最后一个有改动的 sheet 的首/末改动区段；Show message panel 关闭时静默，规则见 [text-compare.md](text-compare.md)「找不到差异时的消息面板」），
   打开停在第一个冲突（没有冲突则第一个改动）；Take Left/Center/Right、
   接受当前内容、编辑输出格、删除输出行（`Ctrl+Delete`）、撤销/重做、保存（默认写 LEFT 的文件，即本地真实路径；有输出文件 `%r` 时同步复制一份）；多 sheet 工作簿有 sheet 标签，各 sheet 状态独立。
   横向滚动**逐窗格独立**：滚轮只滚指针下的窗格，超宽的窗格底部自带横向滚动条（以列为单位，自动滚动与滚到底都停在整列边界，左侧不留半个格）；

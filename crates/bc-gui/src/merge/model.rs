@@ -334,6 +334,16 @@ impl MergeModel {
                 .map(|r| r.start)
         }
     }
+    /// 第一个（`forward`）或最后一个改动区段的首行（Wrap around 的回绕目标）。
+    pub fn edge_change(&self, forward: bool) -> Option<usize> {
+        let changes = self.state.changes();
+        if forward {
+            changes.first()
+        } else {
+            changes.last()
+        }
+        .map(|r| r.start)
+    }
     /// 还有改动（含冲突）。
     pub fn has_changes(&self) -> bool {
         !self.state.changes().is_empty()

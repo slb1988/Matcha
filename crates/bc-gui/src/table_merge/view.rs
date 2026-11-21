@@ -85,6 +85,10 @@ pub struct TableMergeView {
     prompt: Option<Prompt>,
     action: Option<MergeAction>,
     pub message: String,
+    /// 「Difference not found.」面板（状态栏上方）。
+    pub(crate) not_found: chrome::message_panel::NotFoundPanel,
+    /// Options › Next Difference（每帧 `ui()` 开头从偏好同步）。
+    pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
     menus: Vec<MenuSpec>,
     /// 标题条路径框持焦（上一帧）：持焦时无修饰键留给文本编辑。
     path_edit_focused: bool,
@@ -192,6 +196,8 @@ impl TableMergeView {
             prompt: None,
             action: None,
             message: String::new(),
+            not_found: Default::default(),
+            next_diff: Default::default(),
             menus: menus(),
             path_edit_focused: false,
             pending_ensure: false,
@@ -410,23 +416,30 @@ impl TableMergeView {
                 let forward = id == "Next Change Section";
                 if let Some(row) = self.model.next_change(row, forward) {
                     self.goto_change(row);
-                } else if let Some(sheet) = self.model.next_change_sheet(forward) {
+                    return;
+                }
+                // 跨 sheet 继续；都没有时 Wrap around 回到第一个（向上：最后一个）有改动的 sheet。
+                let sheet = self.model.next_change_sheet(forward).or_else(|| {
+                    self.next_diff
+                        .wrap_around
+                        .then(|| self.model.edge_change_sheet(forward))
+                        .flatten()
+                });
+                let Some(sheet) = sheet else {
+                    self.not_found.not_found(self.next_diff);
+                    return;
+                };
+                if sheet != self.model.sheet {
                     self.switch_sheet(sheet);
-                    let target = if forward {
-                        self.model.changes().first()
-                    } else {
-                        self.model.changes().last()
-                    }
-                    .map(|r| r.start);
-                    if let Some(row) = target {
-                        self.goto_change(row);
-                    }
+                }
+                let target = if forward {
+                    self.model.changes().first()
                 } else {
-                    self.message = if forward {
-                        "No more changes below".into()
-                    } else {
-                        "No more changes above".into()
-                    }
+                    self.model.changes().last()
+                }
+                .map(|r| r.start);
+                if let Some(row) = target {
+                    self.goto_change(row);
                 }
             }
             "Edit Output Cell" => self.begin_edit(),
@@ -594,8 +607,10 @@ impl TableMergeView {
         self.pending_ensure = true;
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, _prefs: &mut Prefs) -> Option<MergeAction> {
+    pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<MergeAction> {
         let ctx = ui.ctx().clone();
+        self.next_diff = prefs.next_diff;
+        self.not_found.begin_frame(&ctx);
         let blocked = self.prompt.is_some();
         if !blocked {
             self.keyboard(&ctx);
@@ -615,10 +630,15 @@ impl TableMergeView {
             egui::pos2(available.left(), available.bottom() - 25.0),
             available.max,
         );
-        // 选中格详情条：状态条之上；网格区在它的上面。
+        // 「Difference not found.」面板紧贴状态栏上方；详情条与网格区上移让出高度。
+        let notice = egui::Rect::from_min_max(
+            egui::pos2(available.left(), status.top() - self.not_found.height()),
+            egui::pos2(available.right(), status.top()),
+        );
+        // 选中格详情条：面板（无则状态条）之上；网格区在它的上面。
         let details = egui::Rect::from_min_max(
-            egui::pos2(available.left(), status.top() - DETAILS),
-            egui::pos2(available.right() - 16.0, status.top()),
+            egui::pos2(available.left(), notice.top() - DETAILS),
+            egui::pos2(available.right() - 16.0, notice.top()),
         );
         let body = egui::Rect::from_min_max(
             available.min,
@@ -719,6 +739,7 @@ impl TableMergeView {
         });
         self.details(ui, details);
 
+        self.not_found.paint(ui, notice);
         ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
             use chrome::statusbar::{self, StatusField};
             let mut count = StatusField::fixed(

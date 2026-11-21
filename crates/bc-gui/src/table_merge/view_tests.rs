@@ -1,4 +1,4 @@
-use super::super::model::tests::{conflicted, Fixture, BASE};
+use super::super::model::tests::{conflicted, two_sheet_books, Fixture, BASE};
 use super::*;
 
 fn view(f: &Fixture) -> TableMergeView {
@@ -298,4 +298,68 @@ fn ctrl_delete_removes_the_output_row() {
     v.command("Take Right (Cell)");
     assert!(!v.model.current().row_removed(1));
     frame(&ctx, &mut v, vec![]);
+}
+
+fn frame_prefs(ctx: &egui::Context, v: &mut TableMergeView, prefs: &mut Prefs, events: Vec<egui::Event>) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, prefs);
+    });
+    out.textures_delta.clear();
+    out
+}
+
+#[test]
+fn change_navigation_crosses_sheets_then_shows_the_panel_or_wraps() {
+    let f = two_sheet_books("view-nav-wrap");
+    let ctx = egui::Context::default();
+    let mut v = view(&f);
+    let mut prefs = Prefs::default();
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![]);
+    assert_eq!(v.model.sheet, 0);
+    // 跨 sheet 继续到第 2 个 sheet 的改动；再向下找不到 → 面板（状态栏上方）。
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true, false)]);
+    assert_eq!(v.model.sheet, 1);
+    assert!(!v.not_found.is_shown());
+    let selected = v.selected;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true, false)]);
+    assert_eq!((v.model.sheet, v.selected), (1, selected));
+    assert!(v.not_found.is_shown());
+    let out = frame_prefs(&ctx, &mut v, &mut prefs, vec![]);
+    let panel = out
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == crate::chrome::message_panel::NOT_FOUND => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+        .expect("panel painted");
+    assert!(panel.bottom() < 900.0 - 25.0);
+    // 回绕：向下回到第一个 sheet 的改动，向上回到最后一个 sheet。
+    prefs.next_diff.wrap_around = true;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true, false)]);
+    assert_eq!(v.model.sheet, 0);
+    assert!(!v.not_found.is_shown());
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true, false)]);
+    assert_eq!(v.model.sheet, 1);
+    // 关闭面板：静默。
+    prefs.next_diff.wrap_around = false;
+    prefs.next_diff.message_panel = false;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true, false)]);
+    assert_eq!(v.model.sheet, 1);
+    assert!(!v.not_found.is_shown());
+    // 菜单命令同一路径。
+    prefs.next_diff.message_panel = true;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![]);
+    v.command("Next Change Section");
+    assert!(v.not_found.is_shown());
 }

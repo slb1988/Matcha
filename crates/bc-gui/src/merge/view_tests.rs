@@ -130,7 +130,8 @@ fn commands_resolve_navigate_and_undo() {
     assert_eq!(v.current_row, 34);
     frame(&ctx, &mut v, vec![key(egui::Key::N, true)]);
     assert_eq!(v.current_row, 34);
-    assert!(v.message.contains("No more"));
+    assert!(v.not_found.is_shown());
+    assert!(!v.message.contains("No more"));
     // 近距离冲突：接受当前内容，输出不变。
     let before = text(&v);
     frame(&ctx, &mut v, vec![key(egui::Key::K, true)]);
@@ -1194,4 +1195,81 @@ fn bookmarks_jump_to_their_pane_and_row_and_survive_takes() {
     assert!(v.bookmarks.is_empty());
     frame(&ctx, &mut v, vec![]);
     assert!(!search_item(&v, "Clear Bookmarks").enabled);
+}
+
+fn frame_prefs(ctx: &egui::Context, v: &mut MergeView, prefs: &mut Prefs, events: Vec<egui::Event>) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, prefs);
+    });
+    out.textures_delta.clear();
+    out
+}
+
+#[test]
+fn change_navigation_past_the_ends_shows_the_panel_wraps_or_stays_silent() {
+    let b = base(40);
+    let left = edit(&b, &[(5, "L5"), (20, "L20")]);
+    let right = edit(&b, &[(5, "R5"), (30, "R30")]);
+    let mut v = view(&left, &right, &b);
+    let ctx = egui::Context::default();
+    let mut prefs = Prefs::default();
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![]);
+    let first = v.current_row;
+    // 向上越过第一个改动：面板画在状态栏上方，光标不动。
+    let out = frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true)]);
+    assert_eq!(v.current_row, first);
+    assert!(v.not_found.is_shown());
+    let out = if button_rect(&out, crate::chrome::message_panel::NOT_FOUND).is_some() {
+        out
+    } else {
+        frame_prefs(&ctx, &mut v, &mut prefs, vec![])
+    };
+    let panel = button_rect(&out, crate::chrome::message_panel::NOT_FOUND).expect("panel painted");
+    assert!(panel.bottom() < 900.0 - 25.0);
+    // 菜单命令同一路径；按键关闭面板。
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::ArrowDown, false)]);
+    assert!(!v.not_found.is_shown());
+    v.goto_row(first);
+    v.command("Previous Change Section");
+    assert!(v.not_found.is_shown());
+    // 回绕：向上回到最后一个改动，向下越过末端回到第一个。
+    prefs.next_diff.wrap_around = true;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::ArrowDown, false)]);
+    v.goto_row(first);
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true)]);
+    let last = v.current_row;
+    assert!(last > first);
+    assert!(!v.not_found.is_shown());
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::N, true)]);
+    assert_eq!(v.current_row, first);
+    // 关闭面板：静默。
+    prefs.next_diff.wrap_around = false;
+    prefs.next_diff.message_panel = false;
+    frame_prefs(&ctx, &mut v, &mut prefs, vec![key(egui::Key::P, true)]);
+    assert_eq!(v.current_row, first);
+    assert!(!v.not_found.is_shown());
+    // 没有改动：回绕也找不到，仍弹面板。
+    let mut same = view(&b, &b, &b);
+    let mut prefs = Prefs::default();
+    prefs.next_diff.wrap_around = true;
+    frame_prefs(&ctx, &mut same, &mut prefs, vec![]);
+    frame_prefs(&ctx, &mut same, &mut prefs, vec![key(egui::Key::N, true)]);
+    assert!(same.not_found.is_shown());
+}
+
+fn button_rect(out: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+    out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == label => {
+            Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+        }
+        _ => None,
+    })
 }

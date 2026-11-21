@@ -33,10 +33,10 @@
 
 ## 5. 文本合并与表格合并
 
-- [ ] 5.1 `merge/view.rs`：持有 `NotFoundPanel` 并缓存 `next_diff`（`command(id)` 不带 prefs）；Next/Previous Change Section 按 D2 回绕，找不到时弹面板，删除 "No more changes below/above"；状态栏上方绘制面板
-- [ ] 5.2 `table_merge/view.rs`：同 5.1（跨 sheet 回绕到第一个 / 最后一个 sheet 的改动区段）
-- [ ] 5.3 在 `merge/view_tests.rs` 和表格合并测试中补面板、回绕、静默的测试；`cargo test -p bc-gui --lib merge:: table_merge::` 通过
-- [ ] 5.4 更新 `docs/features/text-merge.md`、`docs/features/table-merge.md`、`CHANGELOGS.md`；dev-build 后提交
+- [x] 5.1 `merge/view.rs`：持有 `NotFoundPanel` 并缓存 `next_diff`（`command(id)` 不带 prefs）；Next/Previous Change Section 按 D2 回绕，找不到时弹面板，删除 "No more changes below/above"；状态栏上方绘制面板
+- [x] 5.2 `table_merge/view.rs`：同 5.1（跨 sheet 回绕到第一个 / 最后一个 sheet 的改动区段）
+- [x] 5.3 在 `merge/view_tests.rs` 和表格合并测试中补面板、回绕、静默的测试；`cargo test -p bc-gui --lib merge:: table_merge::` 通过
+- [x] 5.4 更新 `docs/features/text-merge.md`、`docs/features/table-merge.md`、`CHANGELOGS.md`；dev-build 后提交
 
 ## 6. 文件夹比较与文件夹同步
 
