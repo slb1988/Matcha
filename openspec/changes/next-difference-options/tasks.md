@@ -48,8 +48,10 @@
 
 ## 7. 集成验证
 
-- [ ] 7.1 `cargo test -p bc-gui -p bc-session` 全部通过；`grep` 确认代码中不再有 "No more differences"、"No more changes"、"No further conflict"、"No further difference" 这几条导航提示
+- [x] 7.1 `cargo test -p bc-gui -p bc-session` 全部通过；`grep` 确认代码中不再有 "No more differences"、"No more changes"、"No further conflict"、"No further difference" 这几条导航提示
 - [ ] 7.2 在真实窗口中验证（按 real-window-capture 的方法截图）：文本、表格、十六进制、文本合并、文件夹比较各自越过末端时出现面板且能听到提示音；勾选回绕后不弹面板；重启后两个开关保留
+  - 2026-11-21 已用快照模式在真实窗口渲染验证（临时预设，未提交）：文本、表格、十六进制、文本合并、表格合并、文件夹比较越过末端均在状态栏正上方显示面板；Options › Next Difference 页可用。
+  - 待用户确认：提示音（无法在本环境收听）、重启后两个开关保留（目前由 `settings` 往返单元测试覆盖）。
 
 ## Workflow follow-up
 
