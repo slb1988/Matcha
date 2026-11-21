@@ -26,10 +26,10 @@
 
 ## 4. 十六进制比较
 
-- [ ] 4.1 `hex/view.rs`：增加 `NotFoundPanel` 字段和 `set_next_diff`；`app.rs` 在调用 `ui()` 前设置偏好（文件夹比较没有内嵌 hex 窗口）；在按键处理前调用 `begin_frame`，状态栏上方绘制面板并让出高度
-- [ ] 4.2 `next_difference` 按 design D2 回绕；找不到时调用 `not_found`，删除中文"最后一个差异之后"类提示
-- [ ] 4.3 在 `hex/view_tests.rs` 补测试：Ctrl+N/Ctrl+P、`nav.next` 工具栏 id、菜单命令三条路径；回绕；静默；两侧相同；`cargo test -p bc-gui --lib hex::` 通过
-- [ ] 4.4 更新 `docs/features/hex-compare.md`、`CHANGELOGS.md`；dev-build 后提交
+- [x] 4.1 `hex/view.rs`：增加 `NotFoundPanel` 字段和 `set_next_diff`；`app.rs` 在调用 `ui()` 前设置偏好（文件夹比较没有内嵌 hex 窗口）；在按键处理前调用 `begin_frame`，状态栏上方绘制面板并让出高度
+- [x] 4.2 `next_difference` 按 design D2 回绕；找不到时调用 `not_found`，删除中文"最后一个差异之后"类提示
+- [x] 4.3 在 `hex/view_tests.rs` 补测试：Ctrl+N/Ctrl+P、`nav.next` 工具栏 id、菜单命令三条路径；回绕；静默；两侧相同；`cargo test -p bc-gui --lib hex::` 通过
+- [x] 4.4 更新 `docs/features/hex-compare.md`、`CHANGELOGS.md`；dev-build 后提交
 
 ## 5. 文本合并与表格合并
 

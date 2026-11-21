@@ -1180,7 +1180,10 @@ impl MatchaApp {
                 }
                 View::TextCompare(view) => view_action = view.ui(ui, prefs),
                 View::TableCompare(view) => table_action = view.ui(ui, prefs),
-                View::HexCompare(view) => hex_action = view.ui(ui),
+                View::HexCompare(view) => {
+                    view.set_next_diff(prefs.next_diff);
+                    hex_action = view.ui(ui);
+                }
                 View::FolderCompare(view) => {
                     view.set_next_diff(prefs.next_diff);
                     folder_switch = view.ui(ui);

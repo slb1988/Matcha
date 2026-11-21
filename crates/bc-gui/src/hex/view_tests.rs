@@ -251,21 +251,109 @@ fn next_difference_cycles_and_stops_at_end() {
     assert_eq!(v.cursor[0], 0x104);
     key(&ctx, &mut v, egui::Key::P, egui::Modifiers::COMMAND);
     assert_eq!(v.cursor[0], 0x100);
-    // 越过末端：提示且不回卷。
-    // 只有右侧有字节的块（0x400）不能让导航原地打转：经过其余各块后到达末端。
+    // 越过末端：弹出「Difference not found.」面板且不回卷（默认偏好）。
     let mut steps = 0;
     loop {
         let before = v.cursor;
-        v.message.clear();
         v.next_difference(true);
-        if !v.message.is_empty() {
+        if v.not_found.is_shown() {
             assert_eq!(v.cursor, before);
             break;
         }
         steps += 1;
         assert!(steps <= v.summary.block_starts.len(), "navigation never ends");
     }
-    assert_eq!(steps + 1, v.summary.block_starts.len());
+    assert_eq!(steps + 1, v.summary.block_starts.len()); // 已在第 1 个块，之后经过其余各块
+}
+
+/// 跑一帧并返回输出（查找面板文字）。
+fn frame_out(ctx: &egui::Context, v: &mut HexCompareView, events: Vec<egui::Event>) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui);
+    });
+    out.textures_delta.clear();
+    out
+}
+
+fn panel_text_rect(out: &egui::FullOutput) -> Option<egui::Rect> {
+    out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == crate::chrome::message_panel::NOT_FOUND => {
+            Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn difference_not_found_panel_wrap_and_silence() {
+    use bc_session::prefs::NextDiffPrefs;
+    let ctx = egui::Context::default();
+    let mut v = HexCompareView::from_bytes(corpus("left.bin"), corpus("right.bin"));
+    ready(&mut v);
+    frame(&ctx, &mut v);
+    let starts = v.summary.block_starts.clone();
+    assert!(starts.len() > 1);
+    // 快捷键：Ctrl+P 在首个差异之前找不到 → 面板画在状态栏上方，光标不动。
+    let before = v.cursor;
+    key(&ctx, &mut v, egui::Key::P, egui::Modifiers::COMMAND);
+    assert_eq!(v.cursor, before);
+    assert!(v.not_found.is_shown());
+    let out = frame_out(&ctx, &mut v, vec![]);
+    let rect = panel_text_rect(&out).expect("panel painted");
+    assert!(rect.bottom() < 900.0 - 25.0);
+    assert!(!v.message.contains("差异"));
+    // 鼠标移动不关闭，按键关闭。
+    frame_out(&ctx, &mut v, vec![egui::Event::PointerMoved(egui::pos2(500.0, 400.0))]);
+    assert!(v.not_found.is_shown());
+    key(&ctx, &mut v, egui::Key::ArrowRight, egui::Modifiers::NONE);
+    assert!(!v.not_found.is_shown());
+    // 工具栏 id 与菜单命令走同一路径。
+    v.cursor = [0, 0];
+    v.toolbar_action("nav.prev");
+    assert!(v.not_found.is_shown());
+    v.not_found = Default::default();
+    v.command("Previous Difference Bytes");
+    assert!(v.not_found.is_shown());
+    // 回绕：向上回到最后一个差异块，向下越过末端回到第一个。
+    v.not_found = Default::default();
+    v.set_next_diff(NextDiffPrefs {
+        message_panel: true,
+        wrap_around: true,
+    });
+    v.cursor = [0, 0];
+    v.next_difference(false);
+    assert!(!v.not_found.is_shown());
+    let last_row = *starts.last().unwrap();
+    assert_eq!(v.align_row_of(v.active_side, v.cursor[v.active_side]), Some(last_row));
+    v.next_difference(true);
+    assert_eq!(v.align_row_of(v.active_side, v.cursor[v.active_side]), Some(starts[0]));
+    assert!(!v.not_found.is_shown());
+    // 关闭面板：静默。
+    v.set_next_diff(NextDiffPrefs {
+        message_panel: false,
+        wrap_around: false,
+    });
+    v.cursor = [0, 0];
+    v.next_difference(false);
+    assert!(!v.not_found.is_shown());
+    // 两侧相同：回绕也没有目标，仍弹面板。
+    let same = corpus("left.bin");
+    let mut v = HexCompareView::from_bytes(same.clone(), same);
+    ready(&mut v);
+    v.set_next_diff(NextDiffPrefs {
+        message_panel: true,
+        wrap_around: true,
+    });
+    v.next_difference(true);
+    assert!(v.not_found.is_shown());
 }
 
 #[test]

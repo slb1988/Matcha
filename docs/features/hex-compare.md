@@ -19,6 +19,11 @@
   内联查找栏（Hex/Text、Match case）、Replace、字节编辑（Insert/Overwrite、Cut/Copy/Paste/Delete、
   Select All、Undo/Redo、Copy to Other Side Ctrl+R）、Swap/Reload（脏确认）/Recompare、
   Hex Compare Info（四分类）、Session Settings 三页（Specs/Format/Comparison）。
+- **差异导航末端**：Next/Previous Difference Bytes（Ctrl+N/P、工具栏、菜单）没有目标时，光标不动，状态栏上方弹出
+  **Difference not found.** 面板并响一声（取代原来状态栏的中文提示），下一次按键或鼠标按下关闭；遵循 Tools › Options › Next Difference
+  （Wrap around 回到第一个/最后一个差异块首行；两侧相同仍弹面板；Show message panel 关闭时静默）。偏好由 `app.rs` 每帧经
+  `HexCompareView::set_next_diff` 同步。只在一侧有字节的差异块（插入/删除）不会让导航原地打转：`nav_anchor` 记住上次落到的对齐行，
+  光标未动就从该行继续。规则见 [text-compare.md](text-compare.md)「找不到差异时的消息面板」。
 - 浏览导航件：**最左 52 px 缩略图列**（迷你图自地址栏下缘起、内容每行 1 px、
   超列高压缩；差异行红色像素横线，Changed 满宽 / LeftOnly 左半 / RightOnly 右半；灰色视口框
   指示可见区间——框体对称越过内框两侧、2 px 描边、最小高度 9 px（大文件下不退化成横线）；

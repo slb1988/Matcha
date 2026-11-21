@@ -113,6 +113,10 @@ pub struct HexCompareView {
     generation: u64,
     /// 状态栏消息（加载/对齐/错误提示）。
     pub message: String,
+    /// 「Difference not found.」面板（状态栏上方）。
+    pub(crate) not_found: crate::chrome::message_panel::NotFoundPanel,
+    /// Options › Next Difference（应用层经 [`Self::set_next_diff`] 同步）。
+    pub(crate) next_diff: bc_session::prefs::NextDiffPrefs,
     /// 上次差异导航落到的对齐行及当时两侧光标：目标块只在一侧有字节（孤儿）时，
     /// 活动侧光标留在原处、反查不到该行；光标未动则从这一行继续，避免原地打转。
     nav_anchor: Option<(usize, [usize; 2])>,
@@ -225,6 +229,8 @@ impl HexCompareView {
             map,
             worker,
             message: "Comparing…".into(),
+            not_found: Default::default(),
+            next_diff: Default::default(),
             nav_anchor: None,
             fit_to_window: true,
             show_byte_addresses: true,
@@ -790,7 +796,13 @@ impl HexCompareView {
         self.active_side = side;
     }
 
-    /// Next/Previous Difference Bytes（Ctrl+N / Ctrl+P；越过末端给提示不回卷）。
+    /// 同步 Options › Next Difference（`ui()` 不带偏好，由应用层在每帧前调用）。
+    pub fn set_next_diff(&mut self, prefs: bc_session::prefs::NextDiffPrefs) {
+        self.next_diff = prefs;
+    }
+
+    /// Next/Previous Difference Bytes（Ctrl+N / Ctrl+P）。越过末端：Wrap around 开启时
+    /// 从另一端的差异块继续，否则弹出「Difference not found.」面板（见 `NotFoundPanel`）。
     pub fn next_difference(&mut self, forward: bool) {
         let side = self.active_side;
         let anchored = self
@@ -798,13 +810,19 @@ impl HexCompareView {
             .filter(|(_, cursor)| *cursor == self.cursor)
             .map(|(row, _)| row);
         let Some(row) = anchored.or_else(|| self.align_row_of(side, self.cursor[side])) else {
+            // 两侧皆空：没有可去的差异。
+            self.not_found.not_found(self.next_diff);
             return;
         };
-        let target = if forward {
+        let found = if forward {
             self.summary.next_difference(row)
         } else {
             self.summary.prev_difference(row)
         };
+        // Wrap around：越过末端回到第一个（向上：最后一个）差异块的首行。
+        let starts = &self.summary.block_starts;
+        let edge = if forward { starts.first() } else { starts.last() };
+        let target = found.or_else(|| edge.copied().filter(|_| self.next_diff.wrap_around));
         match target {
             Some(row) => {
                 // 块首行在任一侧可能为孤儿：两侧各自落到本行字节（无则保持）。
@@ -818,13 +836,7 @@ impl HexCompareView {
                 self.pending_scroll = Some(row);
                 self.nav_anchor = Some((row, self.cursor));
             }
-            None => {
-                self.message = if forward {
-                    "最后一个差异之后".into()
-                } else {
-                    "第一个差异之前".into()
-                };
-            }
+            None => self.not_found.not_found(self.next_diff),
         }
     }
 
@@ -1701,6 +1713,8 @@ impl HexCompareView {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }
+        // 在本帧键盘与命令之前：按键/鼠标按下关闭「Difference not found.」面板。
+        self.not_found.begin_frame(ui.ctx());
         // 菜单栏（BC 会话菜单结构；命令分派见 command()）。
         if let Some(id) = menubar::show(ui, &menu::menus(self)) {
             self.command(&id);
@@ -1809,7 +1823,7 @@ impl HexCompareView {
             available.min,
             egui::pos2(
                 available.right(),
-                (available.bottom() - 26.0).max(available.top() + 60.0),
+                (available.bottom() - 26.0 - self.not_found.height()).max(available.top() + 60.0),
             ),
         );
         let content = egui::Rect::from_min_max(body.min + egui::vec2(thumb_w, 0.0), body.max);
@@ -2017,6 +2031,15 @@ impl HexCompareView {
                 content.x_range(),
                 content.y_range(),
             );
+        }
+        // 「Difference not found.」面板紧贴状态栏上方（body 已让出高度）。
+        if self.not_found.is_shown() {
+            let notice = egui::Rect::from_min_size(
+                egui::pos2(available.left(), body.bottom()),
+                egui::vec2(available.width(), self.not_found.height()),
+            );
+            self.not_found.paint(ui, notice);
+            ui.advance_cursor_after_rect(notice);
         }
         statusbar::show(ui, &self.status_fields());
         self.layout_dialog(ui.ctx());
