@@ -113,6 +113,9 @@ pub struct HexCompareView {
     generation: u64,
     /// 状态栏消息（加载/对齐/错误提示）。
     pub message: String,
+    /// 上次差异导航落到的对齐行及当时两侧光标：目标块只在一侧有字节（孤儿）时，
+    /// 活动侧光标留在原处、反查不到该行；光标未动则从这一行继续，避免原地打转。
+    nav_anchor: Option<(usize, [usize; 2])>,
     /// Fit to window（默认开）：按窗格宽度自动确定每行格数。
     pub fit_to_window: bool,
     /// 字节地址列开关（View > Byte Addresses）。
@@ -222,6 +225,7 @@ impl HexCompareView {
             map,
             worker,
             message: "Comparing…".into(),
+            nav_anchor: None,
             fit_to_window: true,
             show_byte_addresses: true,
             side_by_side: true,
@@ -789,7 +793,11 @@ impl HexCompareView {
     /// Next/Previous Difference Bytes（Ctrl+N / Ctrl+P；越过末端给提示不回卷）。
     pub fn next_difference(&mut self, forward: bool) {
         let side = self.active_side;
-        let Some(row) = self.align_row_of(side, self.cursor[side]) else {
+        let anchored = self
+            .nav_anchor
+            .filter(|(_, cursor)| *cursor == self.cursor)
+            .map(|(row, _)| row);
+        let Some(row) = anchored.or_else(|| self.align_row_of(side, self.cursor[side])) else {
             return;
         };
         let target = if forward {
@@ -808,6 +816,7 @@ impl HexCompareView {
                     self.cursor[1] = right;
                 }
                 self.pending_scroll = Some(row);
+                self.nav_anchor = Some((row, self.cursor));
             }
             None => {
                 self.message = if forward {

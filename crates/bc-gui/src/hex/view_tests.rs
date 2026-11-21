@@ -252,13 +252,20 @@ fn next_difference_cycles_and_stops_at_end() {
     key(&ctx, &mut v, egui::Key::P, egui::Modifiers::COMMAND);
     assert_eq!(v.cursor[0], 0x100);
     // 越过末端：提示且不回卷。
-    for _ in 0..32 {
+    // 只有右侧有字节的块（0x400）不能让导航原地打转：经过其余各块后到达末端。
+    let mut steps = 0;
+    loop {
+        let before = v.cursor;
+        v.message.clear();
         v.next_difference(true);
+        if !v.message.is_empty() {
+            assert_eq!(v.cursor, before);
+            break;
+        }
+        steps += 1;
+        assert!(steps <= v.summary.block_starts.len(), "navigation never ends");
     }
-    let last = v.cursor[0];
-    v.next_difference(true);
-    assert_eq!(v.cursor[0], last);
-    assert!(!v.message.is_empty());
+    assert_eq!(steps + 1, v.summary.block_starts.len());
 }
 
 #[test]

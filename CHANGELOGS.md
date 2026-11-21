@@ -4,6 +4,8 @@
 
 ## 2026-11-21
 
+- **修复十六进制比较 Next Difference 卡在单侧块上**：差异块只在对侧有字节（如右侧插入）时，活动侧光标留在原处，Ctrl+N 每次都回到同一块，永远到不了后面的差异和末端。现在记住上次导航落到的对齐行，光标未动就从该行继续。
+
 - **表格比较：导航找不到差异时同样弹出消息面板并提示音**（[`docs/features/table-compare.md`](docs/features/table-compare.md)）：Next / Previous Difference Cell、Difference Row、Edit 越过末端时显示 **Difference not found.** 面板，取代状态栏里的 "No more differences / edits"；遵循 Options › Next Difference 的回绕与面板开关。
 
 - **Options › Next Difference 页可用**：此前灰色不可点。新增两个开关并写入 `settings.txt`：**Wrap around to first difference**（默认关；开启后越过最后一个差异回到第一个，向上同理）与 **Show message panel**（默认开；关闭后找不到差异时不弹面板也不响）。各视图何时生效见同日其他条目。
