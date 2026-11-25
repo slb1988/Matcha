@@ -28,6 +28,12 @@
   `sync_view.rs`（同步）、`table/`（表格）；两个目录参数自动进入文件夹视图。
   文本合并为上排三个只读输入窗格、底部可编辑输出窗格，共用行网格与滚动位置，见 [text-merge.md](text-merge.md)。
 - 单实例（`bc-instance`）与 Windows 资源管理器菜单（`bc-shell`）见各自 crate。
+- **单实例转交去重**：已在运行时，外部再次启动（命令行、P4V/Git 等 diff 工具、资源管理器菜单）
+  转交来的比较若与某个已打开标签页的两侧路径相同（同一左右顺序；按规范路径比较，Windows 上不区分
+  大小写），则激活该页而不再开新页，并立即按 Options › Disk Changes 检查两侧是否已在磁盘上变化
+  （P4V 会重写同名临时文件）。左右互换、合并与按名打开已保存会话仍开新页。等待型调用
+  （`matcha-compc`）复用标签页时，与先前的等待方一起在该页关闭时得到通知。
+  代码：`app.rs` 的 `reuse_comparison` / `same_file_key`；测试 `handing_off_an_already_open_comparison_reuses_its_tab`。
 - **视觉设计系统**（ADR 401）：冷中性灰表面 + 发丝线 + 圆角 + 柔和阴影，品牌强调色"抹茶绿"；
   token 集中在 `chrome/theme.rs`。确认类弹框（文本/表格/Hex 未保存、Hex 重载、文件操作确认、
   About）统一用 `chrome/modal.rs`：遮罩卡片、语气徽标、条目列表、Enter=主按钮 / Esc=取消。

@@ -470,6 +470,66 @@ fn handed_off_comparisons_open_new_tabs_and_report_when_closed() {
 }
 
 #[test]
+fn handing_off_an_already_open_comparison_reuses_its_tab() {
+    use crate::remote::{channel, Outcome, RemoteOpen};
+    use std::sync::{Arc, Mutex};
+    let root = std::env::temp_dir().join(format!("matcha-app-reuse-{}", std::process::id()));
+    let (l, r) = (root.join("l"), root.join("r"));
+    for d in [&l, &r] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let outcomes: Arc<Mutex<Vec<Outcome>>> = Default::default();
+    let done = |tag: &'static str| {
+        let outcomes = outcomes.clone();
+        Some(Box::new(move |o| {
+            assert_eq!(o, Outcome::Closed(0), "{tag}");
+            outcomes.lock().unwrap().push(o)
+        }) as crate::remote::Completion)
+    };
+    let open = |left: std::path::PathBuf, right: std::path::PathBuf, done| RemoteOpen {
+        left: Some(left),
+        right: Some(right),
+        merge: None,
+        session: None,
+        done,
+    };
+
+    let ctx = egui::Context::default();
+    let mut app = home_app();
+    let (tx, inbox) = channel();
+    app.attach_remote(&ctx, inbox);
+    run(&ctx, &mut app, vec![]);
+    assert!(tx.send(open(l.clone(), r.clone(), done("first"))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 2);
+    run(&ctx, &mut app, vec![]);
+
+    // 回到 Home 后再次转交同一对（写法不同：`..` 绕路、Windows 上大小写不同）：激活原页，不开新页。
+    app.go_home();
+    assert_eq!(app.active_tab(), 0);
+    let detour = root.join("l").join("..").join("r");
+    let recased = if cfg!(windows) {
+        std::path::PathBuf::from(l.to_string_lossy().to_uppercase())
+    } else {
+        l.clone()
+    };
+    assert!(tx.send(open(recased, detour, done("second"))).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 2);
+    assert_eq!(app.active_tab(), 1);
+
+    // 左右互换不是同一个比较：仍开新页。
+    assert!(tx.send(open(r.clone(), l.clone(), None)).is_ok());
+    app.poll_remote(&ctx);
+    assert_eq!(app.tab_count(), 3);
+
+    // 两个等待方都在被复用的标签页关闭时得到通知。
+    app.close_tab(&ctx, 1);
+    assert_eq!(outcomes.lock().unwrap().len(), 2);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn fv_hex_compare_opens_hex_view() {
     let corpus = concat!(
         env!("CARGO_MANIFEST_DIR"),

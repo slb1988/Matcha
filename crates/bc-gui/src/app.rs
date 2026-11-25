@@ -90,6 +90,18 @@ impl View {
             View::TableMerge(v) => v.paths().map(|p| p.as_deref().map(name)),
         }
     }
+    /// 比较视图当前打开的两侧路径（合并、Home 与缺一侧的空会话为 None）。
+    fn compared_paths(&self) -> Option<[PathBuf; 2]> {
+        let files = |[l, r]: [Option<PathBuf>; 2]| Some([l?, r?]);
+        match self {
+            View::TextCompare(v) => files(v.paths()),
+            View::TableCompare(v) => files(v.paths()),
+            View::HexCompare(v) => files(v.paths()),
+            View::FolderCompare(v) => Some(v.paths()),
+            View::FolderSync(v) => Some(v.folder.paths()),
+            View::Home(_) | View::TextMerge(_) | View::TableMerge(_) => None,
+        }
+    }
     /// 记入 Home Auto-saved 的会话：类型与两侧路径（两侧都已加载才有）。
     fn recent_entry(&self) -> Option<(SessionKind, PathBuf, PathBuf)> {
         let files = |kind, [l, r]: [Option<PathBuf>; 2]| Some((kind, l?, r?));
@@ -265,6 +277,18 @@ pub struct MatchaApp {
     /// 上次检查磁盘变化时的活动标签页（切换标签页时再检查）。
     disk_checked_tab: Option<usize>,
 }
+/// 判断"同一文件"用的路径键：能解析就取规范路径（消除相对路径、`..`、8.3 短名），
+/// 否则取绝对路径；Windows 上不区分大小写。
+fn same_file_key(path: &std::path::Path) -> PathBuf {
+    let path = std::fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    if cfg!(windows) {
+        PathBuf::from(path.to_string_lossy().to_lowercase())
+    } else {
+        path
+    }
+}
 impl MatchaApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
@@ -425,8 +449,8 @@ impl MatchaApp {
             self.open_remote(ctx, request);
         }
     }
-    /// 转交请求：两侧路径齐全则开新比较标签页（打不开时回 Home 显示错误），然后把
-    /// 窗口提到前台；没有路径时只提到前台。
+    /// 转交请求：两侧路径齐全则开新比较标签页（已有同一对路径的标签页时改为激活它；
+    /// 打不开时回 Home 显示错误），然后把窗口提到前台；没有路径时只提到前台。
     pub fn open_remote(&mut self, ctx: &egui::Context, request: RemoteOpen) {
         let RemoteOpen {
             left,
@@ -479,6 +503,11 @@ impl MatchaApp {
             return;
         }
         match (left, right) {
+            (Some(left), Some(right)) if self.reuse_comparison(&left, &right) => {
+                if let Some(done) = done {
+                    self.chain_on_close(self.active, done);
+                }
+            }
             (Some(left), Some(right)) => {
                 match Self::comparison_view(ctx, crate::home::routed(left, right)) {
                     Some(Ok(view)) => {
@@ -509,6 +538,34 @@ impl MatchaApp {
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+    /// 转交的比较与某个已打开标签页的两侧路径相同（同一文件对、同左右顺序）时激活
+    /// 该页而不再开新页，并在下一帧按 Options › Disk Changes 检查两侧是否已在磁盘上
+    /// 变化（P4V 等工具会重写同名临时文件）。返回是否复用了已有标签页。
+    fn reuse_comparison(&mut self, left: &std::path::Path, right: &std::path::Path) -> bool {
+        let wanted = [same_file_key(left), same_file_key(right)];
+        let Some(index) = self.tabs.iter().position(|t| {
+            t.view
+                .compared_paths()
+                .is_some_and(|[l, r]| [same_file_key(&l), same_file_key(&r)] == wanted)
+        }) else {
+            return false;
+        };
+        self.bench = None;
+        self.activate(index);
+        self.disk_checked_tab = None;
+        true
+    }
+    /// 给标签页再挂一个关闭回调：已有的先通知，再通知新的等待方。
+    fn chain_on_close(&mut self, index: usize, done: Completion) {
+        let tab = &mut self.tabs[index];
+        tab.on_close = Some(match tab.on_close.take() {
+            Some(first) => Box::new(move |outcome: Outcome| {
+                first(outcome.clone());
+                done(outcome);
+            }),
+            None => done,
+        });
     }
     /// 已保存会话的视图。
     fn saved_view(ctx: &egui::Context, name: &str) -> Result<View, String> {

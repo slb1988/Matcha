@@ -2,6 +2,10 @@
 
 本文件记录 Matcha 的用户可感知变动（功能、行为、修复）。每次变动追加一条，最新在最上。
 
+## 2026-11-25
+
+- **同一对文件再次从外部打开时复用已有标签页**（[`docs/features/gui-shell.md`](docs/features/gui-shell.md)）：Matcha 已在运行时，从 P4V、命令行或资源管理器菜单再次比较同一对文件（或文件夹），不再多开一个标题相同的标签页，而是切到已有的那一页，并按 Options › Disk Changes 检查两侧是否已在磁盘上变化（P4V 会重写同名临时文件）。路径按规范形式比较，Windows 上不区分大小写；左右互换视为不同比较，仍开新页。
+
 ## 2026-11-22
 
 - **文本比较与文本合并：跳到未设置的书签时弹出消息面板并提示音**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Go to Bookmark N（`Ctrl+N`）在书签 N 未设置时，状态栏上方显示浅黄色 **Bookmark N is not set.** 面板并播放系统提示音，光标不动，下一次按键或鼠标按下关闭；此前文本比较中这条提示不可见，看起来像按键没反应，文本合并只在状态栏显示文字。该面板不受 Options › Next Difference › Show message panel 控制。
