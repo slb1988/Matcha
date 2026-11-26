@@ -134,6 +134,10 @@ impl Projection {
     pub fn has_thin_folds(&self) -> bool {
         self.thin_folds && self.folds > 0
     }
+    /// Word Wrap units of a fold row: thin gap folds 0 (own height), others one row.
+    pub fn fold_units(&self) -> u32 {
+        u32::from(!self.thin_folds)
+    }
     /// Every display row has the same height (no thin folds, no word wrap).
     pub fn is_uniform(&self) -> bool {
         !self.has_thin_folds() && self.heights.is_none()
@@ -437,8 +441,8 @@ mod tests {
         // A word-wrap table of one unit per text row (thin folds 0) is the same geometry.
         let mut wrapped = p.clone();
         wrapped.set_heights(Some(unit_table(&p)));
-        for d in 0..=7 {
-            assert_eq!(wrapped.y_of(d, g), tops[d]);
+        for (d, top) in tops.iter().enumerate() {
+            assert_eq!(wrapped.y_of(d, g), *top);
         }
         for d in 0..7 {
             assert_eq!(wrapped.row_height(d, g), p.row_height(d, g));

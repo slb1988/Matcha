@@ -13,5 +13,6 @@ pub mod status_bar;
 pub mod syntax_style;
 pub mod view;
 mod worker;
+pub(crate) mod wrapping;
 
 pub use view::{TextCompareView, ViewAction};

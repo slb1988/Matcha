@@ -1822,6 +1822,7 @@ impl MergeView {
         layout(
             text,
             0,
+            0,
             &tokens,
             &spans,
             &self.colors,

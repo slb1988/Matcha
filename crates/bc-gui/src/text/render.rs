@@ -37,17 +37,7 @@ impl TextCompareView {
         );
         let id = editor_id(s);
         let response = ui.interact(rect, id, egui::Sense::click());
-        ui.memory_mut(|m| {
-            m.set_focus_lock_filter(
-                id,
-                egui::EventFilter {
-                    tab: true,
-                    horizontal_arrows: true,
-                    vertical_arrows: true,
-                    ..Default::default()
-                },
-            )
-        });
+        ui.memory_mut(|m| m.set_focus_lock_filter(id, EDITOR_KEYS));
         let snapshot = self.content(s).snapshot();
         let row_height = self.row_height();
         let geometry = RowGeometry::for_row_height(row_height);
@@ -63,8 +53,10 @@ impl TextCompareView {
         ui.spacing_mut().scroll.bar_outer_margin = 1.0;
         ui.add_space(1.0);
         // 参考在内容放得下时不显示水平滚动条。
-        let need_hscroll = self.content_width > rect.width() - 20.0;
+        let need_hscroll = !self.word_wrap && self.content_width > rect.width() - 20.0;
         let scroll = self.scroll;
+        // Word Wrap 高度表已就绪（关闭或未建好时按单行绘制）。
+        let wrapping = self.word_wrap && self.projection.heights().is_some();
         let need_vscroll_pre = self.projection.height(geometry)
             > remaining - 1.0 - if need_hscroll { 18.0 } else { 0.0 };
         // 行响应盖在窗格响应之上：行上的右键合并进窗格响应，统一打开右键菜单。
@@ -242,10 +234,14 @@ impl TextCompareView {
                             importance.with_ignore_unimportant(self.map.rules.ignore_unimportant);
 
                         let glyph = self.font_size * 0.62;
-                        self.content_width = self
-                            .content_width
-                            .max((text.len() as f32 * glyph + 100.0).min(20_000_000.0));
-                        let width = ui.available_width().max(self.content_width);
+                        let width = if wrapping {
+                            ui.available_width()
+                        } else {
+                            self.content_width = self
+                                .content_width
+                                .max((text.len() as f32 * glyph + 100.0).min(20_000_000.0));
+                            ui.available_width().max(self.content_width)
+                        };
                         let (rect, response) = ui.allocate_exact_size(
                             egui::vec2(width, self.projection.row_height(display, geometry)),
                             egui::Sense::click_and_drag(),
@@ -257,6 +253,11 @@ impl TextCompareView {
                             egui::pos2(ui.clip_rect().left(), rect.top()),
                             egui::pos2(ui.clip_rect().right(), rect.bottom()),
                         );
+                        // 首个视觉行（Word Wrap 时行号、箭头、书签徽标只画在这里）。
+                        let head_rect = egui::Rect::from_min_size(
+                            viewport_rect.min,
+                            egui::vec2(viewport_rect.width(), row_height),
+                        );
                         // 行号栏箭头：命中区注册在行响应之上，点击不落到文本。
                         let arrow = if self.show_numbers {
                             self.gutter_arrow(s, row, selected.as_ref())
@@ -267,7 +268,7 @@ impl TextCompareView {
                         let arrow_hit = arrow
                             .as_ref()
                             .filter(|a| a.mark == gutter::GutterMark::Arrow)
-                            .map(|_| gutter::arrow_rect(viewport_rect));
+                            .map(|_| gutter::arrow_rect(head_rect));
                         let mut arrow_hovered = false;
                         if let (Some(arrow), Some(hit)) = (&arrow, arrow_hit) {
                             let enabled = arrow.disabled.is_none();
@@ -314,6 +315,13 @@ impl TextCompareView {
                                 egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
                             );
                         }
+                        // Word Wrap: the row's visual lines (cached per side and line).
+                        let wrapped = match (wrapping, line) {
+                            (true, Some(l)) if l < snapshot.lines.len() => {
+                                Some(self.wrapped(s, l, text))
+                            }
+                            _ => None,
+                        };
                         self.ensure_inline(row);
                         let inline = self
                             .inline
@@ -329,80 +337,132 @@ impl TextCompareView {
                         } else {
                             Default::default()
                         };
-                        // Long lines use a horizontal window; never allocate a galley for the entire line.
-                        let start_char = if text.len() > 4096 {
-                            ((scroll.x / glyph).max(0.0) as usize).saturating_sub(32)
+                        let tab = snapshot
+                            .format
+                            .as_ref()
+                            .and_then(|f| f.tab_size)
+                            .unwrap_or(4)
+                            .clamp(1, 32) as usize;
+                        let text_x = if self.show_numbers {
+                            gutter::WIDTH + 1.0
                         } else {
-                            0
+                            8.0
                         };
-                        let start = byte_at_char(text, start_char);
-                        let mut finish = (start + 4096).min(text.len());
-                        while !text.is_char_boundary(finish) {
-                            finish -= 1;
-                        }
-                        let window = &text[start..finish];
-                        let (job, bytes) = layout(
-                            window,
-                            start,
-                            &tokens,
-                            inline,
-                            &prefs.colors,
-                            self.font_size,
-                            self.map.rules.ignore_unimportant,
-                            self.show_whitespace,
-                            snapshot
-                                .format
-                                .as_ref()
-                                .and_then(|f| f.tab_size)
-                                .unwrap_or(4)
-                                .clamp(1, 32) as usize,
-                            &LineInk {
-                                normal: EDITOR_TEXT,
-                                diff: orphan_ink.then(|| diff_ink(&prefs.colors, importance)),
-                                syntax: &syntax,
-                                bold: &bold,
-                                unimportant: &self.map.rules.comparison.importance.unimportant,
-                                important: None,
-                            },
-                        );
-                        let galley = ui.painter().layout_job(job);
-                        let origin = rect.min
-                            + egui::vec2(
-                                if self.show_numbers {
-                                    gutter::WIDTH + 1.0
-                                } else {
-                                    8.0
-                                },
-                                2.0,
+                        let ink = LineInk {
+                            normal: EDITOR_TEXT,
+                            diff: orphan_ink.then(|| diff_ink(&prefs.colors, importance)),
+                            syntax: &syntax,
+                            bold: &bold,
+                            unimportant: &self.map.rules.comparison.importance.unimportant,
+                            important: None,
+                        };
+                        let lay = |range: std::ops::Range<usize>, column: usize| {
+                            layout(
+                                &text[range.clone()],
+                                range.start,
+                                column,
+                                &tokens,
+                                inline,
+                                &prefs.colors,
+                                self.font_size,
+                                self.map.rules.ignore_unimportant,
+                                self.show_whitespace,
+                                tab,
+                                &ink,
                             )
-                            + egui::vec2(start_char as f32 * glyph, 0.0);
-                        let char_for_byte = |byte: usize| {
-                            bytes
-                                .partition_point(|b| *b < byte)
-                                .min(galley.text().chars().count())
                         };
+                        let mut pieces: Vec<Piece> = Vec::new();
+                        let finish;
+                        match &wrapped {
+                            None => {
+                                // Long lines use a horizontal window; never allocate a galley for the entire line.
+                                let start_char = if text.len() > 4096 {
+                                    ((scroll.x / glyph).max(0.0) as usize).saturating_sub(32)
+                                } else {
+                                    0
+                                };
+                                let start = byte_at_char(text, start_char);
+                                let mut end = (start + 4096).min(text.len());
+                                while !text.is_char_boundary(end) {
+                                    end -= 1;
+                                }
+                                finish = end;
+                                let (job, bytes) = lay(start..end, 0);
+                                pieces.push(Piece {
+                                    k: 0,
+                                    galley: ui.painter().layout_job(job),
+                                    bytes,
+                                    origin: rect.min
+                                        + egui::vec2(text_x, 2.0)
+                                        + egui::vec2(start_char as f32 * glyph, 0.0),
+                                    range: start..end,
+                                });
+                            }
+                            Some(w) => {
+                                finish = w.end;
+                                // Only the visual lines that intersect the clip rect.
+                                let clip = ui.clip_rect();
+                                let k0 = ((clip.top() - rect.top()) / row_height)
+                                    .floor()
+                                    .max(0.0) as usize;
+                                let k1 = (((clip.bottom() - rect.top()) / row_height)
+                                    .ceil()
+                                    .max(0.0) as usize)
+                                    .min(w.len());
+                                for k in k0..k1 {
+                                    let (range, column) = w.segment(k);
+                                    let (job, bytes) = lay(range.clone(), column);
+                                    pieces.push(Piece {
+                                        k,
+                                        galley: ui.painter().layout_job(job),
+                                        bytes,
+                                        origin: rect.min
+                                            + egui::vec2(text_x, 2.0 + k as f32 * row_height),
+                                        range,
+                                    });
+                                }
+                            }
+                        }
                         if let (Some(line), Some((a, b))) = (line, self.editors[s].selection()) {
                             if (a.line..=b.line).contains(&line) {
                                 let a = if line == a.line { a.byte } else { 0 };
                                 let b = if line == b.line { b.byte } else { text.len() };
-                                let x1 = galley
-                                    .pos_from_cursor(CCursor::new(char_for_byte(a)))
-                                    .left();
-                                let x2 = galley
-                                    .pos_from_cursor(CCursor::new(char_for_byte(b)))
-                                    .left();
-                                let selection = egui::Rect::from_min_max(
-                                    origin + egui::vec2(x1, 0.0),
-                                    origin + egui::vec2(x2.max(x1 + 2.0), row_height),
-                                );
-                                ui.painter().rect_filled(
-                                    selection,
-                                    0.0,
-                                    crate::chrome::theme::palette(ui.ctx()).text_selection,
-                                );
+                                for piece in &pieces {
+                                    let (a, b) = if wrapped.is_some() {
+                                        let (a, b) =
+                                            (a.max(piece.range.start), b.min(piece.range.end));
+                                        // Empty overlap: only an empty line or the selected
+                                        // line break after the last visual line shows a stub.
+                                        let stub = a == b
+                                            && (piece.range.is_empty()
+                                                || (a == text.len()
+                                                    && piece.range.end == text.len()));
+                                        if a > b || (a == b && !stub) {
+                                            continue;
+                                        }
+                                        (a, b)
+                                    } else {
+                                        (a, b)
+                                    };
+                                    let x1 = piece.x_of(a);
+                                    let x2 = piece.x_of(b);
+                                    let selection = egui::Rect::from_min_max(
+                                        piece.origin + egui::vec2(x1, 0.0),
+                                        piece.origin + egui::vec2(x2.max(x1 + 2.0), row_height),
+                                    );
+                                    ui.painter().rect_filled(
+                                        selection,
+                                        0.0,
+                                        crate::chrome::theme::palette(ui.ctx()).text_selection,
+                                    );
+                                }
                             }
                         }
-                        ui.painter().galley(origin, galley.clone(), EDITOR_TEXT);
+                        for piece in &pieces {
+                            ui.painter()
+                                .galley(piece.origin, piece.galley.clone(), EDITOR_TEXT);
+                        }
+                        let last = pieces.last();
                         if self.show_whitespace || ending == Some(LineEnding::None) {
                             let marker = match ending {
                                 Some(LineEnding::Lf) => " LF",
@@ -411,9 +471,9 @@ impl TextCompareView {
                                 Some(LineEnding::None) => " ∅",
                                 None => "",
                             };
-                            if finish == text.len() {
+                            if let Some(piece) = last.filter(|p| p.range.end == text.len()) {
                                 ui.painter().text(
-                                    origin + egui::vec2(galley.size().x, 0.0),
+                                    piece.origin + egui::vec2(piece.galley.size().x, 0.0),
                                     egui::Align2::LEFT_TOP,
                                     marker,
                                     egui::FontId::monospace(self.font_size),
@@ -421,13 +481,35 @@ impl TextCompareView {
                                 );
                             }
                         }
+                        // 超过折行上限：最后一个视觉行末尾提示未显示的字符数。
+                        if let (Some(w), Some(piece)) = (&wrapped, last) {
+                            if w.hidden_chars > 0 && piece.k + 1 == w.len() {
+                                ui.painter().text(
+                                    piece.origin + egui::vec2(piece.galley.size().x, 0.0),
+                                    egui::Align2::LEFT_TOP,
+                                    truncation_hint(w.hidden_chars),
+                                    egui::FontId::monospace(self.font_size),
+                                    ui.visuals().weak_text_color(),
+                                );
+                            }
+                        }
                         // 与参考一致：窗格即使未聚焦也画 caret。
-                        if line == Some(self.editors[s].caret.line) {
-                            let cursor = galley
-                                .pos_from_cursor(CCursor::new(char_for_byte(
-                                    self.editors[s].caret.byte,
-                                )))
-                                .translate(origin.to_vec2());
+                        let caret_piece = match &wrapped {
+                            Some(w) => {
+                                let k = w.segment_of(self.editors[s].caret.byte.min(w.end));
+                                pieces.iter().find(|p| p.k == k)
+                            }
+                            None => pieces.first(),
+                        };
+                        if let (true, Some(piece)) =
+                            (line == Some(self.editors[s].caret.line), caret_piece)
+                        {
+                            let cursor = piece
+                                .galley
+                                .pos_from_cursor(CCursor::new(
+                                    piece.char_for(self.editors[s].caret.byte),
+                                ))
+                                .translate(piece.origin.to_vec2());
                             ui.painter().line_segment(
                                 [cursor.left_top(), cursor.left_bottom()],
                                 egui::Stroke::new(1.5, ui.visuals().text_color()),
@@ -453,11 +535,34 @@ impl TextCompareView {
                                 });
                             }
                         }
+                        // Text byte under a pointer position (Word Wrap: by visual line; below
+                        // this side's visual lines: the end of the line).
+                        let hit = |p: egui::Pos2| -> usize {
+                            let piece = match &wrapped {
+                                Some(w) => {
+                                    let k = ((p.y - rect.top()) / row_height).floor().max(0.0)
+                                        as usize;
+                                    if k >= w.len() {
+                                        return w.end;
+                                    }
+                                    pieces.iter().find(|q| q.k == k)
+                                }
+                                None => pieces.first(),
+                            };
+                            match piece {
+                                Some(q) => {
+                                    let cursor = q.galley.cursor_from_pos(p - q.origin);
+                                    q.bytes.get(cursor.index.0).copied().unwrap_or(q.range.end)
+                                }
+                                None => finish,
+                            }
+                        };
                         // Gutter is fixed horizontally, after text painting so it cannot be overdrawn.
                         if self.show_numbers {
                             gutter::paint(
                                 ui,
                                 viewport_rect,
+                                row_height,
                                 line.filter(|i| *i < snapshot.lines.len()),
                                 row == self.current_row,
                                 arrow.as_ref(),
@@ -467,7 +572,7 @@ impl TextCompareView {
                         }
                         // 书签徽标：文本区右缘（纵向滚动条左侧），不随横向滚动、不占行号栏。
                         if let Some(n) = line.and_then(|l| self.bookmarks.at((s, l))) {
-                            bookmark_badge(ui.painter(), viewport_rect, n);
+                            bookmark_badge(ui.painter(), head_rect, n);
                         }
                         let pressed = ui.input(|i| i.pointer.primary_pressed());
                         let held = ui.input(|i| i.pointer.primary_down());
@@ -509,9 +614,7 @@ impl TextCompareView {
                                     self.active = s;
                                     self.current_row = row;
                                     ui.memory_mut(|m| m.request_focus(id));
-                                    let cursor = galley.cursor_from_pos(p - origin);
-                                    let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
-                                    let caret = Caret { line, byte };
+                                    let caret = Caret { line, byte: hit(p) };
                                     let inside = self.editors[s]
                                         .selection()
                                         .is_some_and(|(a, b)| a <= caret && caret <= b);
@@ -532,8 +635,7 @@ impl TextCompareView {
                                     self.active = s;
                                     self.current_row = row;
                                     ui.memory_mut(|m| m.request_focus(id));
-                                    let cursor = galley.cursor_from_pos(p - origin);
-                                    let byte = bytes.get(cursor.index.0).copied().unwrap_or(finish);
+                                    let byte = hit(p);
                                     let extend = !pressed || ui.input(|i| i.modifiers.shift);
                                     self.editors[s].place(Caret { line, byte }, extend);
                                     if let Some(line) = index(mapped, 1 - s) {
@@ -607,7 +709,13 @@ impl TextCompareView {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
         }
         if self.dragging == Some(s) && ui.input(|i| i.pointer.primary_released()) {
-            ui.memory_mut(|m| m.request_focus(id));
+            // `request_focus` starts a fresh focus record without the lock filter: keep the
+            // arrows for the editor, or egui moves focus on the next arrow key (e.g. to a
+            // tall wrapped row below).
+            ui.memory_mut(|m| {
+                m.request_focus(id);
+                m.set_focus_lock_filter(id, EDITOR_KEYS);
+            });
         }
         // 行号栏箭头点击：本窗格行循环结束后才改内容与对齐。
         if let Some((side, row, kind)) = self.pending_gutter_copy.take() {
@@ -681,7 +789,7 @@ impl TextCompareView {
             return;
         };
         let rect = self.pane_rects[s];
-        let need_hscroll = self.content_width > rect.width() - 20.0;
+        let need_hscroll = !self.word_wrap && self.content_width > rect.width() - 20.0;
         let left = rect.left()
             + if self.show_numbers {
                 gutter::WIDTH
@@ -779,6 +887,7 @@ pub(crate) struct LineInk<'a> {
 pub(crate) fn layout(
     text: &str,
     start: usize,
+    column: usize,
     tokens: &[Token],
     spans: &[bc_engine_text::inline::InlineSpan],
     colors: &DiffColors,
@@ -790,7 +899,8 @@ pub(crate) fn layout(
 ) -> (LayoutJob, Vec<usize>) {
     let mut job = LayoutJob::default();
     let mut mapping = Vec::new();
-    let mut column = 0;
+    // `column`: logical column of `text`'s first char (tab stops continue across wrapped lines).
+    let mut column = column;
     for (offset, c) in text.char_indices() {
         let byte = start + offset;
         let token = tokens.iter().find(|t| t.span.contains(&byte));
@@ -960,3 +1070,38 @@ pub(super) fn diff_ink(colors: &DiffColors, importance: Importance) -> egui::Col
         super::nav_bar::color(colors, importance, false, 255)
     }
 }
+
+/// One laid-out visual line of a text row: the whole line's horizontal window, or
+/// (Word Wrap) one wrapped segment.
+struct Piece {
+    /// Visual line within the row (0 without word wrap).
+    k: usize,
+    galley: std::sync::Arc<egui::Galley>,
+    /// Source byte of each galley char (plus the end).
+    bytes: Vec<usize>,
+    origin: egui::Pos2,
+    range: std::ops::Range<usize>,
+}
+impl Piece {
+    fn char_for(&self, byte: usize) -> usize {
+        self.bytes
+            .partition_point(|b| *b < byte)
+            .min(self.galley.text().chars().count())
+    }
+    fn x_of(&self, byte: usize) -> f32 {
+        self.galley
+            .pos_from_cursor(CCursor::new(self.char_for(byte)))
+            .left()
+    }
+}
+/// Word Wrap cap reached: shown after the last displayed visual line.
+pub(crate) fn truncation_hint(hidden: usize) -> String {
+    format!("  \u{2026} line too long: {hidden} more characters not shown")
+}
+/// Keys the focused editor pane keeps for itself (not egui focus navigation).
+const EDITOR_KEYS: egui::EventFilter = egui::EventFilter {
+    tab: true,
+    horizontal_arrows: true,
+    vertical_arrows: true,
+    escape: false,
+};

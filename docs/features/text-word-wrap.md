@@ -20,25 +20,37 @@
   视图滚到它所在的视觉行。
 - **横向滚动**：开启时隐藏横向滚动条、横向偏移归零、横向滚轮无效；关闭后恢复。
 - **宽度变化**（拖分隔线、调窗口、切换上下布局、改字号、显隐行号）：立即重新折行，视口顶端的对齐行不跳。
-- **超长行上限**：一行在一个窗格中最多 10000 个视觉行，超出部分不显示，末尾提示
-  「行过长，余下 N 个字符未显示」；可在底部 Text Details 中查看完整当前行。
+- **超长行上限**：一行在一个窗格中最多 10000 个视觉行，超出部分不显示，末尾以弱色提示
+  `… line too long: N more characters not shown`；可在底部 Text Details 中查看完整当前行。
 
 ## 代码地图
 
 | 层 | 位置 | 内容 |
 |---|---|---|
-| 共享模块 | `crates/bc-gui/src/wrap.rs` | 折行断点计算、视觉行计数（快路径 + 上限）、按显示行的行高前缀和 |
-| 文本比较 | `crates/bc-gui/src/text/` | （实现中） |
+| 共享模块 | `crates/bc-gui/src/wrap.rs` | `Glyphs`（字宽缓存）、`count` / `breaks`（断点、快路径、`WRAP_CAP`）、`RowHeights`（按显示行的视觉行数前缀和；`build` 预算内精确、超出估算，`refine` / `advance` 补齐） |
+| 文本比较：几何 | `crates/bc-gui/src/text/projection.rs` | `Projection::set_heights`：有高度表时 `y_of` / `display_at`（二分）/ `row_height` 按视觉行计；细折叠行仍按自身高度 |
+| 文本比较：状态 | `crates/bc-gui/src/text/wrapping.rs` | `WrapState`（每侧 `WrapSpec`、字宽、断点缓存）、`ensure_wrap`（建表 / 重建 / 补齐 / 关闭，滚动锚定 `TopAnchor`）、`wrapped`、`reveal_caret` |
+| 文本比较：绘制 | `crates/bc-gui/src/text/render.rs` | 行按 `Piece`（视觉行）排版：可见段、逐段选区、末段行尾标记、截断提示、按段命中；`gutter::paint` 的 `head` 参数（行号、块箭头在首个视觉行） |
+| 文本比较：入口 | `crates/bc-gui/src/text/view.rs` | `word_wrap` 开关（View › Word Wrap 勾选）；`ui()` 先算窗格矩形 → `ensure_wrap` → 落实 `pending_scroll` / `pending_reveal`；开启时 `scroll.x = 0` |
 | 文本合并 | `crates/bc-gui/src/merge/view.rs` | （实现中） |
 
 ## 关键语义
 
 - 行高按「视觉行」整数单位累加，像素只在最终换算时乘以行高。
 - Word Wrap 关闭时走原固定行高路径，画面逐像素不变。
+- 窗格文本区宽度 = 窗格宽 − 纵向滚动条 18 − 行号栏 41（无行号时 8）− 右侧留白 4；断点判断再扣 0.5 px 余量。
+- 每次编辑都会重建投影，高度表随之重建（≤ 16 MB 需扫描的字节同步精确，其余先估算、视口附近当帧精确、
+  空闲帧每帧约 2 MB 补齐）；重建前后按「顶端显示行 + 行内偏移」锚定，视口顶端行不跳。
+- 光标随键盘 / 编辑移动或查找命中后，按光标所在视觉行做最小滚动（`reveal_caret`）；关闭 Word Wrap 时沿用原
+  「离开 30 行窗口才滚动」规则。
+- 鼠标松开时编辑器重新取得焦点后，同时恢复方向键锁定（否则 egui 会把下一次方向键当作焦点导航，
+  在折行的高行下方找到别的控件并转走焦点）。
 
 ## 使用与验证
 
-- 单元测试：`cargo test -p bc-gui --lib wrap`。
+- 单元测试：`cargo test -p bc-gui --lib wrap::`、`cargo test -p bc-gui --lib text::projection`。
+- 文本比较视图测试：`cargo test -p bc-gui --lib word_wrap`（开关与按标签页、横向滚动隐藏、各侧独立宽度与行高取最大、
+  缺失行与行尾标记、点击 / 留白 / 拖选、宽度变化与开关时顶端行不变、↑/↓ 按逻辑行与光标 / 查找可见、输入当帧重新折行）。
 - 手动：`matcha /solo a.txt b.txt` → View › Word Wrap；拖动中间分隔线观察两侧各自折行。
 
 ## 深入阅读

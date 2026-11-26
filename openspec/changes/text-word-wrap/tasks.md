@@ -13,16 +13,16 @@
 
 ## 3. 文本比较：关闭状态下的等价接入
 
-- [ ] 3.1 让 `Projection` 可选持有 `RowHeights`，并把 `render.rs` 中 `max_row`、`shown_end` 等直接用 `row_height` 的算术统一改走 `projection.y_of` / `display_at`；验收：Word Wrap 未开启时 `cargo test -p bc-gui text::` 全部通过、现有文本视觉快照逐像素不变
+- [x] 3.1 让 `Projection` 可选持有 `RowHeights`，并把 `render.rs` 中 `max_row`、`shown_end` 等直接用 `row_height` 的算术统一改走 `projection.y_of` / `display_at`；验收：Word Wrap 未开启时 `cargo test -p bc-gui text::` 全部通过、现有文本视觉快照逐像素不变
 
 ## 4. 文本比较：Word Wrap 开关与绘制
 
-- [ ] 4.1 View › Word Wrap 勾选项启用并接入 `command()`（标签页内状态，默认关闭）；开启时 `need_hscroll = false`、`scroll.x = 0`、丢弃横向滚轮；`view_tests.rs`：菜单勾选状态切换、两个标签页互不影响、开启后横向滚动条消失且 `scroll.x == 0`
-- [ ] 4.2 按窗格文本区宽度建表，行高取两侧最大值，缺失侧计 1（design D3/D6）；分段绘制：底色、斜线填充、当前行底线铺满整行，行号、书签徽标、复制箭头只在首段，行尾标记在末段之后，截断提示在第 10000 段末；`view_tests.rs`：spec「各窗格按自身宽度折行 / 左右宽度不同」与「对齐行高取各窗格最大值」的场景（左 3 段、右 2 段；行高 4 段时右侧留白；缺失行铺满）、行号只出现一次、CRLF 标记位置
-- [ ] 4.3 滚动锚定（design D4）：开关、拖动分隔线、调整窗口、切换上下布局后，视口顶端对齐行不变；`view_tests.rs`：顶端第 500 行时改变 `TEXT_SPLIT_X` 宽度，重绘后 `top_row` 仍为 500
-- [ ] 4.4 点击、拖选、Shift+单击按段命中，超出本侧段数时放在行尾，跨段选区逐段高亮（design D6）；`view_tests.rs`：spec「折行状态下的点击与选区」的三个场景，复制得到的文本与原文一致
-- [ ] 4.5 光标与查找命中所在视觉行的可见性（design D5）；编辑后受影响行当帧重新计数（design D7）；`view_tests.rs`：60 段长行中按 → 越过视口底部后视图跟随、Find Next 命中第 45 段时可见、↓ 从长行首段直接到下一对齐行、输入使行变成 2 段后下一行同帧下移且两侧仍对齐
-- [ ] 4.6 运行 `tools/dev-build.ps1` 编译 debug 版，`cargo clippy -p bc-gui` 无新增告警；更新 `docs/features/text-word-wrap.md` 中的文本比较代码地图
+- [x] 4.1 View › Word Wrap 勾选项启用并接入 `command()`（标签页内状态，默认关闭）；开启时 `need_hscroll = false`、`scroll.x = 0`、丢弃横向滚轮；`view_tests.rs`：菜单勾选状态切换、两个标签页互不影响、开启后横向滚动条消失且 `scroll.x == 0`
+- [x] 4.2 按窗格文本区宽度建表，行高取两侧最大值，缺失侧计 1（design D3/D6）；分段绘制：底色、斜线填充、当前行底线铺满整行，行号、书签徽标、复制箭头只在首段，行尾标记在末段之后，截断提示在第 10000 段末；`view_tests.rs`：spec「各窗格按自身宽度折行 / 左右宽度不同」与「对齐行高取各窗格最大值」的场景（左 3 段、右 2 段；行高 4 段时右侧留白；缺失行铺满）、行号只出现一次、CRLF 标记位置
+- [x] 4.3 滚动锚定（design D4）：开关、拖动分隔线、调整窗口、切换上下布局后，视口顶端对齐行不变；`view_tests.rs`：顶端第 500 行时改变 `TEXT_SPLIT_X` 宽度，重绘后 `top_row` 仍为 500
+- [x] 4.4 点击、拖选、Shift+单击按段命中，超出本侧段数时放在行尾，跨段选区逐段高亮（design D6）；`view_tests.rs`：spec「折行状态下的点击与选区」的三个场景，复制得到的文本与原文一致
+- [x] 4.5 光标与查找命中所在视觉行的可见性（design D5）；编辑后受影响行当帧重新计数（design D7）；`view_tests.rs`：60 段长行中按 → 越过视口底部后视图跟随、Find Next 命中第 45 段时可见、↓ 从长行首段直接到下一对齐行、输入使行变成 2 段后下一行同帧下移且两侧仍对齐
+- [x] 4.6 运行 `tools/dev-build.ps1` 编译 debug 版，`cargo clippy -p bc-gui` 无新增告警；更新 `docs/features/text-word-wrap.md` 中的文本比较代码地图
 
 ## 5. 文本合并：关闭状态下的等价重构
 

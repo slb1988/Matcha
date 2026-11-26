@@ -133,6 +133,14 @@ pub struct TextCompareView {
     pub(crate) show_whitespace: bool,
     pub(crate) show_syntax: bool,
     pub(crate) show_numbers: bool,
+    /// View › Word Wrap（按标签页，不持久化）。
+    pub(crate) word_wrap: bool,
+    /// Word Wrap 开启时的折行参数与缓存（见 `wrapping.rs`）。
+    pub(crate) wrap: Option<super::wrapping::WrapState>,
+    /// 上一帧末的视口顶端（投影重建 / 折行变化后据此保持顶端行）。
+    pub(crate) top_anchor: Option<super::wrapping::TopAnchor>,
+    /// Word Wrap：本帧要滚动到可见的光标所在侧（光标所在视觉行）。
+    pub(crate) pending_reveal: Option<usize>,
     pub(crate) font_size: f32,
     pub(crate) content_width: f32,
     pending_scroll: Option<usize>,
@@ -253,6 +261,10 @@ impl TextCompareView {
             show_whitespace: false,
             show_syntax: true,
             show_numbers: true,
+            word_wrap: false,
+            wrap: None,
+            top_anchor: None,
+            pending_reveal: None,
             font_size: crate::chrome::theme::EDITOR_SIZE,
             content_width: 0.0,
             pending_scroll: None,
@@ -1189,6 +1201,10 @@ impl TextCompareView {
                 self.rebuild_projection();
             }
             self.scroll_to_row(self.projection.display_for(self.current_row));
+            if self.word_wrap {
+                // 命中可能在长行中部：再滚到它所在的视觉行。
+                self.pending_reveal = Some(s);
+            }
             self.find.last_hit = Some(hit);
         } else {
             self.message = "No more matches".into();
@@ -1425,22 +1441,7 @@ impl TextCompareView {
         self.dialogs(&ctx, prefs);
         self.last_stats.rows_drawn = 0;
         let row_height = self.row_height();
-        if let Some(row) = self.pending_scroll.take() {
-            let fits = (ui.available_height() / row_height.max(1.0)) as usize;
-            let row = row.saturating_sub(std::mem::take(&mut self.pending_context).min(fits / 3));
-            self.scroll.y = self.projection.y_of(
-                row.min(self.projection.len().saturating_sub(1)),
-                super::projection::RowGeometry::for_row_height(row_height),
-            );
-        }
-        if !blocked {
-            // Raw wheel over either pane, 1:1 this frame; upper bounds are
-            // clamped in `pane` before anything is drawn.
-            let delta = crate::chrome::wheel::delta(&ctx, &self.pane_rects);
-            self.scroll.x = (self.scroll.x - delta.x).max(0.0);
-            self.scroll.y = (self.scroll.y - delta.y).max(0.0);
-            self.drag_autoscroll(&ctx);
-        }
+        let available_height = ui.available_height();
         let available = ui.available_rect_before_wrap().intersect(bounds);
         let notice_height = self.not_found.height();
         let body = egui::Rect::from_min_max(
@@ -1451,6 +1452,46 @@ impl TextCompareView {
             ),
         );
         let nav_rect = egui::Rect::from_min_size(body.min, egui::vec2(52.0, body.height()));
+        let panes = egui::Rect::from_min_max(body.min + egui::vec2(52.0, 0.0), body.max);
+        let width = TEXT_SPLIT_X.first(panes.width());
+        let height = TEXT_SPLIT_Y.first(panes.height());
+        let rects: [egui::Rect; 2] = std::array::from_fn(|s| {
+            if self.stacked {
+                if s == 0 {
+                    egui::Rect::from_min_size(panes.min, egui::vec2(panes.width(), height))
+                } else {
+                    egui::Rect::from_min_max(panes.min + egui::vec2(0.0, height), panes.max)
+                }
+            } else if s == 0 {
+                egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
+            } else {
+                egui::Rect::from_min_max(panes.min + egui::vec2(width + 4.0, 0.0), panes.max)
+            }
+        });
+        // Word Wrap 的高度表依赖本帧窗格宽度：先建表，再落实待滚动的目标行。
+        self.ensure_wrap(&ctx, rects, rects[0].height().min(rects[1].height()));
+        if let Some(row) = self.pending_scroll.take() {
+            let fits = (available_height / row_height.max(1.0)) as usize;
+            let row = row.saturating_sub(std::mem::take(&mut self.pending_context).min(fits / 3));
+            self.scroll.y = self.projection.y_of(
+                row.min(self.projection.len().saturating_sub(1)),
+                super::projection::RowGeometry::for_row_height(row_height),
+            );
+        }
+        if let Some(s) = self.pending_reveal.take() {
+            self.reveal_caret(s, rects[s].height());
+        }
+        if !blocked {
+            // Raw wheel over either pane, 1:1 this frame; upper bounds are
+            // clamped in `pane` before anything is drawn.
+            let delta = crate::chrome::wheel::delta(&ctx, &self.pane_rects);
+            self.scroll.x = (self.scroll.x - delta.x).max(0.0);
+            self.scroll.y = (self.scroll.y - delta.y).max(0.0);
+            self.drag_autoscroll(&ctx);
+        }
+        if self.word_wrap {
+            self.scroll.x = 0.0;
+        }
         let marks = self.bookmark_rows();
         ui.scope_builder(egui::UiBuilder::new().max_rect(nav_rect), |ui| {
             if let Some(row) = self.nav.ui(
@@ -1463,28 +1504,14 @@ impl TextCompareView {
                 self.goto_row(row);
             }
         });
-        let panes = egui::Rect::from_min_max(body.min + egui::vec2(52.0, 0.0), body.max);
         use crate::chrome::splitter;
-        let width = TEXT_SPLIT_X.first(panes.width());
-        let height = TEXT_SPLIT_Y.first(panes.height());
         // Scrollbars pan the view, not the editor. egui normally surrenders
         // keyboard focus on a click outside the focused widget (including a bar).
         let editor_focus = ctx
             .memory(|m| m.focused())
             .filter(|&id| id == editor_id(self.active));
         let mut on_scrollbar = false;
-        for s in 0..2 {
-            let rect = if self.stacked {
-                if s == 0 {
-                    egui::Rect::from_min_size(panes.min, egui::vec2(panes.width(), height))
-                } else {
-                    egui::Rect::from_min_max(panes.min + egui::vec2(0.0, height), panes.max)
-                }
-            } else if s == 0 {
-                egui::Rect::from_min_size(panes.min, egui::vec2(width, panes.height()))
-            } else {
-                egui::Rect::from_min_max(panes.min + egui::vec2(width + 4.0, 0.0), panes.max)
-            };
+        for (s, rect) in rects.into_iter().enumerate() {
             ui.scope_builder(
                 egui::UiBuilder::new()
                     .id_salt(("text-pane", s))
@@ -1495,6 +1522,7 @@ impl TextCompareView {
                 },
             );
         }
+        self.record_top();
         // 窗格分隔线：并排时左右拖、上下布局时上下拖（位置持久化，双击复位）。
         if self.stacked {
             splitter::horizontal_line(
@@ -1881,6 +1909,7 @@ impl TextCompareView {
             "Visible Whitespace" => self.show_whitespace,
             "Line Numbers" => self.show_numbers,
             "Syntax Highlighting" => self.show_syntax,
+            "Word Wrap" => self.word_wrap,
             "Over-Under Layout" => self.stacked,
             "Side-by-Side Layout" => !self.stacked,
             _ => return None,
@@ -2223,6 +2252,11 @@ impl TextCompareView {
             "Line Numbers" => self.show_numbers = !self.show_numbers,
             "Visible Whitespace" => self.show_whitespace = !self.show_whitespace,
             "Syntax Highlighting" => self.show_syntax = !self.show_syntax,
+            "Word Wrap" => {
+                self.word_wrap = !self.word_wrap;
+                self.scroll.x = 0.0;
+                self.content_width = 0.0;
+            }
             "Align With..." => {
                 self.align_with = Some((self.active, self.editors[self.active].caret.line))
             }
@@ -2673,10 +2707,15 @@ impl TextCompareView {
                 if let Some(line) = index(self.row(self.current_row), 1 - s) {
                     self.editors[1 - s].place(Caret { line, byte: 0 }, false);
                 }
-                let row = self.projection.display_for(self.current_row);
-                let top = self.top_row(self.row_height());
-                if row < top || row > top + 30 {
-                    self.scroll_to_row(row.saturating_sub(8));
+                if self.word_wrap {
+                    // 行高可变：按光标所在视觉行做最小滚动（建表之后处理）。
+                    self.pending_reveal = Some(s);
+                } else {
+                    let row = self.projection.display_for(self.current_row);
+                    let top = self.top_row(self.row_height());
+                    if row < top || row > top + 30 {
+                        self.scroll_to_row(row.saturating_sub(8));
+                    }
                 }
             }
         }

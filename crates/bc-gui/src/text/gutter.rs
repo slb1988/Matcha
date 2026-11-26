@@ -57,9 +57,13 @@ pub fn arrow_rect(row: egui::Rect) -> egui::Rect {
     egui::Rect::from_min_size(row.min, egui::vec2(ARROW_WIDTH, row.height()))
 }
 
+/// `rect`: the whole row (Word Wrap: every visual line); `head`: height of its first
+/// visual line, where the line number and the section arrow are centred.
+#[allow(clippy::too_many_arguments)]
 pub fn paint(
     ui: &egui::Ui,
     rect: egui::Rect,
+    head: f32,
     line: Option<usize>,
     current: bool,
     arrow: Option<&GutterArrow>,
@@ -69,9 +73,10 @@ pub fn paint(
     let gutter = egui::Rect::from_min_size(rect.min, egui::vec2(WIDTH, rect.height()));
     ui.painter()
         .rect_filled(gutter, 0.0, crate::chrome::theme::SURFACE);
+    let first = egui::Rect::from_min_size(gutter.min, egui::vec2(WIDTH, head.min(rect.height())));
     if let Some(line) = line {
         ui.painter().text(
-            gutter.right_center() - egui::vec2(9.0, -1.0),
+            first.right_center() - egui::vec2(9.0, -1.0),
             egui::Align2::RIGHT_CENTER,
             (line + 1).to_string(),
             egui::FontId::proportional(9.5),
@@ -80,7 +85,13 @@ pub fn paint(
         );
     }
     if let Some(arrow) = arrow {
-        paint_arrow(ui, gutter, arrow, hovered, side);
+        // 括号线贯穿整行；块箭头居中于首个视觉行。
+        let target = if arrow.mark == GutterMark::Arrow {
+            first
+        } else {
+            gutter
+        };
+        paint_arrow(ui, target, arrow, hovered, side);
     }
     if current {
         // 参考的当前行标记为 2 px 宽黑线。

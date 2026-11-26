@@ -2014,6 +2014,7 @@ fn diff_rows_keep_comment_style_but_ink_code() {
         let (job, _) = layout(
             text,
             0,
+            0,
             &tokens,
             &[],
             &Default::default(),
@@ -2779,4 +2780,365 @@ fn next_difference_prefs_wrap_around_and_silence_the_panel() {
     frame_with(&ctx, &mut same, &mut prefs, vec![]);
     frame_with(&ctx, &mut same, &mut prefs, vec![key(egui::Key::N, true)]);
     assert!(same.not_found.is_shown());
+}
+
+// ---------------------------------------------------------------------------
+// Word Wrap (docs/features/text-word-wrap.md, openspec change text-word-wrap)
+// ---------------------------------------------------------------------------
+
+/// `n` four-char words: "w00 w01 …" (unique, so a wrapped segment locates itself).
+fn words(n: usize) -> String {
+    (0..n).map(|i| format!("w{i:02} ")).collect::<String>().trim_end().to_string()
+}
+/// Monospace advance of the editor font (after the first frame loaded the fonts).
+fn char_width(ctx: &egui::Context, v: &TextCompareView) -> f32 {
+    ctx.fonts_mut(|f| f.glyph_width(&egui::FontId::monospace(v.font_size), 'w'))
+}
+/// Left pane sized for `left` chars of text; the right pane takes the rest.
+fn split_for_chars(ctx: &egui::Context, v: &mut TextCompareView, left: f32) {
+    let total = v.pane_rects[1].right() - v.pane_rects[0].left();
+    let cw = char_width(ctx, v);
+    let pane = left * cw + 18.0 + crate::text::gutter::WIDTH + 1.0 + 4.0 + 0.3 * cw;
+    TEXT_SPLIT_X.store(pane, total);
+    frame(ctx, v, vec![]);
+    frame(ctx, v, vec![]);
+}
+/// Text shapes of one pane containing `needle`, top to bottom.
+fn pane_texts(
+    out: &egui::FullOutput,
+    v: &TextCompareView,
+    s: usize,
+    needle: &str,
+) -> Vec<(String, egui::Rect)> {
+    let pane = v.pane_rects[s];
+    let mut found: Vec<_> = text_shapes(out)
+        .into_iter()
+        .filter(|(t, r)| t.contains(needle) && pane.contains(r.left_top()))
+        .collect();
+    found.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+    found
+}
+fn wrapped_view(left: &str, right: &str) -> (egui::Context, TextCompareView) {
+    TEXT_SPLIT_X.reset();
+    let ctx = egui::Context::default();
+    let mut v = view(left, right);
+    frame(&ctx, &mut v, vec![]);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    frame(&ctx, &mut v, vec![]);
+    (ctx, v)
+}
+
+#[test]
+fn word_wrap_menu_toggles_per_tab_and_defaults_off() {
+    let ctx = egui::Context::default();
+    let mut a = view("a\n", "b\n");
+    let b = view("a\n", "b\n");
+    assert_eq!(a.checked("Word Wrap"), Some(false));
+    a.command("Word Wrap", &ctx, &Prefs::default());
+    assert_eq!(a.checked("Word Wrap"), Some(true));
+    // The other tab keeps its own (default) state.
+    assert_eq!(b.checked("Word Wrap"), Some(false));
+    a.update_menus();
+    let item = a
+        .menus
+        .iter()
+        .flat_map(|m| m.items.iter())
+        .find(|i| i.action_id == "Word Wrap")
+        .expect("View › Word Wrap");
+    assert!(item.enabled);
+    assert!(matches!(
+        item.kind,
+        crate::chrome::menubar::MenuItemKind::Check { checked: true }
+    ));
+    a.command("Word Wrap", &ctx, &Prefs::default());
+    assert_eq!(a.checked("Word Wrap"), Some(false));
+}
+
+#[test]
+fn word_wrap_hides_horizontal_scrolling_and_keeps_text_inside_panes() {
+    TEXT_SPLIT_X.reset();
+    let long = format!("{}\nshort\n", words(200));
+    let ctx = egui::Context::default();
+    let mut v = view(&long, &long);
+    frame(&ctx, &mut v, vec![]);
+    // Without wrap the long line scrolls horizontally.
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    let over = v.pane_rects[0].center();
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(over), wheel_lines(-5.0, shift)],
+    );
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.scroll.x > 0.0, "{:?}", v.scroll);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    let out = frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.x, 0.0);
+    // Horizontal wheel no longer pans.
+    frame(
+        &ctx,
+        &mut v,
+        vec![egui::Event::PointerMoved(over), wheel_lines(-5.0, shift)],
+    );
+    let out2 = frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.scroll.x, 0.0);
+    for out in [&out, &out2] {
+        for s in 0..2 {
+            let right = v.pane_rects[s].right() - 18.0;
+            let pieces = pane_texts(out, &v, s, "w");
+            assert!(pieces.len() > 1, "{pieces:?}");
+            for (t, r) in pieces {
+                assert!(r.right() <= right + 0.5, "{t:?} {r:?} > {right}");
+            }
+        }
+    }
+    // Turning it off restores the single long line.
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    let out = frame(&ctx, &mut v, vec![]);
+    assert_eq!(pane_texts(&out, &v, 0, "w00").len(), 1);
+    assert!(v.projection.heights().is_none());
+}
+
+#[test]
+fn word_wrap_folds_each_pane_at_its_own_width_and_rows_take_the_taller_side() {
+    let line = words(38);
+    let text = format!("{line}\nnext\n");
+    let (ctx, mut v) = wrapped_view(&text, &text);
+    split_for_chars(&ctx, &mut v, 45.0);
+    let out = frame(&ctx, &mut v, vec![]);
+    let left = pane_texts(&out, &v, 0, "w");
+    let right = pane_texts(&out, &v, 1, "w");
+    assert!(left.len() > right.len() && right.len() >= 2, "{left:?} {right:?}");
+    // Every visual line is one row below the previous; text is not lost.
+    let rh = v.row_height();
+    for side in [&left, &right] {
+        for pair in side.windows(2) {
+            assert!((pair[1].1.top() - pair[0].1.top() - rh).abs() < 0.5);
+        }
+        let joined: String = side.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(joined, line);
+    }
+    // The next aligned row starts at the same height in both panes, below the taller side.
+    let next = [
+        pane_texts(&out, &v, 0, "next")[0].1.top(),
+        pane_texts(&out, &v, 1, "next")[0].1.top(),
+    ];
+    assert!((next[0] - next[1]).abs() < 0.5, "{next:?}");
+    assert!((next[0] - left[0].1.top() - left.len() as f32 * rh).abs() < 0.5);
+    let g = crate::text::projection::RowGeometry::for_row_height(rh);
+    assert_eq!(v.projection.row_height(0, g), left.len() as f32 * rh);
+    // Line number 1 is drawn once per pane (first visual line only).
+    for s in 0..2 {
+        let ones: Vec<_> = text_shapes(&out)
+            .into_iter()
+            .filter(|(t, r)| t == "1" && v.pane_rects[s].x_range().contains(r.left()))
+            .collect();
+        assert_eq!(ones.len(), 1, "{ones:?}");
+        assert!(ones[0].1.center().y < left[0].1.top() + rh);
+    }
+    TEXT_SPLIT_X.reset();
+}
+
+#[test]
+fn word_wrap_left_only_rows_fill_the_missing_side_and_endings_follow_the_last_line() {
+    let line = words(38);
+    let left = format!("same\r\n{line}\r\nend\r\n");
+    let right = "same\r\nend\r\n";
+    let (ctx, mut v) = wrapped_view(&left, right);
+    v.command("Visible Whitespace", &ctx, &Prefs::default());
+    split_for_chars(&ctx, &mut v, 45.0);
+    let out = frame(&ctx, &mut v, vec![]);
+    let rh = v.row_height();
+    let pieces = pane_texts(&out, &v, 0, "w");
+    assert!(pieces.len() >= 3, "{pieces:?}");
+    // The left-only row is as tall as its left side; "end" lines up in both panes.
+    let g = crate::text::projection::RowGeometry::for_row_height(rh);
+    assert_eq!(v.projection.row_height(1, g), pieces.len() as f32 * rh);
+    let ends = [
+        pane_texts(&out, &v, 0, "end")[0].1.top(),
+        pane_texts(&out, &v, 1, "end")[0].1.top(),
+    ];
+    assert!((ends[0] - ends[1]).abs() < 0.5, "{ends:?}");
+    // CRLF marker of the wrapped row sits on its last visual line.
+    let last = pieces.last().unwrap().1;
+    let crlf: Vec<_> = pane_texts(&out, &v, 0, "CRLF")
+        .into_iter()
+        .filter(|(_, r)| (r.top() - last.top()).abs() < 0.5)
+        .collect();
+    assert_eq!(crlf.len(), 1, "{crlf:?} last={last:?}");
+    assert!(crlf[0].1.left() >= last.right() - 0.5);
+    TEXT_SPLIT_X.reset();
+}
+
+#[test]
+fn word_wrap_clicks_and_drags_land_on_wrapped_visual_lines() {
+    let line = words(38);
+    let text = format!("{line}\nnext\n");
+    let (ctx, mut v) = wrapped_view(&text, &text);
+    split_for_chars(&ctx, &mut v, 45.0);
+    let out = frame(&ctx, &mut v, vec![]);
+    let rh = v.row_height();
+    let left = pane_texts(&out, &v, 0, "w");
+    let right = pane_texts(&out, &v, 1, "w");
+    assert!(left.len() >= 3 && right.len() < left.len());
+    // Click the first char of the second visual line.
+    let (second, r) = &left[1];
+    click(&ctx, &mut v, r.left_top() + egui::vec2(1.0, rh / 2.0));
+    assert_eq!(v.active, 0);
+    assert_eq!(v.editors[0].caret.line, 0);
+    assert_eq!(v.editors[0].caret.byte, line.find(second.as_str()).unwrap());
+    // Below the right side's visual lines (still inside the tall row): end of line.
+    let blank = egui::pos2(
+        right[0].1.left() + 20.0,
+        left[0].1.top() + (left.len() as f32 - 0.5) * rh,
+    );
+    click(&ctx, &mut v, blank);
+    assert_eq!(v.active, 1);
+    assert_eq!(v.editors[1].caret.line, 0);
+    assert_eq!(v.editors[1].caret.byte, line.len());
+    // Drag from the middle of the first to the middle of the third visual line.
+    let from = left[0].1.center();
+    let to = left[2].1.center();
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(from)]);
+    frame(&ctx, &mut v, vec![pointer(from, true)]);
+    frame(&ctx, &mut v, vec![egui::Event::PointerMoved(to)]);
+    frame(&ctx, &mut v, vec![pointer(to, false)]);
+    let selected = v.editors[0].selected_text(&v.map.left);
+    let (a, b) = v.editors[0].selection().unwrap();
+    assert_eq!(selected, &line[a.byte..b.byte]);
+    assert!(a.byte < line.find(left[1].0.as_str()).unwrap());
+    assert!(b.byte > line.find(left[2].0.as_str()).unwrap());
+    // The selection is painted on all three visual lines.
+    let out = frame(&ctx, &mut v, vec![]);
+    let selection = crate::chrome::theme::palette(&ctx).text_selection;
+    let painted = out
+        .shapes
+        .iter()
+        .filter(|s| match &s.shape {
+            egui::Shape::Rect(r) => {
+                r.fill == selection && v.pane_rects[0].x_range().contains(r.rect.left())
+            }
+            _ => false,
+        })
+        .count();
+    assert_eq!(painted, 3);
+    TEXT_SPLIT_X.reset();
+}
+
+/// The pane text shape containing `needle` lies fully inside the pane's text viewport.
+fn shown_in_pane(out: &egui::FullOutput, v: &TextCompareView, s: usize, needle: &str) -> bool {
+    // `pane_rects`: the editor's scroll area (below the header, above the status bar).
+    let viewport = v.pane_rects[s];
+    text_shapes(out)
+        .into_iter()
+        .any(|(t, r)| t.contains(needle) && viewport.contains(r.center()))
+}
+
+#[test]
+fn word_wrap_keeps_the_top_row_when_widths_change_or_wrap_toggles() {
+    let text = (0..1000)
+        .map(|i| {
+            if i % 10 == 0 {
+                format!("long {i} {}\n", words(60))
+            } else {
+                format!("line {i}\n")
+            }
+        })
+        .collect::<String>();
+    let (ctx, mut v) = wrapped_view(&text, &text);
+    let rh = v.row_height();
+    v.scroll_to_row(500);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.top_row(rh), 500);
+    let g = crate::text::projection::RowGeometry::for_row_height(rh);
+    let before = v.projection.y_of(500, g);
+    split_for_chars(&ctx, &mut v, 45.0);
+    // Narrower left pane: the long rows above got taller, the top row stays.
+    assert!(v.projection.y_of(500, g) > before);
+    assert_eq!(v.top_row(rh), 500);
+    TEXT_SPLIT_X.reset();
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.top_row(rh), 500);
+    v.command("Over-Under Layout", &ctx, &Prefs::default());
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.top_row(rh), 500);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.projection.heights().is_none());
+    assert_eq!(v.top_row(rh), 500);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.projection.heights().is_some());
+    assert_eq!(v.top_row(rh), 500);
+}
+
+#[test]
+fn word_wrap_arrows_move_by_logical_line_and_the_caret_stays_visible() {
+    // ~2000 chars: far more visual lines than fit in the pane.
+    let line = format!("{} zzz", words(1500));
+    let text = format!("{line}\nnext\n");
+    let (ctx, mut v) = wrapped_view(&text, &text);
+    let out = frame(&ctx, &mut v, vec![]);
+    let first = pane_texts(&out, &v, 0, "w00")[0].1;
+    click(&ctx, &mut v, first.left_top() + egui::vec2(1.0, 2.0));
+    // The editor keeps its arrow keys after the click (focus lock survives the refocus).
+    assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(0)));
+    assert_eq!(v.editors[0].caret, Caret { line: 0, byte: 0 });
+    // ↓ goes to the next logical line, not the next visual line.
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
+    assert_eq!(v.editors[0].caret.line, 1);
+    assert_eq!(ctx.memory(|m| m.focused()), Some(editor_id(0)));
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowUp, false)]);
+    assert_eq!(v.editors[0].caret.line, 0);
+    // Caret deep inside the long line (below the viewport); → reveals its visual line.
+    let target = line.find("w1400").unwrap();
+    v.editors[0].place(Caret { line: 0, byte: target }, false);
+    let out = frame(&ctx, &mut v, vec![]);
+    assert!(!shown_in_pane(&out, &v, 0, "w1401"));
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowRight, false)]);
+    let out = frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.editors[0].caret.byte, target + 1);
+    assert!(v.scroll.y > 0.0);
+    assert!(shown_in_pane(&out, &v, 0, "w1400"), "scroll {:?}", v.scroll);
+    // Find Next on a hit at the end of the long line shows that visual line.
+    v.scroll.y = 0.0;
+    frame(&ctx, &mut v, vec![]);
+    v.find.options.pattern = "zzz".into();
+    v.find.last_hit = None;
+    v.editors[0].place(Caret { line: 0, byte: 0 }, false);
+    v.find_action(FindAction::Next).unwrap();
+    frame(&ctx, &mut v, vec![]);
+    let out = frame(&ctx, &mut v, vec![]);
+    let hit = v.find.last_hit.as_ref().unwrap();
+    assert_eq!((hit.line, hit.range.start), (0, line.find("zzz").unwrap()));
+    assert!(shown_in_pane(&out, &v, 0, "zzz"), "scroll {:?}", v.scroll);
+}
+
+#[test]
+fn word_wrap_typing_rewraps_the_row_in_the_same_frame() {
+    let text = "ab\nnext\n";
+    let (ctx, mut v) = wrapped_view(text, text);
+    split_for_chars(&ctx, &mut v, 20.0);
+    let rh = v.row_height();
+    let g = crate::text::projection::RowGeometry::for_row_height(rh);
+    let out = frame(&ctx, &mut v, vec![]);
+    let ab = pane_texts(&out, &v, 0, "ab")[0].1;
+    click(&ctx, &mut v, ab.right_center() + egui::vec2(2.0, 0.0));
+    assert_eq!(v.editors[0].caret, Caret { line: 0, byte: 2 });
+    assert_eq!(v.projection.row_height(0, g), rh);
+    let typed = " ".to_string() + &words(8);
+    let out = frame(&ctx, &mut v, vec![egui::Event::Text(typed)]);
+    assert_eq!(v.projection.row_height(0, g), 2.0 * rh);
+    // Same frame: "next" already moved down one visual line in both panes.
+    let next = [
+        pane_texts(&out, &v, 0, "next")[0].1.top(),
+        pane_texts(&out, &v, 1, "next")[0].1.top(),
+    ];
+    assert!((next[0] - next[1]).abs() < 0.5, "{next:?}");
+    assert!((next[0] - ab.top() - 2.0 * rh).abs() < 0.5, "{next:?} {ab:?}");
+    TEXT_SPLIT_X.reset();
 }
