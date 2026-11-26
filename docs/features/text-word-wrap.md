@@ -55,6 +55,8 @@
 - 单元测试：`cargo test -p bc-gui --lib wrap::`、`cargo test -p bc-gui --lib text::projection`。
 - 文本比较视图测试：`cargo test -p bc-gui --lib word_wrap`（开关与按标签页、横向滚动隐藏、各侧独立宽度与行高取最大、
   缺失行与行尾标记、点击 / 留白 / 拖选、宽度变化与开关时顶端行不变、↑/↓ 按逻辑行与光标 / 查找可见、输入当帧重新折行）。
+- 真实字体：`word_wrap_with_real_fonts_keeps_cjk_inside_the_panes` 装入应用实际字体（编辑器字体 + 系统 CJK 后备），
+  中英混排长行在 30 / 45 / 70 / 110 字符宽时都不越出窗格、各段拼回原文。
 - 文本合并视图测试：`cargo test -p bc-gui --lib merge_word_wrap`（菜单与共用横向滚动条、四窗格行高取最大与对齐、
   输入窗格第二视觉行点击、输出窗格输入当帧重新折行、光标与 Find Next 可见、调整列宽时顶端行不变）。
 - 大文件（release，`cargo test --release -p bc-gui --lib word_wrap_ -- --ignored --nocapture`，2026-11-26 本机）：

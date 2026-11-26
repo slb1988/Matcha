@@ -3265,3 +3265,49 @@ fn word_wrap_single_line_json() {
         frame(&ctx, &mut v, vec![]);
     }
 }
+
+/// Real Windows fonts (editor family + CJK fallback, as the app installs them): wrapped
+/// mixed Chinese / ASCII text stays inside each pane at several widths.
+#[test]
+fn word_wrap_with_real_fonts_keeps_cjk_inside_the_panes() {
+    let ctx = egui::Context::default();
+    crate::chrome::fonts::install(&ctx, &Prefs::default().editor_font.family);
+    let line = "中文行：这是一段用于测试自动折行的中文文本，包含全角标点（括号）与 ASCII words mixed in, 以及更多的汉字内容。"
+        .repeat(4);
+    let text = format!("{line}\r\nnext\r\n");
+    TEXT_SPLIT_X.reset();
+    let mut v = view(&text, &text);
+    frame(&ctx, &mut v, vec![]);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    v.command("Visible Whitespace", &ctx, &Prefs::default());
+    frame(&ctx, &mut v, vec![]);
+    for chars in [30.0, 45.0, 70.0, 110.0] {
+        split_for_chars(&ctx, &mut v, chars);
+        let out = frame(&ctx, &mut v, vec![]);
+        for s in 0..2 {
+            let pane = v.pane_rects[s];
+            let right = pane.right() - 18.0;
+            let pieces: Vec<_> = text_shapes(&out)
+                .into_iter()
+                .filter(|(t, r)| {
+                    pane.contains(r.left_top())
+                        && r.left() >= pane.left() + crate::text::gutter::WIDTH
+                        && !t.contains("CRLF")
+                        && !t.starts_with("next")
+                })
+                .collect();
+            assert!(pieces.len() > 1, "{chars}: {pieces:?}");
+            for (t, r) in &pieces {
+                assert!(r.right() <= right + 0.5, "{chars} side {s}: {t:?} {r:?} > {right}");
+            }
+            let joined: String = {
+                let mut p = pieces.clone();
+                p.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+                p.into_iter().map(|(t, _)| t).collect()
+            };
+            // Visible Whitespace draws spaces as middle dots.
+            assert_eq!(joined, line.replace(' ', "·"), "{chars} side {s}");
+        }
+    }
+    TEXT_SPLIT_X.reset();
+}
