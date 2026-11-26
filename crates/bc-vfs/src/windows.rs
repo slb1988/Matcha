@@ -18,6 +18,21 @@ fn wide(path: &Path) -> VfsResult<Vec<u16>> {
     Ok(value)
 }
 
+pub fn free_space(path: &Path) -> Option<u64> {
+    let path = wide(path).ok()?;
+    let mut free = 0u64;
+    // SAFETY: `path` is NUL-terminated; the two unused totals may be null.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(free)
+}
+
 pub fn normalize_nfc(name: &str) -> VfsResult<String> {
     let source: Vec<u16> = name.encode_utf16().collect();
     if source.is_empty() {

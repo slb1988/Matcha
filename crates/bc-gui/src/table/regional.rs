@@ -1,5 +1,5 @@
-//! Resolve host regional settings once, on a loading worker, without unsafe or
-//! mutating the process/user locale. Other platforms keep the documented fallback.
+//! Resolve host regional settings once, on a loading worker, in-process and without
+//! unsafe or mutating the process/user locale. Other platforms keep the documented fallback.
 use bc_formats::model::RegionalSettings;
 pub fn host() -> RegionalSettings {
     static SETTINGS: std::sync::OnceLock<RegionalSettings> = std::sync::OnceLock::new();
@@ -12,21 +12,16 @@ fn resolve() -> RegionalSettings {
 #[cfg(windows)]
 fn resolve() -> RegionalSettings {
     use bc_formats::model::DateOrder;
-    use std::os::windows::process::CommandExt;
-    let output=std::process::Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command",
-        "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $c=[Globalization.CultureInfo]::CurrentCulture; $c.NumberFormat.NumberDecimalSeparator; $c.NumberFormat.NumberGroupSeparator; $c.DateTimeFormat.ShortDatePattern; $c.DateTimeFormat.DateSeparator"])
-        .creation_flags(0x08000000).output();
-    let Ok(output) = output else {
+    // 用户区域格式：进程内 GetLocaleInfoEx（bc_script::platform），不启动外部进程。
+    let Some(formats) = bc_script::platform::locale_formats() else {
         return RegionalSettings::default();
     };
-    if !output.status.success() {
-        return RegionalSettings::default();
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let parts = text.lines().collect::<Vec<_>>();
-    if parts.len() < 4 {
-        return RegionalSettings::default();
-    }
+    let parts = [
+        formats.decimal.as_str(),
+        formats.thousands.as_str(),
+        formats.short_date.as_str(),
+        formats.date_separator.as_str(),
+    ];
     let mut order = [
         ('y', parts[2].find('y').unwrap_or(usize::MAX)),
         ('m', parts[2].find('M').unwrap_or(usize::MAX)),

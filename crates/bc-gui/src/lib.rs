@@ -121,6 +121,7 @@ pub fn run_with_remote(
             Ok(Box::new(app))
         }),
     )?;
+    perf::mark("run:window-closed");
     if snapshot_mode {
         let outcome = result
             .lock()

@@ -118,6 +118,20 @@ impl LocalFs {
         }
     }
 
+    /// Bytes free to the current user (quotas applied) on the volume holding
+    /// `path`; `None` when unknown or not supported on this platform.
+    pub fn free_space(path: &Path) -> Option<u64> {
+        #[cfg(windows)]
+        {
+            crate::windows::free_space(path)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = path;
+            None
+        }
+    }
+
     fn entry(&self, path: &Path) -> VfsResult<VfsEntry> {
         let raw = fs::symlink_metadata(path)?;
         let link = is_link(&raw);

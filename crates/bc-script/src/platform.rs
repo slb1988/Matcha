@@ -102,6 +102,50 @@ pub fn regional_time(now: SystemTime) -> String {
     imp::regional_time(&local(now))
 }
 
+/// 用户区域设置中的数字与短日期格式（含用户在控制面板里的自定义）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocaleFormats {
+    pub decimal: String,
+    pub thousands: String,
+    /// 短日期模式，如 `yyyy/M/d`。
+    pub short_date: String,
+    /// 日期分隔符：取自短日期模式（与 .NET `DateTimeFormatInfo.DateSeparator` 一致），
+    /// 模式里没有时用区域的 `LOCALE_SDATE`。
+    pub date_separator: String,
+}
+
+/// 用户区域格式（非 Windows：`None`，调用方用自己的默认值）。
+pub fn locale_formats() -> Option<LocaleFormats> {
+    imp::locale_formats()
+}
+
+/// 短日期模式中第一个日期字段之后的分隔符（跳过引号内文字）。
+pub fn pattern_date_separator(pattern: &str) -> Option<String> {
+    let mut chars = pattern.chars().peekable();
+    let mut seen_field = false;
+    let mut separator = String::new();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                for q in chars.by_ref() {
+                    if q == '\'' {
+                        break;
+                    }
+                }
+            }
+            'y' | 'M' | 'd' | 'g' => {
+                if !separator.is_empty() {
+                    return Some(separator);
+                }
+                seen_field = true;
+            }
+            c if seen_field && !c.is_alphanumeric() => separator.push(c),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// 系统 ANSI 代码页（非 Windows：1252）。
 pub fn ansi_code_page() -> u16 {
     imp::ansi_code_page()
@@ -117,7 +161,10 @@ pub fn beep() {
 mod imp {
     use super::LocalTime;
     use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
-    use windows_sys::Win32::Globalization::{GetACP, GetTimeFormatEx};
+    use windows_sys::Win32::Globalization::{
+        GetACP, GetLocaleInfoEx, GetTimeFormatEx, LOCALE_SDATE, LOCALE_SDECIMAL, LOCALE_SSHORTDATE,
+        LOCALE_STHOUSAND,
+    };
     use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
     use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 
@@ -198,6 +245,33 @@ mod imp {
         String::from_utf16_lossy(&buffer[..written as usize - 1])
     }
 
+    fn locale_info(kind: u32) -> Option<String> {
+        let mut buffer = [0u16; 128];
+        // SAFETY: NULL 区域名 = 用户默认区域；缓冲区长度（字符数）如实传入。
+        let written = unsafe {
+            GetLocaleInfoEx(
+                std::ptr::null(),
+                kind,
+                buffer.as_mut_ptr(),
+                buffer.len() as i32,
+            )
+        };
+        (written > 0).then(|| String::from_utf16_lossy(&buffer[..written as usize - 1]))
+    }
+
+    pub fn locale_formats() -> Option<super::LocaleFormats> {
+        let short_date = locale_info(LOCALE_SSHORTDATE)?;
+        let date_separator = super::pattern_date_separator(&short_date)
+            .or_else(|| locale_info(LOCALE_SDATE))
+            .unwrap_or_else(|| "/".into());
+        Some(super::LocaleFormats {
+            decimal: locale_info(LOCALE_SDECIMAL)?,
+            thousands: locale_info(LOCALE_STHOUSAND).unwrap_or_default(),
+            short_date,
+            date_separator,
+        })
+    }
+
     pub fn ansi_code_page() -> u16 {
         // SAFETY: 无参数。
         u16::try_from(unsafe { GetACP() }).unwrap_or(1252)
@@ -221,6 +295,10 @@ mod imp {
         format!("{:02}:{:02}:{:02}", time.hour, time.minute, time.second)
     }
 
+    pub fn locale_formats() -> Option<super::LocaleFormats> {
+        None
+    }
+
     pub fn ansi_code_page() -> u16 {
         1252
     }
@@ -234,6 +312,21 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn date_separator_follows_the_short_date_pattern() {
+        assert_eq!(pattern_date_separator("yyyy/M/d").as_deref(), Some("/"));
+        assert_eq!(pattern_date_separator("dd.MM.yyyy").as_deref(), Some("."));
+        assert_eq!(pattern_date_separator("M-d-yy").as_deref(), Some("-"));
+        assert_eq!(pattern_date_separator("yyyy'年'M'月'd'日'"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn user_locale_formats_are_available() {
+        let formats = locale_formats().expect("locale formats");
+        assert!(!formats.decimal.is_empty() && !formats.short_date.is_empty());
+    }
 
     #[test]
     fn civil_dates() {

@@ -113,10 +113,8 @@ impl TableCompareView {
         };
         format!("{} <--> {} - Table Compare - Matcha", name(0), name(1))
     }
-    /// Refresh the per-side info labels when the file or its size changed;
-    /// true while a modified-time lookup is still running.
-    pub fn labels_pending(&mut self) -> bool {
-        let mut pending = false;
+    /// Refresh the per-side info labels when the file or its size changed.
+    pub fn refresh_labels(&mut self) {
         for s in 0..2 {
             let current = self.files[s]
                 .path
@@ -136,9 +134,7 @@ impl TableCompareView {
                 labels.encoding = encoding;
                 labels.ending = ending;
             }
-            pending |= self.labels[s].modified.poll();
         }
-        pending
     }
     pub(super) fn checked(&self, id: &str) -> Option<bool> {
         let rules = self.pair.as_ref().map(|p| p.map.rules());

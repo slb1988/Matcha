@@ -328,88 +328,40 @@ pub fn ending_label(content: &TextContent) -> &'static str {
         LineEnding::None => "",
     }
 }
-/// File modification label resolved off the UI thread: the local-time host
-/// query costs ~150 ms per file, which used to stall every text open.
+/// File modification label (`M/d/yyyy h:mm:ss AM`, local time), resolved
+/// in-process when the file is opened.
 #[derive(Default)]
 pub struct ModifiedLabel {
     text: String,
-    pending: Option<std::sync::mpsc::Receiver<String>>,
 }
 impl ModifiedLabel {
     pub fn resolve(time: Option<std::time::SystemTime>) -> Self {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let spawned = time.is_some()
-            && std::thread::Builder::new()
-                .name("matcha-modified-label".into())
-                .spawn(move || {
-                    let t = std::time::Instant::now();
-                    let _ = tx.send(modified_label(time));
-                    crate::perf::span("text:modified-label", t);
-                })
-                .is_ok();
         Self {
-            text: if spawned || time.is_none() {
-                String::new()
-            } else {
-                modified_label(time)
-            },
-            pending: spawned.then_some(rx),
+            text: time.map(modified_label).unwrap_or_default(),
         }
-    }
-    /// Pick up a finished lookup; true while one is still running.
-    pub fn poll(&mut self) -> bool {
-        if let Some(rx) = &self.pending {
-            match rx.try_recv() {
-                Ok(text) => {
-                    self.text = text;
-                    self.pending = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.pending = None,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        self.pending.is_some()
     }
     pub fn text(&self) -> &str {
         &self.text
     }
 }
-/// 在加载时缓存系统本地时间；没有平台 FFI、依赖或逐帧 I/O；失败时明确回退 UTC。
-pub fn modified_label(time: Option<std::time::SystemTime>) -> String {
-    let Some(seconds) = time
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-    else {
-        return String::new();
+/// Local time in the reference's invariant `M/d/yyyy h:mm:ss tt` form
+/// (`bc_script::platform::local`: Windows time-zone rules, including the DST
+/// offset in force at that moment). Other platforms have no local offset yet
+/// and say `UTC`.
+pub fn modified_label(time: std::time::SystemTime) -> String {
+    let zone = if cfg!(windows) { "" } else { " UTC" };
+    format!("{}{zone}", clock_label(&bc_script::platform::local(time)))
+}
+fn clock_label(t: &bc_script::platform::LocalTime) -> String {
+    let hour = match t.hour % 12 {
+        0 => 12,
+        h => h,
     };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let command=format!("[DateTimeOffset]::FromUnixTimeSeconds({seconds}).LocalDateTime.ToString('M/d/yyyy h:mm:ss tt',[Globalization.CultureInfo]::InvariantCulture)");
-        if let Ok(output) = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
-            .creation_flags(0x0800_0000)
-            .output()
-        {
-            if output.status.success() {
-                return String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            }
-        }
-    }
-    let days = seconds / 86400 + 719468;
-    let era = days / 146097;
-    let doe = days - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = mp + if mp < 10 { 3 } else { -9 };
-    let year = year + i64::from(month <= 2);
-    let h = seconds / 3600 % 24;
-    let m = seconds / 60 % 60;
-    let sec = seconds % 60;
-    format!("{month}/{day}/{year} {h}:{m:02}:{sec:02} UTC")
+    let half = if t.hour < 12 { "AM" } else { "PM" };
+    format!(
+        "{}/{}/{} {hour}:{:02}:{:02} {half}",
+        t.month, t.day, t.year, t.minute, t.second
+    )
 }
 
 /// Line-detail text: uniform `ink`, or black with the inline difference segments inked.
@@ -446,4 +398,19 @@ fn detail_job(
     }
     job.append(&text[at..], 0.0, format(egui::Color32::BLACK));
     job
+}
+
+#[cfg(test)]
+mod clock_label_tests {
+    use bc_script::platform::local_from_utc;
+
+    #[test]
+    fn uses_the_invariant_twelve_hour_form() {
+        // 2026-11-11 07:41:49 UTC
+        let label = |offset| super::clock_label(&local_from_utc(1_794_382_909, offset));
+        assert_eq!(label(8 * 60), "11/11/2026 3:41:49 PM");
+        assert_eq!(label(-(7 * 60 + 41)), "11/11/2026 12:00:49 AM");
+        assert_eq!(label(4 * 60 + 18), "11/11/2026 11:59:49 AM");
+        assert_eq!(label(4 * 60 + 19), "11/11/2026 12:00:49 PM");
+    }
 }

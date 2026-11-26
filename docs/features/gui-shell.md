@@ -148,7 +148,10 @@
   - 文件夹/同步：窗口按中缝分左右两半，只接受文件夹（文件给出提示）；落在浮动的内嵌文本窗口或
     子文件夹窗口上的拖放交给那个窗口自己的视图，其余由文件夹视图消费，避免内嵌视图误换侧。
 - CJK 用系统微软雅黑后备，不捆绑字体。界面字体取系统消息字体（`SPI_GETNONCLIENTMETRICS` + 字体注册表，
-  `bc_shell::message_font`），在后台线程与建窗重叠进行，进程内完成、不启动 PowerShell 等外部进程。
+  `bc_shell::message_font`），在后台线程与建窗重叠进行。启动与打开比较时的其余系统查询——文本/表格
+  状态栏的文件修改时间、文件夹比较的本地时钟与剩余空间（`LocalFs::free_space`）、表格比较的区域格式
+  （`bc_script::platform::locale_formats`）——同样在进程内完成，GUI 不启动 PowerShell 等外部进程。
+  热启动首帧约 0.25 s，其中约 0.2 s 是 OpenGL 驱动初始化（glutin/WGL；wgpu 在同机实测 0.65–1.2 s，故保留 glow）。
 - **未保存确认**：按钮为「Don't Save（左，危险）/ Cancel / Save（右，主）」；标题随触发动作变化
   （closing / quitting / reloading / opening another file …），列出受影响的一侧及文件名与完整路径。
   Enter = Save，Esc = Cancel；点遮罩不关闭（避免误触丢弃）。

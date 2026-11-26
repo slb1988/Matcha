@@ -4,6 +4,8 @@
 
 ## 2026-11-26
 
+- **打开比较不再拉起 PowerShell**（[`docs/features/gui-shell.md`](docs/features/gui-shell.md)）：文本/表格比较状态栏的文件修改时间（每侧一个 PowerShell）、文件夹比较的本地时钟与剩余空间（扫描要等它，约 0.2 s 热、冷启动更久）、表格比较的区域格式都改为进程内 Win32 查询，显示内容不变；文本比较打开后也不再为等修改时间以 60 帧/秒空转重绘。
+
 - **启动更快：首个窗口不再等 PowerShell**（[`docs/features/gui-shell.md`](docs/features/gui-shell.md)）：读取系统界面字体原先要拉起隐藏的 PowerShell 并现编一段 C#（热启动约 0.44 s，开机后首次或刚更新 exe 时可达数秒，P4V 首次 diff 迟迟不弹窗主要卡在这里），现改为进程内直接调用 Win32（约 4 ms）。热启动到首帧由约 0.49 s 降到约 0.28 s；所选字体与字号不变。
 
 ## 2026-11-25

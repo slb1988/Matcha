@@ -385,11 +385,6 @@ impl TextCompareView {
         (self.map.left.lines.borrow().len() + self.map.right.lines.borrow().len())
             * std::mem::size_of::<bc_core::line::Line>()
     }
-    /// True while a file's modification label is still being resolved.
-    pub fn labels_pending(&mut self) -> bool {
-        let left = self.files[0].modified_label.poll();
-        self.files[1].modified_label.poll() || left
-    }
     pub fn poll(&mut self) {
         if let Some(result) = self.worker.as_mut().and_then(Worker::poll) {
             self.worker = None;
@@ -1380,7 +1375,7 @@ impl TextCompareView {
         }
         self.font_size = prefs.editor_font.size_px();
         let ctx = ui.ctx().clone();
-        if self.worker.is_some() || self.edited_at.is_some() || self.labels_pending() {
+        if self.worker.is_some() || self.edited_at.is_some() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         // Modal dialogs own the keyboard while they are open.

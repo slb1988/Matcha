@@ -1260,8 +1260,8 @@ impl MatchaApp {
         if let Some(capture) = &self.snapshot_capture {
             let mut ready = match &mut self.tabs[self.active].view {
                 View::HexCompare(v) => v.is_ready(),
-                View::TextCompare(v) => v.is_ready() && !v.labels_pending(),
-                View::TableCompare(v) => v.is_ready() && !v.labels_pending(),
+                View::TextCompare(v) => v.is_ready(),
+                View::TableCompare(v) => v.is_ready(),
                 View::FolderCompare(v) => !v.busy(),
                 View::FolderSync(v) => !v.folder.busy() && v.folder.snapshot.sync_stats.is_some(),
                 View::TextMerge(_) | View::TableMerge(_) | View::Home(_) => true,

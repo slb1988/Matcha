@@ -1048,11 +1048,8 @@ impl TableCompareView {
     pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut Prefs) -> Option<TableAction> {
         self.poll();
         let ctx = ui.ctx().clone();
-        if self.worker.is_some()
-            || self.scan.is_some()
-            || self.edited_at.is_some()
-            || self.labels_pending()
-        {
+        self.refresh_labels();
+        if self.worker.is_some() || self.scan.is_some() || self.edited_at.is_some() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
         let blocked = self.pending.is_some() || self.dialog.is_some() || self.editor.is_some();
