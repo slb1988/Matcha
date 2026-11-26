@@ -1,4 +1,5 @@
 //! 紧凑的显示过滤索引：按区段存储，而非为百万行再复制一张表。
+use crate::wrap::RowHeights;
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,6 +31,9 @@ pub struct Projection {
     /// Gap folds ("N FILTERED LINES") are drawn as thin rows; every other
     /// projection keeps uniform row heights.
     thin_folds: bool,
+    /// Word Wrap: visual lines per display row (thin folds count 0). `None`
+    /// keeps every text row one row high.
+    heights: Option<RowHeights>,
 }
 /// Row heights of a projection: text rows and (thin) fold rows.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -130,17 +134,47 @@ impl Projection {
     pub fn has_thin_folds(&self) -> bool {
         self.thin_folds && self.folds > 0
     }
+    /// Every display row has the same height (no thin folds, no word wrap).
+    pub fn is_uniform(&self) -> bool {
+        !self.has_thin_folds() && self.heights.is_none()
+    }
+    /// Installs (or removes) the Word Wrap height table; must cover [`Self::len`] rows.
+    pub fn set_heights(&mut self, heights: Option<RowHeights>) {
+        debug_assert!(heights.as_ref().is_none_or(|h| h.len() == self.len));
+        self.heights = heights;
+    }
+    pub fn heights(&self) -> Option<&RowHeights> {
+        self.heights.as_ref()
+    }
+    pub fn heights_mut(&mut self) -> Option<&mut RowHeights> {
+        self.heights.as_mut()
+    }
+    /// Visual lines of one display row (1 without word wrap; thin folds 0).
+    pub fn units(&self, display: usize) -> u32 {
+        match &self.heights {
+            Some(h) => h.units(display),
+            None => 1,
+        }
+    }
     /// Height of one display row.
     pub fn row_height(&self, display: usize, g: RowGeometry) -> f32 {
         if self.thin_folds && matches!(self.row(display), Some(DisplayRow::Fold(_))) {
             g.fold
         } else {
-            g.row
+            self.units(display) as f32 * g.row
         }
     }
     /// Content offset of the top of `display` (clamped to the end).
     pub fn y_of(&self, display: usize, g: RowGeometry) -> f32 {
         let display = display.min(self.len);
+        if let Some(h) = &self.heights {
+            let folds = if self.thin_folds {
+                self.folds_before(display) as f64 * f64::from(g.fold)
+            } else {
+                0.0
+            };
+            return (h.before(display) as f64 * f64::from(g.row) + folds) as f32;
+        }
         if !self.thin_folds {
             return display as f32 * g.row;
         }
@@ -152,6 +186,26 @@ impl Projection {
     }
     /// Display row covering content offset `y` (past the end: `len`).
     pub fn display_at(&self, y: f32, g: RowGeometry) -> usize {
+        if self.heights.is_some() {
+            if y < 0.0 {
+                return 0;
+            }
+            if y >= self.height(g) {
+                return self.len;
+            }
+            // y_of is strictly increasing (every row has a positive height):
+            // the last row whose top is at or above `y`.
+            let (mut lo, mut hi) = (0, self.len);
+            while hi - lo > 1 {
+                let mid = lo + (hi - lo) / 2;
+                if self.y_of(mid, g) <= y {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            return lo;
+        }
         if !self.thin_folds {
             return (y / g.row).floor().max(0.0) as usize;
         }
@@ -242,6 +296,63 @@ fn complement(total: usize, ranges: &[Range<usize>]) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wrap::{Quick, RowSource};
+    /// Visual-line units from a closure (thin folds 0, every other row as given).
+    struct Units<'a>(&'a Projection, &'a dyn Fn(usize) -> u32);
+    impl RowSource for Units<'_> {
+        fn quick(&mut self, row: usize) -> Quick {
+            Quick::Known(self.measure(row))
+        }
+        fn measure(&mut self, row: usize) -> u32 {
+            match self.0.row(row) {
+                Some(DisplayRow::Fold(_)) if self.0.thin_folds => 0,
+                _ => (self.1)(row),
+            }
+        }
+    }
+    fn table(p: &Projection, units: &dyn Fn(usize) -> u32) -> RowHeights {
+        RowHeights::build(p.len(), &mut Units(p, units), usize::MAX)
+    }
+    fn unit_table(p: &Projection) -> RowHeights {
+        table(p, &|_| 1)
+    }
+    #[test]
+    fn wrapped_rows_have_variable_heights() {
+        let g = super::RowGeometry::for_row_height(15.0);
+        let mut p = Projection::build(5, &[], DisplayFilter::All, 3, &[]);
+        let units = [1, 4, 1, 2, 1];
+        p.set_heights(Some(table(&p, &|r| units[r])));
+        assert!(!p.is_uniform());
+        let tops: Vec<f32> = (0..=5).map(|d| p.y_of(d, g)).collect();
+        assert_eq!(tops, [0.0, 15.0, 75.0, 90.0, 120.0, 135.0]);
+        for d in 0..5 {
+            assert_eq!(p.row_height(d, g), units[d] as f32 * 15.0);
+            assert_eq!(p.display_at(p.y_of(d, g), g), d);
+            // Any y inside the row maps back to it.
+            for k in 0..units[d] {
+                assert_eq!(p.display_at(tops[d] + k as f32 * 15.0 + 7.0, g), d);
+            }
+        }
+        assert_eq!(p.display_at(1e9, g), 5);
+        assert_eq!(p.y_of(99, g), 135.0);
+        // Thin folds keep their own height between wrapped rows.
+        let mut f = Projection::build_with_options(
+            10,
+            &[2..4, 7..8],
+            DisplayFilter::Differences,
+            3,
+            &[],
+            true,
+        );
+        f.set_heights(Some(table(&f, &|_| 3)));
+        // Fold(0..2) 2 3 Fold(4..7) 7 Fold(8..9) 9
+        let tops: Vec<f32> = (0..=7).map(|d| f.y_of(d, g)).collect();
+        assert_eq!(tops, [0.0, 9.0, 54.0, 99.0, 108.0, 153.0, 162.0, 207.0]);
+        for d in 0..7 {
+            assert_eq!(f.display_at(tops[d], g), d);
+            assert_eq!(f.display_at(tops[d + 1] - 0.5, g), d);
+        }
+    }
     #[test]
     fn context_coalesces_and_expands_without_losing_original_numbers() {
         let p = Projection::build(
@@ -323,6 +434,20 @@ mod tests {
             assert_eq!(p.display_at(top + h - 0.5, g), d);
         }
         assert_eq!(p.display_at(87.0, g), 7);
+        // A word-wrap table of one unit per text row (thin folds 0) is the same geometry.
+        let mut wrapped = p.clone();
+        wrapped.set_heights(Some(unit_table(&p)));
+        for d in 0..=7 {
+            assert_eq!(wrapped.y_of(d, g), tops[d]);
+        }
+        for d in 0..7 {
+            assert_eq!(wrapped.row_height(d, g), p.row_height(d, g));
+            assert_eq!(wrapped.display_at(tops[d], g), d);
+            assert_eq!(wrapped.display_at(tops[d + 1] - 0.5, g), d);
+        }
+        assert_eq!(wrapped.height(g), 87.0);
+        assert_eq!(wrapped.display_at(87.0, g), 7);
+        assert_eq!(wrapped.display_at(-3.0, g), 0);
         // Uniform projections (All, Context, table) keep row * index.
         let all = Projection::build(10, &[2..4, 8..9], DisplayFilter::Context, 1, &[]);
         assert_eq!(all.y_of(3, g), 45.0);

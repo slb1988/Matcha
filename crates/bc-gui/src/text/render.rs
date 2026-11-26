@@ -101,7 +101,7 @@ impl TextCompareView {
                     crate::chrome::theme::paint_canvas(&ui.painter().with_clip_rect(below), below);
                 }
                 let mut min_row = self.projection.display_at(viewport.min.y, geometry);
-                let mut max_row = if self.projection.has_thin_folds() {
+                let mut max_row = if !self.projection.is_uniform() {
                     self.projection.display_at(viewport.max.y, geometry) + 2
                 } else {
                     (viewport.max.y / row_height).ceil() as usize + 1
@@ -121,7 +121,7 @@ impl TextCompareView {
                     let first = self.projection.row(range.start);
                     // The row range over-scans past the viewport; the thumbnail
                     // frame covers only rows that are (partly) shown.
-                    let shown_end = if self.projection.has_thin_folds() {
+                    let shown_end = if !self.projection.is_uniform() {
                         range
                             .end
                             .min(self.projection.display_at(viewport.max.y - 0.5, geometry) + 1)
@@ -247,7 +247,7 @@ impl TextCompareView {
                             .max((text.len() as f32 * glyph + 100.0).min(20_000_000.0));
                         let width = ui.available_width().max(self.content_width);
                         let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(width, row_height),
+                            egui::vec2(width, self.projection.row_height(display, geometry)),
                             egui::Sense::click_and_drag(),
                         );
                         if response.secondary_clicked() {

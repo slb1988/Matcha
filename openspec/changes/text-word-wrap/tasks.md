@@ -8,7 +8,7 @@
 
 - [x] 2.1 实现 `Breaker`（design D2）：字宽缓存（ASCII 数组 + 其他字符 HashMap，取自 egui `Fonts::glyph_width`）、制表符按制表位展开、空白后可断、CJK 前后可断、无可断点时硬断、每段至少 1 字符、1 px 余量；单测覆盖 spec「折行规则」三个场景（`alpha beta gamma`、25 字符硬折 10/10/5、15 个汉字折成 10+5）以及空行占 1 段、单字符宽于文本区、含制表符的行；`cargo test -p bc-gui wrap` 通过
 - [x] 2.2 实现 `count` 的快路径与 `WRAP_CAP = 10000` 截断（design D3）；单测：短 ASCII 行不进入逐字符扫描（计数器断言）、含 `\t` 的短行走精确路径、CJK 不被快路径误判为 1 段、超长行计数为 10000 并报告剩余字符数
-- [ ] 2.3 实现 `RowHeights`（design D1）：整数单位、前缀和、`y_of` / `display_at`（二分）/ `height` / `set_units` + 前缀重算，以及细折叠行单位；单测：固定单位时与原 `Projection` 固定行高算术逐值相等（含 thin folds）、变高行的 `display_at(y_of(r)) == r`、行内任意 y 落回该行、越界钳制
+- [x] 2.3 实现 `RowHeights`（design D1）：整数单位、前缀和、`y_of` / `display_at`（二分）/ `height` / `set_units` + 前缀重算，以及细折叠行单位；单测：固定单位时与原 `Projection` 固定行高算术逐值相等（含 thin folds）、变高行的 `display_at(y_of(r)) == r`、行内任意 y 落回该行、越界钳制
 - [x] 2.4 实现建表预算与估算（design D3）：≤ 16 MB 同步精确，超出时先估算、按视口精确替换、空闲帧分批补齐；单测用合成的 100 万行内容断言：同步路径结果正确，估算路径下视口行为精确值、补齐若干轮后与全精确结果相等
 
 ## 3. 文本比较：关闭状态下的等价接入
