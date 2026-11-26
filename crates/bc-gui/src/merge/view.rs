@@ -99,6 +99,8 @@ pub struct MergeView {
     /// 纵向以像素计（整张行网格），横向四个窗格共用。
     scroll: egui::Vec2,
     pending_scroll: Option<usize>,
+    /// Word Wrap：每个网格行的视觉行数（四窗格取最大）；`None` 时每行一个行高。
+    pub(crate) heights: Option<crate::wrap::RowHeights>,
     pane_rects: [egui::Rect; 4],
     /// 每个窗格本帧可见行的最宽排版宽度（下一帧据此决定横向滚动条与上限）。
     content_widths: [f32; 4],
@@ -328,6 +330,7 @@ impl MergeView {
             current_row: 0,
             scroll: egui::Vec2::ZERO,
             pending_scroll: None,
+            heights: None,
             pane_rects: [egui::Rect::NOTHING; 4],
             content_widths: [0.0; 4],
             hbar: None,
@@ -475,6 +478,29 @@ impl MergeView {
             .ceil()
             .max(theme::EDITOR_LINE_HEIGHT)
     }
+    /// 网格行 `grid` 的顶端（内容坐标，像素）。
+    pub(crate) fn grid_y(&self, grid: usize) -> f32 {
+        match &self.heights {
+            Some(h) => (h.before(grid) as f64 * f64::from(self.row_height())) as f32,
+            None => grid as f32 * self.row_height(),
+        }
+    }
+    /// 内容坐标 `y` 所在的网格行（越过末行时 Word Wrap 下为末行）。
+    pub(crate) fn grid_at(&self, y: f32) -> usize {
+        let row_height = self.row_height();
+        match &self.heights {
+            Some(h) => h.row_at((y.max(0.0) / row_height).floor() as u64),
+            None => (y / row_height) as usize,
+        }
+    }
+    /// 网格行 `grid` 的视觉行数（不折行时为 1）。
+    pub(crate) fn grid_units(&self, grid: usize) -> u32 {
+        self.heights.as_ref().map_or(1, |h| h.units(grid))
+    }
+    /// 整张网格的内容高度。
+    fn content_height(&self) -> f32 {
+        self.grid_y(self.model.grid().len())
+    }
     /// 把对齐行滚到视野内靠上的位置，并把光标放到它的第一行输出上。
     pub(crate) fn goto_row(&mut self, row: usize) {
         self.current_row = row;
@@ -490,7 +516,7 @@ impl MergeView {
         }
         let grid = self.model.grid_row_of_out(line);
         let row_height = self.row_height();
-        let top = (self.scroll.y / row_height) as usize;
+        let top = self.grid_at(self.scroll.y);
         let shown = ((self.pane_rects[OUT].height() - HEADER) / row_height).max(1.0) as usize;
         if grid < top || grid + 1 >= top + shown {
             self.pending_scroll = Some(grid.saturating_sub(shown / 2));
@@ -505,7 +531,7 @@ impl MergeView {
         self.current_row = row;
         let grid = self.model.grid_row_of(row);
         let row_height = self.row_height();
-        let top = (self.scroll.y / row_height) as usize;
+        let top = self.grid_at(self.scroll.y);
         let shown = ((self.pane_rects[pane].height() - HEADER) / row_height).max(1.0) as usize;
         if grid < top || grid + 1 >= top + shown {
             self.pending_scroll = Some(grid.saturating_sub(shown / 2));
@@ -1107,16 +1133,15 @@ impl MergeView {
         self.content_widths = [0.0; 4];
 
         // 滚动：滚轮原样作用于四个窗格共用的位置；纵向上限取最矮的窗格。
-        let rows = self.model.grid().len();
         let shortest = self
             .pane_rects
             .iter()
             .map(|r| r.height() - HEADER)
             .fold(f32::INFINITY, f32::min)
             .max(row_height);
-        let max_y = (rows as f32 * row_height - shortest + row_height).max(0.0);
+        let max_y = (self.content_height() - shortest + row_height).max(0.0);
         if let Some(row) = self.pending_scroll.take() {
-            self.scroll.y = row as f32 * row_height;
+            self.scroll.y = self.grid_y(row);
         }
         if !blocked {
             let delta = chrome::wheel::delta(&ctx, &self.pane_rects);
@@ -1480,13 +1505,12 @@ impl MergeView {
             response.request_focus();
         }
         let row_height = self.row_height();
-        let first = (self.scroll.y / row_height) as usize;
-        let offset = self.scroll.y - first as f32 * row_height;
+        let first = self.grid_at(self.scroll.y);
         if pane != OUT {
             // 输入窗格右键：先把当前行与活动窗格移到所点处，再弹菜单。
             if response.secondary_clicked() {
                 let grid = response.interact_pointer_pos().and_then(|p| {
-                    let index = first + ((p.y - area.top() + offset) / row_height) as usize;
+                    let index = self.grid_at(self.scroll.y + p.y - area.top());
                     self.model.grid().get(index).copied()
                 });
                 if let Some(cell) = grid {
@@ -1535,7 +1559,13 @@ impl MergeView {
                 },
             )
         });
-        let shown = (area.height() / row_height).ceil() as usize + 1;
+        // 本帧可见的网格行：固定行高时与以前相同（多画一行），折行时画到窗格底边为止。
+        let shown = if self.heights.is_none() {
+            (area.height() / row_height).ceil() as usize + 1
+        } else {
+            let bottom = self.grid_at(self.scroll.y + area.height());
+            bottom + 1 - first.min(bottom)
+        };
         let painter = ui.painter().with_clip_rect(area.intersect(ui.clip_rect()));
         let pointer = ui.input(|i| i.pointer.interact_pos());
         let pressed = ui.input(|i| i.pointer.primary_pressed());
@@ -1551,10 +1581,11 @@ impl MergeView {
             .copied()
             .collect();
         for (i, cell) in grid.into_iter().enumerate() {
-            let top = area.top() + i as f32 * row_height - offset;
+            let g = first + i;
+            let top = area.top() + self.grid_y(g) - self.scroll.y;
             let line_rect = egui::Rect::from_min_size(
                 egui::pos2(area.left(), top),
-                egui::vec2(area.width(), row_height),
+                egui::vec2(area.width(), self.grid_units(g) as f32 * row_height),
             );
             let conflict = self.model.state.in_conflict(cell.row);
             // 这一显示行上本窗格的内容：行号、文本、底色。
@@ -1611,7 +1642,7 @@ impl MergeView {
                 };
             painter.rect_filled(line_rect, 0.0, fill);
             // 书签徽标画在锚点窗格、该对齐行的第一个显示行，文本区右缘。
-            let bookmark = (self.model.grid_row_of(cell.row) == first + i)
+            let bookmark = (self.model.grid_row_of(cell.row) == g)
                 .then(|| self.bookmarks.at((pane, cell.row)))
                 .flatten();
             let Some(text) = text else {
