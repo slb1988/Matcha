@@ -96,8 +96,7 @@ fn windows_font_dir() -> PathBuf {
 }
 
 /// System font lookup and font-file reads, started off the UI thread by
-/// [`prefetch`] so they overlap window creation (the SPI query spawns a
-/// PowerShell helper that costs ~300 ms).
+/// [`prefetch`] so they overlap window creation.
 type Resolved = (Option<SystemFont>, FontDefinitions);
 static PREFETCH: std::sync::Mutex<Option<std::thread::JoinHandle<Resolved>>> =
     std::sync::Mutex::new(None);
@@ -199,66 +198,18 @@ fn system_message_font() -> Option<SystemFont> {
     None
 }
 
-/// 保持 bc-gui 的 forbid(unsafe_code)：通过隐藏的系统 PowerShell 助手调用 SPI。
-/// 只读取消息字体与 Windows 字体注册表；不依赖或启动参考工具。
+/// SPI 消息字体与其注册的字体文件：进程内 Win32 调用（`bc_shell::message_font`，
+/// bc-gui 保持 forbid(unsafe_code)），不启动任何外部进程。
 #[cfg(windows)]
 fn system_message_font() -> Option<SystemFont> {
-    use std::os::windows::process::CommandExt;
-    const QUERY: &str = r#"
-$ErrorActionPreference='Stop'
-[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class MatchaMessageFont {
- [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct Font {
-  public int height,width,escapement,orientation,weight;
-  public byte italic,underline,strikeout,charset,outprecision,clipprecision,quality,pitch;
-  [MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)] public string family;
- }
- [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct Metrics {
-  public uint size; public int borderWidth,scrollWidth,scrollHeight,captionWidth,captionHeight;
-  public Font caption; public int smallWidth,smallHeight; public Font small;
-  public int menuWidth,menuHeight; public Font menu,status,message; public int paddedBorderWidth;
- }
- [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool SystemParametersInfo(uint action,uint param,ref Metrics data,uint flags);
- public static Font Read() { var m=new Metrics(); m.size=(uint)Marshal.SizeOf(m); if(!SystemParametersInfo(0x29,m.size,ref m,0)) throw new Exception("SPI_GETNONCLIENTMETRICS failed"); return m.message; }
-}
-'@
-$f=[MatchaMessageFont]::Read()
-$fonts=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
-$entry=$fonts.PSObject.Properties | Where-Object { $_.Name -notmatch 'Bold|Italic' -and ($_.Name -replace ' \(TrueType\)$','').Split('&').Trim() -contains $f.family } | Select-Object -First 1
-if(!$entry){throw 'Font file not registered'}
-$path=[string]$entry.Value
-if(![IO.Path]::IsPathRooted($path)){$path=Join-Path $env:WINDIR ('Fonts/'+$path)}
-Write-Output $f.family
-Write-Output ([Math]::Abs($f.height))
-Write-Output $path
-"#;
-    let output = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", QUERY])
-        .creation_flags(0x0800_0000)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_system_font(std::str::from_utf8(&output.stdout).ok()?)
-}
-
-#[cfg(windows)]
-fn parse_system_font(text: &str) -> Option<SystemFont> {
-    let mut lines = text.trim().lines();
-    let family = lines.next()?.trim().to_owned();
-    let size_px = lines.next()?.trim().parse::<f32>().ok()?;
-    let path = PathBuf::from(lines.next()?.trim());
-    if family.is_empty() || !size_px.is_finite() || !(6.0..=96.0).contains(&size_px) {
+    let font = bc_shell::message_font()?;
+    if !(6.0..=96.0).contains(&font.height_px) {
         return None;
     }
     Some(SystemFont {
-        family,
-        path,
-        size_px,
+        family: font.family,
+        path: font.path,
+        size_px: font.height_px,
     })
 }
 

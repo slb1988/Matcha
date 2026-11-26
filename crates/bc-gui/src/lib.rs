@@ -87,6 +87,7 @@ pub fn run_with_remote(
     }
     // Overlap the system-font lookup (and the saved editor font) with window creation.
     chrome::fonts::prefetch(settings::load().editor_font.family);
+    perf::mark("run:settings-loaded");
     let result: snapshot::CaptureResult = Default::default();
     let capture_result = result.clone();
     let launch_result: remote::ResultSlot = Default::default();
@@ -103,6 +104,7 @@ pub fn run_with_remote(
     if let Some(icon) = app_icon() {
         viewport = viewport.with_icon(icon);
     }
+    perf::mark("run:icon-decoded");
     let native = eframe::NativeOptions {
         viewport,
         ..Default::default()

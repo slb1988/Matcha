@@ -64,7 +64,7 @@ tools/visual/snap-matcha.ps1 -All -Verify
 - 演示场景 `icon-catalog`、`chrome-demo`、`widget-gallery`（组件库陈列，ADR 402），其余场景见 `snapshot::SCENES`；默认 PNG 为 `target/visual/matcha/<scene>.png`，客户区 1384×961。
 - 文本/文件夹使用 `tools/visual/corpus/` 的真实语料与真实视图；文件夹预置展开全部。后台完成后再等待两帧无视图/egui 重绘请求，写入 PNG 后退出，失败非零退出；60 秒门控超时。
 - 快照禁用动画/光标闪烁，固定逻辑时间、100% DPI、排除外部输入和 performance_status 调试栏，不记录演示语料到最近会话。`--screenshot` 的 BMP 兼容行为保留。
-- Windows UI 字体来自 `SPI_GETNONCLIENTMETRICS.lfMessageFont`；为了保持 Rust `forbid(unsafe_code)`，使用隐藏的系统 PowerShell 一次性查询 SPI 与字体注册表。失败回退 Segoe UI/egui 内置，Consolas 10pt 编辑器与微软雅黑 CJK 回退；不分发字体文件。
+- Windows UI 字体来自 `SPI_GETNONCLIENTMETRICS.lfMessageFont`（96 DPI 字号）与已安装字体注册表；Win32 调用在 `bc_shell::message_font`（bc-gui 保持 `forbid(unsafe_code)`），进程内约 4 ms，不启动外部进程。失败回退 Segoe UI/egui 内置，Consolas 10pt 编辑器与微软雅黑 CJK 回退；不分发字体文件。
 - 主题仅镜像实际使用的 `tokens.json` 条目，单测逐字段断言；不在每帧读取 JSON。颜色/度量余下精调交给 Wave 2。
 - 组件 API、验收日志、截图和 A/B 数据见 [Wave 1B 报告](../../docs/worker-reports/visual-parity-wave1B.md)。
 

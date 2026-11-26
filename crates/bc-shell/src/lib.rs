@@ -70,6 +70,8 @@ mod owner;
 pub mod registry;
 pub mod state;
 #[cfg(windows)]
+mod system_font;
+#[cfg(windows)]
 mod windows;
 
 pub use layout::{Class, Left, Targets, Verb};
@@ -96,6 +98,10 @@ pub fn cursor_screen_pos(pixels_per_point: f64) -> Option<(i32, i32)> {
 #[cfg(windows)]
 pub use owner::{foreground as dialog_owner, DialogOwner};
 pub use registry::{MemRegistry, Registry};
+/// System message font (family, 96-DPI height, file) for the GUI chrome;
+/// Windows only, in-process Win32 calls.
+#[cfg(windows)]
+pub use system_font::{message_font, MessageFont};
 pub use state::{Pairing, StateDir};
 
 use std::io;
