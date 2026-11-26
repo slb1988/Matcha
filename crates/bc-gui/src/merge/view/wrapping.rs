@@ -143,6 +143,8 @@ impl MergeView {
             whitespace: false,
         });
         let font_size = self.font_size;
+        // 刚开启或字号变了：完整预算建表。
+        let fresh = !matches!(&self.wrap, Some(s) if s.font_size == font_size);
         let mut state = match self.wrap.take() {
             Some(s) if s.font_size == font_size => s,
             _ => MergeWrap {
@@ -155,12 +157,12 @@ impl MergeView {
             },
         };
         let key = self.content_key();
-        let changed = state.key != key
-            || state
-                .specs
-                .iter()
-                .zip(&specs)
-                .any(|(a, b)| a.key() != b.key());
+        let resized = state
+            .specs
+            .iter()
+            .zip(&specs)
+            .any(|(a, b)| a.key() != b.key());
+        let changed = state.key != key || resized;
         if self.heights.is_none() || changed {
             let anchor = match (self.heights.is_some(), self.top_anchor) {
                 (true, _) => self.anchor_now(),
@@ -171,6 +173,12 @@ impl MergeView {
             state.specs = specs;
             state.key = key;
             let snaps = std::array::from_fn(|pane| self.content(pane).snapshot());
+            // 宽度未变、只是内容 / 网格变了（编辑、Take）：小预算，保证输入跟手。
+            let budget = if fresh || resized {
+                wrap::SYNC_BUDGET
+            } else {
+                wrap::EDIT_BUDGET
+            };
             let table = RowHeights::build(
                 self.model.grid().len(),
                 &mut Rows {
@@ -179,7 +187,7 @@ impl MergeView {
                     glyphs: &mut state.glyphs,
                     specs,
                 },
-                wrap::SYNC_BUDGET,
+                budget,
             );
             self.heights = Some(table);
             self.restore(anchor);

@@ -146,6 +146,8 @@ impl TextCompareView {
         }
         let specs = self.wrap_specs(panes);
         let font_size = self.font_size;
+        // 刚开启或字号变了：完整预算建表。
+        let fresh = !matches!(&self.wrap, Some(s) if s.font_size == font_size);
         let mut state = match self.wrap.take() {
             Some(s) if s.font_size == font_size => s,
             _ => WrapState {
@@ -169,6 +171,12 @@ impl TextCompareView {
             };
             state.specs = specs;
             let snaps = [self.map.left.snapshot(), self.map.right.snapshot()];
+            // 宽度未变、只是投影重建（编辑、过滤、重新对齐）：小预算，保证输入跟手。
+            let budget = if fresh || changed {
+                wrap::SYNC_BUDGET
+            } else {
+                wrap::EDIT_BUDGET
+            };
             let table = RowHeights::build(
                 self.projection.len(),
                 &mut Rows {
@@ -177,7 +185,7 @@ impl TextCompareView {
                     glyphs: &mut state.glyphs,
                     specs,
                 },
-                wrap::SYNC_BUDGET,
+                budget,
             );
             self.projection.set_heights(Some(table));
             self.restore(anchor, g);

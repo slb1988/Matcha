@@ -15,6 +15,9 @@ pub const WRAP_CAP: u32 = 10_000;
 const MARGIN: f32 = 0.5;
 /// 显示行建表时同步精确计算的字节预算；超出部分先估算。
 pub const SYNC_BUDGET: usize = 16 * 1024 * 1024;
+/// 只因内容 / 投影变化（宽度不变）而重建时的同步预算：编辑时每次按键都会重建，
+/// 预算小保证输入跟手；其余行先估算，视口附近当帧精确，空闲帧补齐。
+pub const EDIT_BUDGET: usize = 1024 * 1024;
 
 /// 一种字体的逐字符字宽（点）。ASCII 用数组，其他字符按需查询后缓存。
 pub struct Glyphs {

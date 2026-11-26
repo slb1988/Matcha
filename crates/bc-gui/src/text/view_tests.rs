@@ -3142,3 +3142,126 @@ fn word_wrap_typing_rewraps_the_row_in_the_same_frame() {
     assert!((next[0] - ab.top() - 2.0 * rh).abs() < 0.5, "{next:?} {ab:?}");
     TEXT_SPLIT_X.reset();
 }
+
+#[test]
+#[ignore]
+/// Word Wrap on ~100 MB / 1M lines per side (every 20th line ~600 chars, some CJK lines).
+/// `cargo test --release -p bc-gui --lib word_wrap_large_file_latency -- --ignored --nocapture`
+fn word_wrap_large_file_latency() {
+    let dir = Temp::new();
+    let mut left = String::with_capacity(110 << 20);
+    for i in 0..1_000_000usize {
+        if i % 20 == 0 {
+            left.push_str(&format!("long {i} {}
+", words(150)));
+        } else if i % 50 == 7 {
+            left.push_str(&format!(
+                "中文行 {i} 这是一段用于测试自动折行的中文文本，包含全角标点。重复：这是一段用于测试自动折行的中文文本。
+"
+            ));
+        } else {
+            left.push_str(&format!(
+                "    let value_{i} = compute(alpha, beta, gamma); // ordinary code line
+"
+            ));
+        }
+    }
+    let mut right = left.clone();
+    right.replace_range(1000..1010, "XXXXXXXXXX");
+    let l = dir.file("l.txt", left.as_bytes());
+    let r = dir.file("r.txt", right.as_bytes());
+    let ctx = egui::Context::default();
+    let mut v = TextCompareView::open(&l, &r).unwrap();
+    while !v.is_ready() {
+        v.poll();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    eprintln!("[wrap] {} MB per side, {} rows", left.len() >> 20, v.row_count());
+    TEXT_SPLIT_X.reset();
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let timed = |label: &str, v: &mut TextCompareView, events: Vec<egui::Event>| {
+        let t = Instant::now();
+        frame(&ctx, v, events);
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        eprintln!("[wrap] {label:<26} {ms:>8.1} ms");
+        ms
+    };
+    v.editors[0].place(Caret { line: 5, byte: 0 }, false);
+    ctx.memory_mut(|m| m.request_focus(editor_id(0)));
+    frame(&ctx, &mut v, vec![]);
+    timed("type a char (wrap off)", &mut v, vec![egui::Event::Text("x".into())]);
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    let mut worst: f64 = timed("wrap on", &mut v, vec![]);
+    let total = v.pane_rects[1].right() - v.pane_rects[0].left();
+    TEXT_SPLIT_X.store(total * 0.3, total);
+    worst = worst.max(timed("split change", &mut v, vec![]));
+    v.command("Over-Under Layout", &ctx, &Prefs::default());
+    worst = worst.max(timed("stacked layout", &mut v, vec![]));
+    v.command("Side-by-Side Layout", &ctx, &Prefs::default());
+    worst = worst.max(timed("side-by-side layout", &mut v, vec![]));
+    let last = v.projection.len() - 1;
+    v.scroll_to_row(last);
+    worst = worst.max(timed("jump to end", &mut v, vec![]));
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.top_row(v.row_height()) > last - 60);
+    v.editors[0].place(Caret { line: 5, byte: 0 }, false);
+    v.scroll_to_row(0);
+    frame(&ctx, &mut v, vec![]);
+    timed("type a char (wrap on)", &mut v, vec![egui::Event::Text("x".into())]);
+    let mut idle = 0;
+    while v.projection.heights().is_some_and(|h| !h.is_complete()) {
+        frame(&ctx, &mut v, vec![]);
+        idle += 1;
+        assert!(idle < 1000);
+    }
+    eprintln!("[wrap] idle frames until exact: {idle}");
+    assert!(worst < 1000.0, "{worst} ms");
+}
+
+#[test]
+#[ignore]
+/// ~50 MB single-line JSON: capped at 10000 visual lines with the hint at the end.
+/// `MATCHA_WRAP_OFF=1` keeps wrap off (for the peak-memory comparison).
+fn word_wrap_single_line_json() {
+    let dir = Temp::new();
+    let json = format!(
+        "{{\"data\":[{}]}}",
+        (0..5_000_000).map(|i| format!("{i:>9},")).collect::<String>()
+    );
+    let j = dir.file("j.json", json.as_bytes());
+    let ctx = egui::Context::default();
+    let mut v = TextCompareView::open(&j, &j).unwrap();
+    while !v.is_ready() {
+        v.poll();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    frame(&ctx, &mut v, vec![]);
+    if std::env::var_os("MATCHA_WRAP_OFF").is_some() {
+        for _ in 0..20 {
+            frame(&ctx, &mut v, vec![]);
+        }
+        return;
+    }
+    v.command("Word Wrap", &ctx, &Prefs::default());
+    let t = Instant::now();
+    frame(&ctx, &mut v, vec![]);
+    eprintln!(
+        "[wrap] json {} MB: wrap on {:.1} ms, {} visual lines",
+        json.len() >> 20,
+        t.elapsed().as_secs_f64() * 1e3,
+        v.projection.units(0)
+    );
+    assert_eq!(v.projection.units(0), crate::wrap::WRAP_CAP);
+    v.scroll.y = 1e9;
+    let t = Instant::now();
+    let out = frame(&ctx, &mut v, vec![]);
+    eprintln!("[wrap] json scroll to bottom {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+    assert!(v.scroll.y > 100_000.0);
+    assert!(text_shapes(&out)
+        .iter()
+        .any(|(t, _)| t.contains("more characters not shown")));
+    for _ in 0..18 {
+        frame(&ctx, &mut v, vec![]);
+    }
+}
