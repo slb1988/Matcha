@@ -41,7 +41,7 @@
 
 ## 8. 文档同步与集成检查
 
-- [ ] 8.1 更新 `docs/reference-parity/text-compare.md`（两处 Word Wrap 条目由「后置」改为已实现及差异说明：按逻辑行移动光标、无工具栏按钮）、`docs/reference-parity/text-merge.md`（两处）、`crates/bc-gui/README.md` 后置列表，`docs/features/README.md` 状态改为已实现，`CHANGELOGS.md` 新增条目；验收：`git grep -n "Word Wrap"` 中不再有与实现矛盾的「后置」描述
+- [x] 8.1 更新 `docs/reference-parity/text-compare.md`（两处 Word Wrap 条目由「后置」改为已实现及差异说明：按逻辑行移动光标、无工具栏按钮）、`docs/reference-parity/text-merge.md`（两处）、`crates/bc-gui/README.md` 后置列表，`docs/features/README.md` 状态改为已实现，`CHANGELOGS.md` 新增条目；验收：`git grep -n "Word Wrap"` 中不再有与实现矛盾的「后置」描述
 - [ ] 8.2 `cargo test -p bc-gui` 与 `cargo clippy -p bc-gui` 无新增失败或告警；`dev-build.ps1` 后实机走查：中文长行在左右不同宽度下折行、拖动分隔线顶端行不跳、点击第二段放光标、Visible Whitespace 下行尾标记位置、合并视图四窗格对齐、关闭后恢复横向滚动
 
 ## Workflow follow-up

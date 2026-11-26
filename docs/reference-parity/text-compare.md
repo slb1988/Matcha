@@ -127,7 +127,7 @@
 | Visible Whitespace | 已实现 | 空格/Tab/EOL 标记；EOF 无换行标记和状态提示 |
 | Line Numbers | 已实现 | 可显示/隐藏，空隙不伪造来源行号 |
 | Syntax Highlighting | 已实现 | 可开关；语法 token 的文字颜色，差异背景独立 |
-| Word Wrap | 后置 | 本期固定行高虚拟化；长行水平窗口保证性能，变高行索引另做 |
+| Word Wrap | 已实现（项目差异见右） | 各窗格按自身宽度折行，对齐行高取两侧最大值，横向滚动隐藏（参考帮助：lines are adjusted to fit the current display size）。差异：↑/↓、Home/End 仍按逻辑行移动；不加工具栏 Wrap 按钮（参考默认工具栏采集中没有）；单行最多 10000 个视觉行。见 [text-word-wrap](../features/text-word-wrap.md) |
 | Display Font * | 后置（字体族） | 目前固定等宽字体，Windows CJK 系统后备；任意字体族选择后置 |
 | Increase Display Font Size * | 已实现 | View / alignment 字号滑块 |
 | Decrease Display Font Size * | 已实现 | 同上 |
@@ -202,7 +202,7 @@
 | 颜色可配置 | 已实现 | 全局 Prefs 由 App 传入，Settings 即时生效 |
 | 缩略图按文件位置、可视框、当前行、点击定位 | 已实现 | 512 桶有界缩略绘制，不按百万行每帧重绘；70% 定位测试 |
 | 底部 Text/Hex/Alignment Details | 后置 | 独立详情编辑器，不影响当前双窗格功能 |
-| Word Wrap | 后置 | 见上表，固定行高与有界水平窗口 |
+| Word Wrap | 已实现 | 见上表；变高行几何为按显示行的视觉行数前缀和 |
 | 原行尾/无最终换行 | 已实现 | EOF 标记、双侧状态差异提示、编码/逐行保存回归 |
 
 ## 格式帮助与正则（D10 补充扫描）

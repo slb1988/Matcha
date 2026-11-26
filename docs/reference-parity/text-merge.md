@@ -181,7 +181,7 @@
 | Visible Whitespace | 后置 | |
 | Line Numbers | 已实现 | 行号栏恒显示 |
 | Syntax Highlighting | 后置 | 一期合并窗格不做语法着色 |
-| Word Wrap | 后置 | |
+| Word Wrap | 已实现 | 四个窗格各按自身宽度折行，网格行高取四者最大值，共用横向滚动条隐藏；↑/↓ 按逻辑行。见 [text-word-wrap](../features/text-word-wrap.md) |
 | Display Font * | 后置 | |
 | Increase Display Font Size * | 后置 | |
 | Decrease Display Font Size * | 后置 | |
@@ -219,5 +219,5 @@
 | 左改动 / 右改动 / 冲突 / 手工四种着色 | 已实现 | 色值走 `chrome/theme` |
 | Take 可在工具栏、右键菜单与输出区段旁的按钮触发 | 已实现（工具栏、菜单与快捷键；右键菜单与区段旁按钮后置） | 当前区段 Take（Left / Center / Right） |
 | 合并时显示过滤切换为合并状态过滤 | 后置 | |
-| 隐藏 center 窗格、独立输出窗口、Word Wrap | 后置 | |
+| 隐藏 center 窗格、独立输出窗口 | 后置 | Word Wrap 已实现（见上表） |
 | 没有 center 的两方合并 | 后置 | 一期要求三个输入 |
