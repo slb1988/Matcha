@@ -1072,23 +1072,23 @@ pub(super) fn diff_ink(colors: &DiffColors, importance: Importance) -> egui::Col
 }
 
 /// One laid-out visual line of a text row: the whole line's horizontal window, or
-/// (Word Wrap) one wrapped segment.
-struct Piece {
+/// (Word Wrap) one wrapped segment. Shared with the merge view.
+pub(crate) struct Piece {
     /// Visual line within the row (0 without word wrap).
-    k: usize,
-    galley: std::sync::Arc<egui::Galley>,
+    pub(crate) k: usize,
+    pub(crate) galley: std::sync::Arc<egui::Galley>,
     /// Source byte of each galley char (plus the end).
-    bytes: Vec<usize>,
-    origin: egui::Pos2,
-    range: std::ops::Range<usize>,
+    pub(crate) bytes: Vec<usize>,
+    pub(crate) origin: egui::Pos2,
+    pub(crate) range: std::ops::Range<usize>,
 }
 impl Piece {
-    fn char_for(&self, byte: usize) -> usize {
+    pub(crate) fn char_for(&self, byte: usize) -> usize {
         self.bytes
             .partition_point(|b| *b < byte)
             .min(self.galley.text().chars().count())
     }
-    fn x_of(&self, byte: usize) -> f32 {
+    pub(crate) fn x_of(&self, byte: usize) -> f32 {
         self.galley
             .pos_from_cursor(CCursor::new(self.char_for(byte)))
             .left()

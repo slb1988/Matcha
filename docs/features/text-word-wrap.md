@@ -32,7 +32,9 @@
 | 文本比较：状态 | `crates/bc-gui/src/text/wrapping.rs` | `WrapState`（每侧 `WrapSpec`、字宽、断点缓存）、`ensure_wrap`（建表 / 重建 / 补齐 / 关闭，滚动锚定 `TopAnchor`）、`wrapped`、`reveal_caret` |
 | 文本比较：绘制 | `crates/bc-gui/src/text/render.rs` | 行按 `Piece`（视觉行）排版：可见段、逐段选区、末段行尾标记、截断提示、按段命中；`gutter::paint` 的 `head` 参数（行号、块箭头在首个视觉行） |
 | 文本比较：入口 | `crates/bc-gui/src/text/view.rs` | `word_wrap` 开关（View › Word Wrap 勾选）；`ui()` 先算窗格矩形 → `ensure_wrap` → 落实 `pending_scroll` / `pending_reveal`；开启时 `scroll.x = 0` |
-| 文本合并 | `crates/bc-gui/src/merge/view.rs` | （实现中） |
+| 文本合并：几何 | `crates/bc-gui/src/merge/view.rs` | `heights`（按网格行）与 `grid_y` / `grid_at` / `grid_units`：所有行位置都经它们；View 菜单 Word Wrap；开启时 `max_x = 0`（不显示共用横向滚动条）、不受 `LINE_LIMIT` 显示截断；`paint_gutter` 的 `head`；`line_job` 的段起点与起始列 |
+| 文本合并：状态 | `crates/bc-gui/src/merge/view/wrapping.rs` | `MergeWrap`（四窗格 `WrapSpec`、字宽、断点缓存；网格代号 + 四内容修订号失效）、`ensure_wrap`、`pane_line`、`wrapped`、`reveal_caret`、滚动锚定 |
+| 文本合并：模型 | `crates/bc-gui/src/merge/model.rs` | `grid_generation()`：网格重建计数 |
 
 ## 关键语义
 
@@ -51,6 +53,8 @@
 - 单元测试：`cargo test -p bc-gui --lib wrap::`、`cargo test -p bc-gui --lib text::projection`。
 - 文本比较视图测试：`cargo test -p bc-gui --lib word_wrap`（开关与按标签页、横向滚动隐藏、各侧独立宽度与行高取最大、
   缺失行与行尾标记、点击 / 留白 / 拖选、宽度变化与开关时顶端行不变、↑/↓ 按逻辑行与光标 / 查找可见、输入当帧重新折行）。
+- 文本合并视图测试：`cargo test -p bc-gui --lib merge_word_wrap`（菜单与共用横向滚动条、四窗格行高取最大与对齐、
+  输入窗格第二视觉行点击、输出窗格输入当帧重新折行、光标与 Find Next 可见、调整列宽时顶端行不变）。
 - 手动：`matcha /solo a.txt b.txt` → View › Word Wrap；拖动中间分隔线观察两侧各自折行。
 
 ## 深入阅读

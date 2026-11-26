@@ -96,6 +96,8 @@ pub struct MergeModel {
     pub mirror: Option<PathBuf>,
     meta: Vec<OutLine>,
     grid: Vec<GridRow>,
+    /// 网格重建次数（Word Wrap 高度表据此失效）。
+    grid_generation: u64,
     /// 每个对齐行在网格里的首个显示行。
     grid_of_row: Vec<usize>,
     /// 每个输出行所在的网格显示行。
@@ -216,6 +218,7 @@ impl MergeModel {
             mirror: None,
             meta,
             grid: Vec::new(),
+            grid_generation: 0,
             grid_of_row: Vec::new(),
             grid_of_out: Vec::new(),
             undo: Vec::new(),
@@ -229,6 +232,7 @@ impl MergeModel {
 
     fn rebuild_grid(&mut self) {
         debug_assert_eq!(self.meta.len(), self.output.lines.borrow().len());
+        self.grid_generation += 1;
         self.grid.clear();
         self.grid_of_row.clear();
         let mut next = 0;
@@ -276,6 +280,10 @@ impl MergeModel {
 
     pub fn grid(&self) -> &[GridRow] {
         &self.grid
+    }
+    /// 网格重建次数：变化表示网格行与其内容可能变了。
+    pub fn grid_generation(&self) -> u64 {
+        self.grid_generation
     }
     /// 对齐行在网格里的首个显示行。
     pub fn grid_row_of(&self, row: usize) -> usize {

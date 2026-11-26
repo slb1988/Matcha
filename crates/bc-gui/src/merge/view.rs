@@ -3,12 +3,14 @@
 #[cfg(test)]
 #[path = "view_tests.rs"]
 mod tests;
+mod wrapping;
 use super::model::{GridRow, MergeLaunch, MergeModel, OutOrigin};
 use crate::chrome::{
     self,
     menubar::{MenuItem, MenuItemKind, MenuSpec},
     theme,
 };
+use crate::text::render::Piece;
 use crate::text::{
     bookmarks::{self, Bookmarks, Toggled},
     editor::{Caret, Editor},
@@ -101,6 +103,13 @@ pub struct MergeView {
     pending_scroll: Option<usize>,
     /// Word Wrap：每个网格行的视觉行数（四窗格取最大）；`None` 时每行一个行高。
     pub(crate) heights: Option<crate::wrap::RowHeights>,
+    /// View › Word Wrap（按标签页，不持久化）。
+    pub(crate) word_wrap: bool,
+    wrap: Option<wrapping::MergeWrap>,
+    /// 上一帧末的视口顶端（网格重建 / 折行变化后据此保持顶端行）。
+    top_anchor: Option<wrapping::TopAnchor>,
+    /// Word Wrap：本帧要滚到可见的光标所在窗格。
+    pending_reveal: Option<usize>,
     pane_rects: [egui::Rect; 4],
     /// 每个窗格本帧可见行的最宽排版宽度（下一帧据此决定横向滚动条与上限）。
     content_widths: [f32; 4],
@@ -158,22 +167,15 @@ fn side_changed(choice: Option<MergeChoice>, side: Side) -> bool {
     }
 }
 
-/// 指针 → 光标（四个窗格通用）：`galley` 是第 `line` 行从 `origin` 处排出的文字，
-/// `bytes` 是其字符 → 字节映射（末项为行尾）。
-fn hit(
-    galley: &egui::Galley,
-    bytes: &[usize],
-    origin: egui::Pos2,
-    pointer: egui::Pos2,
-    line: usize,
-) -> Caret {
-    let cursor = galley.cursor_from_pos(pointer - origin);
-    let byte = bytes
+/// 指针 → 行内字节（四个窗格通用）：`piece` 是该行一段排版（字符 → 字节映射末项为段尾）。
+fn hit(piece: &Piece, pointer: egui::Pos2) -> usize {
+    let cursor = piece.galley.cursor_from_pos(pointer - piece.origin);
+    piece
+        .bytes
         .get(cursor.index.0)
-        .or(bytes.last())
+        .or(piece.bytes.last())
         .copied()
-        .unwrap_or_default();
-    Caret { line, byte }
+        .unwrap_or_default()
 }
 
 /// `text` 截到 `limit` 字节以内的字符边界。
@@ -251,10 +253,16 @@ fn menus() -> Vec<MenuSpec> {
         menu(
             "View",
             'v',
-            vec![MenuItem {
-                kind: MenuItemKind::Check { checked: true },
-                ..menu_item("Syntax Highlighting", None)
-            }],
+            vec![
+                MenuItem {
+                    kind: MenuItemKind::Check { checked: true },
+                    ..menu_item("Syntax Highlighting", None)
+                },
+                MenuItem {
+                    kind: MenuItemKind::Check { checked: false },
+                    ..menu_item("Word Wrap", None)
+                },
+            ],
         ),
         menu(
             "Search",
@@ -331,6 +339,10 @@ impl MergeView {
             scroll: egui::Vec2::ZERO,
             pending_scroll: None,
             heights: None,
+            word_wrap: false,
+            wrap: None,
+            top_anchor: None,
+            pending_reveal: None,
             pane_rects: [egui::Rect::NOTHING; 4],
             content_widths: [0.0; 4],
             hbar: None,
@@ -514,6 +526,11 @@ impl MergeView {
         if let Some(meta) = self.model.out_line(line) {
             self.current_row = meta.row;
         }
+        if self.word_wrap {
+            // 行高可变：建表之后按光标所在视觉行做最小滚动。
+            self.pending_reveal = Some(OUT);
+            return;
+        }
         let grid = self.model.grid_row_of_out(line);
         let row_height = self.row_height();
         let top = self.grid_at(self.scroll.y);
@@ -529,6 +546,10 @@ impl MergeView {
             return;
         };
         self.current_row = row;
+        if self.word_wrap {
+            self.pending_reveal = Some(pane);
+            return;
+        }
         let grid = self.model.grid_row_of(row);
         let row_height = self.row_height();
         let top = self.grid_at(self.scroll.y);
@@ -650,6 +671,11 @@ impl MergeView {
                 }
             }
             "Syntax Highlighting" => self.show_syntax = !self.show_syntax,
+            "Word Wrap" => {
+                self.word_wrap = !self.word_wrap;
+                self.scroll.x = 0.0;
+                self.content_widths = [0.0; 4];
+            }
             "Find..." => self.find.show(),
             "Replace..." => {
                 if self.active == OUT {
@@ -1117,9 +1143,13 @@ impl MergeView {
         // 横向滚动四个窗格共用一个偏移：上限取各窗格（上一帧）可见内容超出本窗格的最大量，
         // 保证每个窗格都能滚到行尾；都放得下时不显示横向滚动条，偏移归零。
         let (rects, _, _) = layout(full);
-        self.max_x = (0..4)
-            .map(|pane| self.content_widths[pane] + GUTTER + 40.0 - rects[pane].width())
-            .fold(0.0, f32::max);
+        self.max_x = if self.word_wrap {
+            0.0
+        } else {
+            (0..4)
+                .map(|pane| self.content_widths[pane] + GUTTER + 40.0 - rects[pane].width())
+                .fold(0.0, f32::max)
+        };
         let body = if self.max_x > 0.0 {
             egui::Rect::from_min_max(full.min, full.max - egui::vec2(0.0, 16.0))
         } else {
@@ -1131,6 +1161,8 @@ impl MergeView {
         let (rects, inputs, columns) = layout(body);
         self.pane_rects = rects;
         self.content_widths = [0.0; 4];
+        // Word Wrap 的高度表依赖本帧窗格宽度：先建表，再落实滚动。
+        self.ensure_wrap(&ctx);
 
         // 滚动：滚轮原样作用于四个窗格共用的位置；纵向上限取最矮的窗格。
         let shortest = self
@@ -1142,6 +1174,9 @@ impl MergeView {
         let max_y = (self.content_height() - shortest + row_height).max(0.0);
         if let Some(row) = self.pending_scroll.take() {
             self.scroll.y = self.grid_y(row);
+        }
+        if let Some(pane) = self.pending_reveal.take() {
+            self.reveal_caret(pane);
         }
         if !blocked {
             let delta = chrome::wheel::delta(&ctx, &self.pane_rects);
@@ -1155,6 +1190,9 @@ impl MergeView {
         }
         self.scroll.y = self.scroll.y.clamp(0.0, max_y);
         self.scroll.x = self.scroll.x.clamp(0.0, self.max_x);
+        if self.word_wrap {
+            self.scroll.x = 0.0;
+        }
 
         for pane in 0..4 {
             let rect = self.pane_rects[pane];
@@ -1168,6 +1206,7 @@ impl MergeView {
                 },
             );
         }
+        self.record_top();
         for x in [
             self.pane_rects[0].left() - 1.0,
             self.pane_rects[2].left() - 1.0,
@@ -1284,6 +1323,11 @@ impl MergeView {
             if item.action_id == "Syntax Highlighting" {
                 item.kind = MenuItemKind::Check {
                     checked: self.show_syntax,
+                };
+            }
+            if item.action_id == "Word Wrap" {
+                item.kind = MenuItemKind::Check {
+                    checked: self.word_wrap,
                 };
             }
         }
@@ -1506,6 +1550,8 @@ impl MergeView {
         }
         let row_height = self.row_height();
         let first = self.grid_at(self.scroll.y);
+        // Word Wrap 高度表已就绪（关闭或未建好时按单行绘制）。
+        let wrapping = self.word_wrap && self.heights.is_some();
         if pane != OUT {
             // 输入窗格右键：先把当前行与活动窗格移到所点处，再弹菜单。
             if response.secondary_clicked() {
@@ -1588,6 +1634,9 @@ impl MergeView {
                 egui::vec2(area.width(), self.grid_units(g) as f32 * row_height),
             );
             let conflict = self.model.state.in_conflict(cell.row);
+            // 首个视觉行（Word Wrap 时行号与书签徽标只画在这里）。
+            let head_rect =
+                egui::Rect::from_min_size(line_rect.min, egui::vec2(line_rect.width(), row_height));
             // 这一显示行上本窗格的内容：行号、文本、底色。
             let (number, text, fill): (Option<usize>, Option<String>, egui::Color32) =
                 if pane == OUT {
@@ -1648,9 +1697,9 @@ impl MergeView {
             let Some(text) = text else {
                 // 空隙行：本侧在这一显示行上没有内容。
                 crate::text::render::hatch(ui, line_rect.intersect(area), false);
-                self.paint_gutter(&painter, line_rect, None, conflict, cell.row);
+                self.paint_gutter(&painter, line_rect, row_height, None, conflict, cell.row);
                 if let Some(n) = bookmark {
-                    bookmark_badge(&painter, line_rect, n);
+                    bookmark_badge(&painter, head_rect, n);
                 }
                 if pressed
                     && ui.is_enabled()
@@ -1667,45 +1716,86 @@ impl MergeView {
                     egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
                 );
             }
-            // 超长行只排版开头一段；合并窗格不做横向窗口化。
-            let finish = clip(&text, LINE_LIMIT).len();
-            let (job, bytes) = self.line_job(
-                pane,
-                cell.row,
-                number.unwrap_or_default(),
-                &text[..finish],
-                &ink,
-            );
-            let galley = painter.layout_job(job);
-            self.content_widths[pane] = self.content_widths[pane].max(galley.size().x);
-            let origin = line_rect.min + egui::vec2(GUTTER + 4.0 - self.scroll.x, 1.0);
+            // 不折行：超长行只排版开头一段（合并窗格不做横向窗口化）。
+            // Word Wrap：整行按本窗格宽度折行，只排版与窗格相交的视觉行。
+            let line = number.unwrap_or_default();
+            let wrapped = (wrapping && number.is_some()).then(|| self.wrapped(pane, line, &text));
+            let mut pieces: Vec<Piece> = Vec::new();
+            match &wrapped {
+                None => {
+                    let finish = clip(&text, LINE_LIMIT).len();
+                    let (job, bytes) =
+                        self.line_job(pane, cell.row, line, &text[..finish], 0, 0, &ink);
+                    let galley = painter.layout_job(job);
+                    self.content_widths[pane] = self.content_widths[pane].max(galley.size().x);
+                    pieces.push(Piece {
+                        k: 0,
+                        galley,
+                        bytes,
+                        origin: line_rect.min + egui::vec2(GUTTER + 4.0 - self.scroll.x, 1.0),
+                        range: 0..finish,
+                    });
+                }
+                Some(w) => {
+                    let k0 = ((area.top() - line_rect.top()) / row_height)
+                        .floor()
+                        .max(0.0) as usize;
+                    let k1 = (((area.bottom() - line_rect.top()) / row_height)
+                        .ceil()
+                        .max(0.0) as usize)
+                        .min(w.len());
+                    for k in k0..k1 {
+                        let (range, column) = w.segment(k);
+                        let (job, bytes) = self.line_job(
+                            pane,
+                            cell.row,
+                            line,
+                            &text[range.clone()],
+                            range.start,
+                            column,
+                            &ink,
+                        );
+                        pieces.push(Piece {
+                            k,
+                            galley: painter.layout_job(job),
+                            bytes,
+                            origin: line_rect.min
+                                + egui::vec2(GUTTER + 4.0, 1.0 + k as f32 * row_height),
+                            range,
+                        });
+                    }
+                }
+            }
             let text_clip = egui::Rect::from_min_max(
                 egui::pos2(line_rect.left() + GUTTER, line_rect.top()),
                 line_rect.max,
             )
             .intersect(area);
             let text_painter = painter.with_clip_rect(text_clip.intersect(ui.clip_rect()));
-            let char_for_byte = |byte: usize| {
-                bytes
-                    .partition_point(|b| *b < byte)
-                    .min(galley.text().chars().count())
-            };
-            {
-                let line = number.unwrap_or_default();
-                if let Some((a, b)) = self.editor_of(pane).selection() {
-                    if (a.line..=b.line).contains(&line) {
-                        let from = if line == a.line { a.byte } else { 0 };
-                        let to = if line == b.line { b.byte } else { text.len() };
-                        let x1 = galley
-                            .pos_from_cursor(CCursor::new(char_for_byte(from)))
-                            .left();
-                        let x2 = galley
-                            .pos_from_cursor(CCursor::new(char_for_byte(to)))
-                            .left();
+            if let Some((a, b)) = self.editor_of(pane).selection() {
+                if (a.line..=b.line).contains(&line) && number.is_some() {
+                    let from = if line == a.line { a.byte } else { 0 };
+                    let to = if line == b.line { b.byte } else { text.len() };
+                    for piece in &pieces {
+                        let (from, to) = if wrapped.is_some() {
+                            let (f, t) = (from.max(piece.range.start), to.min(piece.range.end));
+                            // 空交集：只有空行或末视觉行之后选中的换行显示一小段。
+                            let stub = f == t
+                                && (piece.range.is_empty()
+                                    || (f == text.len() && piece.range.end == text.len()));
+                            if f > t || (f == t && !stub) {
+                                continue;
+                            }
+                            (f, t)
+                        } else {
+                            (from, to)
+                        };
+                        let x1 = piece.x_of(from);
+                        let x2 = piece.x_of(to);
                         text_painter.rect_filled(
                             egui::Rect::from_min_max(
-                                origin + egui::vec2(x1, 0.0),
-                                origin + egui::vec2(x2.max(x1 + 2.0), row_height - 1.0),
+                                piece.origin + egui::vec2(x1, 0.0),
+                                piece.origin + egui::vec2(x2.max(x1 + 2.0), row_height - 1.0),
                             ),
                             0.0,
                             theme::palette(ui.ctx()).text_selection,
@@ -1713,46 +1803,73 @@ impl MergeView {
                     }
                 }
             }
-            text_painter.galley(origin, galley.clone(), ui.visuals().text_color());
+            for piece in &pieces {
+                text_painter.galley(piece.origin, piece.galley.clone(), ui.visuals().text_color());
+            }
+            // 超过折行上限：最后一个视觉行末尾提示未显示的字符数。
+            if let (Some(w), Some(piece)) = (&wrapped, pieces.last()) {
+                if w.hidden_chars > 0 && piece.k + 1 == w.len() {
+                    text_painter.text(
+                        piece.origin + egui::vec2(piece.galley.size().x, 0.0),
+                        egui::Align2::LEFT_TOP,
+                        crate::text::render::truncation_hint(w.hidden_chars),
+                        egui::FontId::monospace(self.font_size),
+                        ui.visuals().weak_text_color(),
+                    );
+                }
+            }
+            let piece_of = |byte: usize| match &wrapped {
+                Some(w) => {
+                    let k = w.segment_of(byte.min(w.end));
+                    pieces.iter().find(|p| p.k == k)
+                }
+                None => pieces.first(),
+            };
             // 输出窗格总显示光标；输入窗格只在活动时显示。
             let caret = self.editor_of(pane).caret;
             if (pane == OUT || pane == self.active) && number == Some(caret.line) {
-                let cursor = galley
-                    .pos_from_cursor(CCursor::new(char_for_byte(caret.byte)))
-                    .translate(origin.to_vec2());
-                text_painter.line_segment(
-                    [cursor.left_top(), cursor.left_bottom()],
-                    egui::Stroke::new(1.5, ui.visuals().text_color()),
-                );
-            }
-            if pane == OUT && number == Some(self.editor.caret.line) {
-                let cursor = galley
-                    .pos_from_cursor(CCursor::new(char_for_byte(self.editor.caret.byte)))
-                    .translate(origin.to_vec2());
-                if !self.editor.preedit.is_empty() {
-                    text_painter.text(
-                        cursor.left_top(),
-                        egui::Align2::LEFT_TOP,
-                        &self.editor.preedit,
-                        egui::FontId::monospace(self.font_size),
-                        theme::MERGE_MANUAL,
+                if let Some(piece) = piece_of(caret.byte) {
+                    let cursor = piece
+                        .galley
+                        .pos_from_cursor(CCursor::new(piece.char_for(caret.byte)))
+                        .translate(piece.origin.to_vec2());
+                    text_painter.line_segment(
+                        [cursor.left_top(), cursor.left_bottom()],
+                        egui::Stroke::new(1.5, ui.visuals().text_color()),
                     );
                 }
-                if ui.memory(|m| m.owns_ime_events(id)) {
-                    ui.output_mut(|o| {
-                        o.ime = Some(egui::output::IMEOutput {
-                            purpose: egui::IMEPurpose::Normal,
-                            rect: area,
-                            cursor_rect: cursor,
-                            should_interrupt_composition: false,
+            }
+            if pane == OUT && number == Some(self.editor.caret.line) {
+                if let Some(piece) = piece_of(self.editor.caret.byte) {
+                    let cursor = piece
+                        .galley
+                        .pos_from_cursor(CCursor::new(piece.char_for(self.editor.caret.byte)))
+                        .translate(piece.origin.to_vec2());
+                    if !self.editor.preedit.is_empty() {
+                        text_painter.text(
+                            cursor.left_top(),
+                            egui::Align2::LEFT_TOP,
+                            &self.editor.preedit,
+                            egui::FontId::monospace(self.font_size),
+                            theme::MERGE_MANUAL,
+                        );
+                    }
+                    if ui.memory(|m| m.owns_ime_events(id)) {
+                        ui.output_mut(|o| {
+                            o.ime = Some(egui::output::IMEOutput {
+                                purpose: egui::IMEPurpose::Normal,
+                                rect: area,
+                                cursor_rect: cursor,
+                                should_interrupt_composition: false,
+                            });
+                            o.mutable_text_under_cursor = true;
                         });
-                        o.mutable_text_under_cursor = true;
-                    });
+                    }
                 }
             }
-            self.paint_gutter(&painter, line_rect, number, conflict, cell.row);
+            self.paint_gutter(&painter, line_rect, row_height, number, conflict, cell.row);
             if let Some(n) = bookmark {
-                bookmark_badge(&painter, line_rect, n);
+                bookmark_badge(&painter, head_rect, n);
             }
             // 弹出层盖在窗格上时，按下属于弹出层。
             let covered = pointer.is_some_and(|p| {
@@ -1767,7 +1884,18 @@ impl MergeView {
                     ui.memory_mut(|m| m.request_focus(id));
                 }
                 if pressed || (held && self.dragging == Some(pane)) {
-                    let caret = hit(&galley, &bytes, origin, p, number.unwrap_or_default());
+                    // Word Wrap：按视觉行命中；本窗格视觉行之下的留白落在行尾。
+                    let byte = match &wrapped {
+                        Some(w) => {
+                            let k = ((p.y - line_rect.top()) / row_height).floor().max(0.0) as usize;
+                            match pieces.iter().find(|q| q.k == k) {
+                                Some(q) if k < w.len() => hit(q, p),
+                                _ => w.end,
+                            }
+                        }
+                        None => pieces.first().map_or(0, |q| hit(q, p)),
+                    };
+                    let caret = Caret { line, byte };
                     self.editor_of_mut(pane).place(caret, !pressed || shift);
                     self.current_row = cell.row;
                     self.dragging = Some(pane);
@@ -1821,12 +1949,16 @@ impl MergeView {
 
     /// 窗格 `pane` 中第 `line` 行（属于对齐行 `row`）的排版：语法 token（开关打开时）、
     /// left / right 窗格改动行的行内差异着墨。返回排版与字符 → 字节映射。
+    /// `start` / `column`：`text` 在该行中的起始字节与逻辑列（Word Wrap 的一段；整行为 0）。
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn line_job(
         &mut self,
         pane: usize,
         row: usize,
         line: usize,
         text: &str,
+        start: usize,
+        column: usize,
         ink: &PaneInk,
     ) -> (LayoutJob, Vec<usize>) {
         let tokens = if self.show_syntax && line < ink.snapshot.lines.len() {
@@ -1852,8 +1984,8 @@ impl MergeView {
             .clamp(1, 32) as usize;
         layout(
             text,
-            0,
-            0,
+            start,
+            column,
             &tokens,
             &spans,
             &self.colors,
@@ -1929,15 +2061,18 @@ impl MergeView {
         self.inline.insert((pane, row), diff.left);
     }
 
+    /// `head`：首个视觉行的高度（行号居中于其中；冲突竖条贯穿整行）。
     fn paint_gutter(
         &self,
         painter: &egui::Painter,
         line: egui::Rect,
+        head: f32,
         number: Option<usize>,
         conflict: bool,
         row: usize,
     ) {
         let gutter = egui::Rect::from_min_size(line.min, egui::vec2(GUTTER, line.height()));
+        let first = egui::Rect::from_min_size(line.min, egui::vec2(GUTTER, head.min(line.height())));
         painter.rect_filled(gutter, 0.0, theme::SURFACE);
         if conflict {
             // 未解决冲突：行号栏左缘的红色竖条。
@@ -1949,7 +2084,7 @@ impl MergeView {
         }
         if let Some(number) = number {
             painter.text(
-                gutter.right_center() - egui::vec2(6.0, 0.0),
+                first.right_center() - egui::vec2(6.0, 0.0),
                 egui::Align2::RIGHT_CENTER,
                 (number + 1).to_string(),
                 egui::FontId::proportional(9.5),

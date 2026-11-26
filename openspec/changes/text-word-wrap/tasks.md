@@ -26,13 +26,13 @@
 
 ## 5. 文本合并：关闭状态下的等价重构
 
-- [ ] 5.1 把 `merge/view.rs` 中的 `scroll.y / row_height`、`rows * row_height`、`max_y` 等固定行高算术收敛到基于 `RowHeights` 的辅助函数（关闭时为固定单位）；验收：`cargo test -p bc-gui merge::` 全部通过、现有合并视图视觉快照逐像素不变（design 风险项，单独提交）
+- [x] 5.1 把 `merge/view.rs` 中的 `scroll.y / row_height`、`rows * row_height`、`max_y` 等固定行高算术收敛到基于 `RowHeights` 的辅助函数（关闭时为固定单位）；验收：`cargo test -p bc-gui merge::` 全部通过、现有合并视图视觉快照逐像素不变（design 风险项，单独提交）
 
 ## 6. 文本合并：Word Wrap
 
-- [ ] 6.1 View 菜单新增 Word Wrap 勾选项与命令；开启时隐藏共享横向滚动条（`hbar = None`，`max_x = 0`，`scroll.x = 0`），显示不再受 `LINE_LIMIT` 截断，行内差异仍只算前 4096 字节；`merge/view_tests.rs`：菜单存在且默认未勾选、开启后横向滚动条消失
-- [ ] 6.2 四个窗格各按自身宽度建表，行高取四者最大值；分段绘制、行号首段、来源/冲突底色铺满整行；`hit()` 按段命中，输出窗格编辑后当帧重新计数；`merge/view_tests.rs`：spec 中「合并视图四个窗格」场景（2/3/1/1 → 3 段，下一行同高起始）、点击输入窗格第二段放置光标、在输出窗格输入使行折成 2 段后四窗格同步加高
-- [ ] 6.3 合并视图的光标可见性与 Find Next 命中可见性（design D5）、宽度变化锚定（design D4）；`merge/view_tests.rs` 覆盖；`dev-build.ps1` 编译通过；更新 `docs/features/text-word-wrap.md` 中的合并视图代码地图
+- [x] 6.1 View 菜单新增 Word Wrap 勾选项与命令；开启时隐藏共享横向滚动条（`hbar = None`，`max_x = 0`，`scroll.x = 0`），显示不再受 `LINE_LIMIT` 截断，行内差异仍只算前 4096 字节；`merge/view_tests.rs`：菜单存在且默认未勾选、开启后横向滚动条消失
+- [x] 6.2 四个窗格各按自身宽度建表，行高取四者最大值；分段绘制、行号首段、来源/冲突底色铺满整行；`hit()` 按段命中，输出窗格编辑后当帧重新计数；`merge/view_tests.rs`：spec 中「合并视图四个窗格」场景（2/3/1/1 → 3 段，下一行同高起始）、点击输入窗格第二段放置光标、在输出窗格输入使行折成 2 段后四窗格同步加高
+- [x] 6.3 合并视图的光标可见性与 Find Next 命中可见性（design D5）、宽度变化锚定（design D4）；`merge/view_tests.rs` 覆盖；`dev-build.ps1` 编译通过；更新 `docs/features/text-word-wrap.md` 中的合并视图代码地图
 
 ## 7. 性能与超长行
 

@@ -471,7 +471,7 @@ fn line_inks(
     )
     .unwrap();
     let ink = v.pane_ink(pane, ctx, NORMAL);
-    let (job, _) = v.line_job(pane, row, line, &text, &ink);
+    let (job, _) = v.line_job(pane, row, line, &text, 0, 0, &ink);
     (0..job.text.len())
         .map(|byte| {
             let section = job
@@ -1273,4 +1273,216 @@ fn button_rect(out: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
         }
         _ => None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Word Wrap (docs/features/text-word-wrap.md, openspec change text-word-wrap)
+// ---------------------------------------------------------------------------
+
+fn words(n: usize) -> String {
+    (0..n)
+        .map(|i| format!("w{i:02} "))
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+fn frame_shapes(ctx: &egui::Context, v: &mut MergeView, events: Vec<egui::Event>) -> egui::FullOutput {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1400.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        v.ui(ui, &mut Prefs::default());
+    });
+    out.textures_delta.clear();
+    out
+}
+/// Text shapes inside pane `pane`'s text area containing `needle`, top to bottom.
+fn pane_texts(
+    out: &egui::FullOutput,
+    v: &MergeView,
+    pane: usize,
+    needle: &str,
+) -> Vec<(String, egui::Rect)> {
+    let rect = v.pane_rects[pane];
+    let area = egui::Rect::from_min_max(rect.min + egui::vec2(0.0, HEADER), rect.max);
+    let mut found: Vec<_> = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                egui::Rect::from_min_size(t.pos, t.galley.size()),
+            )),
+            _ => None,
+        })
+        .filter(|(t, r)| t.contains(needle) && area.contains(r.center()))
+        .collect();
+    found.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+    found
+}
+fn wrapped_merge(left: &[String], right: &[String], center: &[String]) -> (egui::Context, MergeView) {
+    for split in &SPLIT_COLUMNS {
+        split.reset();
+    }
+    SPLIT_Y.reset();
+    let ctx = egui::Context::default();
+    let mut v = view(left, right, center);
+    frame(&ctx, &mut v, vec![]);
+    v.command("Word Wrap");
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    (ctx, v)
+}
+
+#[test]
+fn merge_word_wrap_menu_and_shared_horizontal_bar() {
+    let b = base(10);
+    let long = words(150);
+    let left = edit(&b, &[(5, &long)]);
+    let ctx = egui::Context::default();
+    let mut v = view(&left, &b, &b);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    let item = |v: &MergeView| {
+        v.menus
+            .iter()
+            .flat_map(|m| m.items.iter())
+            .find(|i| i.action_id == "Word Wrap")
+            .map(|i| i.kind.clone())
+    };
+    assert!(matches!(
+        item(&v),
+        Some(MenuItemKind::Check { checked: false })
+    ));
+    // The long line needs the shared horizontal bar without wrap.
+    assert!(v.hbar.is_some());
+    v.scroll.x = 120.0;
+    v.command("Word Wrap");
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert!(matches!(
+        item(&v),
+        Some(MenuItemKind::Check { checked: true })
+    ));
+    assert!(v.hbar.is_none());
+    assert_eq!(v.scroll.x, 0.0);
+    // Off again: the bar comes back.
+    v.command("Word Wrap");
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert!(v.hbar.is_some());
+    assert!(v.heights.is_none());
+}
+
+#[test]
+fn merge_word_wrap_rows_take_the_tallest_of_four_panes() {
+    let b = base(10);
+    let long = words(150);
+    let left = edit(&b, &[(5, &long)]);
+    let (ctx, mut v) = wrapped_merge(&left, &b, &b);
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    let rh = v.row_height();
+    let in_left = pane_texts(&out, &v, 0, "w");
+    let in_out = pane_texts(&out, &v, OUT, "w");
+    assert!(in_left.len() > in_out.len() && !in_out.is_empty(), "{in_left:?} {in_out:?}");
+    for side in [&in_left, &in_out] {
+        let joined: String = side.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(joined, long);
+        for pair in side.windows(2) {
+            assert!((pair[1].1.top() - pair[0].1.top() - rh).abs() < 0.5);
+        }
+    }
+    let grid = v.model.grid_row_of_out(4);
+    assert_eq!(v.grid_units(grid) as usize, in_left.len());
+    // The next row starts at the same height in all four panes.
+    let tops: Vec<f32> = (0..4)
+        .map(|pane| pane_texts(&out, &v, pane, "line06")[0].1.top())
+        .collect();
+    let gap = |pane: usize| tops[pane] - pane_texts(&out, &v, pane, "line04")[0].1.top();
+    for pane in 0..4 {
+        assert!((gap(pane) - (1.0 + in_left.len() as f32) * rh).abs() < 0.5, "{tops:?}");
+    }
+    // Click the second visual line of the left input: caret at that segment's start.
+    let (second, r) = &in_left[1];
+    click(&ctx, &mut v, r.left_top() + egui::vec2(1.0, rh / 2.0));
+    assert_eq!(v.active, 0);
+    let caret = v.input_editors[0].caret;
+    assert_eq!(caret.line, 4);
+    assert_eq!(caret.byte, long.find(second.as_str()).unwrap());
+}
+
+#[test]
+fn merge_word_wrap_output_typing_rewraps_all_panes_in_the_same_frame() {
+    let b = base(10);
+    let (ctx, mut v) = wrapped_merge(&b, &b, &b);
+    let rh = v.row_height();
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    let five = pane_texts(&out, &v, OUT, "line05")[0].1;
+    click(&ctx, &mut v, five.right_center() + egui::vec2(3.0, 0.0));
+    assert_eq!(v.active, OUT);
+    assert_eq!(v.editor.caret, Caret { line: 4, byte: 6 });
+    let grid = v.model.grid_row_of_out(4);
+    assert_eq!(v.grid_units(grid), 1);
+    let typed = " ".to_string() + &words(60);
+    let out = frame_shapes(&ctx, &mut v, vec![egui::Event::Text(typed)]);
+    let units = v.grid_units(v.model.grid_row_of_out(4));
+    assert!(units >= 2, "{units}");
+    let shown = pane_texts(&out, &v, OUT, "w");
+    assert_eq!(shown.len(), units as usize);
+    // Inputs keep line 5 short; the row is still as tall in every pane.
+    for pane in 0..4 {
+        let four = pane_texts(&out, &v, pane, "line04")[0].1.top();
+        let six = pane_texts(&out, &v, pane, "line06")[0].1.top();
+        assert!((six - four - (1.0 + units as f32) * rh).abs() < 0.5, "pane {pane}");
+    }
+}
+
+#[test]
+fn merge_word_wrap_caret_stays_visible_and_top_row_survives_resizes() {
+    let b = base(40);
+    let long = words(1500);
+    let left = edit(&b, &[(5, &long)]);
+    let (ctx, mut v) = wrapped_merge(&left, &b, &b);
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    let first = pane_texts(&out, &v, 0, "w00")[0].1;
+    click(&ctx, &mut v, first.left_top() + egui::vec2(1.0, 2.0));
+    assert_eq!(v.active, 0);
+    let target = long.find("w1400").unwrap();
+    v.input_editors[0].place(Caret { line: 4, byte: target }, false);
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    assert!(pane_texts(&out, &v, 0, "w1401").is_empty());
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowRight, false)]);
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    assert_eq!(v.input_editors[0].caret.byte, target + 1);
+    assert!(!pane_texts(&out, &v, 0, "w1400").is_empty(), "{:?}", v.scroll);
+    // Find Next on a hit near the end of the long line shows its visual line.
+    v.scroll.y = 0.0;
+    v.input_editors[0].place(Caret { line: 0, byte: 0 }, false);
+    v.find.options.pattern = "w1490".into();
+    v.find.last_hit = None;
+    v.find_action(FindAction::Next);
+    frame(&ctx, &mut v, vec![]);
+    let out = frame_shapes(&ctx, &mut v, vec![]);
+    assert_eq!(v.find.last_hit.as_ref().map(|h| h.line), Some(4));
+    assert!(!pane_texts(&out, &v, 0, "w1490").is_empty(), "{:?}", v.scroll);
+    // ↓ moves to the next logical line.
+    frame(&ctx, &mut v, vec![key(egui::Key::ArrowDown, false)]);
+    assert_eq!(v.input_editors[0].caret.line, 5);
+    // Top row is kept when the columns are resized.
+    v.scroll.y = v.grid_y(20);
+    frame(&ctx, &mut v, vec![]);
+    let top = v.grid_at(v.scroll.y);
+    let total = v.pane_rects[2].right() - v.pane_rects[1].left();
+    SPLIT_COLUMNS[0].store(total * 0.15, total);
+    frame(&ctx, &mut v, vec![]);
+    frame(&ctx, &mut v, vec![]);
+    assert_eq!(v.grid_at(v.scroll.y), top);
+    for split in &SPLIT_COLUMNS {
+        split.reset();
+    }
 }
