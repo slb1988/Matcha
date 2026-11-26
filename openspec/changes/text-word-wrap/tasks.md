@@ -2,7 +2,7 @@
 
 ## 1. 功能文档先行
 
-- [ ] 1.1 新建 `docs/features/text-word-wrap.md`（按 `docs/features/README.md` 的模板），写清开关与默认值、各窗格独立宽度、对齐行高取最大值、折行规则、行号栏与行尾标记位置、点击与选区、↑/↓ 按逻辑行、横向滚动隐藏、10000 视觉行上限、不持久化、无工具栏按钮；`docs/features/README.md` 索引加一行（状态「进行中」），`text-compare.md` 与 `text-merge.md` 加链接；验收：与 `specs/text-word-wrap/spec.md` 各需求一一对应
+- [x] 1.1 新建 `docs/features/text-word-wrap.md`（按 `docs/features/README.md` 的模板），写清开关与默认值、各窗格独立宽度、对齐行高取最大值、折行规则、行号栏与行尾标记位置、点击与选区、↑/↓ 按逻辑行、横向滚动隐藏、10000 视觉行上限、不持久化、无工具栏按钮；`docs/features/README.md` 索引加一行（状态「进行中」），`text-compare.md` 与 `text-merge.md` 加链接；验收：与 `specs/text-word-wrap/spec.md` 各需求一一对应
 
 ## 2. 共享折行模块 `bc-gui/src/wrap.rs`
 

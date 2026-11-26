@@ -7,6 +7,7 @@
 
 - 打开两个文件 → 计算行级对齐（`TextMap`），按 `DiffKind` 着色；支持左/右或上/下布局。
 - 编号书签 0–9（Shift+Ctrl+N 放置 / Ctrl+N 跳转 / Clear Bookmarks），见 [text-bookmarks.md](text-bookmarks.md)。
+- View › Word Wrap：长行按各窗格宽度折行，对齐行高取两侧最大值，见 [text-word-wrap.md](text-word-wrap.md)。
 - 行内字符级差异（inline diff，FR-T2）、不重要差异（Unimportant，蓝色语义）与重要性传播。
 - 就地编辑：UTF-8 字节光标、选区、IME、undo/redo；保存可独立单侧进行。
 - 指针在文本区（行号栏右侧）显示 I 形插入光标，拖选途中保持；行号栏仍是默认箭头（可点的合并箭头为手形）。
@@ -109,6 +110,7 @@ cargo run --release -p bc-engine-text --example text_baseline  # 轻量基线
 
 - `crates/bc-engine-text/README.md`（API 与缓存/快照约束）
 - 编号书签：[text-bookmarks.md](text-bookmarks.md)
+- 自动折行：[text-word-wrap.md](text-word-wrap.md)
 - ADR：`docs/decisions/001…007`（STX 写规则、mmap、智能评分、tokenizer 优先级等）
 - 行为对齐：`docs/reference-parity/text-compare.md`、`text-alignment-recovered.md`
 - 变更过程：`openspec/changes/text-compare-core/`
