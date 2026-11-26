@@ -37,6 +37,7 @@ pub mod table;
 pub mod table_merge;
 pub mod text;
 pub mod using;
+pub mod wrap;
 
 use std::path::PathBuf;
 
