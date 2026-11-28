@@ -1,12 +1,15 @@
 # Matcha
 
-Matcha 是用 Rust 编写的桌面文件比较与合并工具，优先支持 Windows、Mac。你可以并排查看两版代码改了哪些字符、两份 Excel 工作簿改了哪些单元格，或在同步两个文件夹之前核对要复制和删除的文件。只需要差异报告时，不用打开窗口。
+Matcha 是用 Rust 编写的桌面文件比较与合并工具，支持 **Windows** 和 **macOS**。你可以并排查看两版代码改了哪些字符、两份 Excel 工作簿改了哪些单元格，或在同步两个文件夹之前核对要复制和删除的文件。只需要差异报告时，不用打开窗口。
 
-## 第一次比较（Windows x64）
+## 安装与第一次比较
 
-1. 打开 [最新正式版](https://github.com/slb1988/Matcha/releases/latest)，在 **Assets** 中下载 `matcha-<版本>-windows-x86_64.zip`，而不是 *Source code*。解压整个 ZIP，双击 `matcha.exe`；使用发行包不需要安装 Rust。
-2. 准备两个文本文件。比如在 `old.txt` 写一行 `port=8080`，在 `new.txt` 写一行 `port=8081`。在资源管理器里选中两个文件，一起拖到 Matcha 的 **Home** 页。如果文件在不同目录，先点 **Text Compare**，再分别拖到左右窗格。
-3. 比较完成后，视图会定位到第一个差异，标出行内不同的字符。这个例子里只改了端口号的最后一位。查看长文件时，按 `Ctrl+N` / `Ctrl+P` 跳到下一个 / 上一个差异区段。只查看不会改动文件。
+- **Windows x64**：打开[最新正式版](https://github.com/slb1988/Matcha/releases/latest)，在 **Assets** 中下载 `matcha-<版本>-windows-x86_64.zip`，而不是 *Source code*。解压整个 ZIP，双击 `matcha.exe`；使用发行包不需要安装 Rust。
+- **macOS**：按下方[从源码编译](#从源码编译)的步骤生成 `Matcha.app`。可以直接在 Finder 中双击，也可以先复制到「应用程序」再打开。
+
+1. 准备两个文本文件：在 `old.txt` 写一行 `port=8080`，在 `new.txt` 写一行 `port=8081`。
+2. 从资源管理器或 Finder 选中这两个文件，一起拖到 Matcha 的 **Home** 页。如果文件在不同目录，先点 **Text Compare**，再分别拖到左右窗格。
+3. 视图会定位到第一个差异，标出端口号中变化的最后一位。查看长文件时，用 `Ctrl+N` / `Ctrl+P`（macOS：`⌘N` / `⌘P`）跳到下一个 / 上一个差异区段。只查看不会改动文件。
 
 ## 按任务选择视图
 
@@ -22,13 +25,15 @@ Matcha 是用 Rust 编写的桌面文件比较与合并工具，优先支持 Win
 
 ## 在命令行里比较
 
-解压出的三个程序应放在同一目录，按用途选择：
+| 用途 | Windows 发行目录 | macOS 发行目录 |
+| --- | --- | --- |
+| 桌面界面 / P4V 交互合并 | `matcha.exe` | 双击 `Matcha.app`；P4V 指向 `Matcha.app/Contents/MacOS/matcha` |
+| 终端或脚本：输出报告，等待并返回退出码 | `matcha.com` | `bin/matcha` |
+| 版本控制工具发起比较：交给界面后立即返回，不用于合并 | `matcha-comp.exe` | `bin/matcha-comp` |
 
-- `matcha.exe`：双击打开桌面界面，也是 P4V 应配置的合并工具。
-- `matcha.com`：在终端或脚本中调用，能输出报告、等待完成并返回退出码。
-- `matcha-comp.exe`：供版本控制工具发起比较，交给界面后立即返回，不适合作为合并工具。
+以下示例都从发行目录运行。把文件名换成实际路径，含空格时加双引号；不要把输入文件放进构建产物目录，重新打包会清空对应的发行目录。
 
-在含 `matcha.com` 的目录打开 **PowerShell**。以下命令分别运行，把示例文件名换成实际路径（含空格时加双引号）：
+**Windows（PowerShell）**：保留解压后的三个程序，用 `.\matcha.com` 调用：
 
 ```powershell
 # 快速判断两份文本是否相同
@@ -45,22 +50,74 @@ $LASTEXITCODE   # 上面的端口号示例返回 13
 .\matcha.com /automerge base.txt theirs.txt yours.txt merged.txt
 ```
 
+**macOS（终端）**：在包含 `Matcha.app` 和 `bin/` 的发行目录中运行：
+
+```sh
+./bin/matcha -qc old.txt new.txt
+echo $?
+./bin/matcha -report=patch-unified old.txt new.txt
+./bin/matcha -report=summary old.xlsx new.xlsx
+./bin/matcha -automerge base.txt theirs.txt yours.txt merged.txt
+```
+
+若要在任意目录直接输入 `matcha`，可在发行目录运行 `export PATH="$PWD/bin:$PATH"`（当前终端有效）。`bin/` 里是相对符号链接，需与 `Matcha.app` 保持同级；若只保留了安装到「应用程序」的 App，可用 `/Applications/Matcha.app/Contents/MacOS/matcha-compc` 代替上例的 `./bin/matcha`。
+
 - **判断是否相同**用 `/qc`：对文本或表格按规则比较时，`2` 表示相同，`12` 表示只有不重要差异，`13` 表示有重要差异。`/report` 返回 `0` 只表示报告生成成功，不表示文件相同。
 - **自动合并**无冲突时写入输出文件并返回 `0`；上例遇到冲突时返回 `101`，不改动已有输出。
-- 查看开关用 `.\matcha.com /?`。更多示例见[命令行与脚本](docs/features/cli-and-scripting.md)、[报告格式](docs/features/reports.md)和 [P4V 合并配置](docs/features/text-merge.md#p4v-配置)。
+- 查看开关：Windows 用 `.\matcha.com /?`，macOS 用 `./bin/matcha --help`。更多示例见[命令行与脚本](docs/features/cli-and-scripting.md)、[报告格式](docs/features/reports.md)和 [P4V 合并配置](docs/features/text-merge.md#p4v-配置)。
 
-## 从源码运行
+## 从源码编译
 
-在 Windows 上准备好 Git、[Rust 稳定版](https://rustup.rs/)（MSVC 工具链），以及 Visual Studio Build Tools 的「使用 C++ 的桌面开发」工作负载和 Windows SDK。在 PowerShell 中运行：
+两端都需要 Git 和 [Rust 稳定版](https://rustup.rs/)（含 Cargo）。
 
-```powershell
+- **Windows**：使用 MSVC 工具链，安装 Visual Studio Build Tools 的「使用 C++ 的桌面开发」工作负载和 Windows SDK。
+- **macOS**：安装 Xcode Command Line Tools（含 Git 和系统链接器）。尚未安装时，在终端运行 `xcode-select --install`，等安装完成后再继续。
+
+获取源码，后续构建命令都在仓库根目录运行：
+
+```sh
 git clone https://github.com/slb1988/Matcha.git
 cd Matcha
+```
+
+两端都可以只编译调试版主程序，也可以用 `cargo xtask dist` 编译 Release 版主程序和命令行工具。后者组装发行目录，不生成 ZIP。
+
+### Windows（PowerShell）
+
+编译并启动调试版：
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\dev-build.ps1
 .\target\debug\matcha.exe
 ```
 
-- **测试与打包**：在仓库根目录运行 `cargo test --workspace`；`cargo xtask dist` 将发行文件组装到 `target/dist/`，不生成 ZIP。
+需要包含命令行工具的发行版时，运行 `cargo xtask dist`。在 Windows x64 上，产物位于 `target/dist/matcha-<版本>-windows-x86_64/`，可直接运行其中的 `matcha.exe` 或 `matcha.com`。
+
+### macOS（终端）
+
+编译并启动调试版（不需要安装到「应用程序」）：
+
+```sh
+cargo build -p bcompare
+./target/debug/matcha
+```
+
+生成发行版，并把输出目录的路径存到 `dist`（Apple Silicon 为 `target/dist/matcha-<版本>-macos-aarch64/`）：
+
+```sh
+dist="$(cargo xtask dist)"
+```
+
+可直接运行 `open "$dist/Matcha.app"`。若要安装到「应用程序」，先退出正在运行的 Matcha，再在同一终端执行：
+
+```sh
+ditto "$dist/Matcha.app" /Applications/Matcha.app
+open /Applications/Matcha.app
+```
+
+## 测试与开发文档
+
+- **运行测试**：在仓库根目录运行 `cargo test --workspace`。
 - **找代码**：主程序入口在 [apps/bcompare](apps/bcompare/)，界面在 [bc-gui](crates/bc-gui/)。[功能文档索引](docs/features/README.md)按任务列出实现位置和验证方法；设计取舍见[决策记录](docs/decisions/)，近期变化见[更新日志](CHANGELOGS.md)。
 
 ## 许可证
