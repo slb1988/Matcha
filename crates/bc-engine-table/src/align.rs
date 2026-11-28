@@ -349,6 +349,28 @@ fn tolerant_tokens<S: TableData>(
     }
     Ok((lt, rt))
 }
+/// Without overrides, identical ordered hashes are one common prefix in the
+/// Myers skeleton. There is no orphan block for Smart's closeness resolver
+/// to score. This says nothing about the non-key cells (or hash collisions):
+/// key verification and the full cell comparison still run.
+fn may_have_orphan_blocks(
+    left: &[ContentHash],
+    right: &[ContentHash],
+    overrides: &AlignmentOverrides,
+    cancel: &dyn CancelCheck,
+) -> Result<bool> {
+    if !overrides.is_empty() || left.len() != right.len() {
+        return Ok(true);
+    }
+    for (l, r) in left.chunks(1024).zip(right.chunks(1024)) {
+        cancel.check()?;
+        if l != r {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// One row's tab-joined display bytes: per-cell typed display, 256-character
 /// cap, CR/LF flattened to spaces, '\n' terminator. Shared by the sequential
 /// and chunked row-text paths so both emit byte-identical lines.
@@ -826,7 +848,10 @@ impl KeyAlign {
             }
         }
         let t = std::time::Instant::now();
-        let text = if rules.strategy == AlignStrategy::Smart && rules.use_closeness {
+        let text = if rules.strategy == AlignStrategy::Smart
+            && rules.use_closeness
+            && may_have_orphan_blocks(&lh, &rh, overrides, cancel)?
+        {
             // The sides chunk internally under the shared phase budget; built
             // one side at a time so their staging buffers never overlap.
             Some((row_text(left, &lo, cancel)?, row_text(right, &ro, cancel)?))

@@ -25,6 +25,7 @@ struct BufferTable {
     columns: usize,
     options: TableOptions,
     regional: RegionalSettings,
+    forbid_row_text: bool,
     // tests are single-threaded per table; Mutex keeps Sync without TLS
     scratch: Mutex<(u32, Vec<String>)>,
 }
@@ -85,6 +86,7 @@ impl BufferTable {
             columns,
             options,
             regional: RegionalSettings::default(),
+            forbid_row_text: false,
             scratch: Mutex::new((u32::MAX, Vec::new())),
         };
         if detect_header_data(&table) {
@@ -127,6 +129,10 @@ impl TableData for BufferTable {
         })
     }
     fn display_into(&self, row: usize, column: usize, out: &mut String) {
+        assert!(
+            !self.forbid_row_text,
+            "formatted a row with no closeness block"
+        );
         if let Some(info) = self.cell_info(row, column) {
             info.value.display_into(out);
         }
@@ -297,6 +303,37 @@ fn fast_split_matches_records_on_edge_fields() {
     assert_eq!(first, vec!["a".to_string(), "b, c".to_string()]);
     let second = records.next_record(&NeverCancel).unwrap().unwrap().fields;
     assert_eq!(second, vec!["d".to_string(), "say \"hi\"".to_string()]);
+}
+
+#[test]
+fn matching_key_streams_compare_changed_cells_without_formatting_row_text() {
+    let mut l = BufferTable::build("id,v\n1,first\n1,old\n2,last\n");
+    let mut r = BufferTable::build("id,v\n1,first\n1,new\n2,last\n");
+    let mut rules = TableRules {
+        columns: ColumnMapping::by_number(2, 2),
+        ..Default::default()
+    };
+    rules.set_manual_keys(vec![0]).unwrap();
+    let overrides = AlignmentOverrides::default();
+    l.forbid_row_text = true;
+    r.forbid_row_text = true;
+    let alignment = KeyAlign
+        .align_data(&l, &r, &rules, &overrides, &NeverCancel)
+        .unwrap();
+    l.forbid_row_text = false;
+    r.forbid_row_text = false;
+    assert_eq!(
+        (alignment.duplicates.left, alignment.duplicates.right),
+        (1, 1)
+    );
+
+    let out = compare_alignment_data(&l, &r, &rules, &overrides, alignment, &NeverCancel).unwrap();
+    let row = out.data.row(1, Layers::All, false).unwrap();
+    assert_eq!((row.left, row.right), (Some(1), Some(1)));
+    assert_eq!(
+        out.data.cell_diff(1, 1).unwrap().value,
+        bc_engine_table::compare::Importance::Important
+    );
 }
 
 #[test]

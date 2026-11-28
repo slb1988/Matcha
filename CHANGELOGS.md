@@ -36,6 +36,10 @@
 
 - **文本比较：导航找不到差异时弹出消息面板并提示音**（[`docs/features/text-compare.md`](docs/features/text-compare.md)）：Next / Previous Difference、Next / Previous Difference Section、First / Last Difference 没有可去的差异时，底部状态栏上方弹出浅黄色 **Difference not found.** 面板并播放系统提示音；此前只写入不可见的内部消息，看起来像按键没反应。下一次按键或鼠标按下即关闭。遵循 Options › Next Difference 的两个开关（含从文件夹比较打开的内嵌文本窗口）：开启 Wrap around 时越过末端回到另一端的差异，关闭 Show message panel 时静默。
 
+## 2026-11-20
+
+- **表格比较**（[`docs/features/table-compare.md`](docs/features/table-compare.md)）：没有手动对齐且两侧键序列已逐行匹配时，智能对齐不再为相似度匹配生成整表行文本。非键单元格的差异仍完整比较；CSV 按需加载仍默认关闭。
+
 ## 2026-11-19
 
 - **文本比较与文本合并：编号书签 0–9**（[`docs/features/text-bookmarks.md`](docs/features/text-bookmarks.md)）：Search › Toggle Bookmark（`Shift+Ctrl+0…9`）在活动窗格的光标行放置书签，同一行再按即移除，一行最多一个书签；Go to Bookmark（`Ctrl+0…9`）切到书签所在侧并定位到该行（被显示过滤隐藏时先显示全部），未设置时光标不动；Clear Bookmarks 清除全部。书签行在文本区右缘显示编号徽标、缩略导航条上有刻度。书签随本侧编辑上下平移（撤销同理），重载保留行号、换文件清除该侧、Swap Sides 随内容换侧；不写入命名会话。文本合并视图的 Search 菜单同样新增这三项与快捷键：书签挂在对齐行上并记住放置时的窗格，跳转时激活该窗格并把四个窗格滚到该行，Take 与输出编辑不移动书签。为让 `Ctrl+0` / `Shift+Ctrl+0` 专用于书签 0，关闭了 egui 自带的 `Ctrl+=` / `Ctrl+−` / `Ctrl+0` 整体界面缩放（从未作为功能提供；编辑器字号仍在 Tools › Options 与 View › Text display 中调整）。
